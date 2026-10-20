@@ -40,7 +40,7 @@ def num(x):
 def close(a, b, rel=1e-6, abs_=1e-12):
     return abs(a - b) <= rel * max(abs(a), abs(b)) + abs_
 
-# ---------- units: name -> (factor, dims m kg s A K) ----------
+# ---------- units: name -> (factor, dims m kg s A K; the library adds mol cd) ----------
 UNITS = {
     "m": (1, (1, 0, 0, 0, 0)), "g": (1e-3, (0, 1, 0, 0, 0)), "s": (1, (0, 0, 1, 0, 0)), "A": (1, (0, 0, 0, 1, 0)),
     "V": (1, (2, 1, -3, -1, 0)), "Ω": (1, (2, 1, -3, -2, 0)), "Ohm": (1, (2, 1, -3, -2, 0)), "W": (1, (2, 1, -3, 0, 0)),
@@ -243,7 +243,7 @@ def case_units(r):
            f'#context [#metadata((v: _st.get().at("{x}", default: (v: none)).v, d: _st.get().at("{x}", default: (d: none)).d)) <r>]')
     def check(out):
         if out["v"] is None: return "miss", f"{x} = {vals[x]}"
-        if list(out["d"]) != list(UNITS[dims[x]][1]): return "wrong", f"dims {out['d']} for {x}"
+        if list(out["d"]) != list(UNITS[dims[x]][1]) + [0, 0]: return "wrong", f"dims {out['d']} for {x}"
         if not close(out["v"], vals[x], 1e-6, 1e-300): return "wrong", f"{x} = {out['v']}, want {vals[x]}"
         return "ok", ""
     return doc, None, check

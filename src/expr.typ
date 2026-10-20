@@ -81,7 +81,12 @@
     } else if k == none { _err("unexpected end of the expression") }
     else if k.starts-with("[") {
       let num(s) = { let r = _p(_tk(s), 0, 0, (v: (:), f: (:), keep: false)); if _E(r) { r } else { let v = _ev(r.at(0), (:)); if _E(v) { v } else { v.at(0) } } }
-      let q = _q0(k.slice(1, -1), num)
+      let U = d.at("U", default: _U)
+      let inner = k.slice(1, -1).trim()
+      // [A]: one ampere, shown as just the unit
+      let bare = inner != "" and inner.match(regex("^[-+−\d.(]")) == none
+      let q = _q0(if bare { "1 " + inner } else { inner }, num, U: U)
+      let q = if bare and not _E(q) { q + (bare: true) } else { q }
       if _E(q) { q } else { (("q", q), i + 1) }
     }
     else if k.match(regex("^[\d.]")) != none { (("n", float(k)), i + 1) }
@@ -118,25 +123,29 @@
     if l == 2 and at(i) == "^" { let r = _p(t, i + 1, 2, d); if _E(r) { r } else { (("^", b, r.at(0)), r.at(1)) } } else { (b, i) }
   }
 }
-#let _parse(s, d, f: (:), keep: false) = {
+#let _parse(s, d, f: (:), keep: false, U: _U) = {
   let t = _tk(s)
   if t.len() == 0 { return _err("empty expression") }
-  let r = _p(t, 0, 0, (v: d, f: f, keep: keep))
+  let r = _p(t, 0, 0, (v: d, f: f, keep: keep, U: U))
   if _E(r) { return _err(r.err + " in '" + s.trim() + "'") }
   let (a, i) = r
   if i < t.len() { return _err("unexpected '" + t.at(i) + "' in '" + s.trim() + "'") }
   a
 }
-#let _isu(u) = type(u) == str and _tok(u).flatten().chunks(2).all(((n, _)) => n == "1" or n in _U or { let c = n.clusters(); c.len() > 1 and c.first() in _P and c.slice(1).join() in _U })
-#let _isq(x) = {
+#let _isu(u, U: _U) = type(u) == str and u.trim() != "" and _tok(u, U: U).flatten().chunks(2).all(((n, _)) => n == "1" or _known(n, U))
+#let _isq(x, U: _U) = {
   if type(x) in (int, float) { return true }
   let N = "[-+−]?[\\d.,()]+(?:[eE][-+−]?\\d+)?"
   let x = _str(x)
   if _E(x) { return false }
   let m = x.trim().match(regex("^(" + N + "(?:\\s*[-+−*/·⋅^]\\s*" + N + ")*)\\s*(.*)$"))
-  m != none and m.captures.at(0).match(regex("^[-+−(]*[\\d.]")) != none and _isu(m.captures.at(1))
+  if m == none { return false }
+  let (n, u) = m.captures
+  // 3*h and 1/(h) are a number times a variable, not 3 hours
+  let bal = n.matches("(").len() == n.matches(")").len()
+  n.match(regex("^[-+−(]*[\\d.]")) != none and bal and u.match(regex("^[*·⋅]")) == none and (u.trim() == "" or _isu(u, U: U))
 }
-#let _q(x) = _q0(x, s => { let e = _parse(s, (:)); if _E(e) { return e }; let v = _ev(e, (:)); if _E(v) { v } else { v.at(0) } })
+#let _q(x, U: _U) = _q0(x, U: U, s => { let e = _parse(s, (:)); if _E(e) { return e }; let v = _ev(e, (:)); if _E(v) { v } else { v.at(0) } })
 #let _vars(e) = if e.at(0) == "v" { (e.at(1),) } else { e.slice(1).filter(a => type(a) == array).map(_vars).flatten() }
 #let _has(e, x) = x in _vars(e)
 
@@ -221,4 +230,22 @@
     l = a.at(i)
   }
   r
+}
+// the option units applied to the built-in units: (bar: "100 kPa", rpm: "1/min", T: none) -> unit table, or an error
+#let _mktab(units) = {
+  let U = _U
+  for (k, v) in units {
+    if v == none {
+      if k not in U { return _err("units: '" + k + "' is not a unit, so it can't be removed") }
+      let _ = U.remove(k)
+      continue
+    }
+    if k.match(regex("^[^\\s\\d*/^()\\[\\]+\\-−·⋅=,.;]+$")) == none { return _err("units: '" + k + "' can't be a unit name (no spaces, digits or operators)") }
+    let s = _str(v)
+    if _E(s) { return s }
+    let q = _q(s, U: U)
+    if _E(q) { return _err("units: " + k + ": " + q.err) }
+    U.insert(k, (q.v, q.d))
+  }
+  U
 }

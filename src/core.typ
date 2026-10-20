@@ -1,5 +1,5 @@
 // solve-config, reset, val and the solver behind def and solve.
-#import "display.typ": *
+#import "read.typ": *
 
 // ---------- public API ----------
 
@@ -43,23 +43,35 @@
 #let solve-config(
   ..body,
   digits: auto, zeros: auto, sep: auto, group: auto, sci: auto, eng: auto, times: auto, form: auto, frac-max: auto, slash: auto,
-  prefixes: auto, si: auto,
+  prefixes: auto, si: auto, units: auto, prefer: auto, strict: auto,
   steps: auto, inline-steps: auto, layout: auto, implies: auto, approx: auto, block: auto, solutions: auto,
   definitions: auto, errors: auto,
 ) = {
   let b = body.pos().at(0, default: none)
-  if "list" in body.named() { return _err-now("the option list is now called definitions: solve-config(definitions: " + repr(body.named().list) + ")") + b }
   if body.named().len() > 0 { return _err-now("unknown option '" + body.named().keys().first() + "' (options: " + _DEF.keys().join(", ") + ")") + b }
   if body.pos().len() > 1 { return _err-now("solve-config takes at most one body") + b }
   if b != none and type(b) != content { return _err-now("solve-config: the body must be content, got " + _tn(b)) }
   let n = _check(_given((
     digits: digits, zeros: zeros, sep: sep, group: group, sci: sci, eng: eng, times: times, form: form, frac-max: frac-max, slash: slash,
-    prefixes: prefixes, si: si, steps: steps, inline-steps: inline-steps, layout: layout, implies: implies, approx: approx, block: block,
+    prefixes: prefixes, si: si, units: units, prefer: prefer, strict: strict,
+    steps: steps, inline-steps: inline-steps, layout: layout, implies: implies, approx: approx, block: block,
     solutions: solutions, definitions: definitions, errors: errors,
-  )))
+  )), global: true)
   if _E(n) { return _err-now(n.err) + b }
-  if b == none { _cf.update(c => c + n) } else {
-    _cf.update(c => c + n + ("^": c))
+  // units add to the units set before (none removes one); the table is built from them once, here
+  let tab(c) = _mktab(c.units + n.units)
+  let up(c) = {
+    let c2 = c + n
+    if "units" in n {
+      let t = tab(c)
+      if _E(t) { c2.units = c.units } else { c2.units = c.units + n.units; c2.insert("#U", t) }
+    }
+    c2
+  }
+  let bad = if "units" in n { context { let t = tab(_cf.get()); if _E(t) { _errc(t.err, _cf.get(), wide: true) } } }
+  bad
+  if b == none { _cf.update(up) } else {
+    _cf.update(c => up(c) + ("^": c))
     b
     _cf.update(c => c.at("^"))
   }
@@ -96,39 +108,47 @@
   if u != none {
     let u = _str(u)
     if _E(u) { return _errc(u.err, cf) }
-    let un = _unit(u)
+    let un = _unit(u, U: _UT(cf))
     if _E(un) { return _errc(un.err, cf) }
     let (f, dm) = un
-    if dm != q.d { return _errc(n + " has unit " + (if q.d == _Z { "1 (no unit)" } else { _auto(q.d) }) + ", not " + u, cf) }
+    if dm != q.d { return _errc(n + " has unit " + (if q.d == _Z { "1 (no unit)" } else { _auto(q.d, U: _UT(cf)) }) + ", not " + u, cf) }
     q = (v: q.v, d: dm, raw: none, u: u, n: q.v / f)
   }
   _qc(q, cf)
 })
 #let _inabs(e, x) = if e.at(0) == "f" and e.at(1) == "abs" and _has(e, x) { true } else { e.slice(1).filter(t => type(t) == array).any(t => _inabs(t, x)) }
-#let _gv(g) = if type(g) in (str, content) { let q = _q(g); if _E(q) { q } else { q.v } } else { float(g) }
+#let _gv(g, U: _U) = if type(g) in (str, content) { let q = _q(g, U: U); if _E(q) { q } else { q.v } } else { float(g) }
 // unit of the inputs to reuse for a result: only non-SI ones (h, mAh, eV); SI units get automatic prefixes anyway
-#let _hint(ex, d, dm) = {
+#let _hint(ex, d, dm, U: _U) = {
   if ex == none { return none }
   let us = _vars(ex).dedup().filter(n => n in d and d.at(n).d == dm).map(n => d.at(n).u).dedup()
   if us.len() != 1 or us.first() == "" { return none }
   let u = us.first()
   let c = u.clusters()
-  let base = if u in _U { u } else if c.len() > 1 and c.first() in _P and c.slice(1).join() in _U { c.slice(1).join() } else { u }
+  let base = if u in U { u } else if c.len() > 1 and c.first() in _P and c.slice(1).join() in U { c.slice(1).join() } else { u }
   if base in _AU or base == "g" or base in ("Ohm", "ohm", "Omega", "\u{2126}") { none } else { u }
 }
+// the unit of a result: the one asked for, else a preferred one (option prefer), the non-SI unit of the inputs, or SI with a prefix
 #let _mkq(v, dm, u, cf, ex: none, hint: none) = {
-  let u = if u == none and hint != none { hint } else if u == none {
-    let a = _auto(dm)
+  let U = _UT(cf)
+  let pf = none
+  for p in cf.prefer {
+    let r = _unit(p, U: U)
+    if _E(r) { return _err("prefer: " + r.err) }
+    if pf == none and r.at(1) == dm { pf = p }
+  }
+  let u = if u == none and pf != none { pf } else if u == none and hint != none { hint } else if u == none {
+    let a = _auto(dm, U: U)
     // fractions read better in the base unit (1/6 A, not 500/3 mA)
-    let r = if cf.form == "fraction" { _ratio(v / _unit(a).at(0), cf.frac-max) }
-    if r != none and r.at(1) > 1 { a } else { _pre(v / _unit(a).at(0), a, cf) }
+    let r = if cf.form == "fraction" { _ratio(v / _unit(a, U: U).at(0), cf.frac-max) }
+    if r != none and r.at(1) > 1 { a } else { _pre(v / _unit(a, U: U).at(0), a, cf) }
   } else {
-    let un = _unit(u)
+    let un = _unit(u, U: U)
     if _E(un) { return un }
-    if un.at(1) != dm { return _err("the result has unit " + (if dm == _Z { "1 (no unit)" } else { _auto(dm) }) + ", not " + u) }
+    if un.at(1) != dm { return _err("the result has unit " + (if dm == _Z { "1 (no unit)" } else { _auto(dm, U: U) }) + ", not " + u) }
     u
   }
-  (v: v, d: dm, raw: none, u: u, n: v / _unit(u).at(0), ex: ex)
+  (v: v, d: dm, raw: none, u: u, n: v / _unit(u, U: U).at(0), ex: ex)
 }
 // which solution gets stored: root: n (1-based), a predicate, or auto (the only all-positive one, else the first)
 #let _pick(sols, root, xs) = {
@@ -194,9 +214,21 @@
   _eqn(body, cf)
 }
 
+// names in an equation are variables, also when they are written like a unit (3 h, A A): a hint for the error message,
+// only for names that follow a number, a bracket or another name, as units do
+#let _uvar-hint(ns, U, src) = {
+  let n = ns.dedup().find(n => _known(n, U) and src.match(regex("[\\d\\])\\p{L}]\\s+" + n + "(?:[^\\p{L}\\p{N}_]|$)|\\d" + n + "(?:[^\\p{L}\\p{N}_]|$)")) != none)
+  if n == none { "" } else { " – '" + n + "' is read as a variable here; for the unit write [" + n + "] (e.g. x [" + n + "]) or [2 " + n + "]" }
+}
+// strict: a name that is a unit can't be a variable
+#let _strict-name(n, cf) = if cf.strict and _known(n, _UT(cf)) {
+  _err("'" + n + "' is a unit and can't be a variable name (option strict) – pick another name like " + n + "_1, or remove the unit with solve-config(units: (" + n + ": none))")
+}
+
 // solve equations (strings) for their unknowns -> (new state, record for display) or an error
 // un: target unit, none, a string (one unknown) or a dictionary name -> unit
 #let _solve-into(d, eqs, un, opt, cf) = {
+  let U = _UT(cf)
   let root = opt.at("root", default: auto)
   let d0 = _vars-of(d)
   let fns = d.at("#fn", default: (:))
@@ -206,9 +238,9 @@
   for s in eqs {
     let p = s.split("=")
     if p.len() > 2 { return _err("more than one '=' in '" + s + "'") }
-    let l = _parse(p.at(0), d0, f: fns)
+    let l = _parse(p.at(0), d0, f: fns, U: U)
     if _E(l) { return l }
-    let r = if p.len() > 1 { _parse(p.at(1), d0, f: fns) }
+    let r = if p.len() > 1 { _parse(p.at(1), d0, f: fns, U: U) }
     if _E(r) { return r }
     ps.push((l, r))
   }
@@ -219,8 +251,8 @@
     if _E(ev) { return ev }
     let (v, dm) = ev
     let q = _mkq(v, dm, if type(un) == str { un }, cf)
-    if _E(q) { return q }
-    return (d, (k: "expr", e: e, e0: _parse(eqs.first(), d0, f: fns, keep: true), q: q, d: d0))
+    if _E(q) { return _err(q.err + _uvar-hint(_vars(e), U, eq)) }
+    return (d, (k: "expr", e: e, e0: _parse(eqs.first(), d0, f: fns, keep: true, U: U), q: q, d: d0))
   }
   if ps.any(p => p.at(1) == none) { return _err("every equation of a system needs an '='") }
   let all = ps.map(((L, R)) => _vars(L) + _vars(R)).flatten()
@@ -232,11 +264,12 @@
     else if u.len() == 0 and ps.len() == 1 and R.at(0) == "v" { (R.at(1),) } else { u }
   }
   if xs.len() != ps.len() {
-    return _err(str(ps.len()) + " equation" + (if ps.len() > 1 { "s" }) + " but " + str(xs.len()) + " unknown" + (if xs.len() != 1 { "s" }) + " (" + (if xs == () { "none" } else { xs.join(", ") }) + ") in " + eqs.map(e => "'" + e.trim() + "'").join(", ") + if xs.len() > ps.len() { " – define the missing values first, or pass unknown: …" } else { " – pass unknown: …" })
+    return _err(str(ps.len()) + " equation" + (if ps.len() > 1 { "s" }) + " but " + str(xs.len()) + " unknown" + (if xs.len() != 1 { "s" }) + " (" + (if xs == () { "none" } else { xs.join(", ") }) + ") in " + eqs.map(e => "'" + e.trim() + "'").join(", ") + if xs.len() > ps.len() { " – define the missing values first, or pass unknown: …" + _uvar-hint(xs, U, eqs.join(" ")) } else { " – pass unknown: …" })
   }
+  for x in xs { let b = _strict-name(x, cf); if b != none { return b } }
   if type(un) == str and xs.len() > 1 { return _err("several unknowns – give units as unit: (name: \"…\")") }
   let units = if type(un) == dictionary { un } else if type(un) == str { ((xs.first()): un) } else { (:) }
-  for u in units.values() { let r = _unit(u); if _E(r) { return r } }
+  for u in units.values() { let r = _unit(u, U: U); if _E(r) { return r } }
   let bad = units.keys().filter(k => k not in xs)
   if bad.len() > 0 { return _err("unit: " + bad.map(k => "'" + k + "'").join(", ") + " is not an unknown here (unknowns: " + xs.join(", ") + ")") }
   let us = xs.map(x => units.at(x, default: none))
@@ -274,11 +307,11 @@
       let ev = _ev(ex, d0)
       if _E(ev) { return ev }
       let (v, dm) = ev
-      let q = _mkq(v, dm, us.first(), cf, ex: ex, hint: _hint(ex, d0, dm))
-      if _E(q) { return q }
+      let q = _mkq(v, dm, us.first(), cf, ex: ex, hint: _hint(ex, d0, dm, U: U))
+      if _E(q) { return _err(q.err + _uvar-hint(_vars(ex), U, eq)) }
       d.insert(x, q)
       let p = eq.split("=")
-      return (d, (k: "iso", L: L, R: R, L0: _parse(p.at(0), d0, f: fns, keep: true), R0: _parse(p.at(1), d0, f: fns, keep: true), x: x, ex: ex, q: q, d: d0))
+      return (d, (k: "iso", L: L, R: R, L0: _parse(p.at(0), d0, f: fns, keep: true, U: U), R0: _parse(p.at(1), d0, f: fns, keep: true, U: U), x: x, ex: ex, q: q, d: d0))
     }
   }
   // systems: solve equations that contain only one unknown (once) symbolically and substitute
@@ -299,7 +332,7 @@
         if _E(ev) { return ev }
         let (v, dm) = ev
         let j = xs.position(y => y == x)
-        let q = _mkq(v, dm, us.at(j), cf, ex: ex, hint: _hint(ex, d0, dm))
+        let q = _mkq(v, dm, us.at(j), cf, ex: ex, hint: _hint(ex, d0, dm, U: U))
         if _E(q) { return q }
         pre.insert(x, q)
         d0.insert(x, pre.at(x)); env.insert(x, (float(v), none))
@@ -310,17 +343,17 @@
     }
     if ps.len() == 0 {
       for (x, q) in pre { d.insert(x, q) }
-      return (d, (k: "roots", eqs: eqs.map(s => { let p = s.split("="); (_parse(p.at(0), d0, f: fns, keep: true), _parse(p.at(1), d0, f: fns, keep: true)) }), xs: pre.keys(), poly: none, cn: none, sols: ((pre.values().map(q => q.v)),), dm: pre.values().map(q => q.d), u: pre.values().map(q => q.u), d: d0))
+      return (d, (k: "roots", eqs: eqs.map(s => { let p = s.split("="); (_parse(p.at(0), d0, f: fns, keep: true, U: U), _parse(p.at(1), d0, f: fns, keep: true, U: U)) }), xs: pre.keys(), poly: none, cn: none, sols: ((pre.values().map(q => q.v)),), dm: pre.values().map(q => q.d), u: pre.values().map(q => q.u), d: d0))
     }
   }
   // numeric
   let dd = _dims(ps, d0, env, xs)
   if _E(dd) { return dd }
   let (D, free) = dd
-  let dms = range(xs.len()).map(i => if i in free and us.at(i) != none { _unit(us.at(i)).at(1) } else { D.at(i) })
-  let sc = us.map(u => if u == none { 1.0 } else { _unit(u).at(0) })
+  let dms = range(xs.len()).map(i => if i in free and us.at(i) != none { _unit(us.at(i), U: U).at(1) } else { D.at(i) })
+  let sc = us.map(u => if u == none { 1.0 } else { _unit(u, U: U).at(0) })
   let sols = if g != none {
-    let g = if type(g) == dictionary { xs.enumerate().map(((i, x)) => if x in g { _gv(g.at(x)) } else { sc.at(i) }) } else { (_gv(g),) }
+    let g = if type(g) == dictionary { xs.enumerate().map(((i, x)) => if x in g { _gv(g.at(x), U: U) } else { sc.at(i) }) } else { (_gv(g, U: U),) }
     let b = _first-err(g)
     if b != none { return b }
     let r = _newton(ps, env, xs, g)
@@ -339,7 +372,7 @@
   }
   // show peeled-off unknowns together with the numeric ones
   let px = pre.keys()
-  let ps0 = eqs.map(s => { let p = s.split("="); (_parse(p.at(0), d0, f: fns, keep: true), _parse(p.at(1), d0, f: fns, keep: true)) })
+  let ps0 = eqs.map(s => { let p = s.split("="); (_parse(p.at(0), d0, f: fns, keep: true, U: U), _parse(p.at(1), d0, f: fns, keep: true, U: U)) })
   if sel != none { for (x, q) in pre { d.insert(x, q) } }
   (d, (k: "roots", eqs: ps0, xs: px + xs, poly: poly, cn: cn, sols: sols.map(s => pre.values().map(q => q.v) + s),
     dm: pre.values().map(q => q.d) + dms, u: pre.values().map(q => q.u) + us, d: d0))
@@ -444,6 +477,7 @@
 #let _def(eqs, un, opt, lc, out, listed) = _mine({
   context {
     let cf = _cf.get() + lc
+    let U = _UT(cf)
     _st.update(d => {
       let recs = ()
       let defs = d.at("!", default: ())
@@ -456,7 +490,7 @@
         if not one { return _err(if rec.k == "roots" and rec.sols.len() == 0 { "no boundary" } else { "several boundaries" } + " for the inequality '" + src.trim() + "' – only inequalities with one boundary are supported") }
         let (x, v) = if rec.k == "iso" { (rec.x, rec.q.v) } else { (rec.xs.first(), rec.sols.first().first()) }
         let p = s.split("=")
-        let (L, R) = p.map(e => _parse(e, d0, f: fns))
+        let (L, R) = p.map(e => _parse(e, d0, f: fns, U: U))
         // isolating finds one boundary (sqrt gives +2 for y^2 < 4): look for others
         let more = _scan(L, R, _env(d0), x, if v == 0 { 1.0 } else { calc.abs(v) }).filter(t => calc.abs(t - v) > 1e-6 * calc.max(calc.abs(v), 1e-300))
         if more.len() > 0 { return _err("several boundaries for the inequality '" + s.trim() + "' – only inequalities with one boundary are supported") }
@@ -470,6 +504,9 @@
         (d, rec)
       }
       for s0 in eqs {
+        // math: read now that the variables are known ("V" is a unit, a bare V a variable if there is one)
+        let s0 = if type(s0) == dictionary { _math-eq(s0.math, _vars-of(d), cf) } else { s0 }
+        if _E(s0) { recs.push(fail("", s0)); continue }
         let s = _ineq(s0)
         if _E(s) { recs.push(fail(s0, s)); continue }
         let (s, rel) = s
@@ -484,20 +521,32 @@
           let name = fm.captures.at(0)
           let ps = fm.captures.at(1).split(",").map(str.trim)
           if ps.any(x => x.match(regex(_ID)) == none) { recs.push(fail(s, _err("the parameters of " + name + " must be names, got '" + fm.captures.at(1) + "'"))); continue }
+          let b = (name, ..ps).map(n => _strict-name(n, cf)).find(x => x != none)
+          if b != none { recs.push(fail(s, b)); continue }
           let fns = d.at("#fn", default: (:))
-          let body = _parse(r, _vars-of(d), f: fns)
+          let body = _parse(r, _vars-of(d), f: fns, U: U)
           if _E(body) { recs.push(fail(s, body)); continue }
           fns.insert(name, (params: ps, body: body))
           d.insert("#fn", fns)
           defs = add(defs, name, "function")
-          recs.push((k: "fn", name: name, params: ps, body: _parse(r, _vars-of(d), f: fns, keep: true)))
+          recs.push((k: "fn", name: name, params: ps, body: _parse(r, _vars-of(d), f: fns, keep: true, U: U)))
           continue
         }
         let id = p.len() == 2 and l.match(regex(_ID)) != none
-        if id and _isq(r) {
+        if id { let b = _strict-name(l, cf); if b != none { recs.push(fail(s, b)); continue } }
+        // [3 h]: a value in brackets, the unit is meant even if there is a variable h
+        let br = r.match(regex("^\\[([^\\]]*)\\]$"))
+        let br = if br != none and _isq(br.captures.at(0), U: U) { br.captures.at(0) }
+        if id and (br != none or _isq(r, U: U)) {
           // plain value: R = 7.2 kOhm
-          let q = _q(r)
+          let q = _q(if br != none { br } else { r }, U: U)
           if _E(q) { recs.push(fail(s, q)); continue }
+          // "3 h" with a variable h: hours or 3 times h? Refused, so it is always clear what is meant
+          let amb = if br == none { _unames(q.u, U: U).find(n => n in _vars-of(d)) }
+          if amb != none {
+            recs.push(fail(s, _err("'" + amb + "' in '" + r + "' is both a defined variable and a unit – write [" + r + "] for the unit, or use * or parentheses for the variable (3*" + amb + ", 1/(" + amb + "))")))
+            continue
+          }
           if rel != none { q.rel = rel }
           d.insert(l, q)
           defs = add(defs, l, "given")
@@ -506,7 +555,7 @@
         }
         if id and pending.len() == 0 {
           // expression of known variables: U = R I
-          let e = _parse(r, _vars-of(d), f: d.at("#fn", default: (:)))
+          let e = _parse(r, _vars-of(d), f: d.at("#fn", default: (:)), U: U)
           if _E(e) { recs.push(fail(s, e)); continue }
           // "z = 7 furlongs": a number with something that is neither a unit nor a variable
           let miss = _vars(e).dedup().filter(v => v not in _vars-of(d) and v != l)

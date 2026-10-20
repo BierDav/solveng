@@ -43,9 +43,10 @@
       ($#_name(e.name) (#fn.params.map(_name).join($, $))$, (_dp(fn.body, none, cf).at(0),), $=$)
     } else {
       let q = st.at(e.name)
-      let si = _auto(q.d)
-      let sv = (raw: none, u: si, n: q.v / _unit(si).at(0))
-      (_name(e.name), if cf.si and q.u != si and _ushow(q.u) != _ushow(si) { (_qc(q, cf), _qc(sv, cf)) } else { (_qc(q, cf),) }, _relc(q, $=$))
+      let U = _UT(cf)
+      let si = _auto(q.d, U: U)
+      let sv = (raw: none, u: si, n: q.v / _unit(si, U: U).at(0))
+      (_name(e.name), if cf.si and q.u != si and _ushow(q.u, U: U) != _ushow(si, U: U) { (_qc(q, cf), _qc(sv, cf)) } else { (_qc(q, cf),) }, _relc(q, $=$))
     }
   })
   let style = cf0.definitions
@@ -97,5 +98,3 @@
     }))
   }
 })
-// the old name
-#let definition-list(..args) = _err-now("definition-list is now called definitions(…)" + if "list" in args.named() { ", and its list: argument style: …" } else { "" })

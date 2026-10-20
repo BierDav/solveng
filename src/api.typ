@@ -68,21 +68,17 @@
   unit: none, output: false, steps: auto, layout: auto, inline: false,
   unknown: none, root: auto, guess: none, listed: true, config: (:),
   digits: auto, zeros: auto, sep: auto, group: auto, sci: auto, eng: auto, times: auto, form: auto, frac-max: auto, slash: auto,
-  prefixes: auto, si: auto, inline-steps: auto, implies: auto, approx: auto, block: auto, solutions: auto,
+  prefixes: auto, si: auto, prefer: auto, strict: auto, inline-steps: auto, implies: auto, approx: auto, block: auto, solutions: auto,
   definitions: auto, errors: auto,
 ) = {
   if eqs.named().len() > 0 {
-    let (k, v) = eqs.named().pairs().first()
-    // the old form def(I: "30 mA")
-    if type(v) in (str, content, int, float) and _isq(v) {
-      return _err-now("unknown argument '" + k + "' – definitions are strings: def(\"" + k + " = " + _str(v).trim() + "\")")
-    }
+    let k = eqs.named().keys().first()
     return _err-now("unknown argument '" + k + "' (arguments: unit, output, steps, layout, inline, unknown, root, guess, listed, config and the options " + _DEF.keys().filter(k => k not in ("steps", "layout")).join(", ") + ")")
   }
   if type(config) != dictionary { return _err-now("config: expected a dictionary of options like (digits: 3), got " + _tn(config)) }
   let lc = _check(_given((
     digits: digits, zeros: zeros, sep: sep, group: group, sci: sci, eng: eng, times: times, form: form, frac-max: frac-max, slash: slash,
-    prefixes: prefixes, si: si, inline-steps: inline-steps, implies: implies, approx: approx, block: block, solutions: solutions,
+    prefixes: prefixes, si: si, prefer: prefer, strict: strict, inline-steps: inline-steps, implies: implies, approx: approx, block: block, solutions: solutions,
     definitions: definitions, errors: errors,
   )) + config)
   if _E(lc) { return _err-now(lc.err) }
@@ -110,11 +106,12 @@
   if pos.len() == 0 { return _err-now("def needs something to define, e.g. def(\"I = 30 mA\")") }
   let bad = pos.find(x => type(x) not in (str, content))
   if bad != none { return _err-now("expected an equation as a string or math, got " + repr(bad) + " – e.g. def(\"I = 30 mA\")") }
-  let strs = pos.map(_str)
+  // math keeps its quotes, so "V" (a unit) and V (a variable) stay apart; it is read once the variables are known
+  let strs = pos.map(x => if type(x) == content and x.func() == math.equation { let m = _str(x, q: true); if _E(m) { m } else { (math: m) } } else { _str(x) })
   let b = _first-err(strs)
   if b != none { return _err-now(b.err) }
-  // the target unit used to be the 2nd positional argument: solve("Q0/I", "h")
-  for s in strs.slice(1).map(str.trim) {
+  // a unit as the 2nd positional argument: solve("Q0/I", "h")
+  for s in strs.slice(1).filter(s => type(s) == str).map(str.trim) {
     if s != "" and not s.contains("=") and _isu(s) { return _err-now("'" + s + "' looks like a unit – pass it as unit: \"" + s + "\"") }
   }
   // inline without explicit steps: the shorter inline-steps
@@ -174,14 +171,14 @@
   unit: none, output: true, steps: auto, layout: auto, inline: false,
   unknown: none, root: auto, guess: none, listed: true, config: (:),
   digits: auto, zeros: auto, sep: auto, group: auto, sci: auto, eng: auto, times: auto, form: auto, frac-max: auto, slash: auto,
-  prefixes: auto, si: auto, inline-steps: auto, implies: auto, approx: auto, block: auto, solutions: auto,
+  prefixes: auto, si: auto, prefer: auto, strict: auto, inline-steps: auto, implies: auto, approx: auto, block: auto, solutions: auto,
   definitions: auto, errors: auto,
 ) = def(
   ..eqs,
   unit: unit, output: output, steps: steps, layout: layout, inline: inline,
   unknown: unknown, root: root, guess: guess, listed: listed, config: config,
   digits: digits, zeros: zeros, sep: sep, group: group, sci: sci, eng: eng, times: times, form: form, frac-max: frac-max, slash: slash,
-  prefixes: prefixes, si: si, inline-steps: inline-steps, implies: implies, approx: approx, block: block, solutions: solutions,
+  prefixes: prefixes, si: si, prefer: prefer, strict: strict, inline-steps: inline-steps, implies: implies, approx: approx, block: block, solutions: solutions,
   definitions: definitions, errors: errors,
 )
 
@@ -193,85 +190,6 @@
   let lc = (block: block) + if not block { (steps: auto) } else { (:) }
   if e.trim().starts-with("=") { return _def((e.trim().slice(1),), u, (:), lc + (steps: "value"), true, false) }
   _def(e.split(";").map(str.trim).filter(x => x != ""), u, (:), lc, true, true)
-}
-// one side of a math equation as typed: decimal commas (0,95) and quantities written without brackets
-// (frac(3450/2 "mAh", 30 "mA") → [(3450)/(2) mAh]/[30 mA]): numbers followed by units that aren't defined variables
-// bare: units may also follow a call or a name (f(20) Ω is f(20) times 1 Ω); only for values, not equations, where an undefined A is a variable
-#let _math-src(s, vars, bare: false) = {
-  let s = s.replace(regex("(\d),(\d)"), m => m.captures.at(0) + "." + m.captures.at(1))
-  let t = _tk(s)
-  if _isq(s) and t.all(k => k not in vars) { return s } // a plain value: R = 7.2 kΩ
-  let num(k) = k.match(regex("^[\d.]")) != none
-  let name(k) = k != none and k.match(regex("^\p{L}")) != none
-  let unit(k) = name(k) and k not in vars and _isu(k)
-  // a parenthesized unit as math writes it: ( mm ^ ( 2 ) ) -> ("mm^2", index after it), or none
-  let group(j) = {
-    if t.at(j, default: none) != "(" { return none }
-    let (dp, e) = (0, j)
-    while e < t.len() {
-      if t.at(e) == "(" { dp += 1 } else if t.at(e) == ")" { dp -= 1; if dp == 0 { break } }
-      e += 1
-    }
-    let inner = t.slice(j + 1, calc.min(e, t.len()))
-    if e >= t.len() or not inner.any(unit) or not inner.all(k => unit(k) or k in ("^", "(", ")", "-", "−", "*", "·", "⋅") or k.match(regex("^\d+$")) != none) { return none }
-    let u = inner.join(" ").replace(regex("\^\s*\(\s*([-−]?)\s*(\d+)\s*\)"), m => "^" + m.captures.at(0).replace("−", "-") + m.captures.at(1))
-    (u.replace(regex("[()]"), "").replace(regex("\s*\^\s*"), "^").trim(), e + 1)
-  }
-  // start of the numeric factor at the end of out ((3450)/(2), 2^3), or none
-  let start(out) = {
-    let (d, best) = (0, none)
-    for i in range(out.len() - 1, -1, step: -1) {
-      let k = out.at(i)
-      if k == ")" { d += 1 }
-      else if k == "(" {
-        d -= 1
-        if d < 0 or (d == 0 and i > 0 and name(out.at(i - 1))) { break } // f(2) is a call
-      }
-      else if not (num(k) or k in ("*", "/", "·", "⋅", "×", "^") or (d > 0 and k in ("+", "-", "−"))) { break }
-      if d == 0 and (num(k) or k == "(") { best = i }
-    }
-    best
-  }
-  let out = ()
-  let i = 0
-  while i < t.len() {
-    let k = t.at(i)
-    let b = if (unit(k) or group(i) != none) and out.len() > 0 and (num(out.last()) or out.last() == ")") { start(out) }
-    if b == none and bare and (unit(k) or group(i) != none) and out.len() > 0 and (out.last() == ")" or name(out.last())) { b = out.len() }
-    if b == none {
-      // 3 h with a variable h: a number times the variable, not 3 hours
-      out.push(if num(k) and name(t.at(i + 1, default: none)) and t.at(i + 1) in vars { "[" + k + "]" } else { k })
-      i += 1
-      continue
-    }
-    let (u, j) = ((), i)
-    let go = true
-    while go and j < t.len() {
-      let a = t.at(j)
-      if unit(a) {
-        u.push(a); j += 1
-        // m^2, s^-1, m^(2) (math writes the exponent in parentheses)
-        if t.at(j, default: none) == "^" {
-          let ex = t.slice(j + 1, calc.min(j + 5, t.len()))
-          let par = ex.at(0, default: none) == "("
-          let ex = if par { ex.slice(1) } else { ex }
-          let neg = ex.at(0, default: none) in ("-", "−")
-          let ex = if neg { ex.slice(1) } else { ex }
-          let n = ex.at(0, default: none)
-          if n != none and n.match(regex("^\d+$")) != none and (not par or ex.at(1, default: none) == ")") {
-            u.last() += "^" + (if neg { "-" } else { "" }) + n
-            j += 2 + int(par) * 2 + int(neg)
-          }
-        }
-      } else if group(j) != none { let (g, e) = group(j); u.push(g); j = e }
-      else if a == "/" and (unit(t.at(j + 1, default: none)) or group(j + 1) != none) { u.push("/"); j += 1 }
-      else { go = false }
-    }
-    let f = out.slice(b).join()
-    out = out.slice(0, b) + ("[" + (if f in (none, "") { "1" } else { f }) + " " + u.join(" ") + "]",)
-    i = j
-  }
-  out.join(" ")
 }
 // expression tree -> string _parse reads back the same
 #let _src(e) = {
@@ -307,8 +225,11 @@
 // Equations without '=', derivations (⇒, ≈, <, …) or content that isn't a formula (alignment, line breaks, #val) are left alone.
 #let _math-def(it) = context {
   if _busy.get() > 0 { return it }
-  let s = _str(it.body)
+  let cf = _cf.get()
+  let U = _UT(cf)
+  let s = _str(it.body, q: true)
   if _E(s) or s.match(regex("[⇒⇔⟹⟺→←↔≈≠≡∼∝∈]")) != none { return it }
+  let fail(e) = it + _errc(e.err, cf, wide: it.block)
   let rs = s.matches(regex("[<>≤≥]"))
   if rs.len() > 0 {
     // a bound R ≤ U/I: a definition only with exactly one unknown (0 < x < 1, a < b with known a, b stay prose)
@@ -316,9 +237,12 @@
     let rel = rs.first().text
     let vars = _vars-of(_st.get())
     let fns = _st.get().at("#fn", default: (:))
-    let p = s.split(rel).map(x => _math-src(x, vars).trim())
+    let p = s.split(rel).map(x => _math-src(x, vars, cf))
+    let b = _first-err(p)
+    if b != none { return fail(b) }
+    let p = p.map(str.trim)
     if p.any(x => x == "") { return it }
-    let es = p.map(x => _parse(x, vars, f: fns))
+    let es = p.map(x => _parse(x, vars, f: fns, U: U))
     if es.any(_E) or es.map(_vars).flatten().dedup().filter(v => v not in vars).len() != 1 { return it }
     return it + _def((p.join(" " + rel + " "),), none, (:), (block: it.block), false, true)
   }
@@ -326,11 +250,15 @@
   if p.len() < 2 or p.any(x => x.trim() == "") { return it }
   // a worked chain R = 7.2 kΩ = 7200 Ω: the first '=' defines, the rest are steps
   let vars = _vars-of(_st.get())
-  let lhs = _math-src(p.at(0), vars).trim()
-  let eq = lhs + " = " + _math-src(p.at(1), vars).trim()
+  let ms = p.map(x => _math-src(x, vars, cf))
+  let b = _first-err(ms)
+  if b != none { return fail(b) }
+  let ms = ms.map(str.trim)
+  let lhs = ms.at(0)
+  let eq = lhs + " = " + ms.at(1)
   // steps that write an undefined variable out define it: R = ρ l/A = ρ l/(b h) gives A = b h
   let fns = _st.get().at("#fn", default: (:))
-  let es = p.slice(1).map(x => _parse(_math-src(x, vars), vars, f: fns, keep: true))
+  let es = ms.slice(1).map(x => _parse(x, vars, f: fns, keep: true, U: U))
   let imp = ()
   let ds = range(es.len() - 1).map(i => if es.any(_E) { none } else { _diff(es.at(i), es.at(i + 1)) })
   if not es.any(_E) {
@@ -345,13 +273,13 @@
   // (R = ρ l/(b h) for b), only among steps reached by substitutions (not = 0.2 Ω); the other implied ones follow
   let now = imp.filter(((x, e)) => _vars(e).all(v => v in vars))
   let known = vars.keys() + now.map(c => c.at(0))
-  let le = _parse(lhs, vars, f: fns)
+  let le = _parse(lhs, vars, f: fns, U: U)
   let k = ds.position(c => c == none)
   let k = if k == none { ds.len() } else { k }
   if imp.len() > 0 and not _E(le) {
     let n(i) = (_vars(le) + _vars(es.at(i))).dedup().filter(v => v not in known).len()
     let best = range(k + 1).sorted(key: i => (n(i), -i)).first()
-    eq = lhs + " = " + _math-src(p.at(best + 1), vars).trim()
+    eq = lhs + " = " + ms.at(best + 1)
   }
   let one(x, e) = _def((x + " = " + _src(e),), none, (:), (block: it.block), false, true)
   it + now.map(((x, e)) => one(x, e)).join() + _def((eq,), none, (:), (block: it.block), false, true) + imp.filter(c => c not in now).map(((x, e)) => one(x, e)).join()

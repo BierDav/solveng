@@ -83,9 +83,11 @@
 // quantity -> content
 #let _qc(q, cf) = {
   let n = _nshow(q, cf).at(0)
-  if q.u == "" { n } else { $#n thin #_ushow(q.u)$ }
+  let u = _ushow(q.u, U: _UT(cf))
+  // a bare unit in an expression: A [A]
+  if q.at("bare", default: false) { u } else if q.u == "" { n } else { $#n thin #u$ }
 }
-#let _q0(x, num) = {
+#let _q0(x, num, U: _U) = {
   if type(x) in (int, float) { return (v: float(x), d: _Z, raw: str(x), n: float(x), u: "", ex: none) }
   let x = _str(x)
   if _E(x) { return x }
@@ -96,7 +98,7 @@
   let (s, u) = m.captures
   let s = s.trim().replace(",", ".")
   if s.match(regex("\\d*\\.\\d*\\.")) != none { return _err("cannot read the number '" + s + "'") }
-  let un = _unit(u)
+  let un = _unit(u, U: U)
   if _E(un) { return un }
   let (f, d) = un
   if s.match(regex("^[-+−]?[\\d.]+(?:[eE][-+−]?\\d+)?$")) != none {

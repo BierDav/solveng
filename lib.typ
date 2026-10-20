@@ -7,5 +7,8 @@
 //   #val("U")  #reset  #solve-config(digits: 3, si: true)
 //   #solve-block[ $I = "30 mA"$ … ]     // math equations and code blocks inside are definitions
 
-
-#import "src/graph.typ": def, solve, solve-block, solve-config, definitions, val, reset, graph, curve
+#import "src/api.typ": def, solve, solve-block
+#import "src/core.typ": solve-config, val, reset
+#import "src/definitions.typ": definitions
+#import "src/graph.typ": graph
+#import "src/lambdify.typ": lambdify
