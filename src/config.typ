@@ -16,10 +16,12 @@
   defined-style: "grid",
   // problems: shown in the document, or stop the compilation
   errors: "document",
+  // what solve-block calculates besides code tagged solveng: math equations, code without a language
+  integration: "math",
 )
 #let _CH = (
   form: ("auto", "decimal", "fraction", "input"), multiplication: ("dot", "times"), fractions: ("stacked", "slash"), steps: ("full", "formula", "result", "value", auto), inline-steps: ("full", "formula", "result", "value"),
-  layout: ("row", "column"), errors: ("document", "panic"), defined-style: ("grid", "column", "inline", "list"),
+  layout: ("row", "column"), errors: ("document", "panic"), integration: ("full", "code", "math", "none"), defined-style: ("grid", "column", "inline", "list"),
 )
 // allowed types per option
 #let _TY = (
@@ -27,7 +29,7 @@
   multiplication: (str,), form: (str,), max-denominator: (int,), fractions: (str,), prefixes: (str, type(none), array), show-si: (bool,),
   units: (dictionary,), preferred-units: (array, str), strict: (bool,),
   steps: (str, type(auto)), inline-steps: (str,), layout: (str,), implies: (content, symbol, str), approximate: (bool,), block: (bool,),
-  max-solutions: (int,), defined-style: (str,), errors: (str,),
+  max-solutions: (int,), defined-style: (str,), errors: (str,), integration: (str,),
 )
 #let _tyname(ts) = ts.map(t => if t == type(none) { "none" } else if t == type(auto) { "auto" } else { str(t) }).join(" or ")
 // global: units can only be set with solve-config (the unit table is built there)

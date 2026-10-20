@@ -340,8 +340,8 @@ EDGE = [
     ('#def("R = 1 kOhm", "I = 2 mA", "U = R I")' + V("U"), "ok", 2), ('#def("U = R I")', "graceful", None),
     ('#def("x + y = 3", "x - y = 1")' + V("y"), "ok", 1), ('#def()', "graceful", None), ('#def("a = 1", output: "yes")', "graceful", None),
     ('#def("a = 1 V", output: true, steps: "value") #def("b = 2 V", output: true, inline: true) #solve("c = 2 a", steps: "value", inline: true) #solve("d = 2 a", layout: "column", steps: "formula") #def("c = 3 V", listed: false)', "ok", None),
-    ('#solve-block(plain-code: true)[`a = 2 V` and\n```\nb = 2 a -> mV // c\nf(x) = x + 1\nc = f(1)\n\np + q = 3; p - q = 1\nd -> V\n```\n]', "graceful", None),
-    ('#solve-block(plain-code: true)[`a = 2 V` and\n```\nb = 2 a -> mV // c\nf(x) = x + 1\nc = f(1)\n\np + q = 3; p - q = 1\nb -> V\n```\n```py\nprint(1)\n```\n#defined()]', "ok", None),
+    ('#solve-config(integration: "full")[#solve-block[`a = 2 V` and\n```\nb = 2 a -> mV // c\nf(x) = x + 1\nc = f(1)\n\np + q = 3; p - q = 1\nd -> V\n```\n]]', "graceful", None),
+    ('#solve-config(integration: "full")[#solve-block[`a = 2 V` and\n```\nb = 2 a -> mV // c\nf(x) = x + 1\nc = f(1)\n\np + q = 3; p - q = 1\nb -> V\n```\n```py\nprint(1)\n```\n#defined()]]', "ok", None),
     ('#def("a = 2 V") #solve-block[`a = 5 V`] #def("b = a")' + V("b"), "ok", 2),
     ('#def("a = 2 V") #solve-block(inherit: true)[#solve("b = a / 3", digits: 2)]', "ok", None), ('#solve-block(digits: 2)[]', "graceful", None),
     ('#def("a = 1 V", "b = 2 V", "f(x) = x", "c = a + b") #defined(included: "given", excluded: "a") #defined(included: regex("^[ab]$"), style: "column") #defined(excluded: ("given", "function"), style: "inline") #defined(included: n => n == "c", show-si: true)', "ok", None),
@@ -357,7 +357,7 @@ EDGE = [
     ('#def("x = 1 V", "f(y) = 2 y") #solve("f([3 V]) = x")' + V("x"), "ok", 6),
     # math equations in a solve-block are definitions
     ('#show: solve-block\n$I = "30 mA"$ (#solve("I", steps: "value", inline: true)) $t = 2 I$ $x^2$ $ U &= 1 \\ &= 2 $' + V("t"), "ok", 0.06),
-    ('#solve-block[$a = 2 "V"$ #solve("b = 2 a")] #solve-block(equations: false)[$c = 2$ #solve("c")]', "graceful", None),
+    ('#solve-block[$a = 2 "V"$ #solve("b = 2 a")] #solve-config(integration: "none")[#solve-block[$c = 2$ #solve("c")]]', "graceful", None),
     ('#show: solve-block\n$q = 7 "furlongs"$', "graceful", None),
     ('#show: solve-block.with(reset: heading)\n= A\n$a = 2$\n= B\n#solve("b = a")', "graceful", None),
     ('#def("a = 3")\n#show: solve-block.with(reset: heading, inherit: true)\n= A\n$a = 2$\n= B\n#reset\n#solve("b = a")\n#solve-block[#reset]' + V("b"), "ok", 3),
@@ -440,7 +440,7 @@ def main():
             if a.save:
                 os.makedirs(a.save, exist_ok=True)
                 for k, (m, d) in enumerate(res[cat].get(kind, [])):
-                    open(os.path.join(a.save, f"{cat}-{kind}-{k}.typ"), "w").write(HEAD.format(lib="@local/solveng:0.1.0").replace('"@local', '"@local') + d)
+                    open(os.path.join(a.save, f"{cat}-{kind}-{k}.typ"), "w").write(HEAD.format(lib="@local/solveng:0.2.0").replace('"@local', '"@local') + d)
     sys.exit(1 if bad else 0)
 
 if __name__ == "__main__":

@@ -1,0 +1,13 @@
+[package]
+name = "solveng-ide"
+description = "Editor support for solveng calculations in Typst: highlighting, completions, conversions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+typst-syntax = "=0.15.1"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

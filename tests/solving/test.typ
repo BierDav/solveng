@@ -31,7 +31,7 @@
 #def("z = 7 furlongs") #fails("neither a unit nor a defined variable")
 #def("x = 1", digitz: 2) #context assert(_st.get().at("x", default: none) == none)
 
-// code in a solve-block: tagged code is calculated, plain code only with plain-code: true
+// code in a solve-block: tagged code is calculated, plain code only with integration "code" or "full"
 #solve-block[
   `x = 3` ```solveng y = 2 m```
   ```
@@ -43,11 +43,28 @@
   #context assert("x" not in _st.get() and "z" not in _st.get(), message: "plain code was calculated")
   #expect("y", 2) #expect("w", 4)
 ]
-#solve-block(plain-code: true)[
+#solve-config(integration: "code")[#solve-block[
   `x = 3`
   ```
   z = x 2
   ```
+  $q = 2$
   #expect("x", 3) #expect("z", 6)
+  #context assert("q" not in _st.get(), message: "math was read with integration: code")
+]]
+#solve-block[
+  #solve-config(integration: "full")[`a = 1` $b = 2$]
+  #solve-config(integration: "none")[`c = 1` $d = 2$ ```solveng e = 3```]
+  #expect("a", 1) #expect("b", 2) #expect("e", 3)
+  #context assert("c" not in _st.get() and "d" not in _st.get(), message: "integration: none read untagged code or math")
 ]
 
+
+// editors read what a solve-block saw: each element (by location) and what the block defined
+#solve-block[$k = 2 "V"$ `m = 1`]
+#context {
+  let r = query(<solveng>).map(it => it.value)
+  assert(r.any(x => x.kind == "math" and x.active and type(x.element) == location))
+  assert(r.any(x => x.kind == "code" and not x.active))
+  assert(r.any(x => x.kind == "block" and x.defined.any(d => d.name == "k" and d.value == "2 V")))
+}

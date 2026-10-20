@@ -30,7 +30,7 @@
 ///
 /// ```typ
 /// // my-defaults.typ
-/// #import "@preview/solveng:0.1.0": *
+/// #import "@preview/solveng:0.2.0": *
 /// #let setup = solve-config.with(digits: 3, multiplication: "times", layout: "column")
 /// #let solve = solve.with(steps: "formula")
 ///
@@ -64,13 +64,14 @@
 /// - max-solutions (auto, int): How many solutions are listed; all are found, `root` picks among all.
 /// - defined-style (auto, str): How `defined` looks: `"grid"` (default: columns side by side, aligned at `=`), `"column"`, `"inline"` or `"list"`.
 /// - errors (auto, str): `"document"` (default): problems are shown as red notes · `"panic"`: stop the compilation.
+/// - integration (auto, str): What a `solve-block` calculates besides code tagged `solveng`: `"math"` (default: math equations) · `"code"`: code without a language · `"full"`: both · `"none"`: only tagged code. Only here, not per call.
 /// -> content
 #let solve-config(
   ..body,
   digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto, max-denominator: auto, fractions: auto,
   prefixes: auto, show-si: auto, units: auto, preferred-units: auto, strict: auto,
   steps: auto, inline-steps: auto, layout: auto, implies: auto, approximate: auto, block: auto, max-solutions: auto,
-  defined-style: auto, errors: auto,
+  defined-style: auto, errors: auto, integration: auto,
 ) = {
   let b = body.pos().at(0, default: none)
   if body.named().len() > 0 { return _err-now("unknown option '" + body.named().keys().first() + "' (options: " + _DEF.keys().join(", ") + ")") + b }
@@ -80,7 +81,7 @@
     digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions,
     prefixes: prefixes, show-si: show-si, units: units, preferred-units: preferred-units, strict: strict,
     steps: steps, inline-steps: inline-steps, layout: layout, implies: implies, approximate: approximate, block: block,
-    max-solutions: max-solutions, defined-style: defined-style, errors: errors,
+    max-solutions: max-solutions, defined-style: defined-style, errors: errors, integration: integration,
   )), global: true)
   if _E(n) { return _err-now(n.err) + b }
   // units add to the units set before (none removes one); the table is built from them once, here
@@ -521,7 +522,7 @@
           let fns = d.at("#fn", default: (:))
           let body = _parse(r, _vars-of(d), f: fns, U: U)
           if _E(body) { recs.push(fail(s, body)); continue }
-          fns.insert(name, (params: ps, body: body))
+          fns.insert(name, (params: ps, body: body, src: r))
           d.insert("#fn", fns)
           defs = add(defs, name, "function")
           recs.push((k: "fn", name: name, params: ps, body: _parse(r, _vars-of(d), f: fns, keep: true, U: U)))

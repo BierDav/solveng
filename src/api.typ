@@ -74,7 +74,7 @@
 ) = {
   if eqs.named().len() > 0 {
     let k = eqs.named().keys().first()
-    return _err-now("unknown argument '" + k + "' (arguments: unit, output, steps, layout, inline, unknown, root, guess, listed and the options " + _DEF.keys().filter(k => k not in ("steps", "layout", "units")).join(", ") + ")")
+    return _err-now("unknown argument '" + k + "' (arguments: unit, output, steps, layout, inline, unknown, root, guess, listed and the options " + _DEF.keys().filter(k => k not in ("steps", "layout", "units", "integration")).join(", ") + ")")
   }
   let lc = _check(_given((
     digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions,
@@ -286,6 +286,35 @@
   let one(x, e) = _def((x + " = " + _src(e),), none, (:), (block: it.block), false, true)
   it + now.map(((x, e)) => one(x, e)).join() + _def((eq,), none, (:), (block: it.block), false, true) + imp.filter(c => c not in now).map(((x, e)) => one(x, e)).join()
 }
+// ---------- what editors read ----------
+// Typewright and other editors query <solveng> metadata after compiling: per element solve-block saw (by its
+// location, which maps back to the source) whether it was calculated, per block what it defined, with values.
+#let _vstr(q, cf) = {
+  let (m, e) = _fmt(q.n, cf + (digits: calc.max(cf.digits, 4)))
+  let rel = q.at("rel", default: none)
+  (if rel != none { rel + " " } else { "" }) + m + (if e != none { "e" + str(e) } else { "" }) + (if q.u != "" { " " + q.u } else { "" })
+}
+#let _defs-since(before, st, cf) = {
+  let (fb, fa) = (before.at("#fn", default: (:)), st.at("#fn", default: (:)))
+  st.at("!", default: ()).filter(e => if e.kind == "function" { fa.at(e.name, default: none) != fb.at(e.name, default: none) } else { e.name in st and st.at(e.name) != before.at(e.name, default: none) }).map(e => {
+    let value = if e.kind == "function" { let f = fa.at(e.name); "(" + f.params.join(", ") + ") = " + f.at("src", default: _src(f.body)) } else { _vstr(st.at(e.name), cf + e.cf) }
+    (name: e.name, kind: e.kind, value: value)
+  })
+}
+// everything defined so far in the block, also by calls, and the units
+#let _block-note = context {
+  let cf = _cf.get()
+  let units = cf.units.pairs().filter(((k, v)) => v != none).map(((k, v)) => (name: k, value: if type(v) == str { v } else { "" }))
+  [#metadata((kind: "block", defined: _defs-since((:), _st.get(), cf), units: units)) <solveng>]
+}
+// the element `it` shown as `body`, followed by its record; `cf` is the configuration around it. What is defined
+// is listed once per block (reading the state after every element would take Typst more layout passes).
+#let _noted(it, kind, active, cf, body) = {
+  let loc = it.location()
+  if loc == none { return body }
+  body + [#metadata((kind: kind, element: loc, active: active, integration: cf.integration)) <solveng>]
+}
+
 /// A scope in which math and code are calculations.
 ///
 /// `#show: solve-block` calculates the whole rest of the document; `#solve-block[…]` only its body, whose definitions are dropped at its end. How results look is set with `solve-config`, not here.
@@ -296,7 +325,7 @@
 /// the battery holds $Q_0 = 3450 "mAh"$, so it lasts $t = Q_0 / I$, ```solveng = t -> h```.
 /// ```
 ///
-/// **Math.** Every math equation with a `=` is a definition, exactly like `def`: `$I = "30 mA"$`, `$P = U I$`, `$Q_0/2 = I t$`. The equation stays as you wrote it; problems are shown next to it.
+/// **Math** (with the default `integration: "math"`). Every math equation with a `=` is a definition, exactly like `def`: `$I = "30 mA"$`, `$P = U I$`, `$Q_0/2 = I t$`. The equation stays as you wrote it; problems are shown next to it.
 ///
 /// - An inequality with exactly one unknown (`$R <= U/I$`) defines it like `#solve("R <= U/I")`; `$0 < x < 1$` and inequalities between known values stay prose.
 /// - Equations without `=` (`$x^2$`), derivations with `⇒`, `≈`, … (`$ Q = I t => t = Q/I $`), equations with alignment or line breaks (`$ U &= R I \ &= 6 V $`) or with embedded calls are left alone.
@@ -311,7 +340,9 @@
 /// - ```` ```solveng = Q0/I -> h``` ````: just the value (115 h), nothing is defined.
 /// - Per line: `-> unit` for the result unit, `;` separates the equations of a system (`x + y = 3; x - y = 1`), `//` starts a comment.
 ///
-/// Code without a language is left alone, so code samples stay code samples; `plain-code: true` calculates it as well. Code with another language (```` ```py ````) is always left alone. The output of `def`, `solve`, `defined` and `graph` is never read as a definition again.
+/// What else is calculated is set with `solve-config(integration: …)`: `"math"` (default) reads math as above and leaves code without a language alone, so code samples stay code samples; `"code"` calculates code without a language instead of math, `"full"` both, `"none"` neither. Code with another language (```` ```py ````) is always left alone. The output of `def`, `solve`, `defined` and `graph` is never read as a definition again.
+///
+/// **Editors.** Each equation and code element the block sees leaves a `metadata` labelled `<solveng>` with its `location()`, whether it was calculated and the `integration` there; at the end of the block (and before each `reset`) one lists everything defined, with values, and the units. Editors like Typewright read them after compiling: `query(<solveng>)`.
 ///
 /// **Starting over.** `reset` starts over at every match; `#reset` inside a solve-block does the same once: back to how the block started (with `inherit: true` the outer definitions stay). After the block the outer definitions come back.
 ///
@@ -323,22 +354,21 @@
 ///
 /// - ..body (content): The content.
 /// - inherit (bool): See the definitions made before the block (also after each `reset`).
-/// - equations (bool): Read math equations as definitions. `false` leaves math alone.
-/// - plain-code (bool): Also evaluate code without a language (```` ``` ```` blocks and `` `inline` `` code), not only code tagged `solveng`.
 /// - reset (none, function, selector): Start over at every match, e.g. `heading` (every heading) or `heading.where(level: 1)`: the definitions made since are forgotten, like `#reset`.
 /// -> content
 #let solve-block(
   ..body,
-  inherit: false, equations: true, plain-code: false, reset: none,
+  inherit: false, reset: none,
 ) = {
   let b = body.pos().at(0, default: [])
   if body.named().len() > 0 {
     let k = body.named().keys().first()
-    return _err-now("unknown argument '" + k + "' for solve-block (arguments: inherit, equations, plain-code, reset)" + if k in _DEF { " – options go in solve-config(" + k + ": …)" } else { "" }) + b
+    let hint = if k in ("equations", "plain-code") { " – use solve-config(integration: \"full\", \"code\", \"math\" or \"none\")" } else if k in _DEF { " – options go in solve-config(" + k + ": …)" } else { "" }
+    return _err-now("unknown argument '" + k + "' for solve-block (arguments: inherit, reset)" + hint) + b
   }
   if body.pos().len() > 1 { return _err-now("solve-block takes one body") + b }
   if type(b) != content { return _err-now("solve-block: the body must be content, got " + _tn(b)) }
-  for (n, v) in (inherit: inherit, equations: equations, plain-code: plain-code) { if type(v) != bool { return _err-now(n + ": true or false, got " + _tn(v)) + b } }
+  if type(inherit) != bool { return _err-now("inherit: true or false, got " + _tn(inherit)) + b }
   if type(reset) not in (type(none), function, selector, label) { return _err-now("reset: none or what to start over at, like heading or heading.where(level: 1), got " + _tn(reset)) + b }
   // "^": the state outside, restored at the end; "^0": the state at the start, for reset
   _st.update(d => { let n = if inherit { d } else { (:) }; n.insert("^", d); n.insert("^0", n); n })
@@ -346,15 +376,26 @@
     // raw text is set smaller, monospaced and in English; definitions use the surrounding text and language
     let (size, font, lang, region) = (text.size, text.font, text.lang, text.region)
     let out(it, sep) = text(size: size, font: font, lang: lang, region: region, it.text.split("\n").map(l => _line(l, it.block)).filter(x => x != none).join(sep))
-    show raw.where(lang: "solveng"): it => out(it, if it.block { none } else { [, ] })
-    show raw.where(lang: none): it => if plain-code { out(it, none) } else { it }
-    show std.math.equation: it => if equations { _math-def(it) } else { it }
+    show raw.where(lang: "solveng"): it => context _noted(it, "code", true, _cf.get(), out(it, if it.block { none } else { [, ] }))
+    // read where each element is, so solve-config(integration: …)[…] also works inside the block
+    show raw.where(lang: none): it => context {
+      let cf = _cf.get()
+      let on = cf.integration in ("code", "full")
+      _noted(it, "code", on, cf, if on { out(it, none) } else { it })
+    }
+    show std.math.equation: it => context {
+      if _busy.get() > 0 { return it }
+      let cf = _cf.get()
+      let on = cf.integration in ("math", "full")
+      _noted(it, "math", on, cf, if on { _math-def(it) } else { it })
+    }
     // start over at each heading (or whatever reset selects): back to the state at the start of the block
     show selector(if reset == none { <solveng-never> } else { reset }): it => {
-      if reset != none { _st.update(_restart) }
+      if reset != none { _block-note + _st.update(_restart) }
       it
     }
     b
   }
+  _block-note
   _st.update(d => d.at("^"))
 }

@@ -1,0 +1,12 @@
+[package]
+name = "solveng-lsp"
+description = "Language server for solveng calculations in Typst, to run next to tinymist"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+solveng-ide = { path = "../ide" }
+lsp-server = "0.7"
+serde_json = "1"

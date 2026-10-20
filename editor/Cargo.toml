@@ -1,0 +1,9 @@
+[workspace]
+resolver = "3"
+members = ["ide", "lsp"]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/BierDav/solveng"

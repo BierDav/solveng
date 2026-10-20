@@ -4,7 +4,7 @@
 #set text(lang: "de")
 
 // Math and code in a solve-block (plain code calculated too)
-#solve-block(plain-code: true)[
+#solve-config(integration: "full")[#solve-block[
   The battery holds `Q0 = 3450 mAh` and the load draws $I = 30 "mA"$, so it lasts `= Q0/I -> h`.
   ```
   t = Q0 / (2 I) -> h     // half the charge
@@ -12,7 +12,7 @@
   P1 = P([5 V])
   ```
   #defined(included: "given")
-]
+]]
 
 // Calls: def and solve
 #solve-block[

@@ -117,7 +117,7 @@ The load draws $I = "30 mA"$ (#solve("I", unit: "A", steps: "value", inline: tru
 the battery holds $Q_0 = 3450 "mAh"$, so it lasts $t = Q_0 / I$, ```solveng = t -> h```.
 ```
 
-**Math.** Every math equation with a `=` is a definition, exactly like `def`: `$I = "30 mA"$`, `$P = U I$`, `$Q_0/2 = I t$`. The equation stays as you wrote it; problems are shown next to it.
+**Math** (with the default `integration: "math"`). Every math equation with a `=` is a definition, exactly like `def`: `$I = "30 mA"$`, `$P = U I$`, `$Q_0/2 = I t$`. The equation stays as you wrote it; problems are shown next to it.
 
 - An inequality with exactly one unknown (`$R <= U/I$`) defines it like `#solve("R <= U/I")`; `$0 < x < 1$` and inequalities between known values stay prose.
 - Equations without `=` (`$x^2$`), derivations with `⇒`, `≈`, … (`$ Q = I t => t = Q/I $`), equations with alignment or line breaks (`$ U &= R I \ &= 6 V $`) or with embedded calls are left alone.
@@ -132,7 +132,9 @@ the battery holds $Q_0 = 3450 "mAh"$, so it lasts $t = Q_0 / I$, ```solveng = t 
 - ```` ```solveng = Q0/I -> h``` ````: just the value (115 h), nothing is defined.
 - Per line: `-> unit` for the result unit, `;` separates the equations of a system (`x + y = 3; x - y = 1`), `//` starts a comment.
 
-Code without a language is left alone, so code samples stay code samples; `plain-code: true` calculates it as well. Code with another language (```` ```py ````) is always left alone. The output of `def`, `solve`, `defined` and `graph` is never read as a definition again.
+What else is calculated is set with `solve-config(integration: …)`: `"math"` (default) reads math as above and leaves code without a language alone, so code samples stay code samples; `"code"` calculates code without a language instead of math, `"full"` both, `"none"` neither. Code with another language (```` ```py ````) is always left alone. The output of `def`, `solve`, `defined` and `graph` is never read as a definition again.
+
+**Editors.** Each equation and code element the block sees leaves a `metadata` labelled `<solveng>` with its `location()`, whether it was calculated and the `integration` there; at the end of the block (and before each `reset`) one lists everything defined, with values, and the units. Editors like Typewright read them after compiling: `query(<solveng>)`.
 
 **Starting over.** `reset` starts over at every match; `#reset` inside a solve-block does the same once: back to how the block started (with `inherit: true` the outer definitions stay). After the block the outer definitions come back.
 
@@ -146,8 +148,6 @@ Code without a language is left alone, so code samples stay code samples; `plain
 |---|---|---|---|
 | `..body` | content |  | The content. |
 | `inherit` | bool | `false` | See the definitions made before the block (also after each `reset`). |
-| `equations` | bool | `true` | Read math equations as definitions. `false` leaves math alone. |
-| `plain-code` | bool | `false` | Also evaluate code without a language (```` ``` ```` blocks and `` `inline` `` code), not only code tagged `solveng`. |
 | `reset` | none, function, selector | `none` | Start over at every match, e.g. `heading` (every heading) or `heading.where(level: 1)`: the definitions made since are forgotten, like `#reset`. |
 
 Returns content.
@@ -303,7 +303,7 @@ Typst only allows `#set` for its built-in elements, not for functions of package
 
 ```typ
 // my-defaults.typ
-#import "@preview/solveng:0.1.0": *
+#import "@preview/solveng:0.2.0": *
 #let setup = solve-config.with(digits: 3, multiplication: "times", layout: "column")
 #let solve = solve.with(steps: "formula")
 
@@ -360,6 +360,12 @@ Typst only allows `#set` for its built-in elements, not for functions of package
 | option | type | default | |
 |---|---|---|---|
 | `errors` | auto, str | `"document"` | `"document"` (default): problems are shown as red notes · `"panic"`: stop the compilation. |
+
+### What solve-block calculates besides code tagged solveng
+
+| option | type | default | |
+|---|---|---|---|
+| `integration` | auto, str | `"math"` | What a `solve-block` calculates besides code tagged `solveng`: `"math"` (default: math equations) · `"code"`: code without a language · `"full"`: both · `"none"`: only tagged code. Only here, not per call. |
 
 ## Writing values
 
@@ -434,7 +440,7 @@ Found by the fuzzer (`tests/fuzz.py`: random equations, quantities, options and 
 - **°C** is a temperature difference (no 273.15 offset); temperatures in formulas like `p V = n R T` need K. New base dimensions (bit, €) can't be added.
 - **Prefixes:** a lone `m` before a unit is metre: `"m s"`, `$"m" Omega$` are m·s and Ω·m; write `"ms"`, `$"m"Omega$` for milli.
 - **Functions** are expanded where they are used (no recursion); `f(x) = 9` with an existing `f` is an equation, not a new definition.
-- **Math in solve-block:** every equation with `=` is evaluated, also ones meant as plain text (`$a^2 + b^2 = c^2$` with unknown a, b, c is an error). Put those outside the block or use `equations: false`.
+- **Math in solve-block:** every equation with `=` is evaluated, also ones meant as plain text (`$a^2 + b^2 = c^2$` with unknown a, b, c is an error). Put those outside the block or use `solve-config(integration: "none")`.
 
 ## Testing
 
