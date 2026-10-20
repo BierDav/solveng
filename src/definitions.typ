@@ -53,14 +53,14 @@
   let eqs = rows.map(((nm, vs, r0)) => (nm, vs.enumerate().map(((i, v)) => if i == 0 { $#r0 #v$ } else { $= #v$ }).join()))
   if style == "list" { std.list(..eqs.map(((nm, v)) => $#nm #v$)) }
   else if style == "inline" { eqs.map(((nm, v)) => $#nm #v$).join(", ") }
-  else if target() == "html" and style == "column" {
+  else if _target() == "html" and style == "column" {
     // a table aligned at '=': name | = | value | = SI value
     _css()
     let td(c, al) = html.elem("td", attrs: (style: "text-align: " + al), c)
     let n = calc.max(..rows.map(r => r.at(1).len()))
     html.elem("table", attrs: (class: "solveng-list"),
       rows.map(((nm, vs, r0)) => html.elem("tr", td($#nm$, "right") + range(n).map(i => if i < vs.len() { td(if i == 0 { $#r0$ } else { $=$ }, "center") + td($#vs.at(i)$, "left") } else { td([], "left") + td([], "left") }).join())).join())
-  } else if target() == "html" {
+  } else if _target() == "html" {
     // CSS columns flow top to bottom and reflow with the width; sizes measured with Typst's fonts, plus slack for the browser's
     _css()
     let em(c) = measure($#c$).width / text.size

@@ -1,97 +1,50 @@
 # solveng
 
-Unit-aware engineering calculations with minimal boilerplate: define values, write the equation, get the rearranged formula, the substituted numbers and the result with a sensible unit.
+Unit-aware engineering calculations that read like your notes. **Write the math as you normally would – solveng evaluates it.** No `#def` for every value, no special syntax: equations in the text define values, code blocks are calculated line by line, and every result comes with the rearranged formula, the substituted numbers and a sensible unit.
+
+````typ
+#import "@preview/solveng:0.1.0": *
+#show: solve-block
+
+= Battery runtime
+The battery holds $Q_0 = 3450 "mAh"$ and the load draws $I = 30 "mA"$,
+so it lasts $t = Q_0 / I$ – that is `= t -> h`.
+
+At half charge and a supply of $U = 5 "V"$:
+```
+t_half = Q_0 / (2 I) -> h
+P = U I
+```
+````
+
+![A document without a single #def: math defines values, a code block calculates](docs/document.png)
+
+That is the whole document – no function calls for the calculation:
+
+- **Math defines values.** Every `$… = …$` in the text is read: `$I = 30 "mA"$` is a value, `$t = Q_0 / I$` is computed, `$Q_0/2 = I t$` is solved for the unknown. The equation stays exactly as you wrote it.
+- **Code blocks calculate themselves.** Each line of a plain ```` ``` ```` block is solved and shown with all steps; `-> h` picks the unit, `;` separates a system, `//` is a comment.
+- **Inline code shows a result** in the running text: `` `t = Q_0/I -> h` `` gives *t = 115 h*, `` `= t -> h` `` just *115 h*.
+
+`#show: solve-block` turns this on for the whole document; `#solve-block[…]` for a part (its definitions are dropped afterwards). See [Math and code in solve-block](#math-and-code-in-solve-block).
+
+### When you want more control: `def` and `solve`
+
+The same calculations as function calls – for options per result, or outside a solve-block:
 
 ```typ
-#import "@local/solveng:0.1.0": *
-
 #def("Q0 = 3450 mAh", "I = 30 mA")      // silent definitions
 #definitions()                           // Q₀ = 3450 mAh   I = 30 mA
 #solve("Q0/2 = I t", unit: "h")          // Q₀/2 = I t ⇒ t = Q₀/(2I) = 3450 mAh/(2·30 mA) = 57,5 h
+#solve("R <= U/I")                       // inequalities, polynomials (all roots), systems
 ```
 
-Or just write the math, in a `solve-block` (or the whole document with `#show: solve-block`):
+![Definitions, a solved equation, an inequality and a quadratic](docs/basics.png)
 
-````typ
-#solve-block[
-  The load draws $I = "30 mA"$ (#solve("I", unit: "A", steps: "value", inline: true)),
-  the battery holds $Q_0 = 3450 "mAh"$, so it lasts $t = Q_0 / I$ = #val("t", unit: "h").
-]
-````
-
-Code works too:
-
-````typ
-#solve-block[
-  The battery holds `Q0 = 3450 mAh` and the load draws `I = 30 mA`,
-  so it lasts `= Q0/I -> h`.
-  ```
-  t = Q0 / (2 I) -> h     // half the charge
-  P(U) = U I
-  P1 = P([5 V])
-  ```
-  #definitions(included: "given")
-]
-````
-
-## Functions
-
-| call | does |
-|---|---|
-| `#def("R = 7.2 kOhm")`, `#def("R = 7.2 kOhm", $I = 30 "mA"$)` | define values (silent) |
-| `#def("U = R I")` | define from other values (computed, silent) |
-| `#def("f(x) = x^2 + 1")`, `#def("g(a, b) = a b + b")` | define a function, usable in later equations: `f(3)`, `g(2, R)` |
-| `#def("Q0/2 = I t")` | an equation: its unknown is solved for and defined |
-| `#def(…, output: true)` | show what was defined (as `solve` does) |
-| `#solve(…)` | `def` that shows itself: equation ⇒ formula = numbers = result |
-| `#solve(eq, unit: "mA")` | result in a given unit (default: SI unit with automatic prefix, or the non-SI unit of the inputs like h, mAh); an error if the result has another unit |
-| `#solve("I", unit: "A")` | no `=`: just evaluate / convert → `I = 30 mA = 0,03 A`; a computed variable shows its formula with the values: `#solve("b")` → `b = ρ l/(R h) = … ≈ 1 mm` |
-| `#solve("f(1) = x")` | the unknowns are found on either side; if everything is known, a lone variable is recomputed |
-| `#solve("x^2 + 2x - 3 = 0")` | the unknown occurs several times → all real roots |
-| `#solve("P = U I", "U = R I")` | a system: as many equations as unknowns |
-| `#solve("R <= U/I")`, `#solve($R <= U/I$)` | an inequality (`<`, `>`, `<=`, `>=`, `≤`, `≥`): `R ≤ U/I = … ≈ 166,7 Ω`, flipped where needed (`U/R > I` ⇒ `R < U/I`). The bound is stored as R's value, `#solve("R")` shows `R ≤ 166,7 Ω`. Only one boundary (`y^2 < 4` is refused), not in systems |
-| `#solve($U = R dot I$)` | equations and values can be math too |
-| `#solve-block[ … ]` | scope: definitions inside are dropped afterwards (`inherit: true` sees outer ones); math and code inside are evaluated, see below |
-| `#definitions()` | everything defined so far, in columns side by side, see below |
-| `#val("U")`, `#val("I", unit: "A")` | a value inline, optionally converted |
-| `#reset` | forget everything (in a solve-block: the block's definitions) |
-| `#solve-config(…)` | options for how results look, see [Configuration](#configuration) |
-
-Every positional argument of `def` / `solve` is an equation, as a string or math. Everything else is a named argument; each one is checked, so a typo or a value of the wrong type is reported instead of being ignored. (Typst has no type annotations, so the types are checked when the document compiles.)
-
-| argument | default | |
-|---|---|---|
-| `unit` | `none` | `"mA"` (also math: `$"mA"$`) for the unknown, `(I: "mA", U: "V")` for systems |
-| `output` | `false` (`def`), `true` (`solve`) | show the definition |
-| `steps` | `auto` (option `steps`) | `"full"`: equation ⇒ formula = numbers = result · `"formula"`: without the numbers · `"result"`: `t = 57,5 h` · `"value"`: just `57,5 h` |
-| `layout` | `auto` (option `layout`) | `"row"`: all steps in one line · `"column"`: one step per line, aligned at `=` |
-| `inline` | `false` | in the running text instead of a display block; steps default to the option `inline-steps` (`"result"`) |
-| `unknown` | `none` | what to solve for (`"t"` or `("x", "y")`), needed when it isn't clear |
-| `root` | `auto` | which solution is stored: `2`, or `x => x > 0` (default: the only all-positive one, else the first) |
-| `guess` | `none` | Newton start value instead of searching: `"-1 A"`, `(U: "5 V")` |
-| `listed` | `true` | `false` hides it from `definitions` |
-| `digits`, `form`, … | `auto` | any [option](#configuration) for this call; `auto` keeps the current setting |
-| `config` | `(:)` | the same options as a dictionary: `config: (digits: 2)` |
-
-```typ
-Runtime: #solve("Q0/I", unit: "h", inline: true, steps: "value")      // Runtime: 115 h
-#solve("Q0/2 = I t", unit: "h", layout: "column", steps: "formula")
-```
-
-The old forms are refused with a hint: `#def(I: "30 mA")` → write `#def("I = 30 mA")`; `#solve("Q0/I", "h")` → write `unit: "h"`.
-
-### Defaults for solve
-
-Typst only allows `#set` for its built-in elements, not for functions of packages, so `#set solve(steps: "result")` isn't possible (yet). Instead:
-
-```typ
-#let solve = solve.with(steps: "result", layout: "column")   // your solve calls from here on
-#show: solve-config.with(steps: "result")                    // everything, including code in solve-block
-```
+Both mix freely: inside a solve-block, `#solve(…)` and `#val("t", unit: "h")` see the values defined by the math around them.
 
 ## Math and code in solve-block
 
-Inside `#solve-block[…]` (or after `#show: solve-block` for the whole document), every math equation with a `=` is a definition, exactly like `#def`: `$I = "30 mA"$`, `$P = U I$`, `$Q_0/2 = I t$`. The equation stays as you wrote it; problems are shown next to it. An inequality with exactly one unknown (`$R <= U/I$`) defines it like `#solve("R <= U/I")`; `$0 < x < 1$` and inequalities between known values stay prose. Equations without `=` (`$x^2$`), derivations with `⇒`, `≈`, … (`$ Q = I t => t = Q/I $`), equations with alignment or line breaks (`$ U &= R I \ &= 6 V $`) or with embedded calls like `#val` are left alone. In a worked chain `$R = 7.2 "k"Omega = 7200 Omega$` the first `=` defines, the rest are steps. A step that writes an undefined variable out defines it: `$R = rho dot frac(l, A) = rho dot frac(l, b dot h)$` defines `A = b h`; with `R` given instead, `b` is solved from the most written-out step (`R = ρ l/(b h)`) and `A` follows. Math is written as usual: a number followed by units is a value (`frac(3450 "mAh", 30 "mA")`, `9.81 "m"/"s"^2`) unless the unit name is a defined variable (`$3 h$` with a variable `h`), and `0,95` is a decimal number. `#solve-block(equations: false)[…]` turns this off.
+Inside `#solve-block[…]` (or after `#show: solve-block` for the whole document), every math equation with a `=` is a definition, exactly like `#def`: `$I = "30 mA"$`, `$P = U I$`, `$Q_0/2 = I t$`. The equation stays as you wrote it; problems are shown next to it. An inequality with exactly one unknown (`$R <= U/I$`) defines it like `#solve("R <= U/I")`; `$0 < x < 1$` and inequalities between known values stay prose. Equations without `=` (`$x^2$`), derivations with `⇒`, `≈`, … (`$ Q = I t => t = Q/I $`), equations with alignment or line breaks (`$ U &= R I \ &= 6 V $`) or with embedded calls like `#val` are left alone. In a worked chain `$R = 7.2 "k"Omega = 7200 Omega$` the first `=` defines, the rest are steps. A step that writes an undefined variable out defines it: `$R = rho dot frac(l, A) = rho dot frac(l, b dot h)$` defines `A = b h`; with `R` given instead, `b` is solved from the most written-out step (`R = ρ l/(b h)`) and `A` follows. Math is written as usual: a number followed by units is a value (`frac(3450 "mAh", 30 "mA")`, `9.81 "m"/"s"^2`), `0,95` is a decimal number. Quoted units (`"h"`) are always units; a bare letter that is a defined variable is that variable (`$3 h$` with a variable `h` is 3 times h), see [Units and variables](#units-and-variables). `#solve-block(equations: false)[…]` turns this off.
 
 Code without a language (or with `solve`) is evaluated too:
 
@@ -120,6 +73,61 @@ To start over at every heading (each exercise on its own), pass `reset`:
 
 `#reset` inside a solve-block does the same: back to how the block started (with `inherit: true` the outer definitions stay); after the block the outer ones come back.
 
+## Functions
+
+| call | does |
+|---|---|
+| `#def("R = 7.2 kOhm")`, `#def("R = 7.2 kOhm", $I = 30 "mA"$)` | define values (silent) |
+| `#def("U = R I")` | define from other values (computed, silent) |
+| `#def("f(x) = x^2 + 1")`, `#def("g(a, b) = a b + b")` | define a function, usable in later equations: `f(3)`, `g(2, R)` |
+| `#def("Q0/2 = I t")` | an equation: its unknown is solved for and defined |
+| `#def(…, output: true)` | show what was defined (as `solve` does) |
+| `#solve(…)` | `def` that shows itself: equation ⇒ formula = numbers = result |
+| `#solve(eq, unit: "mA")` | result in a given unit (default: SI unit with automatic prefix, or the non-SI unit of the inputs like h, mAh); an error if the result has another unit |
+| `#solve("I", unit: "A")` | no `=`: just evaluate / convert → `I = 30 mA = 0,03 A`; a computed variable shows its formula with the values: `#solve("b")` → `b = ρ l/(R h) = … ≈ 1 mm` |
+| `#solve("f(1) = x")` | the unknowns are found on either side; if everything is known, a lone variable is recomputed |
+| `#solve("x^2 + 2x - 3 = 0")` | the unknown occurs several times → all real roots |
+| `#solve("P = U I", "U = R I")` | a system: as many equations as unknowns |
+| `#solve("R <= U/I")`, `#solve($R <= U/I$)` | an inequality (`<`, `>`, `<=`, `>=`, `≤`, `≥`): `R ≤ U/I = … ≈ 166,7 Ω`, flipped where needed (`U/R > I` ⇒ `R < U/I`). The bound is stored as R's value, `#solve("R")` shows `R ≤ 166,7 Ω`. Only one boundary (`y^2 < 4` is refused), not in systems |
+| `#solve($U = R dot I$)` | equations and values can be math too |
+| `#solve-block[ … ]` | scope: definitions inside are dropped afterwards (`inherit: true` sees outer ones); math and code inside are evaluated, see below |
+| `#definitions()` | everything defined so far, in columns side by side, see below |
+| `#val("U")`, `#val("I", unit: "A")` | a value inline, optionally converted |
+| `#reset` | forget everything (in a solve-block: the block's definitions) |
+| `#solve-config(…)` | options for how results look and which units exist, see [Configuration](#configuration) |
+| `#graph("P = U^2/R", x: "U")` | a plot, see [Plots](#plots) |
+| `#context lambdify("U^2/R", "U")` | the expression as a plain Typst function, see [lambdify](#lambdify) |
+
+Every positional argument of `def` / `solve` is an equation, as a string or math. Everything else is a named argument; each one is checked, so a typo or a value of the wrong type is reported instead of being ignored. (Typst has no type annotations, so the types are checked when the document compiles.)
+
+| argument | default | |
+|---|---|---|
+| `unit` | `none` | `"mA"` (also math: `$"mA"$`) for the unknown, `(I: "mA", U: "V")` for systems |
+| `output` | `false` (`def`), `true` (`solve`) | show the definition |
+| `steps` | `auto` (option `steps`) | `"full"`: equation ⇒ formula = numbers = result · `"formula"`: without the numbers · `"result"`: `t = 57,5 h` · `"value"`: just `57,5 h` |
+| `layout` | `auto` (option `layout`) | `"row"`: all steps in one line · `"column"`: one step per line, aligned at `=` |
+| `inline` | `false` | in the running text instead of a display block; steps default to the option `inline-steps` (`"result"`) |
+| `unknown` | `none` | what to solve for (`"t"` or `("x", "y")`), needed when it isn't clear |
+| `root` | `auto` | which solution is stored: `2`, or `x => x > 0` (default: the only all-positive one, else the first) |
+| `guess` | `none` | Newton start value instead of searching: `"-1 A"`, `(U: "5 V")` |
+| `listed` | `true` | `false` hides it from `definitions` |
+| `digits`, `form`, … | `auto` | any [option](#configuration) for this call; `auto` keeps the current setting |
+| `config` | `(:)` | the same options as a dictionary: `config: (digits: 2)` |
+
+```typ
+Runtime: #solve("Q0/I", unit: "h", inline: true, steps: "value")      // Runtime: 115 h
+#solve("Q0/2 = I t", unit: "h", layout: "column", steps: "formula")
+```
+
+### Defaults for solve
+
+Typst only allows `#set` for its built-in elements, not for functions of packages, so `#set solve(steps: "result")` isn't possible (yet). Instead:
+
+```typ
+#let solve = solve.with(steps: "result", layout: "column")   // your solve calls from here on
+#show: solve-config.with(steps: "result")                    // everything, including code in solve-block
+```
+
 ## Definitions
 
 ```typ
@@ -147,6 +155,35 @@ Problems (an unknown unit, a missing value, units that don't match, a typo) are 
 
 `#show: solve-config.with(errors: "panic")` stops the compilation instead (useful in CI).
 
+## Units and variables
+
+Many engineering symbols are also units: `A` (area, ampere), `V` (volume, volt), `T` (period, tesla), `h` (height, hour), `C`, `F`, `W`, `m`, `s`, `l`, `L`, … solveng keeps them apart by *how* they are written, never by guessing:
+
+- **Strings:** a unit is read only where a value is written – right after a number (`"I = 30 mA"`) or in brackets (`[5 V]`, `[A]` for one ampere). Every other name in an equation is a variable.
+- **Math:** quoted text is a unit (`$30 "mA"$`, `$3 "h"$` – set upright, as units should be); a bare letter is a variable if one with that name is defined (`$3 h$` with `h` defined is 3 times h, in italics), else a unit after a number (`$5 V$`).
+- **Unclear is an error:** a value whose unit is also a defined variable (`"t = 3 h"` with `h` defined, `"f = 1/T"` with `T` defined) is refused, with a hint how to write either meaning: `[3 h]` for hours, `3*h` or `1/(T)` for the variable.
+
+```typ
+#def("A = 12")
+#solve("x = A [A]")                  // x = A · A = 12 · A = 12 A
+#solve("y = A A", unit: "A")         // error: the result has unit 1, not A – 'A' is read as a variable here; …
+#def("T = 2 s")
+#def("f = 1/T")                      // error: 'T' in '1/T' is both a defined variable and a unit – …
+#solve("f = 1/(T)")                  // f = 1/T = 1/(2 s) = 500 mHz
+```
+
+![Units and variables](docs/units.png)
+
+For documents where nothing may be read two ways, `#solve-config(strict: true)` also refuses unit names as variable names (`A = 3 m^2` → pick `A_1`, or remove the unit) and bare units in math (`$5 V$` → `$5 "V"$`).
+
+The available units can be changed with the option `units`: new units are defined by a value, `none` removes one (which frees its name, e.g. `T` for a period that is then never read as tesla):
+
+```typ
+#solve-config(units: (bar: "100 kPa", rpm: "1/min", t: "1000 kg", T: none))
+#def("p = 3 bar", "n = 3000 rpm")    // prefixes work too: mbar, kbar
+#solve-config(prefer: ("bar", "kWh")) // results with these dimensions are shown in these units
+```
+
 ## Writing values
 
 ```typ
@@ -156,7 +193,7 @@ Problems (an unknown unit, a missing value, units that don't match, a typo) are 
 #def("R2 = 2 R", "Z = [5 V] / I")   // [5 V] is a value inside an equation, @R inlines R's formula
 ```
 
-- **Units:** SI base units and V A Ω W J C F H S Hz N Pa T Wb, min h Ah Wh As Ws eV l %, ‰, °, rad, °C (as a temperature *difference*), all SI prefixes. Powers as `m^2`, `m²`, `s^-1`; quotients as `m/s^2`; products with spaces `kg m`.
+- **Units:** SI base units (m kg s A K mol cd) and V A Ω W J C F H S Hz N Pa T Wb, min h Ah Wh As Ws eV l %, ‰, °, rad, °C (as a temperature *difference*), all SI prefixes; your own with the option `units`. Powers as `m^2`, `m²`, `s^-1`; quotients as `m/s^2`; products with spaces `kg m`.
 - **Typeable spellings:** `Ohm`/`ohm`/`Omega` → Ω, `u` → µ, `degC` → °C, `deg` → °. They are printed with the proper symbols (`"20 uA"` → 20 µA).
 - **Decimal comma:** `"7,2 V"` works; the output separator follows the document language.
 - **Names:** `Q0`→Q₀, `R_min`→R_min, `rho`→ρ, `DeltaT`→ΔT, `tol`→tol (upright). In math equations `Q_0` is a different variable than `Q0`.
@@ -177,7 +214,7 @@ To reuse your defaults in many documents, keep a small file of your own:
 
 ```typ
 // my-defaults.typ
-#import "@local/solveng:0.1.0": *
+#import "@preview/solveng:0.1.0": *
 #let setup = solve-config.with(digits: 3, times: "times", layout: "column")
 #let solve = solve.with(steps: "formula")
 
@@ -214,8 +251,11 @@ To reuse your defaults in many documents, keep a small file of your own:
 |---|---|---|---|
 | `prefixes` | `"all"` | `"all"`, `none`, array like `("m", "k")` | prefixes picked for results: `"all"` uses a f p n µ m k M G T (times from a minute on in min or h instead of ks), `none` keeps the base unit (`0,0005 A` or `5 · 10⁻⁴ A`), an array allows only those (`"u"` = µ; `"c"`, `"d"` are allowed too) |
 | `si` | `false` | bool | `definitions` also shows the SI value: `Q₀ = 3450 mAh = 12420 C` |
+| `units` | `(:)` | dictionary | your own units, `(bar: "100 kPa", rpm: "1/min")`, defined by a value in known units; `none` removes a unit, `(T: none)`. Adds to the units set before. Only in `solve-config`, not per call |
+| `prefer` | `()` | array of units | units for results of their dimension, `("bar", "kWh")`, before the unit of the inputs and the SI unit |
+| `strict` | `false` | bool | unit names can't be variable names, and units in math must be quoted (`$5 "V"$`), see [Units and variables](#units-and-variables) |
 
-An explicit unit (`#solve(eq, unit: "mA")`, `#val("I", unit: "A")`) always wins.
+An explicit unit (`#solve(eq, unit: "mA")`, `#val("I", unit: "A")`) always wins, then `prefer`, then the non-SI unit of the inputs (h, mAh, bar), then the SI unit with a prefix.
 
 In `solve-config`, `def` and `solve` every option defaults to `auto`, which keeps the current setting.
 
@@ -253,15 +293,19 @@ Found by `tests/fuzz.py` (random equations, quantities, options and hostile inpu
 - **Systems** are solved numerically from a fixed set of starts; solutions far away from them can be missed. Underdetermined systems (`x + y = 2`, `2x + 2y = 4`) show one arbitrary solution.
 - **Nesting:** up to about 20 levels of brackets (Typst's function call depth); sums and products of any length are fine.
 - **Domains:** only real numbers; `(-8)^(1/3)` and `sqrt(-1)` are errors, as is an unknown that cancels out (`x - x`).
-- **°C** is a temperature difference (no 273.15 offset); temperatures in formulas like `p V = n R T` need K. Units cover m kg s A K only (no mol, cd).
-- **Ambiguity:** a lone `m` before a unit is metre: `"m s"`, `$"m" Omega$` are m·s and Ω·m; write `"ms"`, `$"m"Omega$` for milli. A number followed by known units (`"2 m"`) is a value even if a variable `m` exists; write `"m * 2"`.
+- **°C** is a temperature difference (no 273.15 offset); temperatures in formulas like `p V = n R T` need K. New base dimensions (bit, €) can't be added.
+- **Prefixes:** a lone `m` before a unit is metre: `"m s"`, `$"m" Omega$` are m·s and Ω·m; write `"ms"`, `$"m"Omega$` for milli. See [Units and variables](#units-and-variables) for names that are both.
 - **Functions** are expanded where they are used (no recursion); `f(x) = 9` with an existing `f` is an equation, not a new definition.
 - **Math in solve-block:** every equation with `=` is evaluated, also ones meant as plain text (`$a^2 + b^2 = c^2$` with unknown a, b, c is an error). Put those outside the block or use `equations: false`.
 - **Types** are checked at compile time: unknown named arguments of `val`, `definitions` and `graph` stop the compilation (Typst's own error), those of `def`, `solve`, `solve-config` and `solve-block` are shown in the document.
 - **`#set solve(…)`** is not possible in Typst; use `solve.with(…)` or `solve-config` (see above).
 - **HTML** export is experimental in Typst; in column layout browsers drop the space after a leading `=`.
 
-## Plots (uses `@preview/simple-plot:1.1.0`)
+## Plots
+
+Uses `@preview/simple-plot:1.1.0`.
+
+![A graph with the solved point marked](docs/graph.png)
 
 ```typ
 #def("R = 50 Ω", "P0 = 2 W")
@@ -290,14 +334,35 @@ Combine them in an array, `(auto, "R1")`; `mark: ()` marks nothing.
 Options: `x:`, `xunit:`/`yunit:`, `samples:`, `width:`/`height:` (a number: the plot area in cm, default 8 × 5; a length like `12cm`/`300pt` or a share like `100%`: the whole graph, labels included – a share of the height is of the container, or of the width when the page grows with its content), `colors:` (a color or an array with parentheses: `(gray, blue, rgb("#f98eff"))`), `config: (…)`.
 Any other named argument goes straight to simple-plot's `plot` (e.g. `show-grid: false`), other positional ones (series from simple-plot) are added as they are.
 
-For full control use `curve` – a plain function for simple-plot, in display units (needs `context`):
+For full control, plot with simple-plot directly: any other named argument of `graph` goes to its `plot`, other positional ones are added as series.
+
+## lambdify
+
+`lambdify` turns an expression into a plain Typst function of numbers – for value tables, other plotting packages or your own code. It uses the current values of defined variables, so it needs `context`:
 
 ```typ
-#import "@preview/simple-plot:1.1.0": plot
-#context plot(xmin: 0, xmax: 20, ymin: 0, ymax: 10, (fn: curve("U^2/R", "U", xunit: "V", yunit: "W")))
+#def("R = 50 Ω")
+#context {
+  let P = lambdify("U^2/R", "U", unit: "W", units: (U: "V"))
+  table(columns: 2, ..range(1, 6).map(u => ([#u V], [#P(u) W])).flatten())
+}
 ```
 
+- parameters: the names after the expression, in order (`"U", "R"`; a defined variable is replaced by the argument). Without any: the undefined variables, in the order they appear.
+- arguments: numbers in the unit from `units` (else SI), or values like `"5 V"`.
+- result: a float in `unit` (else SI), or `none` where the expression isn't defined (`sqrt(-1)`, `1/0`).
+- Problems stop the compilation here, since the result is a function, not content.
+
 ## Testing
+
+The tests use [tytanic](https://github.com/typst-community/tytanic) (`cargo install tytanic`):
+
+```sh
+tt run                                        # units, solving, lambdify and the README examples (reference images)
+tt update readme                              # accept changed output of the README examples
+```
+
+The fuzzer checks random inputs against Python:
 
 ```sh
 python3 tests/fuzz.py                         # every category, 300 cases each

@@ -1,11 +1,12 @@
-// solveng – unit-aware "given → solve" calculations with minimal boilerplate.
+// solveng – unit-aware calculations that read like your notes.
 //
-//   #def("R = 7.2 kΩ", "I = 415 µA")  // stores the variables
-//   #solve("U = R I")                  // finds the unknown, rearranges, substitutes, evaluates
-//   #solve("Q0/2 = I t", unit: "h")    // optional target unit
-//   #solve("Q = @I t")                 // @I inlines the stored expression of I
-//   #val("U")  #reset  #solve-config(digits: 3, si: true)
-//   #solve-block[ $I = "30 mA"$ … ]     // math equations and code blocks inside are definitions
+//   #show: solve-block                  // math and code in the document are calculated:
+//   $I = 30 "mA"$, $Q_0 = 3450 "mAh"$    //   values …
+//   $t = Q_0 / I$                         //   … computed and solved equations
+//   ```
+//   P = [5 V] I -> mW                    // code blocks show every step
+//   ```
+//   #solve("Q0/2 = I t", unit: "h")      // or as calls: def, solve, val, definitions, graph, lambdify
 
 #import "src/api.typ": def, solve, solve-block
 #import "src/core.typ": solve-config, val, reset

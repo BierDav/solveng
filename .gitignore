@@ -6,3 +6,4 @@ tests/scratch/
 !tests/**/ref/*.png
 tests/**/out/
 tests/**/diff/
+!docs/*.png

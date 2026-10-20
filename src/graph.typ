@@ -457,5 +457,5 @@
     make(w1, h1)
   })
   // HTML has no layout of its own for this: the graph becomes an inline SVG
-  if target() == "html" { _css(); html.elem("div", attrs: (class: "solveng-plot"), html.frame(sized)) } else { align(center, sized) }
+  if _target() == "html" { _css(); html.elem("div", attrs: (class: "solveng-plot"), html.frame(sized)) } else { align(center, sized) }
 })

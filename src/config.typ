@@ -1,6 +1,8 @@
 // Options, their checks, and the two states: definitions and options.
 
 #let _st = state("solveng", (:))
+// the export target; Typst 0.14 only knows target() with --features html, else it is paged
+#let _target() = if "target" in dictionary(std) { std.target() } else { "paged" }
 // ---------- configuration: #solve-config(..) globally, #solve-config(..)[..] / #show: solve-config.with(..) scoped, or per call ----------
 #let _DEF = (
   // numbers

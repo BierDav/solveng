@@ -51,12 +51,12 @@ div.solveng-error { border-left: 3px solid #b3261e; padding: 0.4em 0.7em; margin
 // math block or inline; in HTML a spaced, scrollable block
 #let _eqn(body, cf) = {
   let e = math.equation(block: cf.block, body)
-  if cf.block and target() == "html" { _css(); html.elem("div", attrs: (class: "solveng"), e) } else { e }
+  if cf.block and _target() == "html" { _css(); html.elem("div", attrs: (class: "solveng"), e) } else { e }
 }
 // problems are shown where they happen (solve-config(errors: "panic") stops instead)
 #let _errc(msg, cf, wide: false) = {
   if cf.at("errors", default: "document") == "panic" { panic("solveng: " + msg) }
-  if target() == "html" {
+  if _target() == "html" {
     _css()
     html.elem(if wide { "div" } else { "span" }, attrs: (class: "solveng-error"), "⚠ solveng: " + msg)
   } else {
