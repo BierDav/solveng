@@ -15,7 +15,7 @@ import argparse, json, math, os, random, subprocess, sys, tempfile, collections
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-LIB = os.path.join(os.path.dirname(HERE), "lib.typ")
+LIB = os.path.join(os.path.dirname(HERE), "src", "graph.typ")  # internals (_st, _fmt, …) live in src/
 HEAD = '#import "{lib}": *\n#set page(height: auto)\n#show: solve-config.with(errors: "panic")\n'
 
 def run(doc, typst, head=None):
