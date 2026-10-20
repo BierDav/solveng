@@ -1,16 +1,19 @@
 # solveng reference
 
+<!-- Generated from the doc comments in src/ by `python3 tests/reference.py` – edit those, not this file. -->
+
 Everything solveng does, for looking things up. For an introduction see the [README](../README.md).
 
-- [Functions](#functions)
-- [Arguments of def and solve](#arguments-of-def-and-solve)
-- [solve-block](#solve-block)
-- [defined](#defined)
+- [`def`](#def)
+- [`solve`](#solve)
+- [`solve-block`](#solve-block)
+- [`defined`](#defined)
+- [`graph`](#graph)
+- [`lambdify`](#lambdify)
+- [`reset`](#reset)
+- [Options](#options)
 - [Writing values](#writing-values)
 - [Units and variables](#units-and-variables)
-- [Options](#options)
-- [Plots](#plots)
-- [lambdify](#lambdify)
 - [Errors](#errors)
 - [HTML](#html)
 - [How it solves](#how-it-solves)
@@ -19,83 +22,102 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 
 ## Functions
 
-| call | does |
+| function | does |
 |---|---|
-| `#def("R = 7.2 kOhm")`, `#def("R = 7.2 kOhm", $I = 30 "mA"$)` | define values (silent) |
-| `#def("U = R I")` | define from other values (computed, silent) |
-| `#def("f(x) = x^2 + 1")`, `#def("g(a, b) = a b + b")` | define a function, usable in later equations: `f(3)`, `g(2, R)` |
-| `#def("Q0/2 = I t")` | an equation: its unknown is solved for and defined |
-| `#def(…, output: true)` | show what was defined (as `solve` does) |
-| `#solve(…)` | `def` that shows itself: equation ⇒ formula = numbers = result |
-| `#solve(eq, unit: "mA")` | result in a given unit (default: SI unit with automatic prefix, or the non-SI unit of the inputs like h, mAh); an error if the result has another unit |
-| `#solve("I", unit: "A")` | no `=`: just evaluate / convert → `I = 30 mA = 0.03 A`; a computed variable shows its formula with the values: `#solve("b")` → `b = ρ l/(R h) = … ≈ 1 mm` |
-| `#solve("I", unit: "A", inline: true, steps: "value")` | a value in the running text: `0.03 A` (in a solve-block also ```` ```solveng = I -> A``` ````) |
-| `#solve("f(1) = x")` | the unknowns are found on either side; if everything is known, a lone variable is recomputed |
-| `#solve("x^2 + 2x - 3 = 0")` | the unknown occurs several times → all real roots |
-| `#solve("P = U I", "U = R I")` | a system: as many equations as unknowns |
-| `#solve("R <= U/I")`, `#solve($R <= U/I$)` | an inequality (`<`, `>`, `<=`, `>=`, `≤`, `≥`): `R ≤ U/I = … ≈ 166.7 Ω`, flipped where needed (`U/R > I` ⇒ `R < U/I`). The bound is stored as R's value, `#solve("R")` shows `R ≤ 166.7 Ω`. Only one boundary (`y^2 < 4` is refused), not in systems |
-| `#solve($U = R dot I$)` | equations and values can be math too |
-| `#solve-block[ … ]` | math and code inside are calculations; definitions inside are dropped afterwards, see [solve-block](#solve-block) |
-| `#defined()` | everything defined so far, in columns side by side, see [defined](#defined) |
-| `#reset` | forget everything (in a solve-block: the block's definitions) |
-| `#solve-config(…)` | options for how results look and which units exist, see [Options](#options) |
-| `#graph("P = U^2/R", x: "U")` | a plot, see [Plots](#plots) |
-| `#context lambdify("U^2/R", "U")` | the expression as a plain Typst function, see [lambdify](#lambdify) |
+| [`def`](#def) | Defines values, functions or unknowns from equations, silently. |
+| [`solve`](#solve) | Solves equations and shows the way: equation ⇒ rearranged formula = numbers = result. |
+| [`solve-block`](#solve-block) | A scope in which math and code are calculations. |
+| [`defined`](#defined) | Lists the definitions made so far, in order. |
+| [`graph`](#graph) | Plots an equation with `simple-plot`: ranges, nice ticks, axis labels and units are picked automatically. |
+| [`lambdify`](#lambdify) | Turns an expression into a plain Typst function of numbers, for value tables, other plotting packages (lilaq, cetz-plot, simple-plot) or your own calculations. |
+| [`reset`](#reset) | Forgets every definition (values and functions) made so far. |
+| [`solve-config`](#options) | Sets options for number formatting, units and output. |
 
-Every option of `solve-config` (except `units`) can also be passed directly to `def`, `solve`, `defined` and `graph`, for that call only.
+## `def`
 
-## Arguments of def and solve
+Defines values, functions or unknowns from equations, silently.
 
-Every positional argument is an equation, as a string or math. Everything else is a named argument; each one is checked, so a typo or a value of the wrong type is reported instead of being ignored.
-
-| argument | default | |
-|---|---|---|
-| `unit` | `none` | `"mA"` (also math: `$"mA"$`) for the unknown, `(I: "mA", U: "V")` for systems |
-| `output` | `false` (`def`), `true` (`solve`) | show the definition |
-| `steps` | `auto` (option `steps`) | `"full"`: equation ⇒ formula = numbers = result · `"formula"`: without the numbers · `"result"`: `t = 57.5 h` · `"value"`: just `57.5 h` |
-| `layout` | `auto` (option `layout`) | `"row"`: all steps in one line · `"column"`: one step per line, aligned at `=` |
-| `inline` | `false` | in the running text instead of a display block; steps default to the option `inline-steps` (`"result"`) |
-| `unknown` | `none` | what to solve for (`"t"` or `("x", "y")`), needed when it isn't clear |
-| `root` | `auto` | which solution is stored: `2`, or `x => x > 0` (default: the only all-positive one, else the first) |
-| `guess` | `none` | Newton start value instead of searching: `"-1 A"`, `(U: "5 V")` |
-| `listed` | `true` | `false` hides it from `defined` |
-| `digits`, `form`, … | `auto` | any [option](#options) for this call; `auto` keeps the current setting |
+Every positional argument is an equation, as a string or as math. Several are
+defined in order; equations that can't be defined one by one are solved together
+as a system. `def` shows nothing (except problems) unless `output: true`; `solve`
+is the same with the output on.
 
 ```typ
-#import "@preview/solveng:0.1.0": *
+#def("R = 7.2 kOhm", "I = 415 uA")     // values: a number with a unit
+#def($Q_0 = 3450 "mAh"$)                // math works too
+#def("U = R I")                          // computed from defined values
+#def("f(x) = x^2 + 1")                   // a function, usable as f(3)
+#def("Q_0/2 = I t", unit: "h")           // an equation: t is solved for
+#def("x + y = 3", "x - y = 1")           // a system
+```
+
+Inside an equation `[5 V]` is a value and `@R` inlines the formula of `R`.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `..eqs` | str, content |  | The equations. A single one without `=` (`"Q0/I"`) is evaluated (only useful with `output: true`). |
+| `unit` | none, str, content, dictionary | `none` | Unit of the result: `"mA"` (or math `$"mA"$`). For a system a dictionary per unknown: `(I: "mA", U: "V")`. Without it: the SI unit with an automatic prefix, or the non-SI unit of the inputs (h, mAh). If the result has another unit (`"x = f(1)"` gives volts, `unit: "A"`), that is an error. |
+| `output` | bool | `false` | Show the definition (like `solve` does). |
+| `steps` | auto, str | `auto` | What is shown: `"full"`: equation ⇒ formula = numbers = result · `"formula"`: without the numbers · `"result"`: `t = 57.5 h` · `"value"`: just `57.5 h`. `auto`: the option `steps` (default `"full"`), or `inline-steps` with `inline: true`. |
+| `layout` | auto, str | `auto` | `"row"`: all steps in one line · `"column"`: one step per line, aligned at `=`. `auto`: the option `layout` (default `"row"`). |
+| `inline` | bool | `false` | In the running text instead of a display block; `steps` default to `inline-steps` (`"result"`). |
+| `unknown` | none, str, array | `none` | What to solve for, `"t"` or `("x", "y")`. Only needed when it isn't clear; by default all variables that aren't defined yet are the unknowns (one per equation). If everything is defined, a lone variable on either side is recomputed. |
+| `root` | auto, int, function | `auto` | Which solution is stored when there are several: `2` (1-based), or a test like `x => x > 0` (for systems it gets a dictionary). `auto`: the only all-positive one, else the first. |
+| `guess` | none, str, content, int, float, dictionary | `none` | Newton start value instead of the search: `"-1 A"`, or `(U: "5 V")` for systems. |
+| `listed` | bool | `true` | `false` hides it from `defined`. |
+| `digits`, `separator`, … | auto | `auto` | Any [option](#options) for this call; `auto` keeps the current setting. |
+
+Returns content.
+
+## `solve`
+
+Solves equations and shows the way: equation ⇒ rearranged formula = numbers = result.
+
+Solves for all unknowns, i.e. all variables that aren't defined yet (one unknown per
+equation), and stores the results like `def`. The unknown can be on either side,
+also inside a function call. If the unknown occurs once it is isolated symbolically;
+polynomials give all real roots; anything else is solved numerically.
+
+```typ
 #def("Q0 = 3450 mAh", "I = 30 mA")
-Runtime: #solve("Q0/I", unit: "h", inline: true, steps: "value")      // Runtime: 115 h
-#solve("Q0/2 = I t", unit: "h", layout: "column", steps: "formula")
+#solve("Q0/2 = I t", unit: "h")          // Q₀/2 = I t ⇒ t = Q₀/(2I) = … = 57.5 h
+#solve("I", unit: "A")                    // no '=': convert, I = 30 mA = 0.03 A
+#solve("x^2 + 2x - 3 = 0")                // all real roots
+#def("P1 = 2 W", "R1 = 50 Ω")
+#solve("P1 = U1 I1", "U1 = R1 I1")        // a system
+Runtime: #solve("Q0/I", unit: "h", inline: true, steps: "value")   // 115 h
+#solve("Q0/4 = I t2", unit: "h", layout: "column", steps: "formula")
 ```
 
-Options passed to `def` stick to the defined value, so `defined` shows it the same way.
+| parameter | type | default | |
+|---|---|---|---|
+| `..eqs` | str, content |  | The equations (or a single expression without `=` to evaluate). |
+| `unit` | none, str, content, dictionary | `none` | Unit of the result: `"mA"` (or math `$"mA"$`). For a system a dictionary per unknown: `(I: "mA", U: "V")`. Without it: the SI unit with an automatic prefix, or the non-SI unit of the inputs (h, mAh). If the result has another unit (`"x = f(1)"` gives volts, `unit: "A"`), that is an error. |
+| `output` | bool | `true` | `false` defines silently, like `def`. |
+| `steps` | auto, str | `auto` | What is shown: `"full"`: equation ⇒ formula = numbers = result · `"formula"`: without the numbers · `"result"`: `t = 57.5 h` · `"value"`: just `57.5 h`. `auto`: the option `steps` (default `"full"`), or `inline-steps` with `inline: true`. |
+| `layout` | auto, str | `auto` | `"row"`: all steps in one line · `"column"`: one step per line, aligned at `=`. `auto`: the option `layout` (default `"row"`). |
+| `inline` | bool | `false` | In the running text instead of a display block; `steps` default to `inline-steps` (`"result"`). |
+| `unknown` | none, str, array | `none` | What to solve for, `"t"` or `("x", "y")`. Only needed when it isn't clear; by default all variables that aren't defined yet are the unknowns (one per equation). If everything is defined, a lone variable on either side is recomputed. |
+| `root` | auto, int, function | `auto` | Which solution is stored when there are several: `2` (1-based), or a test like `x => x > 0` (for systems it gets a dictionary). `auto`: the only all-positive one, else the first. |
+| `guess` | none, str, content, int, float, dictionary | `none` | Newton start value instead of the search: `"-1 A"`, or `(U: "5 V")` for systems. |
+| `listed` | bool | `true` | `false` hides it from `defined`. |
+| `digits`, `separator`, … | auto | `auto` | Any [option](#options) for this call; `auto` keeps the current setting. |
 
-Typst only allows `#set` for its built-in elements, not for functions of packages, so `#set solve(steps: "result")` isn't possible (yet). Instead:
+Returns content.
+
+## `solve-block`
+
+A scope in which math and code are calculations.
+
+`#show: solve-block` calculates the whole rest of the document; `#solve-block[…]` only its body, whose definitions are dropped at its end. How results look is set with `solve-config`, not here.
 
 ```typ
-#import "@preview/solveng:0.1.0": *
-#let solve = solve.with(steps: "result", layout: "column")   // your solve calls from here on
-#show: solve-config.with(steps: "result")                    // everything, including code in solve-block
+#show: solve-block
+The load draws $I = "30 mA"$ (#solve("I", unit: "A", steps: "value", inline: true)),
+the battery holds $Q_0 = 3450 "mAh"$, so it lasts $t = Q_0 / I$, ```solveng = t -> h```.
 ```
 
-To reuse your defaults in many documents, keep a small file of your own:
-
-```typ
-// my-defaults.typ
-#import "@preview/solveng:0.1.0": *
-#let setup = solve-config.with(digits: 3, multiplication: "times", layout: "column")
-#let solve = solve.with(steps: "formula")
-
-// in a document
-#import "my-defaults.typ": *
-#show: setup
-```
-
-## solve-block
-
-`#show: solve-block` calculates the whole rest of the document; `#solve-block[…]` only its body, whose definitions are dropped at its end. Arguments: `inherit` (see the definitions made before the block, default `false`), `equations` (read math, default `true`), `plain-code` (also calculate code without a language, default `false`) and `reset`. How results look is set with `solve-config`, not here.
-
-**Math.** Every math equation with a `=` is a definition, exactly like `#def`: `$I = "30 mA"$`, `$P = U I$`, `$Q_0/2 = I t$`. The equation stays as you wrote it; problems are shown next to it.
+**Math.** Every math equation with a `=` is a definition, exactly like `def`: `$I = "30 mA"$`, `$P = U I$`, `$Q_0/2 = I t$`. The equation stays as you wrote it; problems are shown next to it.
 
 - An inequality with exactly one unknown (`$R <= U/I$`) defines it like `#solve("R <= U/I")`; `$0 < x < 1$` and inequalities between known values stay prose.
 - Equations without `=` (`$x^2$`), derivations with `⇒`, `≈`, … (`$ Q = I t => t = Q/I $`), equations with alignment or line breaks (`$ U &= R I \ &= 6 V $`) or with embedded calls are left alone.
@@ -112,23 +134,31 @@ To reuse your defaults in many documents, keep a small file of your own:
 
 Code without a language is left alone, so code samples stay code samples; `plain-code: true` calculates it as well. Code with another language (```` ```py ````) is always left alone. The output of `def`, `solve`, `defined` and `graph` is never read as a definition again.
 
-**Starting over.** `reset` starts over at every match:
+**Starting over.** `reset` starts over at every match; `#reset` inside a solve-block does the same once: back to how the block started (with `inherit: true` the outer definitions stay). After the block the outer definitions come back.
 
 ```typ
-#import "@preview/solveng:0.1.0": *
 #show: solve-block.with(reset: heading)                    // every heading
 #show: solve-block.with(reset: heading.where(level: 1))    // only top-level ones
 #show: solve-block.with(reset: heading, inherit: true)     // keep the definitions made before the block
 ```
 
-`#reset` inside a solve-block does the same: back to how the block started (with `inherit: true` the outer definitions stay); after the block the outer ones come back.
+| parameter | type | default | |
+|---|---|---|---|
+| `..body` | content |  | The content. |
+| `inherit` | bool | `false` | See the definitions made before the block (also after each `reset`). |
+| `equations` | bool | `true` | Read math equations as definitions. `false` leaves math alone. |
+| `plain-code` | bool | `false` | Also evaluate code without a language (```` ``` ```` blocks and `` `inline` `` code), not only code tagged `solveng`. |
+| `reset` | none, function, selector | `none` | Start over at every match, e.g. `heading` (every heading) or `heading.where(level: 1)`: the definitions made since are forgotten, like `#reset`. |
 
-## defined
+Returns content.
+
+## `defined`
+
+Lists the definitions made so far, in order.
 
 ```typ
-#import "@preview/solveng:0.1.0": *
 #def("R = 7.2 kOhm", "U = 5 V", "I = U/R", "f(x) = x^2")
-#defined()                                          // everything
+#defined()                                          // everything, in columns side by side
 #defined(included: "given")                         // only plain values (also "computed", "function")
 #defined(excluded: ("U", "function"))               // names and kinds
 #defined(included: regex("^R"), style: "column")    // a regex, or a function name => bool
@@ -142,12 +172,198 @@ Styles (`style:` here, option `defined-style` for all of them):
 - `"inline"`: comma separated in the text.
 - `"list"`: bullets.
 
-`include` is a Typst keyword, hence `included` / `excluded`. Both take `"all"`, a kind, a name, a regex, a function or an array of these; `excluded` wins.
+`included` / `excluded` take `"all"`, a kind (`"given"`: plain values, `"computed"`, `"function"`), a name, a regex, a function `name => bool` or an array of these; `excluded` wins. (`include` is a Typst keyword, hence the names.)
+
+| parameter | type | default | |
+|---|---|---|---|
+| `included` | str, regex, function, array | `"all"` | What to list. Default `"all"`. |
+| `excluded` | none, str, regex, function, array | `none` | What to leave out. |
+| `style` | auto, str | `auto` | `"grid"`, `"column"`, `"inline"` or `"list"`, see above. `auto`: the option `defined-style` (default `"grid"`). |
+| `digits`, `separator`, `form`, … | auto | `auto` | Every option of `solve-config` (except `units`) works here too, for this call only. See [Options](#options). |
+| `digits`, `separator`, … | auto | `auto` | Any [option](#options) for this call; `auto` keeps the current setting. |
+
+Returns content.
+
+## `graph`
+
+Plots an equation with `simple-plot`: ranges, nice ticks, axis labels and units are picked automatically.
+
+Every positional string or math is a curve: `y = …` gives one curve (named `y` in the
+legend) and marks the stored point with guide lines; other equations draw both sides
+and mark the intersections. `xrange:` / `yrange:` list values that must be visible;
+without them the x range is picked around the marks, else around the interesting part
+(roots, extrema, poles, intersections). Marked values are always visible too.
+
+```typ
+#def("R = 50 Ω", "P0 = 2 W")
+#solve("P0 = U^2/R")
+#graph("P = U^2/R", x: "U")                                // 0…2·U, the solved point marked
+#graph("P = U^2/R", x: "R", xrange: ("10 Ω", "1 kΩ"))
+#graph("cos(w) = w")                                       // range picked, intersection marked
+#graph("y = x^2", "y = 2x + 3", xrange: (-3, 5))           // several curves
+#graph("P = U^2/R", x: "R", xrange: (0, "2 R"), mark: ("R", "extrema"))
+#graph("P = U^2/R", x: "R", ymark: "P0")                  // where P reaches P0
+```
+
+Uses `@preview/simple-plot:1.1.0`. Ticks use the document's decimal separator, axis labels read `U / V`; curves of the same unit share one graph, with a legend.
+
+**Ranges:** values and expressions in `xrange` / `yrange` must have the axis unit (`$f(20) Omega$` and `"f(20) Ω"` are fine) – `xrange: ("10 Ω", "f(20)")` with a unitless `f(20)` is an error, since it isn't clear what was meant. Without a range: if x is defined, 0…2·x with the solved point marked; else around the marks; else around what's interesting – roots, extrema, poles, edges of the domain (√, ln) and, above all, where curves cross – rounded to nice ticks, starting at 0 when everything interesting is positive. With `ymark`, the y range is around the marked values (steep curves leave the picture). If x has no unit yet, it follows from the curve and the units of the y values (`P = U0^2/R2` with `ymark: "2 W"`: R₂ in Ω).
+
+**Marks** are always visible – the ranges grow to show them. Combine them in an array, `(auto, "R1")`; `mark: ()` marks nothing.
+
+**Size:** `width` / `height` are the whole graph, labels included; `auto` makes the plot area 8 × 5 cm. Any other named argument goes straight to simple-plot's `plot` (e.g. `show-grid: false`), other positional ones (series from simple-plot) are added as they are. For full control, plot with simple-plot directly.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `..args` | str, content, any |  | The curves (equations or expressions) and options passed on to simple-plot's `plot` (e.g. `show-grid: false`); other positional ones are added as series. |
+| `x` | auto, str | `auto` | The x variable. `auto`: the only variable that isn't defined. |
+| `xrange` | auto, array, str, content, int, float | `auto` | x values that must be visible: numbers in `xunit` (`(1, 2)`), values (`("10 Ω", "1 kΩ")`) or expressions of defined variables (`(0, "2 R")`, math works too). Two or more give the range from the smallest to the largest; a single one widens the picked range. `auto`: 0…2·x if x is defined, else around the marked x values, else picked from the curves. |
+| `yrange` | auto, array, str, content, int, float | `auto` | y values that must be visible, like `xrange` (numbers in `yunit`). Two or more give the exact y range. `auto`: fitted to the curves. |
+| `xunit` | auto, str, content | `auto` | Unit of the x axis. `auto`: from the range or the variable. |
+| `yunit` | auto, str, content | `auto` | Unit of the y axis. `auto`: SI unit with a fitting prefix. |
+| `mark` | auto, none, array, str, content, int, float | `auto` | What to mark, with both coordinates written on the axes: x values like `xrange` (`"R"`, `2`, `"5 V"`; a point with guide lines on every curve, the range grows to show it), `"crossings"`, `"roots"`, `"extrema"` (searched within the range) and `auto`: the solved point or where the two sides cross. An array combines them: `(auto, "R1")`. `()` or `none`: no marks. |
+| `xmark` | none, array, str, content, int, float | `()` | Like `mark`, but only the x value is written on the axis. |
+| `ymark` | none, array, str, content, int, float | `()` | y values to mark, like `yrange`: every point where a curve reaches one, with guide lines; the value is written on the y axis. |
+| `samples` | int | `400` | Number of sample points. |
+| `width` | auto, length, ratio, relative | `auto` | Width of the whole graph, labels included: `12cm`, `300pt` or a share like `100%`. `auto`: a plot area of 8 cm. |
+| `height` | auto, length, ratio, relative | `auto` | Like `width`; `auto`: a plot area of 5 cm. A share is of the container's height, or of the width when the page grows with its content. |
+| `colors` | array, color | `(blue, red.darken(10%), green.darken(25%), orange.darken(10%))` | Colors of the curves, e.g. `(gray, blue, rgb("#f98eff"))`. |
+| `digits`, `separator`, `form`, … | auto | `auto` | Every option of `solve-config` (except `units`) works here too, for this call only. See [Options](#options). |
+
+Returns content.
+
+## `lambdify`
+
+Turns an expression into a plain Typst function of numbers, for value tables,
+other plotting packages (lilaq, cetz-plot, simple-plot) or your own calculations.
+Defined variables and functions are used with their current values. Needs `context`.
+
+```typ
+#def("R = 50 Ω")
+#context {
+  let P = lambdify("U^2/R", "U", unit: "W", units: (U: "V"))
+  table(columns: 2, ..range(1, 6).map(u => ([#u V], [#P(u) W])).flatten())
+}
+```
+
+The function takes one argument per parameter: a number (in the unit given in
+`units`, else in the SI unit) or a value like `"5 V"`. It returns a float in
+`unit` (else in the SI unit), or `none` where the expression isn't defined
+(`sqrt(-1)`, division by zero).
+
+Unlike the other functions, problems stop the compilation here, since the
+result is a function and not content.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `expr` | str, content |  | The expression, using defined variables and the parameters: `"U^2/R"` or `$U^2 / R$`. |
+| `..params` | str |  | The parameters in order, e.g. `"U"` or `"U", "R"`. A defined variable as a parameter is replaced by the argument. Without any: the undefined variables of the expression, in the order they appear. |
+| `unit` | none, str, content | `none` | Unit of the result, e.g. `"W"`. Checked against the expression when all parameters have units. |
+| `digits`, `separator`, … | auto | `auto` | Any [option](#options) for this call; `auto` keeps the current setting. |
+
+Returns function.
+
+## `reset`
+
+Forgets every definition (values and functions) made so far. Inside a `solve-block`:
+back to how the block started (with `inherit: true` the outer definitions stay).
+
+```typ
+#def("I = 30 mA")
+#reset
+#def("I = 1 A")
+```
+
+## Options
+
+`solve-config` – Sets options for number formatting, units and output.
+
+Without a body the options apply from here on; with a body only inside it. Every option defaults to `auto`, which keeps the current setting, so only what you pass changes. Every option except `units` can also be passed directly to `def`, `solve`, `defined` and `graph`, for that call only. Unknown options and values of the wrong type are shown as an error in the document.
+
+```typ
+#show: solve-config.with(digits: 3, form: "fraction")   // your defaults: at the top of the document
+#solve-config(layout: "column")                          // from here on, definitions are kept
+#solve-config(steps: "result")[ … ]                      // only inside the brackets
+#def("U = 5 V", "I = 30 mA")
+#solve("R = U/I", digits: 2)                             // only this call
+#let opts = (digits: 2, separator: ",")
+#solve("P = U I", ..opts)                                // options kept in a dictionary
+```
+
+`form`:
+
+- `"auto"`: plain numbers as typed (`7.20 kΩ` keeps its zero), arithmetic evaluated (`3450/2 mAh` → 1725 mAh), results rounded to `digits`.
+- `"decimal"`: everything rounded to `digits`, including what you typed.
+- `"fraction"`: exact fractions, simplified (`$frac(2, 4)"A"$` → ½ A, `I/3` → ⅙ A); values that are no fraction with denominator ≤ `max-denominator` fall back to decimals.
+- `"input"`: given values exactly as typed (`3450/2 mAh` stays a fraction).
+
+An explicit unit (`#solve(eq, unit: "mA")`) always wins, then `preferred-units`, then the non-SI unit of the inputs (h, mAh, bar), then the SI unit with a prefix.
+
+Typst only allows `#set` for its built-in elements, not for functions of packages, so `#set solve(steps: "result")` isn't possible (yet). Instead, `#let solve = solve.with(steps: "result")` changes your `solve` calls, `#show: solve-config.with(steps: "result")` everything, including code in a solve-block. To reuse your defaults in many documents, keep a small file of your own:
+
+```typ
+// my-defaults.typ
+#import "@preview/solveng:0.1.0": *
+#let setup = solve-config.with(digits: 3, multiplication: "times", layout: "column")
+#let solve = solve.with(steps: "formula")
+
+// in a document
+#import "my-defaults.typ": *
+#show: setup
+```
+
+### Numbers
+
+| option | type | default | |
+|---|---|---|---|
+| `digits` | auto, int | `4` | Significant digits of computed values, 1…15. e.g. `57.5 h`, `123500`. |
+| `trailing-zeros` | auto, bool | `false` | Keep trailing zeros up to `digits` (`2.500 V`). |
+| `separator` | auto, str | `auto` | Decimal separator, any string like `","`. `auto` (default): from the document language, `,` for de, fr, it, … and `.` otherwise. |
+| `grouping` | auto, none, str, symbol, content | `none` | Digit grouping for integer parts with 5+ digits, e.g. `sym.space.thin` → `12 345`. |
+| `scientific` | auto, none, array | `(-3, 6)` | `(low, high)`: plain notation while the exponent `e` is in `low ≤ e < high`, else `2.5 · 10⁻⁷`. `none` never switches. |
+| `engineering` | auto, bool | `false` | Engineering notation, exponents in steps of 3. |
+| `multiplication` | auto, str | `"dot"` | `"dot"` (default, `2 · 10⁶`) or `"times"` (`2 × 10⁶`). |
+| `form` | auto, str | `"auto"` | How values are written. `"auto"` (default): as typed, results rounded · `"decimal"`: everything rounded to `digits` · `"fraction"`: exact fractions (`⅙ A`) · `"input"`: given values exactly as typed. |
+| `max-denominator` | auto, int | `1000` | Largest denominator for `form: "fraction"`. |
+| `fractions` | auto, str | `"stacked"` | How fractions are written: `"stacked"` (default) or `"slash"` (`1/2`). |
+
+### Units
+
+| option | type | default | |
+|---|---|---|---|
+| `prefixes` | auto, str, none, array | `"all"` | Prefixes picked for results: `"all"` (default: a f p n µ m k M G T; times from a minute on in min or h, not ks), `none` (base unit only) or an array like `("m", "k")` (`"u"` = µ). |
+| `show-si` | auto, bool | `false` | `defined` also shows the SI value (`Q₀ = 3450 mAh = 12420 C`). |
+| `units` | auto, dictionary | `(:)` | Your own units, defined by a value in known units: `(bar: "100 kPa", rpm: "1/min")`; `none` removes one, `(T: none)`. Adds to the units set before. Only here, not per call. |
+| `preferred-units` | auto, str, array | `()` | Units for results of their dimension, `("bar", "kWh")`, before the unit of the inputs and the SI unit. |
+| `strict` | auto, bool | `false` | Unit names can't be variable names, and units in math must be quoted (`$5 "V"$`), see [Units and variables](#units-and-variables). |
+
+### Output
+
+| option | type | default | |
+|---|---|---|---|
+| `steps` | auto, str | `"full"` | Default for `steps` of `solve`: `"full"` (default), `"formula"`, `"result"` or `"value"`. |
+| `inline-steps` | auto, str | `"result"` | Steps for `inline: true` and inline code: `"full"`, `"formula"`, `"result"` (default) or `"value"`. |
+| `layout` | auto, str | `"row"` | Default for `layout` of `solve`: `"row"` (default) or `"column"`. |
+| `implies` | auto, content, symbol, str | `sym.arrow.r.double` | What is written between steps, e.g. `sym.arrow.r.long` or `[and]`; ⇒ by default. |
+| `approximate` | auto, bool | `true` | Write `≈` when the shown result is rounded. |
+| `block` | auto, bool | `true` | Display equations (centred, default) or inline. |
+| `max-solutions` | auto, int | `6` | How many solutions are listed; all are found, `root` picks among all. |
+
+### Output of defined
+
+| option | type | default | |
+|---|---|---|---|
+| `defined-style` | auto, str | `"grid"` | How `defined` looks: `"grid"` (default: columns side by side, aligned at `=`), `"column"`, `"inline"` or `"list"`. |
+
+### Problems
+
+| option | type | default | |
+|---|---|---|---|
+| `errors` | auto, str | `"document"` | `"document"` (default): problems are shown as red notes · `"panic"`: stop the compilation. |
 
 ## Writing values
 
 ```typ
-#import "@preview/solveng:0.1.0": *
 #def("R = 4.7 kOhm")                // strings: name = number + unit ("I = 30mA" works without the space too)
 #def($R_1 = 4.7 "k"Omega$)          // math content
 #def($I = frac(2, 4) "A"$, "Q0 = 3450/2 mAh", "U = (1+2)*1,5 V", "A = 2^3 m^2")  // arithmetic in the number
@@ -171,7 +387,6 @@ Many engineering symbols are also units: `A` (area, ampere), `V` (volume, volt),
 - **Unclear is an error:** a value whose unit is also a defined variable (`"t = 3 h"` with `h` defined, `"f = 1/T"` with `T` defined) is refused, with a hint how to write either meaning: `[3 h]` for hours, `3*h` or `1/(T)` for the variable.
 
 ```typ
-#import "@preview/solveng:0.1.0": *
 #def("A = 12")
 #solve("x = A [A]")                  // x = A · A = 12 · A = 12 A
 #solve("y = A A", unit: "A")         // error: the result has unit 1, not A – 'A' is read as a variable here; …
@@ -185,126 +400,10 @@ For documents where nothing may be read two ways, `#solve-config(strict: true)` 
 The available units can be changed with the option `units`: new units are defined by a value, `none` removes one (which frees its name, e.g. `T` for a period that is then never read as tesla):
 
 ```typ
-#import "@preview/solveng:0.1.0": *
 #solve-config(units: (bar: "100 kPa", rpm: "1/min", t: "1000 kg", T: none))
 #def("p = 3 bar", "n = 3000 rpm")              // prefixes work too: mbar, kbar
 #solve-config(preferred-units: ("bar", "kWh"))  // results with these dimensions are shown in these units
 ```
-
-## Options
-
-Every option can be set for the rest of the document, for a part, or for one call; `auto` keeps the current setting:
-
-```typ
-#import "@preview/solveng:0.1.0": *
-#show: solve-config.with(digits: 3, form: "fraction")   // your defaults: at the top of the document
-#solve-config(layout: "column")                          // from here on, definitions are kept
-#solve-config(steps: "result")[ … ]                      // only inside the brackets
-#def("U = 5 V", "I = 30 mA")
-#solve("R = U/I", digits: 2)                             // only this call; also on defined and graph
-```
-
-Options can be kept in a dictionary and spread into any call: `#let opts = (digits: 2, separator: ",")`, then `#solve("R = U/I", ..opts)`.
-
-### Numbers
-
-| option | default | values | effect |
-|---|---|---|---|
-| `digits` | `4` | 1…15 | significant digits of computed values (`57.5 h`, `123500` instead of `123456`) |
-| `trailing-zeros` | `false` | bool | keep trailing zeros up to `digits` (`2.500 V`) |
-| `separator` | `auto` | `auto`, `","`, `"."`, any string | decimal separator; `auto` is `,` for de, fr, it, es, pt, nl, ru, pl, cs, … and `.` otherwise |
-| `grouping` | `none` | `none`, `" "`, `sym.space.thin`, `"'"`, … | digit grouping for integer parts with 5+ digits (`12 345.678`) |
-| `scientific` | `(-3, 6)` | `(low, high)` or `none` | plain notation while the exponent is in `low ≤ e < high`, else `2.5 · 10⁻⁷`; `none` never switches |
-| `engineering` | `false` | bool | engineering notation: exponents in steps of 3 |
-| `multiplication` | `"dot"` | `"dot"`, `"times"` | `2 · 10⁶` or `2 × 10⁶` |
-| `form` | `"auto"` | see below | how values are written |
-| `max-denominator` | `1000` | int | largest denominator for `form: "fraction"` |
-| `fractions` | `"stacked"` | `"stacked"`, `"slash"` | fractions stacked or as `1/2` |
-
-`form`:
-
-- `"auto"`: plain numbers as typed (`7.20 kΩ` keeps its zero), arithmetic evaluated (`3450/2 mAh` → 1725 mAh), results rounded to `digits`.
-- `"decimal"`: everything rounded to `digits`, including what you typed.
-- `"fraction"`: exact fractions, simplified (`$frac(2, 4)"A"$` → ½ A, `I/3` → ⅙ A); values that are no fraction with denominator ≤ `max-denominator` fall back to decimals.
-- `"input"`: given values exactly as typed (`3450/2 mAh` stays a fraction).
-
-### Units
-
-| option | default | values | effect |
-|---|---|---|---|
-| `prefixes` | `"all"` | `"all"`, `none`, array like `("m", "k")` | prefixes picked for results: `"all"` uses a f p n µ m k M G T (times from a minute on in min or h instead of ks), `none` keeps the base unit (`0.0005 A` or `5 · 10⁻⁴ A`), an array allows only those (`"u"` = µ; `"c"`, `"d"` are allowed too) |
-| `show-si` | `false` | bool | `defined` also shows the SI value: `Q₀ = 3450 mAh = 12420 C` |
-| `units` | `(:)` | dictionary | your own units, `(bar: "100 kPa", rpm: "1/min")`, defined by a value in known units; `none` removes a unit, `(T: none)`. Adds to the units set before. Only in `solve-config`, not per call |
-| `preferred-units` | `()` | array of units | units for results of their dimension, `("bar", "kWh")`, before the unit of the inputs and the SI unit |
-| `strict` | `false` | bool | unit names can't be variable names, and units in math must be quoted (`$5 "V"$`), see [Units and variables](#units-and-variables) |
-
-An explicit unit (`#solve(eq, unit: "mA")`) always wins, then `preferred-units`, then the non-SI unit of the inputs (h, mAh, bar), then the SI unit with a prefix.
-
-### Output
-
-| option | default | values | effect |
-|---|---|---|---|
-| `steps` | `"full"` | `"full"`, `"formula"`, `"result"`, `"value"` | default for `steps:` of `def` / `solve` and code blocks |
-| `inline-steps` | `"result"` | same | steps for `inline: true` and inline code |
-| `layout` | `"row"` | `"row"`, `"column"` | default for `layout:` |
-| `implies` | `sym.arrow.r.double` | any content | the ⇒ between steps (e.g. `sym.arrow.r.long`, `[and]`) |
-| `approximate` | `true` | bool | `≈` when the shown result is rounded; `false` always writes `=` |
-| `block` | `true` | bool | display equations (centred) or inline |
-| `max-solutions` | `6` | int | how many solutions are listed (all are found; `root:` picks among all) |
-| `defined-style` | `"grid"` | `"grid"`, `"column"`, `"inline"`, `"list"` | how `defined` looks, see [defined](#defined) |
-| `errors` | `"document"` | `"document"`, `"panic"` | show problems in the document, or stop |
-
-## Plots
-
-Uses `@preview/simple-plot:1.1.0`.
-
-```typ
-#import "@preview/solveng:0.1.0": *
-#def("R = 50 Ω", "P0 = 2 W")
-#solve("P0 = U^2/R")
-#graph("P = U^2/R", x: "U")                                // range 0…2·U, solved point marked with guide lines
-#graph("P = U^2/R", x: "R", xrange: ("10 Ω", "1 kΩ"))     // the x range
-#graph("cos(w) = w")                                       // both sides as curves, intersection marked, range picked
-#graph("y = x^2", "y = 2x + 3", colors: (gray, blue))      // several curves in one graph
-#graph("P = U^2/R", x: "R", xrange: (0, "2 R"), mark: ("R", "extrema"))
-#graph("P = U^2/R", x: "R", ymark: "P0")                   // where P reaches P0
-#def("v0 = 2 m/s", "a = 1 m/s^2")
-#graph("s = v0 t + a/2 t^2", xrange: ("-6 s", "3 s"), width: 100%, height: 6cm)
-```
-
-`graph` picks ranges, nice ticks (with the document's decimal separator), axis labels `U / V` and units automatically. Every positional string or math is a curve; curves of the same unit share one graph, with a legend.
-
-**Ranges:** `xrange:` / `yrange:` list values that must be visible: numbers (in `xunit` / `yunit`, else the SI unit), values like `"10 Ω"` or expressions of defined variables like `"2 R"` (math works too). Values and expressions must have the axis unit (`$f(20) Omega$` and `"f(20) Ω"` are fine) – `xrange: ("10 Ω", "f(20)")` with a unitless `f(20)` is an error, since it isn't clear what was meant. Two or more give the range from the smallest to the largest; a single one widens the picked range. Without them: if x is defined, 0…2·x with the solved point marked; else around the marks; else around what's interesting – roots, extrema, poles, edges of the domain (√, ln) and, above all, where curves cross – rounded to nice ticks, starting at 0 when everything interesting is positive. With `ymark`, the y range is around the marked values (steep curves leave the picture). If x has no unit yet, it follows from the curve and the units of the y values (`P = U0^2/R2` with `ymark: "2 W"`: R₂ in Ω).
-
-**Marks** are always visible – the ranges grow to show them:
-
-- `mark:` x values like in `xrange` (a point with guide lines on every curve), `"crossings"`, `"roots"`, `"extrema"` (searched within the range), or `auto` (default: the solved point, or where both sides of an equation cross). Both coordinates of the points are written on the axes.
-- `xmark:` the same, but only the x value is written on the axis.
-- `ymark:` y values: every point where a curve reaches one; the value is written on the y axis.
-
-Combine them in an array, `(auto, "R1")`; `mark: ()` marks nothing.
-
-**Size:** `width:` / `height:` are the size of the whole graph, labels included: a length like `12cm` or `300pt`, or a share like `100%` (a share of the height is of the container, or of the width when the page grows with its content). `auto` (default) makes the plot area 8 × 5 cm.
-
-**Other arguments:** `x:` (the x variable; default the only undefined one), `xunit:` / `yunit:`, `samples:` (default 400), `colors:` (a color or an array with parentheses: `(gray, blue, rgb("#f98eff"))`), and any [option](#options). Any other named argument goes straight to simple-plot's `plot` (e.g. `show-grid: false`), other positional ones (series from simple-plot) are added as they are. For full control, plot with simple-plot directly.
-
-## lambdify
-
-`lambdify` turns an expression into a plain Typst function of numbers – for value tables, other plotting packages or your own code. It uses the current values of defined variables, so it needs `context`:
-
-```typ
-#import "@preview/solveng:0.1.0": *
-#def("R = 50 Ω")
-#context {
-  let P = lambdify("U^2/R", "U", unit: "W", units: (U: "V"))
-  table(columns: 2, ..range(1, 6).map(u => ([#u V], [#P(u) W])).flatten())
-}
-```
-
-- parameters: the names after the expression, in order (`"U", "R"`; a defined variable is replaced by the argument). Without any: the undefined variables, in the order they appear.
-- arguments: numbers in the unit from `units` (else SI), or values like `"5 V"`.
-- result: a float in `unit` (else SI), or `none` where the expression isn't defined (`sqrt(-1)`, `1/0`).
-- Problems stop the compilation here, since the result is a function, not content.
 
 ## Errors
 
@@ -320,11 +419,11 @@ With `typst compile --features html --format html`, equations become MathML, `de
 
 ## How it solves
 
-If the unknown occurs once it is isolated symbolically (with substitution shown). Equations linear in it are solved symbolically too. Polynomials → all real roots (any degree). Anything else → numeric search over ±10⁻¹⁵…10¹⁵ (times the target unit): sign changes are bisected and Newton starts from every local minimum of |f|. Systems: equations with a single unknown are solved symbolically first, the rest by damped Newton from 33 starts. Units of unknowns are inferred from the equations; mismatched units stop with an error.
+If the unknown occurs once it is isolated symbolically (with substitution shown). Equations linear in it are solved symbolically too. Polynomials → all real roots (any degree). Anything else → numeric search over ±10⁻¹⁵…10¹⁵ (times the target unit): sign changes are bisected and Newton starts from every local minimum of the absolute value. Systems: equations with a single unknown are solved symbolically first, the rest by damped Newton from 33 starts. Units of unknowns are inferred from the equations; mismatched units stop with an error.
 
 ## Limits
 
-Found by the [fuzzer](../tests/fuzz.py) (random equations, quantities, options and hostile inputs checked against Python):
+Found by the fuzzer (`tests/fuzz.py`: random equations, quantities, options and hostile inputs checked against Python):
 
 - **Numbers** are 64-bit floats: about 15 significant digits, magnitudes up to 10³⁰⁰. Results that underflow show as 0 (`ln(x) = -800`).
 - **Isolating** `x^2 = 4` or `sqrt` gives only the positive root, periodic functions only the principal value (`tan(x) = 1` → `atan(1)`). Pass `root:` or `guess:` to use the numeric search, which finds the others.
@@ -336,23 +435,18 @@ Found by the [fuzzer](../tests/fuzz.py) (random equations, quantities, options a
 - **Prefixes:** a lone `m` before a unit is metre: `"m s"`, `$"m" Omega$` are m·s and Ω·m; write `"ms"`, `$"m"Omega$` for milli.
 - **Functions** are expanded where they are used (no recursion); `f(x) = 9` with an existing `f` is an equation, not a new definition.
 - **Math in solve-block:** every equation with `=` is evaluated, also ones meant as plain text (`$a^2 + b^2 = c^2$` with unknown a, b, c is an error). Put those outside the block or use `equations: false`.
-- **`#set solve(…)`** is not possible in Typst; use `solve.with(…)` or `solve-config` (see [Arguments of def and solve](#arguments-of-def-and-solve)).
 
 ## Testing
 
-The tests use [tytanic](https://github.com/typst-community/tytanic) (`cargo install tytanic`):
+The tests use [tytanic](https://github.com/typst-community/tytanic) (`cargo install tytanic`); the scripts need Python 3 and `typst` on the `PATH`:
 
 ```sh
 tt run                                        # units, solving, lambdify and the README examples (reference images)
 tt update readme                              # accept changed output of the README examples
 python3 tests/examples.py                     # every example in README.md and docs/reference.md compiles on its own
-```
-
-The fuzzer checks random inputs against Python:
-
-```sh
-python3 tests/fuzz.py                         # every category, 300 cases each
+python3 tests/reference.py                    # docs/reference.md from the doc comments in src/ (--check: is it up to date?)
+python3 tests/fuzz.py                         # random inputs checked against Python, every category, 300 cases each
 python3 tests/fuzz.py -n 2000 -c solve1 --seed 7 --save /tmp/fails
 ```
 
-Categories: `parse` (quantities and math content), `solve1` (random nonlinear equations), `poly`, `system`, `units` (physics formulas with random prefixes), `edge` (hostile inputs must be refused or solved right), `edge-doc` (the same inputs must never stop the compilation), `format`, `ratio`, `display` (random options must never crash). Both need `typst` on the `PATH` (`--typst …` for the fuzzer, `TYPST=…` for the examples pick another one, e.g. the oldest supported version) and report wrong results and crashes with the document that caused them.
+Fuzzer categories: `parse` (quantities and math content), `solve1` (random nonlinear equations), `poly`, `system`, `units` (physics formulas with random prefixes), `edge` (hostile inputs must be refused or solved right), `edge-doc` (the same inputs must never stop the compilation), `format`, `ratio`, `display` (random options must never crash). `--typst …` (fuzzer) and `TYPST=…` (examples) pick another compiler, e.g. the oldest supported version.

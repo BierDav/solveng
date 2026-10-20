@@ -4,19 +4,26 @@
 /// Lists the definitions made so far, in order.
 ///
 /// ```typ
+/// #def("R = 7.2 kOhm", "U = 5 V", "I = U/R", "f(x) = x^2")
 /// #defined()                                          // everything, in columns side by side
-/// #defined(included: "given")                         // only plain values
+/// #defined(included: "given")                         // only plain values (also "computed", "function")
 /// #defined(excluded: ("U", "function"))               // names and kinds
-/// #defined(included: regex("^R"), style: "column")    // one column aligned at '='
+/// #defined(included: regex("^R"), style: "column")    // a regex, or a function name => bool
+/// #defined(show-si: true, digits: 3)                  // any option, for this list only
 /// ```
 ///
-/// `included` / `excluded` take `"all"`, a kind (`"given"`: plain values, `"computed"`,
-/// `"function"`), a name, a regex, a function `name => bool` or an array of these;
-/// `excluded` wins. (`include` is a Typst keyword, hence the names.)
+/// Styles (`style:` here, option `defined-style` for all of them):
+///
+/// - `"grid"` (default): as many columns side by side as fit, filled top to bottom, each aligned at `=`. In HTML the columns reflow with the window width.
+/// - `"column"`: one column aligned at `=` (in HTML a table).
+/// - `"inline"`: comma separated in the text.
+/// - `"list"`: bullets.
+///
+/// `included` / `excluded` take `"all"`, a kind (`"given"`: plain values, `"computed"`, `"function"`), a name, a regex, a function `name => bool` or an array of these; `excluded` wins. (`include` is a Typst keyword, hence the names.)
 ///
 /// - included (str, regex, function, array): What to list. Default `"all"`.
 /// - excluded (none, str, regex, function, array): What to leave out.
-/// - style (auto, str): `"grid"` (columns side by side, as many as fit, aligned at `=`; in HTML they reflow with the width), `"column"` (one aligned column, in HTML a table), `"inline"` (comma separated) or `"list"` (bullets). `auto`: the option `defined-style` (default `"grid"`).
+/// - style (auto, str): `"grid"`, `"column"`, `"inline"` or `"list"`, see above. `auto`: the option `defined-style` (default `"grid"`).
 /// - show-si (auto, bool): Also show the SI value: `Q₀ = 3450 mAh = 12420 C`.
 /// - digits, separator, form, … (auto): Every option of `solve-config` (except `units`) works here too, for this call only.
 /// -> content

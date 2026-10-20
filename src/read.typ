@@ -1,4 +1,31 @@
 // Reading math as typed: which letters are units and which are variables.
+/// ## Units and variables
+///
+/// Many engineering symbols are also units: `A` (area, ampere), `V` (volume, volt), `T` (period, tesla), `h` (height, hour), `C`, `F`, `W`, `m`, `s`, `l`, `L`, … solveng keeps them apart by *how* they are written, never by guessing:
+///
+/// - **Strings:** a unit is read only where a value is written – right after a number (`"I = 30 mA"`) or in brackets (`[5 V]`, `[A]` for one ampere). Every other name in an equation is a variable.
+/// - **Math:** quoted text is a unit (`$30 "mA"$`, `$3 "h"$` – set upright, as units should be); a bare letter is a variable if one with that name is defined (`$3 h$` with `h` defined is 3 times h, in italics), else a unit after a number (`$5 V$`).
+/// - **Unclear is an error:** a value whose unit is also a defined variable (`"t = 3 h"` with `h` defined, `"f = 1/T"` with `T` defined) is refused, with a hint how to write either meaning: `[3 h]` for hours, `3*h` or `1/(T)` for the variable.
+///
+/// ```typ
+/// #def("A = 12")
+/// #solve("x = A [A]")                  // x = A · A = 12 · A = 12 A
+/// #solve("y = A A", unit: "A")         // error: the result has unit 1, not A – 'A' is read as a variable here; …
+/// #def("T = 2 s")
+/// #def("f = 1/T")                      // error: 'T' in '1/T' is both a defined variable and a unit – …
+/// #solve("f = 1/(T)")                  // f = 1/T = 1/(2 s) = 500 mHz
+/// ```
+///
+/// For documents where nothing may be read two ways, `#solve-config(strict: true)` also refuses unit names as variable names (`A = 3 m^2` → pick `A_1`, or remove the unit) and bare units in math (`$5 V$` → `$5 "V"$`).
+///
+/// The available units can be changed with the option `units`: new units are defined by a value, `none` removes one (which frees its name, e.g. `T` for a period that is then never read as tesla):
+///
+/// ```typ
+/// #solve-config(units: (bar: "100 kPa", rpm: "1/min", t: "1000 kg", T: none))
+/// #def("p = 3 bar", "n = 3000 rpm")              // prefixes work too: mbar, kbar
+/// #solve-config(preferred-units: ("bar", "kWh"))  // results with these dimensions are shown in these units
+/// ```
+
 #import "display.typ": *
 
 // tokens like _tk, plus quoted text ("mA") as one token

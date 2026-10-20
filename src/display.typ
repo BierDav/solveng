@@ -1,4 +1,16 @@
 // Typesetting expressions, errors and HTML.
+/// ## Errors
+///
+/// Problems (an unknown unit, a missing value, units that don't match, a typo) are shown as a red note where they happen; the rest of the document still compiles:
+///
+/// > ⚠ solveng: 1 equation but 2 unknowns (Q0, t) in 'Q0/2 = I t' – define the missing values first, or pass unknown: …
+///
+/// `#show: solve-config.with(errors: "panic")` stops the compilation instead (useful in CI). Unknown named arguments of `def`, `solve`, `defined`, `graph`, `solve-config` and `solve-block` are reported the same way; those of `lambdify` stop the compilation.
+///
+/// ## HTML
+///
+/// With `typst compile --features html --format html`, equations become MathML, `defined` columns that reflow with the width (or a table with `style: "column"`), graphs inline SVGs (via `html.frame`) that shrink with the page, errors styled notes. One small stylesheet is added to the page (math font STIX Two Math / Cambria Math / Latin Modern Math, spacing, table stripes; classes `solveng`, `solveng-defs`, `solveng-list`, `solveng-plot`, `solveng-error`). HTML export is experimental in Typst; in column layout browsers drop the space after a leading `=`.
+
 #import "numeric.typ": *
 
 // ---------- display ----------

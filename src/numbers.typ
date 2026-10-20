@@ -1,4 +1,21 @@
 // Number formatting and reading quantities.
+/// ## Writing values
+///
+/// ```typ
+/// #def("R = 4.7 kOhm")                // strings: name = number + unit ("I = 30mA" works without the space too)
+/// #def($R_1 = 4.7 "k"Omega$)          // math content
+/// #def($I = frac(2, 4) "A"$, "Q0 = 3450/2 mAh", "U = (1+2)*1,5 V", "A = 2^3 m^2")  // arithmetic in the number
+/// #def("R2 = 2 R", "Z = [5 V] / I")   // [5 V] is a value inside an equation
+/// #def("U2 = R [1 mA]")
+/// #solve("Q = @U2 [2 s]")             // @U2 inlines its formula: Q = R [1 mA] [2 s]
+/// ```
+///
+/// - **Units:** SI base units (m kg s A K mol cd) and V A Ω W J C F H S Hz N Pa T Wb, min h Ah Wh As Ws eV l %, ‰, °, rad, °C (as a temperature *difference*), all SI prefixes; your own with the option `units`. Powers as `m^2`, `m²`, `s^-1`; quotients as `m/s^2`; products with spaces `kg m`.
+/// - **Typeable spellings:** `Ohm`/`ohm`/`Omega` → Ω, `u` → µ, `degC` → °C, `deg` → °. They are printed with the proper symbols (`"20 uA"` → 20 µA).
+/// - **Decimal comma:** `"7,2 V"` works; the output separator follows the document language (option `separator`).
+/// - **Names:** `Q0`→Q₀, `R_min`→R_min, `rho`→ρ, `DeltaT`→ΔT, `tol`→tol (upright). In math equations `Q_0` is a different variable than `Q0`.
+/// - **Operators:** `+ - * / ^ · ×`, implicit multiplication (`2 pi f C`), `sqrt exp ln log sin cos tan asin acos atan abs`, constants `pi e` (unless you define a variable with that name), your own functions.
+
 #import "units.typ": *
 
 // ---------- numbers ----------

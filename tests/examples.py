@@ -18,7 +18,9 @@ failed = 0
 with tempfile.TemporaryDirectory() as tmp:
     for path, line, code in [e for p in ("README.md", "docs/reference.md") for e in examples(p)]:
         # examples that import a file of their own can't stand alone
-        if IMPORT not in code or re.search(r'#import "(?!@preview/solveng)', code): continue
+        if re.search(r'#import "(?!@preview/solveng)', code): continue
+        # examples from doc comments leave the import out
+        if IMPORT not in code: code = IMPORT + "\n" + code
         shows_error = "// error" in code
         doc = code.replace(IMPORT, '#import "/lib.typ": *' + ("" if shows_error else '\n#show: solve-config.with(errors: "panic")'), 1)
         src = os.path.join(ROOT, "tests", ".example.typ")

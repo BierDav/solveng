@@ -5,17 +5,39 @@
 
 /// Sets options for number formatting, units and output.
 ///
-/// Without a body the options apply from here on; with a body only inside it.
-/// Every option defaults to `auto`, which keeps the current setting, so only
-/// what you pass changes.
+/// Without a body the options apply from here on; with a body only inside it. Every option defaults to `auto`, which keeps the current setting, so only what you pass changes. Every option except `units` can also be passed directly to `def`, `solve`, `defined` and `graph`, for that call only. Unknown options and values of the wrong type are shown as an error in the document.
 ///
 /// ```typ
-/// #show: solve-config.with(digits: 3, form: "fraction")   // defaults for the whole document
-/// #solve-config(layout: "column")                          // from here on
-/// #solve-config(steps: "result")[ … ]                      // only inside
+/// #show: solve-config.with(digits: 3, form: "fraction")   // your defaults: at the top of the document
+/// #solve-config(layout: "column")                          // from here on, definitions are kept
+/// #solve-config(steps: "result")[ … ]                      // only inside the brackets
+/// #def("U = 5 V", "I = 30 mA")
+/// #solve("R = U/I", digits: 2)                             // only this call
+/// #let opts = (digits: 2, separator: ",")
+/// #solve("P = U I", ..opts)                                // options kept in a dictionary
 /// ```
 ///
-/// Unknown options and values of the wrong type are shown as an error in the document.
+/// `form`:
+///
+/// - `"auto"`: plain numbers as typed (`7.20 kΩ` keeps its zero), arithmetic evaluated (`3450/2 mAh` → 1725 mAh), results rounded to `digits`.
+/// - `"decimal"`: everything rounded to `digits`, including what you typed.
+/// - `"fraction"`: exact fractions, simplified (`$frac(2, 4)"A"$` → ½ A, `I/3` → ⅙ A); values that are no fraction with denominator ≤ `max-denominator` fall back to decimals.
+/// - `"input"`: given values exactly as typed (`3450/2 mAh` stays a fraction).
+///
+/// An explicit unit (`#solve(eq, unit: "mA")`) always wins, then `preferred-units`, then the non-SI unit of the inputs (h, mAh, bar), then the SI unit with a prefix.
+///
+/// Typst only allows `#set` for its built-in elements, not for functions of packages, so `#set solve(steps: "result")` isn't possible (yet). Instead, `#let solve = solve.with(steps: "result")` changes your `solve` calls, `#show: solve-config.with(steps: "result")` everything, including code in a solve-block. To reuse your defaults in many documents, keep a small file of your own:
+///
+/// ```typ
+/// // my-defaults.typ
+/// #import "@preview/solveng:0.1.0": *
+/// #let setup = solve-config.with(digits: 3, multiplication: "times", layout: "column")
+/// #let solve = solve.with(steps: "formula")
+///
+/// // in a document
+/// #import "my-defaults.typ": *
+/// #show: setup
+/// ```
 ///
 /// - ..body (content): Optional: the content the options apply to.
 /// - digits (auto, int): Significant digits of computed values, 1…15. Default `4`: `57.5 h`, `123500`.
@@ -30,13 +52,16 @@
 /// - fractions (auto, str): How fractions are written: `"stacked"` (default) or `"slash"` (`1/2`).
 /// - prefixes (auto, str, none, array): Prefixes picked for results: `"all"` (default: a f p n µ m k M G T; times from a minute on in min or h, not ks), `none` (base unit only) or an array like `("m", "k")` (`"u"` = µ).
 /// - show-si (auto, bool): `defined` also shows the SI value (`Q₀ = 3450 mAh = 12420 C`). Default `false`.
+/// - units (auto, dictionary): Your own units, defined by a value in known units: `(bar: "100 kPa", rpm: "1/min")`; `none` removes one, `(T: none)`. Adds to the units set before. Only here, not per call.
+/// - preferred-units (auto, str, array): Units for results of their dimension, `("bar", "kWh")`, before the unit of the inputs and the SI unit.
+/// - strict (auto, bool): Unit names can't be variable names, and units in math must be quoted (`$5 "V"$`), see [Units and variables](#units-and-variables).
 /// - steps (auto, str): Default for `steps` of `solve`: `"full"` (default), `"formula"`, `"result"` or `"value"`.
 /// - layout (auto, str): Default for `layout` of `solve`: `"row"` (default) or `"column"`.
 /// - inline-steps (auto, str): Steps for `inline: true` and inline code: `"full"`, `"formula"`, `"result"` (default) or `"value"`.
-/// - implies (auto, content, symbol, str): What is written between steps. Default `sym.arrow.r.double` (⇒).
+/// - implies (auto, content, symbol, str): What is written between steps, e.g. `sym.arrow.r.long` or `[and]`; ⇒ by default.
 /// - approximate (auto, bool): Write `≈` when the shown result is rounded. Default `true`.
 /// - block (auto, bool): Display equations (centred, default) or inline.
-/// - max-solutions (auto, int): How many solutions are listed. Default `6`; all are found, `root` picks among all.
+/// - max-solutions (auto, int): How many solutions are listed; all are found, `root` picks among all.
 /// - defined-style (auto, str): How `defined` looks: `"grid"` (default: columns side by side, aligned at `=`), `"column"`, `"inline"` or `"list"`.
 /// - errors (auto, str): `"document"` (default): problems are shown as red notes · `"panic"`: stop the compilation.
 /// -> content
@@ -76,13 +101,15 @@
     _cf.update(c => c.at("^"))
   }
 }
-/// Forgets every definition (values and functions) made so far.
-/// Inside a `solve-block`: back to how the block started (with `inherit: true` the outer definitions stay).
+#let _restart(d) = if "^0" in d { let z = d.at("^0"); z.insert("^0", z); z } else { (:) }
+/// Forgets every definition (values and functions) made so far. Inside a `solve-block`:
+/// back to how the block started (with `inherit: true` the outer definitions stay).
 ///
 /// ```typ
+/// #def("I = 30 mA")
 /// #reset
+/// #def("I = 1 A")
 /// ```
-#let _restart(d) = if "^0" in d { let z = d.at("^0"); z.insert("^0", z); z } else { (:) }
 #let reset = _st.update(_restart)
 #let _inabs(e, x) = if e.at(0) == "f" and e.at(1) == "abs" and _has(e, x) { true } else { e.slice(1).filter(t => type(t) == array).any(t => _inabs(t, x)) }
 #let _gv(g, U: _U) = if type(g) in (str, content) { let q = _q(g, U: U); if _E(q) { q } else { q.v } } else { float(g) }

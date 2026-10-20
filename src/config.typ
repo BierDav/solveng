@@ -10,9 +10,9 @@
   form: "auto", max-denominator: 1000, fractions: "stacked",
   // units
   prefixes: "all", show-si: false, units: (:), preferred-units: (), strict: false,
-  // solve output
+  // output
   steps: "full", inline-steps: "result", layout: "row", implies: sym.arrow.r.double, approximate: true, block: true, max-solutions: 6,
-  // definitions output
+  // output of defined
   defined-style: "grid",
   // problems: shown in the document, or stop the compilation
   errors: "document",

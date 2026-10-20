@@ -26,7 +26,7 @@
 /// #def($Q_0 = 3450 "mAh"$)                // math works too
 /// #def("U = R I")                          // computed from defined values
 /// #def("f(x) = x^2 + 1")                   // a function, usable as f(3)
-/// #def("Q0/2 = I t", unit: "h")            // an equation: t is solved for
+/// #def("Q_0/2 = I t", unit: "h")           // an equation: t is solved for
 /// #def("x + y = 3", "x - y = 1")           // a system
 /// ```
 ///
@@ -54,11 +54,13 @@
 /// - fractions (auto, str): How fractions are written: `"stacked"` (default) or `"slash"` (`1/2`).
 /// - prefixes (auto, str, none, array): Prefixes picked for results: `"all"` (default: a f p n µ m k M G T; times from a minute on in min or h, not ks), `none` (base unit only) or an array like `("m", "k")` (`"u"` = µ).
 /// - show-si (auto, bool): `defined` also shows the SI value (`Q₀ = 3450 mAh = 12420 C`). Default `false`.
+/// - preferred-units (auto, str, array): Units for results of their dimension, `("bar", "kWh")`, before the unit of the inputs and the SI unit.
+/// - strict (auto, bool): Unit names can't be variable names, and units in math must be quoted (`$5 "V"$`), see [Units and variables](#units-and-variables).
 /// - inline-steps (auto, str): Steps for `inline: true` and inline code: `"full"`, `"formula"`, `"result"` (default) or `"value"`.
-/// - implies (auto, content, symbol, str): What is written between steps. Default `sym.arrow.r.double` (⇒).
+/// - implies (auto, content, symbol, str): What is written between steps, e.g. `sym.arrow.r.long` or `[and]`; ⇒ by default.
 /// - approximate (auto, bool): Write `≈` when the shown result is rounded. Default `true`.
 /// - block (auto, bool): Display equations (centred, default) or inline.
-/// - max-solutions (auto, int): How many solutions are listed. Default `6`; all are found, `root` picks among all.
+/// - max-solutions (auto, int): How many solutions are listed; all are found, `root` picks among all.
 /// - defined-style (auto, str): How `defined` looks: `"grid"` (default: columns side by side, aligned at `=`), `"column"`, `"inline"` or `"list"`.
 /// - errors (auto, str): `"document"` (default): problems are shown as red notes · `"panic"`: stop the compilation.
 /// -> content
@@ -128,9 +130,10 @@
 /// #solve("Q0/2 = I t", unit: "h")          // Q₀/2 = I t ⇒ t = Q₀/(2I) = … = 57.5 h
 /// #solve("I", unit: "A")                    // no '=': convert, I = 30 mA = 0.03 A
 /// #solve("x^2 + 2x - 3 = 0")                // all real roots
-/// #solve("P = U I", "U = R I")              // a system
+/// #def("P1 = 2 W", "R1 = 50 Ω")
+/// #solve("P1 = U1 I1", "U1 = R1 I1")        // a system
 /// Runtime: #solve("Q0/I", unit: "h", inline: true, steps: "value")   // 115 h
-/// #solve("Q0/2 = I t", unit: "h", layout: "column", steps: "formula")
+/// #solve("Q0/4 = I t2", unit: "h", layout: "column", steps: "formula")
 /// ```
 ///
 /// - ..eqs (str, content): The equations (or a single expression without `=` to evaluate).
@@ -155,11 +158,13 @@
 /// - fractions (auto, str): How fractions are written: `"stacked"` (default) or `"slash"` (`1/2`).
 /// - prefixes (auto, str, none, array): Prefixes picked for results: `"all"` (default: a f p n µ m k M G T; times from a minute on in min or h, not ks), `none` (base unit only) or an array like `("m", "k")` (`"u"` = µ).
 /// - show-si (auto, bool): `defined` also shows the SI value (`Q₀ = 3450 mAh = 12420 C`). Default `false`.
+/// - preferred-units (auto, str, array): Units for results of their dimension, `("bar", "kWh")`, before the unit of the inputs and the SI unit.
+/// - strict (auto, bool): Unit names can't be variable names, and units in math must be quoted (`$5 "V"$`), see [Units and variables](#units-and-variables).
 /// - inline-steps (auto, str): Steps for `inline: true` and inline code: `"full"`, `"formula"`, `"result"` (default) or `"value"`.
-/// - implies (auto, content, symbol, str): What is written between steps. Default `sym.arrow.r.double` (⇒).
+/// - implies (auto, content, symbol, str): What is written between steps, e.g. `sym.arrow.r.long` or `[and]`; ⇒ by default.
 /// - approximate (auto, bool): Write `≈` when the shown result is rounded. Default `true`.
 /// - block (auto, bool): Display equations (centred, default) or inline.
-/// - max-solutions (auto, int): How many solutions are listed. Default `6`; all are found, `root` picks among all.
+/// - max-solutions (auto, int): How many solutions are listed; all are found, `root` picks among all.
 /// - defined-style (auto, str): How `defined` looks: `"grid"` (default: columns side by side, aligned at `=`), `"column"`, `"inline"` or `"list"`.
 /// - errors (auto, str): `"document"` (default): problems are shown as red notes · `"panic"`: stop the compilation.
 /// -> content
@@ -283,28 +288,37 @@
 }
 /// A scope in which math and code are calculations.
 ///
-/// Inside:
-/// - every math equation with `=` is a definition, like `def`: `$I = "30 mA"$`,
-///   `$P = U I$`, `$Q_0/2 = I t$`. The equation stays as written. Numbers followed by
-///   units (`frac(3450 "mAh", 30 "mA")`) are values, `0,95` is a decimal number, and in a
-///   worked chain `$R = 7.2 "k"Omega = 7200 Omega$` the first `=` defines. Equations without
-///   `=`, derivations (`⇒`, `≈`, `<`, …) and equations with alignment or line breaks are
-///   left alone.
-/// - code tagged `solveng` is evaluated: in a block every line shows itself like `solve`
-///   (`t = Q0/I -> h`, systems with `;`, comments with `//`); inline
-///   ```` ```solveng t = Q0/I -> h``` ```` shows `t = 115 h`, `= Q0/I -> h` just the value.
-///   With `plain-code: true` code without a language is evaluated too (`` `= Q0/I -> h` ``).
-///
-/// Definitions made inside are dropped at the end. How results look is set with
-/// `solve-config`, not here.
+/// `#show: solve-block` calculates the whole rest of the document; `#solve-block[…]` only its body, whose definitions are dropped at its end. How results look is set with `solve-config`, not here.
 ///
 /// ```typ
-/// #solve-block[
-///   The load draws $I = "30 mA"$ (#solve("I", unit: "A", steps: "value", inline: true)),
-///   the battery holds $Q_0 = 3450 "mAh"$, so it lasts $t = Q_0 / I$, ```solveng = t -> h```.
-/// ]
-/// #show: solve-block                       // the whole rest of the document
-/// #show: solve-block.with(reset: heading)   // each section on its own
+/// #show: solve-block
+/// The load draws $I = "30 mA"$ (#solve("I", unit: "A", steps: "value", inline: true)),
+/// the battery holds $Q_0 = 3450 "mAh"$, so it lasts $t = Q_0 / I$, ```solveng = t -> h```.
+/// ```
+///
+/// **Math.** Every math equation with a `=` is a definition, exactly like `def`: `$I = "30 mA"$`, `$P = U I$`, `$Q_0/2 = I t$`. The equation stays as you wrote it; problems are shown next to it.
+///
+/// - An inequality with exactly one unknown (`$R <= U/I$`) defines it like `#solve("R <= U/I")`; `$0 < x < 1$` and inequalities between known values stay prose.
+/// - Equations without `=` (`$x^2$`), derivations with `⇒`, `≈`, … (`$ Q = I t => t = Q/I $`), equations with alignment or line breaks (`$ U &= R I \ &= 6 V $`) or with embedded calls are left alone.
+/// - In a worked chain `$R = 7.2 "k"Omega = 7200 Omega$` the first `=` defines, the rest are steps.
+/// - A step that writes an undefined variable out defines it: `$R = rho dot frac(l, A) = rho dot frac(l, b dot h)$` defines `A = b h`; with `R` given instead, `b` is solved from the most written-out step (`R = ρ l/(b h)`) and `A` follows.
+/// - A number followed by units is a value (`frac(3450 "mAh", 30 "mA")`, `9.81 "m"/"s"^2`), `0,95` is a decimal number. Quoted units (`"h"`) are always units; a bare letter that is a defined variable is that variable (`$3 h$` with a variable `h` is 3 times h).
+///
+/// **Code.** Code tagged `solveng` is calculated:
+///
+/// - A code block ```` ```solveng ````: every line is a definition that shows itself, exactly like `#solve(line)`.
+/// - Inline code ```` ```solveng t = Q0/I -> h``` ```` defines and shows inline with `inline-steps` (default `"result"`: t = 115 h).
+/// - ```` ```solveng = Q0/I -> h``` ````: just the value (115 h), nothing is defined.
+/// - Per line: `-> unit` for the result unit, `;` separates the equations of a system (`x + y = 3; x - y = 1`), `//` starts a comment.
+///
+/// Code without a language is left alone, so code samples stay code samples; `plain-code: true` calculates it as well. Code with another language (```` ```py ````) is always left alone. The output of `def`, `solve`, `defined` and `graph` is never read as a definition again.
+///
+/// **Starting over.** `reset` starts over at every match; `#reset` inside a solve-block does the same once: back to how the block started (with `inherit: true` the outer definitions stay). After the block the outer definitions come back.
+///
+/// ```typ
+/// #show: solve-block.with(reset: heading)                    // every heading
+/// #show: solve-block.with(reset: heading.where(level: 1))    // only top-level ones
+/// #show: solve-block.with(reset: heading, inherit: true)     // keep the definitions made before the block
 /// ```
 ///
 /// - ..body (content): The content.

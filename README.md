@@ -93,7 +93,7 @@ Your own units: `#solve-config(units: (bar: "100 kPa", rpm: "1/min", T: none))` 
 
 ![A graph with the solved point marked](docs/graph.png)
 
-Ranges, ticks, axis labels and units are picked automatically; marks, ranges and sizes can be set, see the [reference](https://github.com/BierDav/solveng/blob/main/docs/reference.md#plots).
+Ranges, ticks, axis labels and units are picked automatically; marks, ranges and sizes can be set, see the [reference](https://github.com/BierDav/solveng/blob/v0.1.0/docs/reference.md#graph).
 
 ## Options
 
@@ -108,8 +108,8 @@ Every option works for the rest of the document, for a part, or directly on one 
 #defined(show-si: true, style: "inline")
 ```
 
-The most used ones: `digits`, `separator` (`auto`: from the document language), `form` (`"auto"`, `"decimal"`, `"fraction"`, `"input"`), `steps` (`"full"`, `"formula"`, `"result"`, `"value"`), `layout` (`"row"`, `"column"`), `preferred-units`, `errors` (`"document"` shows problems as red notes, `"panic"` stops the compilation). All of them: [reference](https://github.com/BierDav/solveng/blob/main/docs/reference.md#options).
+The most used ones: `digits`, `separator` (`auto`: from the document language), `form` (`"auto"`, `"decimal"`, `"fraction"`, `"input"`), `steps` (`"full"`, `"formula"`, `"result"`, `"value"`), `layout` (`"row"`, `"column"`), `preferred-units`, `errors` (`"document"` shows problems as red notes, `"panic"` stops the compilation). All of them: [reference](https://github.com/BierDav/solveng/blob/v0.1.0/docs/reference.md#options).
 
 ## Reference
 
-[docs/reference.md](https://github.com/BierDav/solveng/blob/main/docs/reference.md) has every function, argument and option, how values and units are written, `lambdify` (expressions as plain Typst functions), HTML export, how the solver works and its limits.
+[docs/reference.md](https://github.com/BierDav/solveng/blob/v0.1.0/docs/reference.md) has every function, argument and option, how values and units are written, `lambdify` (expressions as plain Typst functions), HTML export, how the solver works and its limits.
