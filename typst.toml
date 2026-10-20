@@ -1,0 +1,9 @@
+[package]
+name = "solveng"
+version = "0.1.0"
+entrypoint = "lib.typ"
+authors = ["David Bieregger"]
+license = "MIT"
+description = "Unit-aware given → solve calculations with minimal boilerplate"
+repository = "https://github.com/BierDav/solveng"
+exclude = ["tests"]
