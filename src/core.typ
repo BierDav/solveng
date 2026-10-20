@@ -18,11 +18,11 @@
 /// Unknown options and values of the wrong type are shown as an error in the document.
 ///
 /// - ..body (content): Optional: the content the options apply to.
-/// - digits (auto, int): Significant digits of computed values, 1…15. Default `4`: `57,5 h`, `123500`.
-/// - zeros (auto, bool): Keep trailing zeros up to `digits` (`2,500 V`). Default `false`.
+/// - digits (auto, int): Significant digits of computed values, 1…15. Default `4`: `57.5 h`, `123500`.
+/// - zeros (auto, bool): Keep trailing zeros up to `digits` (`2.500 V`). Default `false`.
 /// - sep (auto, str): Decimal separator. `"lang"` (default): `,` for de, fr, it, … and `.` otherwise; or any string like `","`.
 /// - group (auto, none, str, symbol, content): Digit grouping for integer parts with 5+ digits, e.g. `sym.space.thin` → `12 345`. Default `none`.
-/// - sci (auto, none, array): `(low, high)`: plain notation while the exponent `e` is in `low ≤ e < high`, else `2,5 · 10⁻⁷`. Default `(-3, 6)`; `none` never switches.
+/// - sci (auto, none, array): `(low, high)`: plain notation while the exponent `e` is in `low ≤ e < high`, else `2.5 · 10⁻⁷`. Default `(-3, 6)`; `none` never switches.
 /// - eng (auto, bool): Engineering notation, exponents in steps of 3. Default `false`.
 /// - times (auto, str): `"dot"` (default, `2 · 10⁶`) or `"times"` (`2 × 10⁶`).
 /// - form (auto, str): How values are written. `"auto"` (default): as typed, results rounded · `"decimal"`: everything rounded to `digits` · `"fraction"`: exact fractions (`⅙ A`) · `"input"`: given values exactly as typed.
@@ -88,7 +88,7 @@
 ///
 /// ```typ
 /// #def("I = 30 mA")
-/// The current is #val("I"), or #val("I", unit: "A").   // 30 mA, 0,03 A
+/// The current is #val("I"), or #val("I", unit: "A").   // 30 mA, 0.03 A
 /// ```
 ///
 /// - name (str): The variable, e.g. `"I"` or `"Q0"`.

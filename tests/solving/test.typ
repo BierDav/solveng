@@ -30,3 +30,23 @@
 #solve("Q0/2 = I t") #fails("unknowns")
 #def("z = 7 furlongs") #fails("neither a unit nor a defined variable")
 #def("x = 1", digitz: 2) #context assert(_st.get().at("x", default: none) == none)
+
+// code in a solve-block: tagged code is calculated, plain code only with plain-code: true
+#solve-block[
+  `x = 3` ```solveng y = 2 m```
+  ```
+  z = 4
+  ```
+  ```solveng
+  w = y 2 -> cm
+  ```
+  #context assert("x" not in _st.get() and "z" not in _st.get(), message: "plain code was calculated")
+  #expect("y", 2) #expect("w", 4)
+]
+#solve-block(plain-code: true)[
+  `x = 3`
+  ```
+  z = x 2
+  ```
+  #expect("x", 3) #expect("z", 6)
+]

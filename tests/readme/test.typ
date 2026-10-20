@@ -10,7 +10,7 @@
   The load draws $I = "30 mA"$ (#solve("I", unit: "A", steps: "value", inline: true)),
   the battery holds $Q_0 = 3450 "mAh"$, so it lasts $t = Q_0 / I$ = #val("t", unit: "h").
 ]
-#solve-block[
+#solve-block(plain-code: true)[
   The battery holds `Q0 = 3450 mAh` and the load draws `I = 30 mA`,
   so it lasts `= Q0/I -> h`.
   ```

@@ -1,6 +1,6 @@
 # solveng
 
-Unit-aware engineering calculations that read like your notes. **Write the math as you normally would – solveng evaluates it.** No `#def` for every value, no special syntax: equations in the text define values, code blocks are calculated line by line, and every result comes with the rearranged formula, the substituted numbers and a sensible unit.
+Unit-aware engineering calculations that read like your notes. **Write the math as you normally would – solveng evaluates it.** No `#def` for every value, no special syntax: equations in the text define values, `solveng` code blocks are calculated line by line, and every result comes with the rearranged formula, the substituted numbers and a sensible unit.
 
 ````typ
 #import "@preview/solveng:0.1.0": *
@@ -8,10 +8,10 @@ Unit-aware engineering calculations that read like your notes. **Write the math 
 
 = Battery runtime
 The battery holds $Q_0 = 3450 "mAh"$ and the load draws $I = 30 "mA"$,
-so it lasts $t = Q_0 / I$ – that is `= t -> h`.
+so it lasts $t = Q_0 / I$ – that is ```solveng = t -> h```.
 
 At half charge and a supply of $U = 5 "V"$:
-```
+```solveng
 t_half = Q_0 / (2 I) -> h
 P = U I
 ```
@@ -22,8 +22,8 @@ P = U I
 That is the whole document – no function calls for the calculation:
 
 - **Math defines values.** Every `$… = …$` in the text is read: `$I = 30 "mA"$` is a value, `$t = Q_0 / I$` is computed, `$Q_0/2 = I t$` is solved for the unknown. The equation stays exactly as you wrote it.
-- **Code blocks calculate themselves.** Each line of a plain ```` ``` ```` block is solved and shown with all steps; `-> h` picks the unit, `;` separates a system, `//` is a comment.
-- **Inline code shows a result** in the running text: `` `t = Q_0/I -> h` `` gives *t = 115 h*, `` `= t -> h` `` just *115 h*.
+- **Code blocks calculate themselves.** Each line of a ```` ```solveng ```` block is solved and shown with all steps; `-> h` picks the unit, `;` separates a system, `//` is a comment.
+- **Inline code shows a result** in the running text: ```` ```solveng t = Q_0/I -> h``` ```` gives *t = 115 h*, ```` ```solveng = t -> h``` ```` just *115 h*. With `solve-block.with(plain-code: true)` plain `` `= t -> h` `` works too.
 
 `#show: solve-block` turns this on for the whole document; `#solve-block[…]` for a part (its definitions are dropped afterwards). See [Math and code in solve-block](#math-and-code-in-solve-block).
 
@@ -34,7 +34,7 @@ The same calculations as function calls – for options per result, or outside a
 ```typ
 #def("Q0 = 3450 mAh", "I = 30 mA")      // silent definitions
 #definitions()                           // Q₀ = 3450 mAh   I = 30 mA
-#solve("Q0/2 = I t", unit: "h")          // Q₀/2 = I t ⇒ t = Q₀/(2I) = 3450 mAh/(2·30 mA) = 57,5 h
+#solve("Q0/2 = I t", unit: "h")          // Q₀/2 = I t ⇒ t = Q₀/(2I) = 3450 mAh/(2·30 mA) = 57.5 h
 #solve("R <= U/I")                       // inequalities, polynomials (all roots), systems
 ```
 
@@ -46,17 +46,21 @@ Both mix freely: inside a solve-block, `#solve(…)` and `#val("t", unit: "h")` 
 
 Inside `#solve-block[…]` (or after `#show: solve-block` for the whole document), every math equation with a `=` is a definition, exactly like `#def`: `$I = "30 mA"$`, `$P = U I$`, `$Q_0/2 = I t$`. The equation stays as you wrote it; problems are shown next to it. An inequality with exactly one unknown (`$R <= U/I$`) defines it like `#solve("R <= U/I")`; `$0 < x < 1$` and inequalities between known values stay prose. Equations without `=` (`$x^2$`), derivations with `⇒`, `≈`, … (`$ Q = I t => t = Q/I $`), equations with alignment or line breaks (`$ U &= R I \ &= 6 V $`) or with embedded calls like `#val` are left alone. In a worked chain `$R = 7.2 "k"Omega = 7200 Omega$` the first `=` defines, the rest are steps. A step that writes an undefined variable out defines it: `$R = rho dot frac(l, A) = rho dot frac(l, b dot h)$` defines `A = b h`; with `R` given instead, `b` is solved from the most written-out step (`R = ρ l/(b h)`) and `A` follows. Math is written as usual: a number followed by units is a value (`frac(3450 "mAh", 30 "mA")`, `9.81 "m"/"s"^2`), `0,95` is a decimal number. Quoted units (`"h"`) are always units; a bare letter that is a defined variable is that variable (`$3 h$` with a variable `h` is 3 times h), see [Units and variables](#units-and-variables). `#solve-block(equations: false)[…]` turns this off.
 
-Code without a language (or with `solve`) is evaluated too:
+Code tagged `solveng` is evaluated too:
 
-- A code block: every line is a definition that shows itself, exactly like `#solve(line)`.
-- Inline code `` `t = Q0/I -> h` `` defines and shows inline with `inline-steps` (default `"result"`: t = 115 h).
-- `` `= Q0/I -> h` ``: just the value (115 h), nothing is defined.
+- A code block ```` ```solveng ````: every line is a definition that shows itself, exactly like `#solve(line)`.
+- Inline code ```` ```solveng t = Q0/I -> h``` ```` defines and shows inline with `inline-steps` (default `"result"`: t = 115 h).
+- ```` ```solveng = Q0/I -> h``` ````: just the value (115 h), nothing is defined.
 
-Per line: `-> unit` for the result unit, `;` separates the equations of a system (`x + y = 3; x - y = 1`), `//` starts a comment. Code with another language (```` ```py ````) is left alone.
+Per line: `-> unit` for the result unit, `;` separates the equations of a system (`x + y = 3; x - y = 1`), `//` starts a comment.
+
+Code without a language is left alone, so code samples in your document stay code samples. In documents that are all calculations, `#show: solve-block.with(plain-code: true)` evaluates it as well – then `` `= Q0/I -> h` `` is enough inline. Code with another language (```` ```py ````) is always left alone.
+
+[Typewright](https://github.com/BierDav/typewright) highlights solveng code and completes its variables, functions and units.
 
 The output of `def`, `solve`, `val`, `definitions` and `graph` is never read as a definition again.
 
-`solve-block` decides *where* calculations happen and takes only `inherit`, `equations` and `reset`; *how* results look is set with `solve-config`:
+`solve-block` decides *where* calculations happen and takes only `inherit`, `equations`, `plain-code` and `reset`; *how* results look is set with `solve-config`:
 
 ```typ
 #show: solve-config.with(digits: 3, layout: "column")
@@ -84,11 +88,11 @@ To start over at every heading (each exercise on its own), pass `reset`:
 | `#def(…, output: true)` | show what was defined (as `solve` does) |
 | `#solve(…)` | `def` that shows itself: equation ⇒ formula = numbers = result |
 | `#solve(eq, unit: "mA")` | result in a given unit (default: SI unit with automatic prefix, or the non-SI unit of the inputs like h, mAh); an error if the result has another unit |
-| `#solve("I", unit: "A")` | no `=`: just evaluate / convert → `I = 30 mA = 0,03 A`; a computed variable shows its formula with the values: `#solve("b")` → `b = ρ l/(R h) = … ≈ 1 mm` |
+| `#solve("I", unit: "A")` | no `=`: just evaluate / convert → `I = 30 mA = 0.03 A`; a computed variable shows its formula with the values: `#solve("b")` → `b = ρ l/(R h) = … ≈ 1 mm` |
 | `#solve("f(1) = x")` | the unknowns are found on either side; if everything is known, a lone variable is recomputed |
 | `#solve("x^2 + 2x - 3 = 0")` | the unknown occurs several times → all real roots |
 | `#solve("P = U I", "U = R I")` | a system: as many equations as unknowns |
-| `#solve("R <= U/I")`, `#solve($R <= U/I$)` | an inequality (`<`, `>`, `<=`, `>=`, `≤`, `≥`): `R ≤ U/I = … ≈ 166,7 Ω`, flipped where needed (`U/R > I` ⇒ `R < U/I`). The bound is stored as R's value, `#solve("R")` shows `R ≤ 166,7 Ω`. Only one boundary (`y^2 < 4` is refused), not in systems |
+| `#solve("R <= U/I")`, `#solve($R <= U/I$)` | an inequality (`<`, `>`, `<=`, `>=`, `≤`, `≥`): `R ≤ U/I = … ≈ 166.7 Ω`, flipped where needed (`U/R > I` ⇒ `R < U/I`). The bound is stored as R's value, `#solve("R")` shows `R ≤ 166.7 Ω`. Only one boundary (`y^2 < 4` is refused), not in systems |
 | `#solve($U = R dot I$)` | equations and values can be math too |
 | `#solve-block[ … ]` | scope: definitions inside are dropped afterwards (`inherit: true` sees outer ones); math and code inside are evaluated, see below |
 | `#definitions()` | everything defined so far, in columns side by side, see below |
@@ -104,7 +108,7 @@ Every positional argument of `def` / `solve` is an equation, as a string or math
 |---|---|---|
 | `unit` | `none` | `"mA"` (also math: `$"mA"$`) for the unknown, `(I: "mA", U: "V")` for systems |
 | `output` | `false` (`def`), `true` (`solve`) | show the definition |
-| `steps` | `auto` (option `steps`) | `"full"`: equation ⇒ formula = numbers = result · `"formula"`: without the numbers · `"result"`: `t = 57,5 h` · `"value"`: just `57,5 h` |
+| `steps` | `auto` (option `steps`) | `"full"`: equation ⇒ formula = numbers = result · `"formula"`: without the numbers · `"result"`: `t = 57.5 h` · `"value"`: just `57.5 h` |
 | `layout` | `auto` (option `layout`) | `"row"`: all steps in one line · `"column"`: one step per line, aligned at `=` |
 | `inline` | `false` | in the running text instead of a display block; steps default to the option `inline-steps` (`"result"`) |
 | `unknown` | `none` | what to solve for (`"t"` or `("x", "y")`), needed when it isn't clear |
@@ -227,11 +231,11 @@ To reuse your defaults in many documents, keep a small file of your own:
 
 | option | default | values | effect |
 |---|---|---|---|
-| `digits` | `4` | 1…15 | significant digits of computed values (`57,5 h`, `123500` instead of `123456`) |
-| `zeros` | `false` | bool | keep trailing zeros up to `digits` (`2,500 V`) |
+| `digits` | `4` | 1…15 | significant digits of computed values (`57.5 h`, `123500` instead of `123456`) |
+| `zeros` | `false` | bool | keep trailing zeros up to `digits` (`2.500 V`) |
 | `sep` | `"lang"` | `"lang"`, `","`, `"."`, any string | decimal separator; `"lang"` is `,` for de, fr, it, es, pt, nl, ru, pl, cs, … and `.` otherwise |
-| `group` | `none` | `none`, `" "`, `sym.space.thin`, `"'"`, … | digit grouping for integer parts with 5+ digits (`12 345,678`) |
-| `sci` | `(-3, 6)` | `(low, high)` or `none` | plain notation while the exponent is in `low ≤ e < high`, else `2,5 · 10⁻⁷`; `none` never switches |
+| `group` | `none` | `none`, `" "`, `sym.space.thin`, `"'"`, … | digit grouping for integer parts with 5+ digits (`12 345.678`) |
+| `sci` | `(-3, 6)` | `(low, high)` or `none` | plain notation while the exponent is in `low ≤ e < high`, else `2.5 · 10⁻⁷`; `none` never switches |
 | `eng` | `false` | bool | engineering notation: exponents in steps of 3 |
 | `times` | `"dot"` | `"dot"`, `"times"` | `2 · 10⁶` or `2 × 10⁶` |
 | `form` | `"auto"` | see below | how values are written |
@@ -249,7 +253,7 @@ To reuse your defaults in many documents, keep a small file of your own:
 
 | option | default | values | effect |
 |---|---|---|---|
-| `prefixes` | `"all"` | `"all"`, `none`, array like `("m", "k")` | prefixes picked for results: `"all"` uses a f p n µ m k M G T (times from a minute on in min or h instead of ks), `none` keeps the base unit (`0,0005 A` or `5 · 10⁻⁴ A`), an array allows only those (`"u"` = µ; `"c"`, `"d"` are allowed too) |
+| `prefixes` | `"all"` | `"all"`, `none`, array like `("m", "k")` | prefixes picked for results: `"all"` uses a f p n µ m k M G T (times from a minute on in min or h instead of ks), `none` keeps the base unit (`0.0005 A` or `5 · 10⁻⁴ A`), an array allows only those (`"u"` = µ; `"c"`, `"d"` are allowed too) |
 | `si` | `false` | bool | `definitions` also shows the SI value: `Q₀ = 3450 mAh = 12420 C` |
 | `units` | `(:)` | dictionary | your own units, `(bar: "100 kPa", rpm: "1/min")`, defined by a value in known units; `none` removes a unit, `(T: none)`. Adds to the units set before. Only in `solve-config`, not per call |
 | `prefer` | `()` | array of units | units for results of their dimension, `("bar", "kWh")`, before the unit of the inputs and the SI unit |
@@ -334,7 +338,7 @@ Combine them in an array, `(auto, "R1")`; `mark: ()` marks nothing.
 Options: `x:`, `xunit:`/`yunit:`, `samples:`, `width:`/`height:` (a number: the plot area in cm, default 8 × 5; a length like `12cm`/`300pt` or a share like `100%`: the whole graph, labels included – a share of the height is of the container, or of the width when the page grows with its content), `colors:` (a color or an array with parentheses: `(gray, blue, rgb("#f98eff"))`), `config: (…)`.
 Any other named argument goes straight to simple-plot's `plot` (e.g. `show-grid: false`), other positional ones (series from simple-plot) are added as they are.
 
-For full control, plot with simple-plot directly: any other named argument of `graph` goes to its `plot`, other positional ones are added as series.
+For full control, plot with simple-plot directly.
 
 ## lambdify
 

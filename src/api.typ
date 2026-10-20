@@ -35,7 +35,7 @@
 /// - ..eqs (str, content): The equations. A single one without `=` (`"Q0/I"`) is evaluated (only useful with `output: true`).
 /// - unit (none, str, content, dictionary): Unit of the result: `"mA"` (or math `$"mA"$`). For a system a dictionary per unknown: `(I: "mA", U: "V")`. Without it: the SI unit with an automatic prefix, or the non-SI unit of the inputs (h, mAh). If the result has another unit (`"x = f(1)"` gives volts, `unit: "A"`), that is an error.
 /// - output (bool): Show the definition (like `solve` does).
-/// - steps (auto, str, bool): What is shown: `"full"`: equation ⇒ formula = numbers = result · `"formula"`: without the numbers · `"result"`: `t = 57,5 h` · `"value"`: just `57,5 h`. `auto`: the option `steps` (default `"full"`), or `inline-steps` with `inline: true`.
+/// - steps (auto, str, bool): What is shown: `"full"`: equation ⇒ formula = numbers = result · `"formula"`: without the numbers · `"result"`: `t = 57.5 h` · `"value"`: just `57.5 h`. `auto`: the option `steps` (default `"full"`), or `inline-steps` with `inline: true`.
 /// - layout (auto, str): `"row"`: all steps in one line · `"column"`: one step per line, aligned at `=`. `auto`: the option `layout` (default `"row"`).
 /// - inline (bool): In the running text instead of a display block; `steps` default to `inline-steps` (`"result"`).
 /// - unknown (none, str, array): What to solve for, `"t"` or `("x", "y")`. Only needed when it isn't clear; by default all variables that aren't defined yet are the unknowns (one per equation). If everything is defined, a lone variable on either side is recomputed.
@@ -43,11 +43,11 @@
 /// - guess (none, str, content, int, float, dictionary): Newton start value instead of the search: `"-1 A"`, or `(U: "5 V")` for systems.
 /// - listed (bool): `false` hides it from `definitions`.
 /// - config (dictionary): Options for this call as a dictionary, `(digits: 2)`. Same as passing them directly.
-/// - digits (auto, int): Significant digits of computed values, 1…15. Default `4`: `57,5 h`, `123500`.
-/// - zeros (auto, bool): Keep trailing zeros up to `digits` (`2,500 V`). Default `false`.
+/// - digits (auto, int): Significant digits of computed values, 1…15. Default `4`: `57.5 h`, `123500`.
+/// - zeros (auto, bool): Keep trailing zeros up to `digits` (`2.500 V`). Default `false`.
 /// - sep (auto, str): Decimal separator. `"lang"` (default): `,` for de, fr, it, … and `.` otherwise; or any string like `","`.
 /// - group (auto, none, str, symbol, content): Digit grouping for integer parts with 5+ digits, e.g. `sym.space.thin` → `12 345`. Default `none`.
-/// - sci (auto, none, array): `(low, high)`: plain notation while the exponent `e` is in `low ≤ e < high`, else `2,5 · 10⁻⁷`. Default `(-3, 6)`; `none` never switches.
+/// - sci (auto, none, array): `(low, high)`: plain notation while the exponent `e` is in `low ≤ e < high`, else `2.5 · 10⁻⁷`. Default `(-3, 6)`; `none` never switches.
 /// - eng (auto, bool): Engineering notation, exponents in steps of 3. Default `false`.
 /// - times (auto, str): `"dot"` (default, `2 · 10⁶`) or `"times"` (`2 × 10⁶`).
 /// - form (auto, str): How values are written. `"auto"` (default): as typed, results rounded · `"decimal"`: everything rounded to `digits` · `"fraction"`: exact fractions (`⅙ A`) · `"input"`: given values exactly as typed.
@@ -127,8 +127,8 @@
 ///
 /// ```typ
 /// #def("Q0 = 3450 mAh", "I = 30 mA")
-/// #solve("Q0/2 = I t", unit: "h")          // Q₀/2 = I t ⇒ t = Q₀/(2I) = … = 57,5 h
-/// #solve("I", unit: "A")                    // no '=': convert, I = 30 mA = 0,03 A
+/// #solve("Q0/2 = I t", unit: "h")          // Q₀/2 = I t ⇒ t = Q₀/(2I) = … = 57.5 h
+/// #solve("I", unit: "A")                    // no '=': convert, I = 30 mA = 0.03 A
 /// #solve("x^2 + 2x - 3 = 0")                // all real roots
 /// #solve("P = U I", "U = R I")              // a system
 /// Runtime: #solve("Q0/I", unit: "h", inline: true, steps: "value")   // 115 h
@@ -138,7 +138,7 @@
 /// - ..eqs (str, content): The equations (or a single expression without `=` to evaluate).
 /// - unit (none, str, content, dictionary): Unit of the result: `"mA"` (or math `$"mA"$`). For a system a dictionary per unknown: `(I: "mA", U: "V")`. Without it: the SI unit with an automatic prefix, or the non-SI unit of the inputs (h, mAh). If the result has another unit (`"x = f(1)"` gives volts, `unit: "A"`), that is an error.
 /// - output (bool): `false` defines silently, like `def`.
-/// - steps (auto, str, bool): What is shown: `"full"`: equation ⇒ formula = numbers = result · `"formula"`: without the numbers · `"result"`: `t = 57,5 h` · `"value"`: just `57,5 h`. `auto`: the option `steps` (default `"full"`), or `inline-steps` with `inline: true`.
+/// - steps (auto, str, bool): What is shown: `"full"`: equation ⇒ formula = numbers = result · `"formula"`: without the numbers · `"result"`: `t = 57.5 h` · `"value"`: just `57.5 h`. `auto`: the option `steps` (default `"full"`), or `inline-steps` with `inline: true`.
 /// - layout (auto, str): `"row"`: all steps in one line · `"column"`: one step per line, aligned at `=`. `auto`: the option `layout` (default `"row"`).
 /// - inline (bool): In the running text instead of a display block; `steps` default to `inline-steps` (`"result"`).
 /// - unknown (none, str, array): What to solve for, `"t"` or `("x", "y")`. Only needed when it isn't clear; by default all variables that aren't defined yet are the unknowns (one per equation). If everything is defined, a lone variable on either side is recomputed.
@@ -146,11 +146,11 @@
 /// - guess (none, str, content, int, float, dictionary): Newton start value instead of the search: `"-1 A"`, or `(U: "5 V")` for systems.
 /// - listed (bool): `false` hides it from `definitions`.
 /// - config (dictionary): Options for this call as a dictionary, `(digits: 2)`. Same as passing them directly.
-/// - digits (auto, int): Significant digits of computed values, 1…15. Default `4`: `57,5 h`, `123500`.
-/// - zeros (auto, bool): Keep trailing zeros up to `digits` (`2,500 V`). Default `false`.
+/// - digits (auto, int): Significant digits of computed values, 1…15. Default `4`: `57.5 h`, `123500`.
+/// - zeros (auto, bool): Keep trailing zeros up to `digits` (`2.500 V`). Default `false`.
 /// - sep (auto, str): Decimal separator. `"lang"` (default): `,` for de, fr, it, … and `.` otherwise; or any string like `","`.
 /// - group (auto, none, str, symbol, content): Digit grouping for integer parts with 5+ digits, e.g. `sym.space.thin` → `12 345`. Default `none`.
-/// - sci (auto, none, array): `(low, high)`: plain notation while the exponent `e` is in `low ≤ e < high`, else `2,5 · 10⁻⁷`. Default `(-3, 6)`; `none` never switches.
+/// - sci (auto, none, array): `(low, high)`: plain notation while the exponent `e` is in `low ≤ e < high`, else `2.5 · 10⁻⁷`. Default `(-3, 6)`; `none` never switches.
 /// - eng (auto, bool): Engineering notation, exponents in steps of 3. Default `false`.
 /// - times (auto, str): `"dot"` (default, `2 · 10⁶`) or `"times"` (`2 × 10⁶`).
 /// - form (auto, str): How values are written. `"auto"` (default): as typed, results rounded · `"decimal"`: everything rounded to `digits` · `"fraction"`: exact fractions (`⅙ A`) · `"input"`: given values exactly as typed.
@@ -293,9 +293,10 @@
 ///   worked chain `$R = 7.2 "k"Omega = 7200 Omega$` the first `=` defines. Equations without
 ///   `=`, derivations (`⇒`, `≈`, `<`, …) and equations with alignment or line breaks are
 ///   left alone.
-/// - code without a language (or `solve`) is evaluated: in a block every line shows itself
-///   like `solve` (`t = Q0/I -> h`, systems with `;`, comments with `//`); inline
-///   `` `t = Q0/I -> h` `` shows `t = 115 h`, `` `= Q0/I -> h` `` just the value.
+/// - code tagged `solveng` is evaluated: in a block every line shows itself like `solve`
+///   (`t = Q0/I -> h`, systems with `;`, comments with `//`); inline
+///   ```` ```solveng t = Q0/I -> h``` ```` shows `t = 115 h`, `= Q0/I -> h` just the value.
+///   With `plain-code: true` code without a language is evaluated too (`` `= Q0/I -> h` ``).
 ///
 /// Definitions made inside are dropped at the end. How results look is set with
 /// `solve-config`, not here.
@@ -312,20 +313,21 @@
 /// - ..body (content): The content.
 /// - inherit (bool): See the definitions made before the block (also after each `reset`).
 /// - equations (bool): Read math equations as definitions. `false` leaves math alone.
+/// - plain-code (bool): Also evaluate code without a language (```` ``` ```` blocks and `` `inline` `` code), not only code tagged `solveng`.
 /// - reset (none, function, selector): Start over at every match, e.g. `heading` (every heading) or `heading.where(level: 1)`: the definitions made since are forgotten, like `#reset`.
 /// -> content
 #let solve-block(
   ..body,
-  inherit: false, equations: true, reset: none,
+  inherit: false, equations: true, plain-code: false, reset: none,
 ) = {
   let b = body.pos().at(0, default: [])
   if body.named().len() > 0 {
     let k = body.named().keys().first()
-    return _err-now("unknown argument '" + k + "' for solve-block (arguments: inherit, equations, reset)" + if k in _DEF { " – options go in solve-config(" + k + ": …)" } else { "" }) + b
+    return _err-now("unknown argument '" + k + "' for solve-block (arguments: inherit, equations, plain-code, reset)" + if k in _DEF { " – options go in solve-config(" + k + ": …)" } else { "" }) + b
   }
   if body.pos().len() > 1 { return _err-now("solve-block takes one body") + b }
   if type(b) != content { return _err-now("solve-block: the body must be content, got " + _tn(b)) }
-  for (n, v) in (inherit: inherit, equations: equations) { if type(v) != bool { return _err-now(n + ": true or false, got " + _tn(v)) + b } }
+  for (n, v) in (inherit: inherit, equations: equations, plain-code: plain-code) { if type(v) != bool { return _err-now(n + ": true or false, got " + _tn(v)) + b } }
   if type(reset) not in (type(none), function, selector, label) { return _err-now("reset: none or what to start over at, like heading or heading.where(level: 1), got " + _tn(reset)) + b }
   // "^": the state outside, restored at the end; "^0": the state at the start, for reset
   _st.update(d => { let n = if inherit { d } else { (:) }; n.insert("^", d); n.insert("^0", n); n })
@@ -333,8 +335,8 @@
     // raw text is set smaller and monospaced; definitions use the surrounding text
     let (size, font) = (text.size, text.font)
     let out(it, sep) = text(size: size, font: font, it.text.split("\n").map(l => _line(l, it.block)).filter(x => x != none).join(sep))
-    show raw.where(lang: none): it => out(it, none)
-    show raw.where(lang: "solve"): it => out(it, if it.block { none } else { [, ] })
+    show raw.where(lang: "solveng"): it => out(it, if it.block { none } else { [, ] })
+    show raw.where(lang: none): it => if plain-code { out(it, none) } else { it }
     show std.math.equation: it => if equations { _math-def(it) } else { it }
     // start over at each heading (or whatever reset selects): back to the state at the start of the block
     show selector(if reset == none { <solveng-never> } else { reset }): it => {
