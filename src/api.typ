@@ -4,12 +4,12 @@
 #let _STEPS = ("full", "formula", "result", "value")
 // typed display arguments -> local options, or an error message
 #let _disp(steps, layout, inline) = {
-  if steps != auto and steps not in _STEPS and type(steps) != bool { return _err("steps: use " + _STEPS.map(repr).join(", ")) }
+  if steps != auto and steps not in _STEPS { return _err("steps: use " + _STEPS.map(repr).join(", ")) }
   if layout != auto and layout not in ("row", "column") { return _err("layout: use \"row\" or \"column\"") }
   if type(inline) != bool { return _err("inline: true or false") }
   let o = (:)
   if inline { o.block = false }
-  if steps != auto { o.steps = if steps == true { "full" } else if steps == false { "result" } else { steps } }
+  if steps != auto { o.steps = steps }
   if layout != auto { o.layout = layout }
   o
 }
@@ -35,52 +35,50 @@
 /// - ..eqs (str, content): The equations. A single one without `=` (`"Q0/I"`) is evaluated (only useful with `output: true`).
 /// - unit (none, str, content, dictionary): Unit of the result: `"mA"` (or math `$"mA"$`). For a system a dictionary per unknown: `(I: "mA", U: "V")`. Without it: the SI unit with an automatic prefix, or the non-SI unit of the inputs (h, mAh). If the result has another unit (`"x = f(1)"` gives volts, `unit: "A"`), that is an error.
 /// - output (bool): Show the definition (like `solve` does).
-/// - steps (auto, str, bool): What is shown: `"full"`: equation ⇒ formula = numbers = result · `"formula"`: without the numbers · `"result"`: `t = 57.5 h` · `"value"`: just `57.5 h`. `auto`: the option `steps` (default `"full"`), or `inline-steps` with `inline: true`.
+/// - steps (auto, str): What is shown: `"full"`: equation ⇒ formula = numbers = result · `"formula"`: without the numbers · `"result"`: `t = 57.5 h` · `"value"`: just `57.5 h`. `auto`: the option `steps` (default `"full"`), or `inline-steps` with `inline: true`.
 /// - layout (auto, str): `"row"`: all steps in one line · `"column"`: one step per line, aligned at `=`. `auto`: the option `layout` (default `"row"`).
 /// - inline (bool): In the running text instead of a display block; `steps` default to `inline-steps` (`"result"`).
 /// - unknown (none, str, array): What to solve for, `"t"` or `("x", "y")`. Only needed when it isn't clear; by default all variables that aren't defined yet are the unknowns (one per equation). If everything is defined, a lone variable on either side is recomputed.
 /// - root (auto, int, function): Which solution is stored when there are several: `2` (1-based), or a test like `x => x > 0` (for systems it gets a dictionary). `auto`: the only all-positive one, else the first.
 /// - guess (none, str, content, int, float, dictionary): Newton start value instead of the search: `"-1 A"`, or `(U: "5 V")` for systems.
-/// - listed (bool): `false` hides it from `definitions`.
-/// - config (dictionary): Options for this call as a dictionary, `(digits: 2)`. Same as passing them directly.
+/// - listed (bool): `false` hides it from `defined`.
 /// - digits (auto, int): Significant digits of computed values, 1…15. Default `4`: `57.5 h`, `123500`.
-/// - zeros (auto, bool): Keep trailing zeros up to `digits` (`2.500 V`). Default `false`.
-/// - sep (auto, str): Decimal separator. `"lang"` (default): `,` for de, fr, it, … and `.` otherwise; or any string like `","`.
-/// - group (auto, none, str, symbol, content): Digit grouping for integer parts with 5+ digits, e.g. `sym.space.thin` → `12 345`. Default `none`.
-/// - sci (auto, none, array): `(low, high)`: plain notation while the exponent `e` is in `low ≤ e < high`, else `2.5 · 10⁻⁷`. Default `(-3, 6)`; `none` never switches.
-/// - eng (auto, bool): Engineering notation, exponents in steps of 3. Default `false`.
-/// - times (auto, str): `"dot"` (default, `2 · 10⁶`) or `"times"` (`2 × 10⁶`).
+/// - trailing-zeros (auto, bool): Keep trailing zeros up to `digits` (`2.500 V`). Default `false`.
+/// - separator (auto, str): Decimal separator, any string like `","`. `auto` (default): from the document language, `,` for de, fr, it, … and `.` otherwise.
+/// - grouping (auto, none, str, symbol, content): Digit grouping for integer parts with 5+ digits, e.g. `sym.space.thin` → `12 345`. Default `none`.
+/// - scientific (auto, none, array): `(low, high)`: plain notation while the exponent `e` is in `low ≤ e < high`, else `2.5 · 10⁻⁷`. Default `(-3, 6)`; `none` never switches.
+/// - engineering (auto, bool): Engineering notation, exponents in steps of 3. Default `false`.
+/// - multiplication (auto, str): `"dot"` (default, `2 · 10⁶`) or `"times"` (`2 × 10⁶`).
 /// - form (auto, str): How values are written. `"auto"` (default): as typed, results rounded · `"decimal"`: everything rounded to `digits` · `"fraction"`: exact fractions (`⅙ A`) · `"input"`: given values exactly as typed.
-/// - frac-max (auto, int): Largest denominator for `form: "fraction"`. Default `1000`.
-/// - slash (auto, bool): Fractions as `1/2` instead of stacked. Default `false`.
+/// - max-denominator (auto, int): Largest denominator for `form: "fraction"`. Default `1000`.
+/// - fractions (auto, str): How fractions are written: `"stacked"` (default) or `"slash"` (`1/2`).
 /// - prefixes (auto, str, none, array): Prefixes picked for results: `"all"` (default: a f p n µ m k M G T; times from a minute on in min or h, not ks), `none` (base unit only) or an array like `("m", "k")` (`"u"` = µ).
-/// - si (auto, bool): `definitions` also shows the SI value (`Q₀ = 3450 mAh = 12420 C`). Default `false`.
+/// - show-si (auto, bool): `defined` also shows the SI value (`Q₀ = 3450 mAh = 12420 C`). Default `false`.
 /// - inline-steps (auto, str): Steps for `inline: true` and inline code: `"full"`, `"formula"`, `"result"` (default) or `"value"`.
 /// - implies (auto, content, symbol, str): What is written between steps. Default `sym.arrow.r.double` (⇒).
-/// - approx (auto, bool): Write `≈` when the shown result is rounded. Default `true`.
+/// - approximate (auto, bool): Write `≈` when the shown result is rounded. Default `true`.
 /// - block (auto, bool): Display equations (centred, default) or inline.
-/// - solutions (auto, int): How many solutions are listed. Default `6`; all are found, `root` picks among all.
-/// - definitions (auto, str): How `definitions` looks: `"grid"` (default: columns side by side, aligned at `=`), `"column"`, `"inline"` or `"list"`.
+/// - max-solutions (auto, int): How many solutions are listed. Default `6`; all are found, `root` picks among all.
+/// - defined-style (auto, str): How `defined` looks: `"grid"` (default: columns side by side, aligned at `=`), `"column"`, `"inline"` or `"list"`.
 /// - errors (auto, str): `"document"` (default): problems are shown as red notes · `"panic"`: stop the compilation.
 /// -> content
 #let def(
   ..eqs,
   unit: none, output: false, steps: auto, layout: auto, inline: false,
-  unknown: none, root: auto, guess: none, listed: true, config: (:),
-  digits: auto, zeros: auto, sep: auto, group: auto, sci: auto, eng: auto, times: auto, form: auto, frac-max: auto, slash: auto,
-  prefixes: auto, si: auto, prefer: auto, strict: auto, inline-steps: auto, implies: auto, approx: auto, block: auto, solutions: auto,
-  definitions: auto, errors: auto,
+  unknown: none, root: auto, guess: none, listed: true,
+  digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto, max-denominator: auto, fractions: auto,
+  prefixes: auto, show-si: auto, preferred-units: auto, strict: auto, inline-steps: auto, implies: auto, approximate: auto, block: auto, max-solutions: auto,
+  defined-style: auto, errors: auto,
 ) = {
   if eqs.named().len() > 0 {
     let k = eqs.named().keys().first()
-    return _err-now("unknown argument '" + k + "' (arguments: unit, output, steps, layout, inline, unknown, root, guess, listed, config and the options " + _DEF.keys().filter(k => k not in ("steps", "layout")).join(", ") + ")")
+    return _err-now("unknown argument '" + k + "' (arguments: unit, output, steps, layout, inline, unknown, root, guess, listed and the options " + _DEF.keys().filter(k => k not in ("steps", "layout", "units")).join(", ") + ")")
   }
-  if type(config) != dictionary { return _err-now("config: expected a dictionary of options like (digits: 3), got " + _tn(config)) }
   let lc = _check(_given((
-    digits: digits, zeros: zeros, sep: sep, group: group, sci: sci, eng: eng, times: times, form: form, frac-max: frac-max, slash: slash,
-    prefixes: prefixes, si: si, prefer: prefer, strict: strict, inline-steps: inline-steps, implies: implies, approx: approx, block: block, solutions: solutions,
-    definitions: definitions, errors: errors,
-  )) + config)
+    digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions,
+    prefixes: prefixes, show-si: show-si, preferred-units: preferred-units, strict: strict, inline-steps: inline-steps, implies: implies, approximate: approximate, block: block, max-solutions: max-solutions,
+    defined-style: defined-style, errors: errors,
+  )))
   if _E(lc) { return _err-now(lc.err) }
   let dl = _disp(steps, layout, inline)
   if _E(dl) { return _err-now(dl.err) }
@@ -138,48 +136,47 @@
 /// - ..eqs (str, content): The equations (or a single expression without `=` to evaluate).
 /// - unit (none, str, content, dictionary): Unit of the result: `"mA"` (or math `$"mA"$`). For a system a dictionary per unknown: `(I: "mA", U: "V")`. Without it: the SI unit with an automatic prefix, or the non-SI unit of the inputs (h, mAh). If the result has another unit (`"x = f(1)"` gives volts, `unit: "A"`), that is an error.
 /// - output (bool): `false` defines silently, like `def`.
-/// - steps (auto, str, bool): What is shown: `"full"`: equation ⇒ formula = numbers = result · `"formula"`: without the numbers · `"result"`: `t = 57.5 h` · `"value"`: just `57.5 h`. `auto`: the option `steps` (default `"full"`), or `inline-steps` with `inline: true`.
+/// - steps (auto, str): What is shown: `"full"`: equation ⇒ formula = numbers = result · `"formula"`: without the numbers · `"result"`: `t = 57.5 h` · `"value"`: just `57.5 h`. `auto`: the option `steps` (default `"full"`), or `inline-steps` with `inline: true`.
 /// - layout (auto, str): `"row"`: all steps in one line · `"column"`: one step per line, aligned at `=`. `auto`: the option `layout` (default `"row"`).
 /// - inline (bool): In the running text instead of a display block; `steps` default to `inline-steps` (`"result"`).
 /// - unknown (none, str, array): What to solve for, `"t"` or `("x", "y")`. Only needed when it isn't clear; by default all variables that aren't defined yet are the unknowns (one per equation). If everything is defined, a lone variable on either side is recomputed.
 /// - root (auto, int, function): Which solution is stored when there are several: `2` (1-based), or a test like `x => x > 0` (for systems it gets a dictionary). `auto`: the only all-positive one, else the first.
 /// - guess (none, str, content, int, float, dictionary): Newton start value instead of the search: `"-1 A"`, or `(U: "5 V")` for systems.
-/// - listed (bool): `false` hides it from `definitions`.
-/// - config (dictionary): Options for this call as a dictionary, `(digits: 2)`. Same as passing them directly.
+/// - listed (bool): `false` hides it from `defined`.
 /// - digits (auto, int): Significant digits of computed values, 1…15. Default `4`: `57.5 h`, `123500`.
-/// - zeros (auto, bool): Keep trailing zeros up to `digits` (`2.500 V`). Default `false`.
-/// - sep (auto, str): Decimal separator. `"lang"` (default): `,` for de, fr, it, … and `.` otherwise; or any string like `","`.
-/// - group (auto, none, str, symbol, content): Digit grouping for integer parts with 5+ digits, e.g. `sym.space.thin` → `12 345`. Default `none`.
-/// - sci (auto, none, array): `(low, high)`: plain notation while the exponent `e` is in `low ≤ e < high`, else `2.5 · 10⁻⁷`. Default `(-3, 6)`; `none` never switches.
-/// - eng (auto, bool): Engineering notation, exponents in steps of 3. Default `false`.
-/// - times (auto, str): `"dot"` (default, `2 · 10⁶`) or `"times"` (`2 × 10⁶`).
+/// - trailing-zeros (auto, bool): Keep trailing zeros up to `digits` (`2.500 V`). Default `false`.
+/// - separator (auto, str): Decimal separator, any string like `","`. `auto` (default): from the document language, `,` for de, fr, it, … and `.` otherwise.
+/// - grouping (auto, none, str, symbol, content): Digit grouping for integer parts with 5+ digits, e.g. `sym.space.thin` → `12 345`. Default `none`.
+/// - scientific (auto, none, array): `(low, high)`: plain notation while the exponent `e` is in `low ≤ e < high`, else `2.5 · 10⁻⁷`. Default `(-3, 6)`; `none` never switches.
+/// - engineering (auto, bool): Engineering notation, exponents in steps of 3. Default `false`.
+/// - multiplication (auto, str): `"dot"` (default, `2 · 10⁶`) or `"times"` (`2 × 10⁶`).
 /// - form (auto, str): How values are written. `"auto"` (default): as typed, results rounded · `"decimal"`: everything rounded to `digits` · `"fraction"`: exact fractions (`⅙ A`) · `"input"`: given values exactly as typed.
-/// - frac-max (auto, int): Largest denominator for `form: "fraction"`. Default `1000`.
-/// - slash (auto, bool): Fractions as `1/2` instead of stacked. Default `false`.
+/// - max-denominator (auto, int): Largest denominator for `form: "fraction"`. Default `1000`.
+/// - fractions (auto, str): How fractions are written: `"stacked"` (default) or `"slash"` (`1/2`).
 /// - prefixes (auto, str, none, array): Prefixes picked for results: `"all"` (default: a f p n µ m k M G T; times from a minute on in min or h, not ks), `none` (base unit only) or an array like `("m", "k")` (`"u"` = µ).
-/// - si (auto, bool): `definitions` also shows the SI value (`Q₀ = 3450 mAh = 12420 C`). Default `false`.
+/// - show-si (auto, bool): `defined` also shows the SI value (`Q₀ = 3450 mAh = 12420 C`). Default `false`.
 /// - inline-steps (auto, str): Steps for `inline: true` and inline code: `"full"`, `"formula"`, `"result"` (default) or `"value"`.
 /// - implies (auto, content, symbol, str): What is written between steps. Default `sym.arrow.r.double` (⇒).
-/// - approx (auto, bool): Write `≈` when the shown result is rounded. Default `true`.
+/// - approximate (auto, bool): Write `≈` when the shown result is rounded. Default `true`.
 /// - block (auto, bool): Display equations (centred, default) or inline.
-/// - solutions (auto, int): How many solutions are listed. Default `6`; all are found, `root` picks among all.
-/// - definitions (auto, str): How `definitions` looks: `"grid"` (default: columns side by side, aligned at `=`), `"column"`, `"inline"` or `"list"`.
+/// - max-solutions (auto, int): How many solutions are listed. Default `6`; all are found, `root` picks among all.
+/// - defined-style (auto, str): How `defined` looks: `"grid"` (default: columns side by side, aligned at `=`), `"column"`, `"inline"` or `"list"`.
 /// - errors (auto, str): `"document"` (default): problems are shown as red notes · `"panic"`: stop the compilation.
 /// -> content
 #let solve(
   ..eqs,
   unit: none, output: true, steps: auto, layout: auto, inline: false,
-  unknown: none, root: auto, guess: none, listed: true, config: (:),
-  digits: auto, zeros: auto, sep: auto, group: auto, sci: auto, eng: auto, times: auto, form: auto, frac-max: auto, slash: auto,
-  prefixes: auto, si: auto, prefer: auto, strict: auto, inline-steps: auto, implies: auto, approx: auto, block: auto, solutions: auto,
-  definitions: auto, errors: auto,
+  unknown: none, root: auto, guess: none, listed: true,
+  digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto, max-denominator: auto, fractions: auto,
+  prefixes: auto, show-si: auto, preferred-units: auto, strict: auto, inline-steps: auto, implies: auto, approximate: auto, block: auto, max-solutions: auto,
+  defined-style: auto, errors: auto,
 ) = def(
   ..eqs,
   unit: unit, output: output, steps: steps, layout: layout, inline: inline,
-  unknown: unknown, root: root, guess: guess, listed: listed, config: config,
-  digits: digits, zeros: zeros, sep: sep, group: group, sci: sci, eng: eng, times: times, form: form, frac-max: frac-max, slash: slash,
-  prefixes: prefixes, si: si, prefer: prefer, strict: strict, inline-steps: inline-steps, implies: implies, approx: approx, block: block, solutions: solutions,
-  definitions: definitions, errors: errors,
+  unknown: unknown, root: root, guess: guess, listed: listed,
+  digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions,
+  prefixes: prefixes, show-si: show-si, preferred-units: preferred-units, strict: strict, inline-steps: inline-steps, implies: implies, approximate: approximate, block: block, max-solutions: max-solutions,
+  defined-style: defined-style, errors: errors,
 )
 
 // one line of a code block: "U = R I -> mV" (a system: equations separated by ';'; comments with //; "= expr" prints a value)
@@ -222,7 +219,7 @@
   r
 }
 // a math equation in a solve-block: "I = 30 mA" is defined silently, the equation stays as written.
-// Equations without '=', derivations (⇒, ≈, <, …) or content that isn't a formula (alignment, line breaks, #val) are left alone.
+// Equations without '=', derivations (⇒, ≈, <, …) or content that isn't a formula (alignment, line breaks, calls) are left alone.
 #let _math-def(it) = context {
   if _busy.get() > 0 { return it }
   let cf = _cf.get()
@@ -304,7 +301,7 @@
 /// ```typ
 /// #solve-block[
 ///   The load draws $I = "30 mA"$ (#solve("I", unit: "A", steps: "value", inline: true)),
-///   the battery holds $Q_0 = 3450 "mAh"$, so it lasts $t = Q_0 / I$ = #val("t", unit: "h").
+///   the battery holds $Q_0 = 3450 "mAh"$, so it lasts $t = Q_0 / I$, ```solveng = t -> h```.
 /// ]
 /// #show: solve-block                       // the whole rest of the document
 /// #show: solve-block.with(reset: heading)   // each section on its own
@@ -332,9 +329,9 @@
   // "^": the state outside, restored at the end; "^0": the state at the start, for reset
   _st.update(d => { let n = if inherit { d } else { (:) }; n.insert("^", d); n.insert("^0", n); n })
   context {
-    // raw text is set smaller and monospaced; definitions use the surrounding text
-    let (size, font) = (text.size, text.font)
-    let out(it, sep) = text(size: size, font: font, it.text.split("\n").map(l => _line(l, it.block)).filter(x => x != none).join(sep))
+    // raw text is set smaller, monospaced and in English; definitions use the surrounding text and language
+    let (size, font, lang, region) = (text.size, text.font, text.lang, text.region)
+    let out(it, sep) = text(size: size, font: font, lang: lang, region: region, it.text.split("\n").map(l => _line(l, it.block)).filter(x => x != none).join(sep))
     show raw.where(lang: "solveng"): it => out(it, if it.block { none } else { [, ] })
     show raw.where(lang: none): it => if plain-code { out(it, none) } else { it }
     show std.math.equation: it => if equations { _math-def(it) } else { it }

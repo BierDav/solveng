@@ -1,13 +1,13 @@
-// definitions().
+// defined().
 #import "api.typ": *
 
 /// Lists the definitions made so far, in order.
 ///
 /// ```typ
-/// #definitions()                                          // everything, in columns side by side
-/// #definitions(included: "given")                         // only plain values
-/// #definitions(excluded: ("U", "function"))               // names and kinds
-/// #definitions(included: regex("^R"), style: "column")    // one column aligned at '='
+/// #defined()                                          // everything, in columns side by side
+/// #defined(included: "given")                         // only plain values
+/// #defined(excluded: ("U", "function"))               // names and kinds
+/// #defined(included: regex("^R"), style: "column")    // one column aligned at '='
 /// ```
 ///
 /// `included` / `excluded` take `"all"`, a kind (`"given"`: plain values, `"computed"`,
@@ -16,13 +16,17 @@
 ///
 /// - included (str, regex, function, array): What to list. Default `"all"`.
 /// - excluded (none, str, regex, function, array): What to leave out.
-/// - style (auto, str): `"grid"` (columns side by side, as many as fit, aligned at `=`; in HTML they reflow with the width), `"column"` (one aligned column, in HTML a table), `"inline"` (comma separated) or `"list"` (bullets). `auto`: the option `definitions` (default `"grid"`).
-/// - si (auto, bool): Also show the SI value: `Q₀ = 3450 mAh = 12420 C`.
-/// - config (dictionary): Other options, e.g. `(digits: 3)`; see `solve-config`.
+/// - style (auto, str): `"grid"` (columns side by side, as many as fit, aligned at `=`; in HTML they reflow with the width), `"column"` (one aligned column, in HTML a table), `"inline"` (comma separated) or `"list"` (bullets). `auto`: the option `defined-style` (default `"grid"`).
+/// - show-si (auto, bool): Also show the SI value: `Q₀ = 3450 mAh = 12420 C`.
+/// - digits, separator, form, … (auto): Every option of `solve-config` (except `units`) works here too, for this call only.
 /// -> content
-#let definitions(included: "all", excluded: none, style: auto, si: auto, config: (:)) = _mine(context {
-  if type(config) != dictionary { return _errc("config: expected a dictionary of options like (digits: 3), got " + _tn(config), _cf.get(), wide: true) }
-  let lc = _check(_given((definitions: style, si: si)) + config)
+#let defined(
+  included: "all", excluded: none, style: auto,
+  digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto,
+  max-denominator: auto, fractions: auto, prefixes: auto, show-si: auto, preferred-units: auto, strict: auto, steps: auto, inline-steps: auto,
+  layout: auto, implies: auto, approximate: auto, block: auto, max-solutions: auto, errors: auto,
+) = _mine(context {
+  let lc = _check(_given((defined-style: style, digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions, prefixes: prefixes, show-si: show-si, preferred-units: preferred-units, strict: strict, steps: steps, inline-steps: inline-steps, layout: layout, implies: implies, approximate: approximate, block: block, max-solutions: max-solutions, errors: errors)))
   if _E(lc) { return _errc(lc.err, _cf.get(), wide: true) }
   let cf0 = _cf.get() + lc
   let st = _st.get()
@@ -46,10 +50,10 @@
       let U = _UT(cf)
       let si = _auto(q.d, U: U)
       let sv = (raw: none, u: si, n: q.v / _unit(si, U: U).at(0))
-      (_name(e.name), if cf.si and q.u != si and _ushow(q.u, U: U) != _ushow(si, U: U) { (_qc(q, cf), _qc(sv, cf)) } else { (_qc(q, cf),) }, _relc(q, $=$))
+      (_name(e.name), if cf.show-si and q.u != si and _ushow(q.u, U: U) != _ushow(si, U: U) { (_qc(q, cf), _qc(sv, cf)) } else { (_qc(q, cf),) }, _relc(q, $=$))
     }
   })
-  let style = cf0.definitions
+  let style = cf0.defined-style
   let eqs = rows.map(((nm, vs, r0)) => (nm, vs.enumerate().map(((i, v)) => if i == 0 { $#r0 #v$ } else { $= #v$ }).join()))
   if style == "list" { std.list(..eqs.map(((nm, v)) => $#nm #v$)) }
   else if style == "inline" { eqs.map(((nm, v)) => $#nm #v$).join(", ") }
@@ -71,7 +75,7 @@
   } else if style == "column" { _eqn(eqs.map(((nm, v)) => $#nm & #v$.body).join(linebreak()), cf0 + (block: true)) }
   else {
     // as many columns as fit, filled top to bottom, each aligned at '='
-    block(width: 100%, layout(size => {
+    std.block(width: 100%, std.layout(size => {
       let cells = eqs.map(((nm, v)) => ($#nm$, $#v$))
       let ws = cells.map(((a, b)) => (measure(a).width, measure(b).width))
       let (g, sp) = (2.5em.to-absolute(), 0.3em.to-absolute())

@@ -48,7 +48,7 @@
 #def("w = 3000 rpm") #expect("w", 50)
 #solve("w2 = w", unit: "Hz") #expect("w2", 50, u: "Hz")
 #def("p2 = 2 mbar") #expect("p2", 200)
-#solve-config(prefer: ("bar",))[
+#solve-config(preferred-units: ("bar",))[
   #def("p3 = 2 p") #expect("p3", 6e5, u: "bar")
 ]
 #def("p4 = 2 p") #expect("p4", 6e5, u: "bar") // the unit of the inputs
@@ -73,4 +73,4 @@
 #solve-config(strict: false)
 
 // options are checked
-#def("x = 1", config: (units: (bar: "1e5 Pa"))) #context assert(_st.get().at("x", default: none) == none)
+#def("x = 1", units: (bar: "1e5 Pa")) #context assert(_st.get().at("x", default: none) == none)

@@ -1,5 +1,5 @@
 // Plotting with simple-plot.
-#import "definitions.typ": *
+#import "defined.typ": *
 #import "@preview/simple-plot:1.1.0" as _sp
 
 // ---------- plotting (simple-plot) ----------
@@ -122,13 +122,19 @@
 /// - xmark (none, array, str, content, int, float): Like `mark`, but only the x value is written on the axis.
 /// - ymark (none, array, str, content, int, float): y values to mark, like `yrange`: every point where a curve reaches one, with guide lines; the value is written on the y axis.
 /// - samples (int): Number of sample points.
-/// - width (int, float, length, ratio, relative): A number: the plot area in cm (default 8). A length (`12cm`, `300pt`) or share (`100%`): the whole graph, labels included.
-/// - height (int, float, length, ratio, relative): Like `width` (default 5). A share is of the container's height, or of the width when the page grows with its content.
+/// - width (auto, length, ratio, relative): Width of the whole graph, labels included: `12cm`, `300pt` or a share like `100%`. `auto`: a plot area of 8 cm.
+/// - height (auto, length, ratio, relative): Like `width`; `auto`: a plot area of 5 cm. A share is of the container's height, or of the width when the page grows with its content.
 /// - colors (array, color): Colors of the curves, e.g. `(gray, blue, rgb("#f98eff"))`.
-/// - config (dictionary): Options, e.g. `(sep: ",")`; see `solve-config`.
+/// - digits, separator, form, … (auto): Every option of `solve-config` (except `units`) works here too, for this call only.
 /// -> content
-#let graph(..args, x: auto, xrange: auto, yrange: auto, xunit: auto, yunit: auto, mark: auto, xmark: (), ymark: (), samples: 400, width: 8, height: 5, colors: (blue, red.darken(10%), green.darken(25%), orange.darken(10%)), config: (:)) = _mine(context {
-  let lc = _check(config)
+#let graph(
+  ..args, x: auto, xrange: auto, yrange: auto, xunit: auto, yunit: auto, mark: auto, xmark: (), ymark: (), samples: 400,
+  width: auto, height: auto, colors: (blue, red.darken(10%), green.darken(25%), orange.darken(10%)),
+  digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto,
+  max-denominator: auto, fractions: auto, prefixes: auto, show-si: auto, preferred-units: auto, strict: auto, steps: auto, inline-steps: auto,
+  layout: auto, implies: auto, approximate: auto, block: auto, max-solutions: auto, defined-style: auto, errors: auto,
+) = _mine(context {
+  let lc = _check(_given((digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions, prefixes: prefixes, show-si: show-si, preferred-units: preferred-units, strict: strict, steps: steps, inline-steps: inline-steps, layout: layout, implies: implies, approximate: approximate, block: block, max-solutions: max-solutions, defined-style: defined-style, errors: errors)))
   if _E(lc) { return _errc("graph: " + lc.err, _cf.get(), wide: true) }
   let cf = _cf.get() + lc
   let U = _UT(cf)
@@ -157,8 +163,8 @@
   for (n, v) in (xunit: xunit, yunit: yunit) { if v != auto and type(v) not in (str, content) { return fail(n + ": a unit like \"V\", got " + _tn(v)) } }
   if type(samples) != int or samples < 2 { return fail("samples: an integer ≥ 2") }
   for (n, v) in (width: width, height: height) {
-    let ok = if type(v) in (int, float) { v > 0 } else if type(v) == length { v.to-absolute() > 0pt } else if type(v) == ratio { v > 0% } else if type(v) == relative { v.ratio >= 0% and v.length.to-absolute() >= -1e9pt } else { false }
-    if not ok { return fail(n + ": a number in cm, a length like 50pt or 8cm, or a share like 100%, got " + repr(v)) }
+    let ok = if v == auto { true } else if type(v) == length { v.to-absolute() > 0pt } else if type(v) == ratio { v > 0% } else if type(v) == relative { v.ratio >= 0% and v.length.to-absolute() >= -1e9pt } else { false }
+    if not ok { return fail(n + ": auto, a length like 8cm or 300pt, or a share like 100%, got " + repr(v) + if type(v) in (int, float) { " – write " + repr(v) + "cm" } else { "" }) }
   }
   let colors = if type(colors) == color { (colors,) } else { colors }
   if type(colors) == content { return fail("colors: square brackets make content – write an array with parentheses: (gray, blue, rgb(\"#f98eff\"))") }
@@ -440,20 +446,20 @@
     ylabel: _axlabel(if yname != none { named.dedup().map(_name).join($, $) } else if curves.len() == 1 { D(curves.first()) } else { $$ }, yunit, U: U),
   ) + args.named()
   let make(w, h) = _sp.plot(..o + (width: w, height: h), ..ser, ..args.pos())
-  // numbers are the plot area in cm; lengths and shares (100%, 50pt) the whole graph, labels included
-  let sized = layout(size => {
-    let num(v) = type(v) in (int, float)
+  // auto: a plot area of 8 × 5 cm; lengths and shares (100%, 50pt) are the whole graph, labels included
+  let sized = std.layout(size => {
+    let (aw, ah) = (width == auto, height == auto)
     let abs(v, full) = if type(v) == ratio { v * full } else if type(v) == relative { v.ratio * full + v.length.to-absolute() } else { v.to-absolute() }
-    if num(width) and num(height) { return make(width, height) }
+    if aw and ah { return make(8, 5) }
     // HTML has no width to take a share of: a nominal 16cm, the SVG scales with the page anyway
     let full-w = if calc.abs(size.width.pt()) < 1e6 { size.width } else { 16cm }
-    let W = if num(width) { width * 1cm } else { abs(width, full-w) }
+    let W = if aw { 8cm } else { abs(width, full-w) }
     // a share of the height: of the container, or of the width when the page grows with its content
     let full-h = if calc.abs(size.height.pt()) < 1e6 { size.height } else { W }
-    let H = if num(height) { height * 1cm } else { abs(height, full-h) }
+    let H = if ah { 5cm } else { abs(height, full-h) }
     let m = measure(make(W, H))
-    let w1 = if num(width) { W } else { calc.max(W - (m.width - W), 1cm) }
-    let h1 = if num(height) { H } else { calc.max(H - (m.height - H), 1cm) }
+    let w1 = if aw { W } else { calc.max(W - (m.width - W), 1cm) }
+    let h1 = if ah { H } else { calc.max(H - (m.height - H), 1cm) }
     make(w1, h1)
   })
   // HTML has no layout of its own for this: the graph becomes an inline SVG

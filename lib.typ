@@ -6,10 +6,10 @@
 //   ```solveng
 //   P = [5 V] I -> mW                    // solveng code blocks show every step
 //   ```
-//   #solve("Q0/2 = I t", unit: "h")      // or as calls: def, solve, val, definitions, graph, lambdify
+//   #solve("Q0/2 = I t", unit: "h")      // or as calls: def, solve, defined, graph, lambdify
 
 #import "src/api.typ": def, solve, solve-block
-#import "src/core.typ": solve-config, val, reset
-#import "src/definitions.typ": definitions
+#import "src/core.typ": solve-config, reset
+#import "src/defined.typ": defined
 #import "src/graph.typ": graph
 #import "src/lambdify.typ": lambdify

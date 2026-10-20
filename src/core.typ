@@ -1,4 +1,4 @@
-// solve-config, reset, val and the solver behind def and solve.
+// solve-config, reset and the solver behind def and solve.
 #import "read.typ": *
 
 // ---------- public API ----------
@@ -19,43 +19,43 @@
 ///
 /// - ..body (content): Optional: the content the options apply to.
 /// - digits (auto, int): Significant digits of computed values, 1…15. Default `4`: `57.5 h`, `123500`.
-/// - zeros (auto, bool): Keep trailing zeros up to `digits` (`2.500 V`). Default `false`.
-/// - sep (auto, str): Decimal separator. `"lang"` (default): `,` for de, fr, it, … and `.` otherwise; or any string like `","`.
-/// - group (auto, none, str, symbol, content): Digit grouping for integer parts with 5+ digits, e.g. `sym.space.thin` → `12 345`. Default `none`.
-/// - sci (auto, none, array): `(low, high)`: plain notation while the exponent `e` is in `low ≤ e < high`, else `2.5 · 10⁻⁷`. Default `(-3, 6)`; `none` never switches.
-/// - eng (auto, bool): Engineering notation, exponents in steps of 3. Default `false`.
-/// - times (auto, str): `"dot"` (default, `2 · 10⁶`) or `"times"` (`2 × 10⁶`).
+/// - trailing-zeros (auto, bool): Keep trailing zeros up to `digits` (`2.500 V`). Default `false`.
+/// - separator (auto, str): Decimal separator, any string like `","`. `auto` (default): from the document language, `,` for de, fr, it, … and `.` otherwise.
+/// - grouping (auto, none, str, symbol, content): Digit grouping for integer parts with 5+ digits, e.g. `sym.space.thin` → `12 345`. Default `none`.
+/// - scientific (auto, none, array): `(low, high)`: plain notation while the exponent `e` is in `low ≤ e < high`, else `2.5 · 10⁻⁷`. Default `(-3, 6)`; `none` never switches.
+/// - engineering (auto, bool): Engineering notation, exponents in steps of 3. Default `false`.
+/// - multiplication (auto, str): `"dot"` (default, `2 · 10⁶`) or `"times"` (`2 × 10⁶`).
 /// - form (auto, str): How values are written. `"auto"` (default): as typed, results rounded · `"decimal"`: everything rounded to `digits` · `"fraction"`: exact fractions (`⅙ A`) · `"input"`: given values exactly as typed.
-/// - frac-max (auto, int): Largest denominator for `form: "fraction"`. Default `1000`.
-/// - slash (auto, bool): Fractions as `1/2` instead of stacked. Default `false`.
+/// - max-denominator (auto, int): Largest denominator for `form: "fraction"`. Default `1000`.
+/// - fractions (auto, str): How fractions are written: `"stacked"` (default) or `"slash"` (`1/2`).
 /// - prefixes (auto, str, none, array): Prefixes picked for results: `"all"` (default: a f p n µ m k M G T; times from a minute on in min or h, not ks), `none` (base unit only) or an array like `("m", "k")` (`"u"` = µ).
-/// - si (auto, bool): `definitions` also shows the SI value (`Q₀ = 3450 mAh = 12420 C`). Default `false`.
+/// - show-si (auto, bool): `defined` also shows the SI value (`Q₀ = 3450 mAh = 12420 C`). Default `false`.
 /// - steps (auto, str): Default for `steps` of `solve`: `"full"` (default), `"formula"`, `"result"` or `"value"`.
 /// - layout (auto, str): Default for `layout` of `solve`: `"row"` (default) or `"column"`.
 /// - inline-steps (auto, str): Steps for `inline: true` and inline code: `"full"`, `"formula"`, `"result"` (default) or `"value"`.
 /// - implies (auto, content, symbol, str): What is written between steps. Default `sym.arrow.r.double` (⇒).
-/// - approx (auto, bool): Write `≈` when the shown result is rounded. Default `true`.
+/// - approximate (auto, bool): Write `≈` when the shown result is rounded. Default `true`.
 /// - block (auto, bool): Display equations (centred, default) or inline.
-/// - solutions (auto, int): How many solutions are listed. Default `6`; all are found, `root` picks among all.
-/// - definitions (auto, str): How `definitions` looks: `"grid"` (default: columns side by side, aligned at `=`), `"column"`, `"inline"` or `"list"`.
+/// - max-solutions (auto, int): How many solutions are listed. Default `6`; all are found, `root` picks among all.
+/// - defined-style (auto, str): How `defined` looks: `"grid"` (default: columns side by side, aligned at `=`), `"column"`, `"inline"` or `"list"`.
 /// - errors (auto, str): `"document"` (default): problems are shown as red notes · `"panic"`: stop the compilation.
 /// -> content
 #let solve-config(
   ..body,
-  digits: auto, zeros: auto, sep: auto, group: auto, sci: auto, eng: auto, times: auto, form: auto, frac-max: auto, slash: auto,
-  prefixes: auto, si: auto, units: auto, prefer: auto, strict: auto,
-  steps: auto, inline-steps: auto, layout: auto, implies: auto, approx: auto, block: auto, solutions: auto,
-  definitions: auto, errors: auto,
+  digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto, max-denominator: auto, fractions: auto,
+  prefixes: auto, show-si: auto, units: auto, preferred-units: auto, strict: auto,
+  steps: auto, inline-steps: auto, layout: auto, implies: auto, approximate: auto, block: auto, max-solutions: auto,
+  defined-style: auto, errors: auto,
 ) = {
   let b = body.pos().at(0, default: none)
   if body.named().len() > 0 { return _err-now("unknown option '" + body.named().keys().first() + "' (options: " + _DEF.keys().join(", ") + ")") + b }
   if body.pos().len() > 1 { return _err-now("solve-config takes at most one body") + b }
   if b != none and type(b) != content { return _err-now("solve-config: the body must be content, got " + _tn(b)) }
   let n = _check(_given((
-    digits: digits, zeros: zeros, sep: sep, group: group, sci: sci, eng: eng, times: times, form: form, frac-max: frac-max, slash: slash,
-    prefixes: prefixes, si: si, units: units, prefer: prefer, strict: strict,
-    steps: steps, inline-steps: inline-steps, layout: layout, implies: implies, approx: approx, block: block,
-    solutions: solutions, definitions: definitions, errors: errors,
+    digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions,
+    prefixes: prefixes, show-si: show-si, units: units, preferred-units: preferred-units, strict: strict,
+    steps: steps, inline-steps: inline-steps, layout: layout, implies: implies, approximate: approximate, block: block,
+    max-solutions: max-solutions, defined-style: defined-style, errors: errors,
   )), global: true)
   if _E(n) { return _err-now(n.err) + b }
   // units add to the units set before (none removes one); the table is built from them once, here
@@ -84,38 +84,6 @@
 /// ```
 #let _restart(d) = if "^0" in d { let z = d.at("^0"); z.insert("^0", z); z } else { (:) }
 #let reset = _st.update(_restart)
-/// Shows the value of a defined variable inline, optionally converted to another unit.
-///
-/// ```typ
-/// #def("I = 30 mA")
-/// The current is #val("I"), or #val("I", unit: "A").   // 30 mA, 0.03 A
-/// ```
-///
-/// - name (str): The variable, e.g. `"I"` or `"Q0"`.
-/// - unit (none, str, content): Unit to convert to, e.g. `"A"`. Must have the same dimension as the value.
-/// - config (dictionary): Options for this value, e.g. `(digits: 2)`; see `solve-config`.
-/// -> content
-#let val(name, unit: none, config: (:)) = _mine(context {
-  let lc = _check(config)
-  if _E(lc) { return _errc(lc.err, _cf.get()) }
-  let cf = _cf.get() + lc
-  if type(name) != str { return _errc("val: the name must be a string, got " + _tn(name), cf) }
-  if type(unit) not in (type(none), str, content) { return _errc("val: unit must be a string like \"mA\", got " + _tn(unit), cf) }
-  let n = name
-  let q = _vars-of(_st.get()).at(n, default: none)
-  if q == none { return _errc("unknown variable '" + n + "'", cf) }
-  let u = unit
-  if u != none {
-    let u = _str(u)
-    if _E(u) { return _errc(u.err, cf) }
-    let un = _unit(u, U: _UT(cf))
-    if _E(un) { return _errc(un.err, cf) }
-    let (f, dm) = un
-    if dm != q.d { return _errc(n + " has unit " + (if q.d == _Z { "1 (no unit)" } else { _auto(q.d, U: _UT(cf)) }) + ", not " + u, cf) }
-    q = (v: q.v, d: dm, raw: none, u: u, n: q.v / f)
-  }
-  _qc(q, cf)
-})
 #let _inabs(e, x) = if e.at(0) == "f" and e.at(1) == "abs" and _has(e, x) { true } else { e.slice(1).filter(t => type(t) == array).any(t => _inabs(t, x)) }
 #let _gv(g, U: _U) = if type(g) in (str, content) { let q = _q(g, U: U); if _E(q) { q } else { q.v } } else { float(g) }
 // unit of the inputs to reuse for a result: only non-SI ones (h, mAh, eV); SI units get automatic prefixes anyway
@@ -132,7 +100,7 @@
 #let _mkq(v, dm, u, cf, ex: none, hint: none) = {
   let U = _UT(cf)
   let pf = none
-  for p in cf.prefer {
+  for p in cf.preferred-units {
     let r = _unit(p, U: U)
     if _E(r) { return _err("prefer: " + r.err) }
     if pf == none and r.at(1) == dm { pf = p }
@@ -140,7 +108,7 @@
   let u = if u == none and pf != none { pf } else if u == none and hint != none { hint } else if u == none {
     let a = _auto(dm, U: U)
     // fractions read better in the base unit (1/6 A, not 500/3 mA)
-    let r = if cf.form == "fraction" { _ratio(v / _unit(a, U: U).at(0), cf.frac-max) }
+    let r = if cf.form == "fraction" { _ratio(v / _unit(a, U: U).at(0), cf.max-denominator) }
     if r != none and r.at(1) > 1 { a } else { _pre(v / _unit(a, U: U).at(0), a, cf) }
   } else {
     let un = _unit(u, U: U)
@@ -383,7 +351,7 @@
   let d = r.d
   let sub = d.pairs().map(((k, q)) => (k, (_qc(q, cf), if q.u != "" { 3 } else if q.v < 0 { 2 } else { 9 }))).to-dict()
   let D(e, s: none) = _dp(e, s, cf).at(0)
-  let rel(q) = if not cf.approx or _nshow(q, cf).at(1) { $=$ } else { $approx$ }
+  let rel(q) = if not cf.approximate or _nshow(q, cf).at(1) { $=$ } else { $approx$ }
   let seg(lhs, ..ps) = (lhs, ps.pos())
   let stages = if r.k == "expr" {
     let q = r.q
@@ -437,7 +405,7 @@
       }
     }
     let qs(s) = s.enumerate().map(((i, v)) => _mkq(v, r.dm.at(i), r.u.at(i), cf))
-    let n = cf.solutions
+    let n = cf.max-solutions
     let res = if r.sols.len() == 0 { (segs: (seg($"no real solution"$),), join: none) } else if r.xs.len() == 1 {
       let x = r.xs.first()
       let segs = r.sols.slice(0, calc.min(n, r.sols.len())).enumerate().map(((i, s)) => {

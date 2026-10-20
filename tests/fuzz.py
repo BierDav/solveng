@@ -23,7 +23,7 @@ def run(doc, typst, head=None):
         f.write((head or HEAD).format(lib=LIB) + doc)
         path = f.name
     try:
-        p = subprocess.run([typst, "eval", "query(<r>).map(it => it.value)", "--in", path, "--root", "/"],
+        p = subprocess.run([typst, "query", "--root", "/", path, "<r>", "--field", "value"],
                            capture_output=True, text=True, timeout=120)
     except subprocess.TimeoutExpired:
         return ("crash", "timeout")
@@ -165,7 +165,7 @@ def case_poly(r):
     co = [lead]
     for z in roots: co = [a - z * b for a, b in zip(co + [0], [0] + co)]
     terms = " + ".join(f"({num(c)}) x^{deg - i}" for i, c in enumerate(co) if c != 0)
-    doc = f'#solve("{terms} = 0", unknown: "x", solutions: 10)\n#context [#metadata(_st.get().at("..").last().sols) <r>]'
+    doc = f'#solve("{terms} = 0", unknown: "x", max-solutions: 10)\n#context [#metadata(_st.get().at("..").last().sols) <r>]'
     want = sorted(set(roots))
     def check(out):
         got = sorted(s[0] for s in out)
@@ -254,7 +254,7 @@ def case_format(r):
     dg = r.randint(1, 10)
     sci = r.choice(["(-3, 6)", "none", "(-1, 2)", "(0, 0)"])
     eng = r.choice(["true", "false"])
-    doc = f'#context [#metadata(_fmt({num(v)}, _DEF + (digits: {dg}, sci: {sci}, eng: {eng}))) <r>]'
+    doc = f'#context [#metadata(_fmt({num(v)}, _DEF + (digits: {dg}, scientific: {sci}, engineering: {eng}))) <r>]'
     def check(out):
         m, e = out
         shown = float(m) * 10 ** (e or 0)
@@ -281,12 +281,12 @@ def case_ratio(r):
 
 # ---------- display: random options on random solves must never crash ----------
 OPTS = {
-    "digits": ["1", "3", "4", "8"], "zeros": ["true", "false"], "sep": ['"lang"', '","', '"."'], "group": ["none", "sym.space.thin", '" "'],
-    "sci": ["(-3, 6)", "none", "(0, 3)"], "eng": ["true", "false"], "times": ['"dot"', '"times"'],
-    "form": ['"auto"', '"decimal"', '"fraction"', '"input"'], "frac-max": ["10", "1000"], "slash": ["true", "false"],
-    "prefixes": ['"all"', "none", '("m", "k")', '("u",)'], "si": ["true", "false"], "steps": ['"full"', '"formula"', '"result"', '"value"', "false"], "inline-steps": ['"value"', '"full"'],
-    "layout": ['"row"', '"column"'], "approx": ["true", "false"], "block": ["true", "false"], "solutions": ["1", "6"],
-"definitions": ['"grid"', '"column"', '"inline"', '"list"'],
+    "digits": ["1", "3", "4", "8"], "trailing-zeros": ["true", "false"], "separator": ["auto", '","', '"."'], "grouping": ["none", "sym.space.thin", '" "'],
+    "scientific": ["(-3, 6)", "none", "(0, 3)"], "engineering": ["true", "false"], "multiplication": ['"dot"', '"times"'],
+    "form": ['"auto"', '"decimal"', '"fraction"', '"input"'], "max-denominator": ["10", "1000"], "fractions": ['"stacked"', '"slash"'],
+    "prefixes": ['"all"', "none", '("m", "k")', '("u",)'], "show-si": ["true", "false"], "steps": ['"full"', '"formula"', '"result"', '"value"'], "inline-steps": ['"value"', '"full"'],
+    "layout": ['"row"', '"column"'], "approximate": ["true", "false"], "block": ["true", "false"], "max-solutions": ["1", "6"],
+"defined-style": ['"grid"', '"column"', '"inline"', '"list"'],
 }
 def case_display(r):
     opts = ", ".join(f"{k}: {r.choice(v)}" for k, v in OPTS.items() if r.random() < 0.5)
@@ -294,7 +294,7 @@ def case_display(r):
     if sub is None: return None
     body = sub[0].rsplit("\n", 1)[0]
     g = r.choice(['"3450/2 mAh"', '$frac(2, 4)"A"$', '"0.000123 kOhm"', '"-12345678 V"', '"7.20 uF"'])
-    doc = f'#solve-config({opts})\n#def({g.replace(g[0], g[0] + 'z = ', 1)})\n{body}\n#definitions()\n#val("z")\n#context [#metadata(1) <r>]'
+    doc = f'#solve-config({opts})\n#def({g.replace(g[0], g[0] + 'z = ', 1)})\n{body}\n#defined()\n#solve("z", inline: true, steps: "value")\n#context [#metadata(1) <r>]'
     return doc, None, lambda out: ("ok", "")
 
 
@@ -314,7 +314,7 @@ EDGE = [
     ('#solve("x + y + z = 6", "x - y = 0", "y + 2 z = 5")' + V("z"), "ok", 4 / 3),
     ('#solve("x + y = 2", "x + y = 3", unknown: ("x", "y"))', "ok", None),
     ('#solve-config(digit: 3)', "graceful", None), ('#solve-config(form: "frac")', "graceful", None), ('#solve-config(digits: 0)', "graceful", None),
-    ('#val("nope")', "graceful", None), ('#def("a = 1 V") #val("a", unit: "A")', "graceful", None),
+    ('#solve("nope", steps: "value")', "graceful", None), ('#def("a = 1 V") #solve("a", unit: "A")', "graceful", None),
     ('#def("a = 1 V", "b = 1 A") #solve("c = a + b")', "graceful", None),
     ('#def("a = 3 V") #solve-block[#def("a = 5 V")] #solve("b = a")' + V("b"), "ok", 3),
     ('#def("a = 3 V") #solve-block(inherit: true)[#solve("b = 2 a")]' + V("b"), "ok", None),
@@ -322,15 +322,15 @@ EDGE = [
     ('#solve("x^2 = 4", guess: -1)' + V("x"), "ok", -2), ('#solve("abs(x - 3) = 2", root: 1)' + V("x"), "ok", 1),
     ('#solve($y = 2$)' + V("y"), "ok", 2), ('#def("R = 2 kOhm", "I = 3 mA") #solve($U = R dot I$)' + V("U"), "ok", 6),
     ('#solve($x + y = 3$, $x - y = 1$)' + V("x"), "ok", 2), ('#solve($w = root(3, 8) times 2$)' + V("w"), "ok", 4),
-    ('#def("a = 2 m^2", "b = 3 m²") #solve("c = a + b")' + V("c"), "ok", 5), ('#def("v = 3 m/s/s") #val("v")', "ok", None),
+    ('#def("a = 2 m^2", "b = 3 m²") #solve("c = a + b")' + V("c"), "ok", 5), ('#def("v = 3 m/s/s") #solve("v")', "ok", None),
     ('#def("m = 2 kg") #solve("F = m * [9.81 m/s^2]")' + V("F"), "ok", 19.62),
     ('#def("a = 3 µF", "b = 3 μF", "c = 3 uF") #solve("d = a + b + c")' + V("d"), "ok", 9e-6),
     ('#def("a = 2 V") #def("b = a^2", "c = 2 a", "d = (1+2) V", $f = frac(1, 3) "V"$)' + V("d"), "ok", 3),
-    ('#def(config: (foo: 1), "a = 1 V")', "graceful", None), ('#solve("q = 1", digits: 99)', "graceful", None),
+    ('#def(foo: 1, "a = 1 V")', "graceful", None), ('#solve("q = 1", digits: 99)', "graceful", None),
     ('#def("a = 0 V") #solve("b = 1/a")', "graceful", None), ('#solve("x = 1/0")', "graceful", None), ('#solve("x = 0^-1")', "graceful", None), ('#solve("x = (-8)^(1/3)")', "graceful", None),
-    ('#def("a = 3450/2 mAh", $b = frac(2, 4) "A"$) #solve-config(form: "fraction")[#definitions(included: "given")] #solve-config(form: "input")[#val("a")]', "ok", None),
+    ('#def("a = 3450/2 mAh", $b = frac(2, 4) "A"$) #solve-config(form: "fraction")[#defined(included: "given")] #solve-config(form: "input")[#solve("a")]', "ok", None),
     ('#solve-config(layout: "column", steps: "formula")[#solve("x^3 - x = 0")] #solve("p q = 6", "p + q = 5", steps: "result")', "ok", None),
-    ('#show: solve-config.with(digits: 2, sep: ",")\n#solve("y = 1/3")', "ok", None),
+    ('#show: solve-config.with(digits: 2, separator: ",")\n#solve("y = 1/3")', "ok", None),
     ('#def("f(x) = x^2 + 1") #def("y = f(3)")' + V("y"), "ok", 10),
     ('#def("g(a, b) = a b + b", "R = 2 kOhm") #def("z = g(2, R) / R")' + V("z"), "ok", 3),
     ('#def("f(x) = 2 x") #def("f(y) = 3 = 9")', "graceful", None), ('#def("f(x) = x") #def("y = f(1, 2)")', "graceful", None),
@@ -340,16 +340,16 @@ EDGE = [
     ('#def("R = 1 kOhm", "I = 2 mA", "U = R I")' + V("U"), "ok", 2), ('#def("U = R I")', "graceful", None),
     ('#def("x + y = 3", "x - y = 1")' + V("y"), "ok", 1), ('#def()', "graceful", None), ('#def("a = 1", output: "yes")', "graceful", None),
     ('#def("a = 1 V", output: true, steps: "value") #def("b = 2 V", output: true, inline: true) #solve("c = 2 a", steps: "value", inline: true) #solve("d = 2 a", layout: "column", steps: "formula") #def("c = 3 V", listed: false)', "ok", None),
-    ('#solve-block[`a = 2 V` and\n```\nb = 2 a -> mV // c\nf(x) = x + 1\nc = f(1)\n\np + q = 3; p - q = 1\nd -> V\n```\n]', "graceful", None),
-    ('#solve-block[`a = 2 V` and\n```\nb = 2 a -> mV // c\nf(x) = x + 1\nc = f(1)\n\np + q = 3; p - q = 1\nb -> V\n```\n```py\nprint(1)\n```\n#definitions()]', "ok", None),
+    ('#solve-block(plain-code: true)[`a = 2 V` and\n```\nb = 2 a -> mV // c\nf(x) = x + 1\nc = f(1)\n\np + q = 3; p - q = 1\nd -> V\n```\n]', "graceful", None),
+    ('#solve-block(plain-code: true)[`a = 2 V` and\n```\nb = 2 a -> mV // c\nf(x) = x + 1\nc = f(1)\n\np + q = 3; p - q = 1\nb -> V\n```\n```py\nprint(1)\n```\n#defined()]', "ok", None),
     ('#def("a = 2 V") #solve-block[`a = 5 V`] #def("b = a")' + V("b"), "ok", 2),
     ('#def("a = 2 V") #solve-block(inherit: true)[#solve("b = a / 3", digits: 2)]', "ok", None), ('#solve-block(digits: 2)[]', "graceful", None),
-    ('#def("a = 1 V", "b = 2 V", "f(x) = x", "c = a + b") #definitions(included: "given", excluded: "a") #definitions(included: regex("^[ab]$"), style: "column") #definitions(excluded: ("given", "function"), style: "inline") #definitions(included: n => n == "c", si: true)', "ok", None),
-    ('#definitions(included: 5)', "graceful", None), ('#def("a = 1") #definitions(included: 5)', "graceful", None),
+    ('#def("a = 1 V", "b = 2 V", "f(x) = x", "c = a + b") #defined(included: "given", excluded: "a") #defined(included: regex("^[ab]$"), style: "column") #defined(excluded: ("given", "function"), style: "inline") #defined(included: n => n == "c", show-si: true)', "ok", None),
+    ('#defined(included: 5)', "graceful", None), ('#def("a = 1") #defined(included: 5)', "graceful", None),
     # the typed API: the old forms are refused with a hint
     ('#def(I: "30 mA")', "graceful", None), ('#def("I = 30 mA") #solve("I", "mA")', "graceful", None), ('#solve("x = 1", unitt: "A")', "graceful", None),
     ('#solve("x = 1", unit: 5)', "graceful", None), ('#solve("x = 1", root: "1")', "graceful", None), ('#def(5)', "graceful", None),
-    ('#solve("x = 1", config: 3)', "graceful", None), ('#solve("x = 1", sci: (1, 2, 3))', "graceful", None), ('#solve-config(prefixes: "k")', "graceful", None),
+    ('#solve("x = 1", steps: true)', "graceful", None), ('#solve("x = 1", scientific: (1, 2, 3))', "graceful", None), ('#solve-config(prefixes: "k")', "graceful", None),
     ('#def("I = 30mAh")' + V("I"), "ok", 108), ('#def("x = 1 V", "y = 1 A") #solve("z = x y", unit: "mW")' + V("z"), "ok", 1),
     ('#solve("p + q = 3", "p - q = 1", unit: (p: "m"))', "graceful", None), ('#solve("p + q = [3 m]", "p - q = [1 m]", unit: (p: "mm", q: "cm"))' + V("q"), "ok", 1),
     # solve finds the unknown on either side, units must fit

@@ -14,7 +14,7 @@
   let P(x, p) = { let (c, q) = _dp(x, s, cf); if q < p { $(#c)$ } else { c } }
   let (k, ..a) = e
   if k == "tuple" { return (a.map(t => _dp(t, s, cf).at(0)).join($, $), 0) }
-  if k == "n" { (_nc(.._fmt(a.first(), cf + (digits: 6, zeros: false)), cf), if a.first() < 0 { 2 } else { 9 }) }
+  if k == "n" { (_nc(.._fmt(a.first(), cf + (digits: 6, trailing-zeros: false)), cf), if a.first() < 0 { 2 } else { 9 }) }
   else if k == "q" { (_qc(a.first(), cf), if a.first().u != "" { 3 } else { 9 }) }
   else if k == "c" { (if a.first() == "e" { $e$ } else { $pi$ }, 9) }
   else if k == "v" { if s != none and a.first() in s { s.at(a.first()) } else { (_name(a.first()), 9) } }
