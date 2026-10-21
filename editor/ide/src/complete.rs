@@ -8,12 +8,12 @@ use regex::Regex;
 
 use crate::calls::{Call, Role};
 use crate::elements::Element;
-use crate::text::{Doc, after, before, chars, is_digit, is_letter_or_digit, last_index_of_char};
+use crate::text::{Doc, after, before, chars, is_digit, last_index_of_char};
 use crate::tokens::CONSTANTS;
 use crate::units::{self, Custom};
 use crate::{Analysis, Completions, Context, Item, ItemKind, TAG};
 
-pub(crate) const FUNCTIONS: &[&str] = &["sqrt", "exp", "ln", "log", "sin", "cos", "tan", "asin", "acos", "atan", "abs"];
+pub(crate) const FUNCTIONS: &[&str] = &["sqrt", "exp", "ln", "log", "sin", "cos", "tan", "asin", "acos", "atan", "abs", "diff", "integrate", "vec", "at", "rect", "tri", "sgn"];
 /// Fence languages Typewright highlights, offered after ```` ``` ````.
 const TAGS: &[&str] =
     &["sql", "bash", "javascript", "typescript", "kotlin", "java", "python", "csharp", "markdown", "typst", "typc", "mermaid"];
@@ -51,18 +51,20 @@ static NAME_AT_START: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"^\s*([\p{L}](?:[\p{L}\p{N}_]|""\p{L})*)\s*(\([^()=]*\))?(?:\s*:\s*([^-+−=<>():]+?))?\s*(:=|≔|<=|>=|=|<|>|≤|≥)(.*)$"#).unwrap()
 });
 static SPACES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
-static MATH_FUNCTION: LazyLock<Regex> = LazyLock::new(|| {
-    // f(), f(x: A, y), f(x, ..)
-    let p = r"(?:\p{L}[\p{L}\p{N}_]*(?:\s*:[^,()]+)?|\.\.|…)";
-    Regex::new(&format!(r"^(\p{{L}}[\p{{L}}\p{{N}}]*)\s*\(\s*(?:{p}(?:\s*,\s*{p})*)?\s*\)$")).unwrap()
-});
 
 /// `I := 30 mA` or `f(x) := x^2` → a definition; anything else (`Q0/2 = I t`, `x =`) → None.
 pub(crate) fn definition(line: &str) -> Option<Definition> {
-    let m = NAME_AT_START.captures(line)?;
-    let (name, params, relation, rest) = (&m[1], m.get(2).map_or("", |p| p.as_str()), &m[4], &m[5]);
+    let raw: Vec<char> = line.chars().collect();
+    let (decoded, offsets) = crate::text::unescape(&raw);
+    let start = decoded.iter().position(|c| !c.is_whitespace())?;
+    let name = solveng_names::scan(&decoded, start).ok()??;
+    let written = offsets[name.end] - offsets[start];
+    let tail: String = decoded[name.end..].iter().collect();
+    let matched = format!("x{tail}");
+    let m = NAME_AT_START.captures(&matched)?;
+    let normalized = name.value;
+    let (name, params, relation, rest) = (normalized.as_str(), m.get(2).map_or("", |p| p.as_str()), &m[4], &m[5]);
     let unit = m.get(3).map(|u| u.as_str().trim().trim_matches(|c| c == '"' || c == '[' || c == ']').trim().to_string()).filter(|u| !u.is_empty());
-    let written = name.chars().count();
     // only := defines; = states, which is checked
     if relation != ":=" && relation != "≔" {
         return None;
@@ -80,7 +82,7 @@ pub(crate) fn definition(line: &str) -> Option<Definition> {
     let detail = format!("= {value}");
     // Variables go by their stored name (Delta_R is Δ_R); functions keep theirs.
     let resolved = crate::resolved_name(name);
-    let name = if params.is_empty() { resolved.as_str() } else { name };
+    let name = resolved.as_str();
     Some(if params.is_empty() {
         Definition { name: name.into(), detail, function: false, start: 0, end: 0, written, statement_end: 0, unit, assign }
     } else {
@@ -91,6 +93,7 @@ pub(crate) fn definition(line: &str) -> Option<Definition> {
 /// The names a statement solves for (`x^2 = 4 -> solve(x)`): definitions at the names in the clause, which
 /// starts at `clause` in `doc`; `equation` is what's solved.
 fn solved_definitions(doc: &Doc, clause: usize, end: usize, equation: &str, found: &mut Vec<Definition>) {
+    if equation.contains(":=") || equation.contains('≔') { return; }
     let tail = doc.sub(clause, end);
     let names = crate::clause::solved(&tail);
     let mut from = 0;
@@ -108,9 +111,9 @@ fn solved_definitions(doc: &Doc, clause: usize, end: usize, equation: &str, foun
 /// The definitions of solveng code in `start..end` of `doc`, line by line and `;` by `;`, comments left out.
 fn code_definitions(doc: &Doc, start: usize, end: usize, found: &mut Vec<Definition>) {
     let c = &doc.c;
-    let mut i = start;
-    while i < end {
-        let line_end = (i..end).find(|&j| c[j] == '\n').unwrap_or(end);
+    let (decoded, offsets) = crate::text::unescape(&c[start..end]);
+    for (a, b) in crate::text::equation_ranges(&decoded, true) {
+        let (i, line_end) = (start + offsets[a], start + offsets[b]);
         let text_end = i + before(&doc.sub(i, line_end), "//").chars().count();
         // -> solve(x) defines x; the rest is what's solved
         let marker = crate::clause::marker(&c[i..text_end], &|_| false).map(|(s, e, _)| (i + s, i + e));
@@ -124,12 +127,11 @@ fn code_definitions(doc: &Doc, start: usize, end: usize, found: &mut Vec<Definit
             if let Some(mut d) = definition(piece) {
                 d.start = at + piece.chars().take_while(|ch| ch.is_whitespace()).count();
                 d.end = d.start + d.written;
-                d.statement_end = at + piece.chars().count();
+                d.statement_end = if marker.is_some() { text_end } else { at + piece.chars().count() };
                 found.push(d);
             }
             at += piece.chars().count() + 1;
         }
-        i = line_end + 1;
     }
 }
 
@@ -137,7 +139,16 @@ fn code_definitions(doc: &Doc, start: usize, end: usize, found: &mut Vec<Definit
 /// `worksheet` strings.
 pub(crate) fn definitions(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Element) -> bool) -> Vec<Definition> {
     let mut found = Vec::new();
-    for e in elements.iter().filter(|e| active(e)) {
+    let equations: Vec<Element> = elements.iter().filter(|e| active(e)).flat_map(|e| {
+        if !e.math { return vec![e.clone()]; }
+        crate::text::equation_ranges(&doc.c[e.body_start..e.body_end], false).into_iter().map(|(a, b)| {
+            let mut part = e.clone();
+            part.body_start += a;
+            part.body_end = e.body_start + b;
+            part
+        }).collect()
+    }).collect();
+    for e in &equations {
         if !e.math {
             code_definitions(doc, e.body_start, e.body_end, &mut found);
             continue;
@@ -160,10 +171,12 @@ pub(crate) fn definitions(doc: &Doc, elements: &[Element], calls: &[Call], activ
         let plain = if assign { format!(":={}", plain.trim_start_matches(['=', '≔'])) } else { plain };
         // A function: q(x) = x "ü"; its name is what's defined, its parameters are its own.
         let lhs = crate::text::sub(c, lead, end);
-        if let Some(m) = MATH_FUNCTION.captures(&lhs) {
+        let lhs_chars = chars(&lhs);
+        let function_name = solveng_names::scan(&lhs_chars, 0).ok().flatten().filter(|name| lhs_chars.get(name.end.wrapping_sub(1)) != Some(&'_') && lhs_chars[name.end..].iter().find(|c| !c.is_whitespace()) == Some(&'('));
+        if let Some(name) = function_name {
             if let Some(mut d) = definition(&SPACES.replace_all(&format!("{lhs} {plain}"), " ")) {
                 d.start = e.body_start + lead;
-                d.end = d.start + m[1].chars().count();
+                d.end = d.start + name.end;
                 d.written = d.end - d.start;
                 d.statement_end = e.body_end;
                 found.push(d);
@@ -201,18 +214,7 @@ pub(crate) fn definitions(doc: &Doc, elements: &[Element], calls: &[Call], activ
 
 /// A solveng name as math writes it: `t_half` → `t_"half"`, `Δr` → `Δ""r`, `tews` → `"tews"`; `Q_0`, `rho` and
 /// `Q0` stay.
-pub(crate) fn math_name(name: &str) -> String {
-    let base = before(name, "_");
-    let sub = after(name, "_", "");
-    // Δr is Δ""r in math, which reads Δr as one unknown name; a longer name has to be quoted.
-    let glued = crate::conceal::math_glued(base);
-    let letters = |piece: &str| piece.trim_end_matches(|c: char| c.is_ascii_digit()).chars().count();
-    let base = if glued.split("\"\"").all(|p| letters(p) <= 1) { glued } else { format!("\"{base}\"") };
-    if sub.is_empty() {
-        return base;
-    }
-    if sub.chars().count() == 1 || sub.chars().all(|c| c.is_ascii_digit()) { format!("{base}_{sub}") } else { format!("{base}_\"{sub}\"") }
-}
+pub(crate) fn math_name(name: &str) -> String { solveng_names::math(&crate::resolved_name(name)) }
 
 static ARROW_UNIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"->\s*[^=;]*$").unwrap());
 static VALUE_UNITS: LazyLock<Regex> = LazyLock::new(|| {
@@ -296,7 +298,7 @@ fn definition_items(a: &Analysis, seen: &mut HashSet<String>, math: bool, functi
         if !seen.insert(name.to_string()) || (d.function && !functions) {
             continue;
         }
-        let spelled = if math { math_name(name) } else { name.to_string() };
+        let spelled = if math { math_name(name) } else { solveng_names::code(name) };
         if d.function {
             // As compiled where known: with the types its parameters were given or took and the type it returns.
             let reported = a.context.defined.iter().filter(|r| r.name == name && r.kind == "function").find_map(|r| signature(&r.value));
@@ -320,7 +322,7 @@ fn definition_items(a: &Analysis, seen: &mut HashSet<String>, math: bool, functi
         if d.name.is_empty() || !seen.insert(d.name.clone()) {
             continue;
         }
-        let spelled = if math { math_name(&d.name) } else { d.name.clone() };
+        let spelled = if math { math_name(&d.name) } else { solveng_names::code(&d.name) };
         match signature(&d.value).zip(d.value.split_once(" = ")) {
             Some((params, (_, body))) if d.kind == "function" => {
                 if functions {
@@ -414,7 +416,22 @@ fn code_items(a: &Analysis, line: &str) -> Vec<Item> {
     items.extend(keyword_items(line, false));
     for f in FUNCTIONS {
         if seen.insert(f.to_string()) {
-            items.push(Item::new(f, ItemKind::FUNCTION, "built-in", &format!("{f}($0)")));
+            let insert = match *f {
+                "at" => "at(${1:vector}, ${2:0})$0".into(),
+                "vec" => "vec(${1:first}, ${2:second})$0".into(),
+                "diff" => "diff(${1:expression}, ${2:x})$0".into(),
+                "integrate" => "integrate(${1:expression}, ${2:x}, ${3:0}, ${4:1})$0".into(),
+                _ => format!("{f}($0)"),
+            };
+            let detail = match *f {
+                "at" => "at(vector, index): select a component, starting at 0",
+                "vec" => "vec(a, b, …): a column vector",
+                "rect" => "rect(x): 1 for |x| < ½, ½ at ±½, otherwise 0",
+                "tri" => "tri(x): max(1 − |x|, 0)",
+                "sgn" => "sgn(x): −1, 0 or 1 according to the sign of x",
+                _ => "built-in",
+            };
+            items.push(Item::new(f, ItemKind::FUNCTION, detail, &insert));
         }
     }
     for (c, d) in CONSTANTS {
@@ -438,23 +455,99 @@ fn tag_completions(a: &Analysis, at: usize) -> Option<Completions> {
         .filter(|t| t.to_lowercase().starts_with(&typed))
         .map(|t| Item::new(t, ItemKind::CONSTANT, if t == TAG { "calculation" } else { "code" }, t))
         .collect();
-    Some(Completions { from: a.doc.to16(at - m[1].chars().count()), items, exclusive: true })
+    Some(Completions { to: None, from: a.doc.to16(at - m[1].chars().count()), items, exclusive: true })
 }
 
 fn word_start(c: &[char], at: usize, floor: usize) -> usize {
-    let mut from = at;
-    while from > floor && (is_letter_or_digit(c[from - 1]) || "_°%‰µΩ".contains(c[from - 1])) {
-        from -= 1;
+    let (text, offsets) = crate::text::unescape(&c[floor..at]);
+    let (mut start, mut begun, mut quoted, mut escaped, mut grouped) = (text.len(), false, false, false, false);
+    for (i, &ch) in text.iter().enumerate() {
+        if escaped { escaped = false; continue; }
+        if quoted {
+            if ch == '\\' { escaped = true; }
+            if ch == '"' { quoted = false; }
+            continue;
+        }
+        if ch == '"' {
+            if !begun { start = i; }
+            begun = true;
+            quoted = true;
+        } else if begun && ch == '(' && i > 0 && text[i - 1] == '_' { grouped = true; }
+        else if grouped && (ch.is_whitespace() || ch == ')') { if ch == ')' { grouped = false; } }
+        else if solveng_names::is_start(ch) || (begun && solveng_names::is_continue(ch)) {
+            if !begun { start = i; }
+            begun = true;
+        } else { start = i + 1; begun = false; }
     }
-    from
+    floor + offsets[start]
 }
 
 /// Completions when `offset` is in solveng code, math or a string or option of a solveng function, else None
 /// (and the Typst language server answers).
 pub fn complete(document: &str, context: &Context, offset: u32) -> Option<Completions> {
+    let mut result = complete_at(document, context, offset)?;
     let a = Analysis::new(document, context);
     let at = a.doc.from16(offset as usize);
-    let done = |from: usize, items: Vec<Item>, exclusive: bool| Some(Completions { from: a.doc.to16(from), items, exclusive });
+    let start = a.doc.from16(result.from as usize);
+    let math = a.elements.iter().any(|e| e.math && e.body_start <= at && at <= e.body_end);
+    let string = a.calls.iter().flat_map(|c| &c.texts).find(|t| t.start <= at && at <= t.end);
+    let name_context = string.is_none_or(|t| matches!(t.role, Role::Code | Role::Mark | Role::Name));
+    if !name_context { return Some(result); }
+    let prefix = a.doc.sub(start, at);
+    let mut has_names = false;
+    result.items.retain_mut(|item| {
+        if !matches!(item.kind, ItemKind::VARIABLE | ItemKind::FUNCTION) { return true; }
+        let label = before(before(&item.label, "("), ": ");
+        let canonical = crate::resolved_name(label);
+        if !solveng_names::matches_prefix(&canonical, &prefix) { return false; }
+        has_names = true;
+        // Client-side filtering must accept the exact spelling typed, including transport quotes.
+        if !prefix.is_empty() { item.filter = Some(prefix.clone()); }
+        if math {
+            let standard = matches!(canonical.as_str(), "sqrt" | "exp" | "ln" | "log" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "abs");
+            let base = if item.typst { label.to_string() }
+                else if item.kind == ItemKind::FUNCTION && standard { canonical.clone() }
+                else { math_name(&canonical) };
+            let suffix = item.insert.find('(').map(|at| item.insert[at..].to_string()).unwrap_or_default();
+            item.insert = if item.kind == ItemKind::FUNCTION { base + &suffix } else { base };
+        } else if string.is_some() {
+            item.insert = item.insert.replace('\\', "\\\\").replace('"', "\\\"");
+        }
+        true
+    });
+    if has_names || prefix.starts_with('"') || prefix.starts_with("\\\"") {
+        let exact = crate::resolved_name(&prefix);
+        result.items.sort_by_key(|item| {
+            let name = before(before(&item.label, "("), ": ");
+            if matches!(item.kind, ItemKind::VARIABLE | ItemKind::FUNCTION) && crate::resolved_name(name) == exact { 0 } else { 1 }
+        });
+        let floor = string.map_or_else(|| a.elements.iter().find(|e| e.body_start <= at && at <= e.body_end).map_or(start, |e| e.body_end), |t| t.end);
+        let (decoded, offsets) = crate::text::unescape(&a.doc.c[start..floor]);
+        let local_at = offsets.partition_point(|&i| i < at - start);
+        let end = solveng_names::scan(&decoded, 0).ok().flatten().map(|n| n.end).filter(|&e| e >= local_at);
+        if let Some(end) = end { result.to = Some(a.doc.to16(start + offsets[end])); }
+        if let Some(group) = decoded.windows(2).position(|w| w == ['_', '(']) {
+            let mut i = group + 2;
+            while i < decoded.len() {
+                if decoded[i] == '"' { i = solveng_names::quoted(&decoded, i).map_or(decoded.len(), |(_, end)| end); }
+                else if decoded[i] == ')' { result.to = Some(a.doc.to16(start + offsets[i + 1])); break; }
+                else { i += 1; }
+            }
+        }
+        let end = result.to.map_or(at, |to| a.doc.from16(to as usize));
+        if a.doc.c[end..].iter().find(|c| !c.is_whitespace()) == Some(&'(') {
+            for item in &mut result.items {
+                if item.kind == ItemKind::FUNCTION && let Some(open) = item.insert.find('(') { item.insert.truncate(open); }
+            }
+        }
+    }
+    Some(result)
+}
+
+fn complete_at(document: &str, context: &Context, offset: u32) -> Option<Completions> {
+    let a = Analysis::new(document, context);
+    let at = a.doc.from16(offset as usize);
+    let done = |from: usize, items: Vec<Item>, exclusive: bool| Some(Completions { to: None, from: a.doc.to16(from), items, exclusive });
     // The innermost call's string around the caret.
     let call = a.calls.iter().rev().find(|c| c.args_start <= at && at <= c.args_end);
     if let Some(call) = call
@@ -490,16 +583,8 @@ fn imports_unit_words(text: &str) -> bool {
 /// In math: units in the quotes after a number (`30 "m|"`), else the defined names next to Typst's.
 fn complete_math(a: &Analysis, e: &Element, from: usize) -> Option<Completions> {
     let before_ = a.doc.sub(e.body_start, from);
-    if before_.matches('"').count() % 2 == 1 {
-        let quote = before_.rfind('"').unwrap();
-        let previous = before_[..quote].trim_end().chars().last()?;
-        if !is_digit(previous) && previous != '"' && !declared_unit(&before_[..quote]) {
-            return None;
-        }
-        return Some(Completions { from: a.doc.to16(from), items: units::unit_items(&a.units), exclusive: true });
-    }
     if let Some(names) = crate::clause::at_clause(&before_) {
-        return Some(Completions { from: a.doc.to16(from), items: clause_items(a, names, true), exclusive: !names });
+        return Some(Completions { to: None, from: a.doc.to16(from), items: clause_items(a, names, true), exclusive: !names });
     }
     // V: |, q(x: |: units only; quoted when longer than a letter, as math needs them, unless solveng's import brings
     // their names (built-in units only)
@@ -514,20 +599,26 @@ fn complete_math(a: &Analysis, e: &Element, from: usize) -> Option<Completions> 
     };
     if declared_unit(&before_) {
         let items = keyword_items(&before_, false).into_iter().chain(units::unit_items(&a.units)).map(quote).collect();
-        return Some(Completions { from: a.doc.to16(from), items, exclusive: true });
+        return Some(Completions { to: None, from: a.doc.to16(from), items, exclusive: true });
     }
     // after a number: its unit, or a variable it multiplies
     if before_.trim_end().chars().last().is_some_and(is_digit) {
         let mut items: Vec<Item> = units::unit_items(&a.units).into_iter().map(quote).collect();
+        if a.doc.c.get(from) == Some(&'"') {
+            return Some(Completions { to: None, from: a.doc.to16(from), items, exclusive: true });
+        }
         items.extend(definition_items(a, &mut HashSet::new(), true, true));
-        return Some(Completions { from: a.doc.to16(from), items, exclusive: false });
+        return Some(Completions { to: None, from: a.doc.to16(from), items, exclusive: false });
     }
     if before_.ends_with('_') {
         return None;
     }
-    let mut items = definition_items(a, &mut HashSet::new(), true, true);
+    let mut items = code_items(a, "");
+    let native = ["sqrt", "exp", "ln", "log", "sin", "cos", "tan", "abs"];
+    items.retain(|i| !FUNCTIONS.iter().any(|f| i.label == *f || i.label.starts_with(&format!("{f}("))) || native.iter().any(|f| i.label == *f || i.label.starts_with(&format!("{f}("))));
+    items.extend(crate::operators::completions(a, from));
     items.extend(keyword_items(&before_, true));
-    if items.is_empty() { None } else { Some(Completions { from: a.doc.to16(from), items, exclusive: false }) }
+    if items.is_empty() { None } else { Some(Completions { to: None, from: a.doc.to16(from), items, exclusive: false }) }
 }
 
 /// In a string argument: code, units, names or the option's values, as the parameter takes.
@@ -556,10 +647,10 @@ fn string_completions(a: &Analysis, call: &Call, t: &crate::calls::Text, at: usi
                 }));
             }
             // Values like `inline-steps` hold dashes, so the whole string typed so far is replaced.
-            return Some(Completions { from: a.doc.to16(t.start), items, exclusive: true });
+            return Some(Completions { to: None, from: a.doc.to16(t.start), items, exclusive: true });
         }
     };
-    Some(Completions { from: a.doc.to16(from), items, exclusive: true })
+    Some(Completions { to: None, from: a.doc.to16(from), items, exclusive: true })
 }
 
 static VALUE_AT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|[,(\s])([a-z][\w-]*)\s*:\s*([\w-]*)$").unwrap());
@@ -601,7 +692,7 @@ fn option_completions(a: &Analysis, call: &Call, at: usize) -> Option<Completion
         } else {
             return None;
         };
-        return Some(Completions { from: a.doc.to16(at - typed), items, exclusive: false });
+        return Some(Completions { to: None, from: a.doc.to16(at - typed), items, exclusive: false });
     }
     let m = NAME_AT.captures(&prefix)?;
     let typed = m.get(1).map_or(0, |t| t.as_str().chars().count());
@@ -617,7 +708,7 @@ fn option_completions(a: &Analysis, call: &Call, at: usize) -> Option<Completion
             item
         })
         .collect();
-    Some(Completions { from: a.doc.to16(at - typed), items, exclusive: false })
+    Some(Completions { to: None, from: a.doc.to16(at - typed), items, exclusive: false })
 }
 
 /// The info of a solveng code fence, with the document's own units for [`crate::pretty`]: `solveng units=bar,ü`.

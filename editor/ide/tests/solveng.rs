@@ -100,19 +100,36 @@ fn knows_units_with_prefixes_and_spellings() {
 
 #[test]
 fn finds_bodies_of_solveng_code() {
-    assert_eq!(body("```solveng\nx := 1\n```", Integration::NONE), Some((10, 18)));
+    assert_eq!(body("```solveng\nx := 1\n```"), Some((10, 18)));
     // inline code, other languages and code without one are never solveng
-    assert_eq!(body("```solveng x := 1```", Integration::MATH), None);
-    assert_eq!(body("```py\nx = 1\n```", Integration::MATH), None);
-    assert_eq!(body("`x = 1`", Integration::MATH), None);
-    assert_eq!(body("```\nx = 1\n```", Integration::MATH), None);
+    assert_eq!(body("```solveng x := 1```"), None);
+    assert_eq!(body("```py\nx = 1\n```"), None);
+    assert_eq!(body("`x = 1`"), None);
+    assert_eq!(body("```\nx = 1\n```"), None);
 }
 
 #[test]
-fn reads_the_integration() {
-    assert_eq!(integration("$x = 1$", &ctx("")), Integration::NONE);
-    assert_eq!(integration("#show: worksheet", &ctx("")), Integration::MATH);
-    assert_eq!(integration("#worksheet-config(integration: \"none\")\n#worksheet[]", &ctx("")), Integration::NONE);
+fn reads_whether_math_is_evaluated() {
+    assert!(!evaluates("$x = 1$", &ctx("")));
+    assert!(evaluates("#show: worksheet", &ctx("")));
+    // evaluate: false leaves its content's math alone, but not nested worksheets' or what's passed to one
+    let doc = "#worksheet[$a := 1$ #worksheet(evaluate: false)[$b := 2$ #worksheet[$c := 3$] #worksheet($d := 4$)] $e := 5$]";
+    assert!(!math_tokens(doc, &ctx("")).is_empty());
+    let coloured = |needle: &str| {
+        let at = doc[..doc.find(needle).unwrap()].encode_utf16().count() as u32;
+        math_tokens(doc, &ctx("")).iter().any(|t| t.start <= at && at < t.start + t.length)
+    };
+    assert!(coloured("a := 1") && coloured("c := 3") && coloured("d := 4") && coloured("e := 5"));
+    assert!(!coloured("b := 2"));
+    // also for the rest of the block after a show rule
+    let shown = "#show: worksheet.with(evaluate: false)\n$x := 1$";
+    assert!(math_tokens(shown, &ctx("")).is_empty());
+}
+
+#[test]
+fn reads_code_passed_to_a_worksheet() {
+    let doc = "#worksheet(```\nt := 2\n```)";
+    assert!(regions(doc, &ctx("")).iter().any(|r| r.kind == "code"));
 }
 
 #[test]
@@ -203,7 +220,7 @@ fn colors_math_like_code() {
     let doc = "#show: worksheet\n$x := U \"as\" kΩ + unit(\"bar\")$";
     let found: Vec<String> = math_tokens(doc, &ctx("")).iter().map(|x| format!("{}:{}", slice(doc, x.start, x.length), x.kind)).collect();
     assert!(found.contains(&t("kΩ", TokenKind::UNIT)) && found.contains(&t("\"bar\"", TokenKind::UNIT)));
-    assert!(math_tokens("#show: worksheet-config.with(integration: \"none\")\n#show: worksheet\n$x = 1$", &ctx("")).is_empty());
+    assert!(math_tokens("#worksheet(evaluate: false)[$x = 1$]", &ctx("")).is_empty());
 }
 
 fn concealed(code: &str) -> String {
@@ -222,11 +239,11 @@ fn concealed(code: &str) -> String {
 
 #[test]
 fn conceals_names_units_and_operators() {
-    assert_eq!(concealed("Delta_T = Q0 * rho -> k\"\"Omega").replace('→', "->").replace('\0', ""), "Δ_T = Q₀ · ρ -> kΩ");
+    assert_eq!(concealed("Delta_T = Q0 * rho -> k\"\"Omega").replace('→', "->").replace('\0', ""), "Δ_T = Q0 * ρ -> kΩ");
     // A word starting like a letter is a name of its own; glued, each part shows as it renders.
     assert_eq!(concealed("Deltas = DeltaT + Delta\"\"s + Delta\"\"Omega_R").replace('\0', ""), "Deltas = DeltaT + Δs + ΔΩ_R");
     assert_eq!(concealed("g = 9.81 m/s^2 -> uA // a * b"), "g = 9.81 m/s² → µA // a * b");
-    assert_eq!(concealed("y = sqrt(pi x) <= alpha1"), "y = √(π x) ≤ α₁");
+    assert_eq!(concealed("y = sqrt(pi x) <= alpha1"), "y = √(π x) ≤ α1");
     let doc = "```solveng\nx = 2 Omega\n```";
     let c = conceals(doc, &ctx(""));
     assert_eq!(
@@ -273,8 +290,7 @@ fn reads_the_files_around() {
     );
     // A chapter of a main file that sets everything up.
     let main = ctx("#show: worksheet\n#worksheet-config(units: (bar: \"100 kPa\"))\n$U := 5 V$");
-    assert_eq!(integration("text", &main), Integration::MATH);
-    assert_eq!(integration("#worksheet-config(integration: \"none\")", &main), Integration::NONE);
+    assert!(evaluates("text", &main));
     let chapter = "```solveng\nP := U |\n```";
     let c = complete(&chapter.replace('|', ""), &main, chapter.find('|').unwrap() as u32).unwrap();
     assert_eq!(c.items.iter().find(|i| name(&i.label) == "U").unwrap().detail, "= 5 V");
@@ -284,28 +300,30 @@ fn reads_the_files_around() {
 
 #[test]
 fn trusts_the_compilers_report() {
-    let element = |path: &str, integration: &str| {
-        format!(r#"{{"path":"{path}","start":0,"end":7,"text":"$a = \"1\"$","kind":"math","active":true,"integration":"{integration}"}}"#)
+    let element = |path: &str, evaluate: bool| {
+        format!(r#"{{"path":"{path}","start":0,"end":7,"text":"$a = \"1\"$","kind":"math","active":true,"evaluate":{evaluate}}}"#)
     };
     let report = format!(
-        r#"{{"blocks":1,"elements":[{},{},{}],"defined":[],"units":[]}}"#,
-        element("main.typ", "math"),
-        element("ch/1.typ", "none"),
-        element("ch/1.typ", "math")
+        r#"{{"blocks":1,"elements":[{},{},{},{}],"defined":[],"units":[]}}"#,
+        element("main.typ", true),
+        element("ch/1.typ", false),
+        element("ch/1.typ", true),
+        element("ch/2.typ", false)
     );
-    assert_eq!(compiled_integration(&report, "main.typ", true), Integration::MATH as i32);
-    assert_eq!(compiled_integration(&report, "ch/1.typ", false), Integration::MATH as i32);
-    assert_eq!(compiled_integration(&report, "other.typ", false), -1);
-    assert_eq!(compiled_integration(r#"{"blocks":1,"elements":[]}"#, "main.typ", true), Integration::NONE as i32);
+    assert_eq!(compiled_evaluate(&report, "main.typ", true), 1);
+    assert_eq!(compiled_evaluate(&report, "ch/1.typ", false), 1);
+    assert_eq!(compiled_evaluate(&report, "ch/2.typ", false), 0);
+    assert_eq!(compiled_evaluate(&report, "other.typ", false), -1);
+    assert_eq!(compiled_evaluate(r#"{"blocks":1,"elements":[]}"#, "main.typ", true), 0);
     // Without reports (an older solveng) the settings decide.
-    assert_eq!(compiled_integration(r#"{"blocks":0,"elements":[]}"#, "main.typ", true), -1);
-    let context = ctx(&with_compiled("#show: worksheet", Integration::NONE as i32));
-    assert_eq!(integration("text $x = 1$", &context), Integration::NONE);
+    assert_eq!(compiled_evaluate(r#"{"blocks":0,"elements":[]}"#, "main.typ", true), -1);
+    let context = ctx(&with_compiled("#show: worksheet", 0));
+    assert!(!evaluates("text $x = 1$", &context));
     assert!(math_tokens("$x = 1$", &context).is_empty());
     assert_eq!(with_compiled("ctx", -1), "ctx");
     // The same through a parsed report.
     let c = Context::new("").with_report(&Report::parse(&report), "ch/1.typ", false);
-    assert_eq!(integration("", &c), Integration::MATH);
+    assert!(evaluates("", &c));
 }
 
 #[test]
@@ -316,7 +334,11 @@ fn conceals_the_strings_of_calls() {
         .iter()
         .map(|x| (String::from_utf16(&units16(doc)[x.start as usize..(x.start + x.length) as usize]).unwrap(), char::from_u32(x.character).unwrap()))
         .collect();
-    assert_eq!(shown, [("alpha".into(), 'α'), ("3".into(), '₃'), ("u".into(), 'µ'), ("Delta".into(), 'Δ'), ("*".into(), '·')]);
+    assert_eq!(shown, [("alpha".into(), 'α'), ("u".into(), 'µ'), ("Delta".into(), 'Δ')]);
+    // Glued and subscripted letters in a string, its quotes escaped.
+    let glued = "#worksheet(\"Delta\\\"\\\"tau := Delta_tau\")";
+    let letters: Vec<char> = conceals(glued, &ctx("")).iter().filter_map(|x| char::from_u32(x.character)).filter(|&c| c != '\0').collect();
+    assert_eq!(letters, ['Δ', 'τ', 'Δ', 'τ']);
     // Each string shows as typed while the caret is in it, quotes included.
     let first = &c[0];
     assert_eq!((first.element_start, first.element_end), (7, 24));

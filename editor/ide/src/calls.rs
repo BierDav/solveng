@@ -38,6 +38,20 @@ pub(crate) struct Named {
     pub name_end: usize,
 }
 
+/// Where a `worksheet` reads content, in characters: one of its content blocks, or what follows a
+/// `#show: worksheet` rule in the block around it. `evaluate` is what it says about the math there.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Scope {
+    pub start: usize,
+    pub end: usize,
+    pub evaluate: bool,
+}
+
+/// Whether the math at `at` is calculated as the innermost worksheet around says; None outside every one.
+pub(crate) fn evaluates_at(scopes: &[Scope], at: usize) -> Option<bool> {
+    scopes.iter().filter(|s| s.start <= at && at < s.end).max_by_key(|s| s.start).map(|s| s.evaluate)
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct Call {
     pub function: &'static Function,
@@ -46,7 +60,7 @@ pub(crate) struct Call {
     pub args_end: usize,
     pub texts: Vec<Text>,
     pub named: Vec<Named>,
-    /// Equations passed as positional arguments, which are calculated wherever they are.
+    /// Equations and raw elements passed as positional arguments, which are calculated wherever they are.
     pub maths: Vec<(usize, usize)>,
     /// Arguments as (name, source), for conversions.
     pub args: Vec<(Option<String>, String)>,
@@ -98,6 +112,7 @@ fn role(function: &str, param: Option<&str>, index: usize) -> Option<Role> {
 struct Reader<'a> {
     doc: &'a Doc,
     calls: Vec<Call>,
+    scopes: Vec<Scope>,
 }
 
 impl Reader<'_> {
@@ -108,6 +123,9 @@ impl Reader<'_> {
     fn visit(&mut self, node: &LinkedNode) {
         if matches!(node.kind(), SyntaxKind::FuncCall | SyntaxKind::MathCall) {
             self.call(node);
+        }
+        if node.kind() == SyntaxKind::ShowRule {
+            self.show_rule(node);
         }
         for child in node.children() {
             self.visit(&child);
@@ -139,6 +157,20 @@ impl Reader<'_> {
         }
     }
 
+    /// `#show: worksheet` and `#show: worksheet.with(…)`: a worksheet for the rest of the block around.
+    fn show_rule(&mut self, node: &LinkedNode) {
+        let Some(transform) = node.children().rev().find(|c| !c.kind().is_trivia()) else { return };
+        let (function, args) = match transform.kind() {
+            SyntaxKind::FuncCall => (transform.children().next(), transform.children().find(|c| c.kind() == SyntaxKind::Args)),
+            _ => (Some(transform.clone()), None),
+        };
+        if function.and_then(|f| callee(f.get())).as_deref() != Some("worksheet") {
+            return;
+        }
+        let end = node.parent().map_or(self.doc.c.len(), |p| self.chars(p).1);
+        self.scopes.push(Scope { start: self.chars(node).1, end, evaluate: args.is_none_or(|a| evaluate(&a)) });
+    }
+
     fn call(&mut self, node: &LinkedNode) {
         let Some(first) = node.children().next() else { return };
         let Some(function) = callee(first.get()).and_then(|n| params::function(&n)) else { return };
@@ -159,7 +191,13 @@ impl Reader<'_> {
         let mut index = 0;
         for arg in args.children() {
             match arg.kind() {
-                SyntaxKind::LeftParen | SyntaxKind::RightParen | SyntaxKind::Comma | SyntaxKind::ContentBlock => {}
+                SyntaxKind::ContentBlock => {
+                    if function.name == "worksheet" {
+                        let (start, end) = self.chars(&arg);
+                        self.scopes.push(Scope { start, end, evaluate: evaluate(&args) });
+                    }
+                }
+                SyntaxKind::LeftParen | SyntaxKind::RightParen | SyntaxKind::Comma => {}
                 k if k.is_trivia() => {}
                 _ if paren(&arg, "(") || paren(&arg, ")") => {}
                 SyntaxKind::Named => {
@@ -180,7 +218,8 @@ impl Reader<'_> {
                     call.named.push(Named { name: pname, name_start, name_end });
                 }
                 _ => {
-                    if arg.kind() == SyntaxKind::Equation && role(&function.name, None, index) == Some(Role::Code) {
+                    let code = arg.kind() == SyntaxKind::Raw && function.name == "worksheet";
+                    if (arg.kind() == SyntaxKind::Equation || code) && role(&function.name, None, index) == Some(Role::Code) {
                         let (s, e) = self.chars(&arg);
                         call.maths.push((s, e));
                     }
@@ -193,6 +232,15 @@ impl Reader<'_> {
                     index += 1;
                 }
             }
+        }
+        if function.name == "graph" {
+            call.texts = call.texts.into_iter().flat_map(|t| {
+                if t.param.is_some() || t.role != Role::Code { return vec![t]; }
+                let (decoded, offsets) = crate::text::unescape(&self.doc.c[t.start..t.end]);
+                crate::text::equation_ranges(&decoded, true).into_iter().map(|(a, b)| Text {
+                    start: t.start + offsets[a], end: t.start + offsets[b], ..t.clone()
+                }).collect()
+            }).collect();
         }
         self.calls.push(call);
     }
@@ -209,10 +257,18 @@ impl Call {
     }
 }
 
-/// Every call of a solveng function in a document, outer ones first.
-pub(crate) fn calls(doc: &Doc) -> Vec<Call> {
+/// Whether a worksheet's arguments calculate the math of its content: unless `evaluate: false`.
+fn evaluate(args: &LinkedNode) -> bool {
+    !args.children().filter(|c| c.kind() == SyntaxKind::Named).any(|named| {
+        let mut parts = named.children().filter(|c| !c.kind().is_trivia() && c.kind() != SyntaxKind::Colon);
+        parts.next().is_some_and(|n| n.get().leaf_text() == "evaluate") && parts.next().is_some_and(|v| v.get().clone().full_text() == "false")
+    })
+}
+
+/// Every call of a solveng function in a document, outer ones first, and where worksheets read content.
+pub(crate) fn read(doc: &Doc) -> (Vec<Call>, Vec<Scope>) {
     let root = typst_syntax::parse(&doc.s);
-    let mut reader = Reader { doc, calls: Vec::new() };
+    let mut reader = Reader { doc, calls: Vec::new(), scopes: Vec::new() };
     reader.visit(&LinkedNode::new(&root));
-    reader.calls
+    (reader.calls, reader.scopes)
 }

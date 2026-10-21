@@ -167,19 +167,11 @@ pub fn q(s: &str) -> String {
     o
 }
 
-/// A name as math sets it: one letter italic, more upright, an index below: Q_0, R_ab, x_in, Q0, α2, Δr_R.
+/// Only explicit underscores make subscripts; digits inside a name stay on the baseline.
 pub fn name(n: &str) -> String {
-    let (base, sub) = match n.find('_') {
-        Some(i) => (&n[..i], Some(n[i + 1..].to_string())),
-        None => {
-            // a letter and digits: Q0 → Q₀
-            let cs: Vec<char> = n.chars().collect();
-            let k = cs.iter().position(|c| c.is_ascii_digit());
-            match k {
-                Some(k) if k == 1 && cs[k..].iter().all(|c| c.is_ascii_digit()) => (&n[..cs[0].len_utf8()], Some(cs[k..].iter().collect())),
-                _ => (n, None),
-            }
-        }
+    let (base, sub) = match n.split_once('_') {
+        Some((base, sub)) => (base, Some(sub.to_string())),
+        None => (n, None),
     };
     let b = base_markup(base);
     match sub {
@@ -482,7 +474,7 @@ mod tests {
     #[test]
     fn names() {
         assert_eq!(name("Q_0"), "Q_(upright(\"0\"))");
-        assert_eq!(name("Q0"), "Q_(upright(\"0\"))");
+        assert_eq!(name("Q0"), "upright(\"Q0\")");
         assert_eq!(name("tews"), "upright(\"tews\")");
         assert_eq!(name("Δr_R"), "Δ r_(upright(\"R\"))");
         assert_eq!(name("x"), "x");

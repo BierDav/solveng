@@ -5,12 +5,12 @@
 // ---------- plotting (simple-plot) ----------
 /// Plots an equation with `simple-plot`: ranges, nice ticks, axis labels and units are picked automatically.
 ///
-/// Every positional string or math is a curve: an expression (`"cos(w)"`), or a function of
+/// One string or math holds the curves, separated by a backslash: an expression (`"cos(w)"`), or a function of
 /// what it's plotted against, named in the legend and on the axis: `"U(x: A) = x * [2 Ω]"`, with
 /// the parameter's unit for the x axis, or `"P(..) = U^2/R"`, where `..` takes the one variable
 /// that isn't defined (with its unit from the range or the marks). Like every function, a curve
-/// may use only its parameters and defined variables. All curves share x. Where two cross is marked:
-/// `#graph("cos(w)", "w")` shows the solution of cos(w) = w. `xrange:` / `yrange:` list values that must be visible;
+/// may use only its parameters and defined variables. With `:=` the curve also defines what it names, as the same equation in a worksheet does: `#graph($y := X(x)$)` plots y over x and defines y as X(x), with x left free; `#graph($y := 2 y$)` plots and defines twice that; `#graph($y(t) := X(t)$)` defines the function y. All curves share x. Where two cross is marked:
+/// `#graph("cos(w) \\ w")` shows the solution of cos(w) = w. `xrange:` / `yrange:` list values that must be visible;
 /// without them the x range is picked around the marks, else around the interesting part
 /// (roots, extrema, poles, intersections). Marked values are always visible too.
 ///
@@ -18,8 +18,8 @@
 /// #worksheet("R := 50 Ω", "P0 := 2 W", "U0 := 10 V", hidden: true)
 /// #graph("P(U: V) = U^2/R", ymark: "P0")                    // where P reaches P0
 /// #graph("P(..) = U0^2/R_L", xrange: ("10 Ω", "1 kΩ"))       // R_L, in Ω from the range
-/// #graph("cos(w)", "w")                                      // range picked, crossing marked
-/// #graph("y(x) = x^2", "y(x) = 2x + 3", xrange: (-3, 5))     // several curves
+/// #graph("cos(w) \\ w")                                      // range picked, crossing marked
+/// #graph("y(x) = x^2 \\ y(x) = 2x + 3", xrange: (-3, 5))     // several curves
 /// #graph("P(R_L: Ω) = U0^2/R_L", xrange: (0, "2 R"), mark: ("R", "extrema"))
 /// ```
 ///
@@ -31,20 +31,21 @@
 ///
 /// **Size:** `width` / `height` are the whole graph, labels included; `auto` makes the plot area 8 × 5 cm. Any other named argument goes straight to simple-plot's `plot` (e.g. `show-grid: false`), other positional ones (series from simple-plot) are added as they are. For full control, plot with simple-plot directly.
 ///
-/// - ..args (str, content, any): The curves (equations or expressions) and options passed on to simple-plot's `plot` (e.g. `show-grid: false`); other positional ones are added as series.
+/// - equation (str, content): Curves separated by a backslash; strings also accept complete equations on separate lines.
+/// - ..args (any): Named options passed on to simple-plot's `plot` (e.g. `show-grid: false`).
 /// - xrange (auto, array, str, content, int, float): x values that must be visible: numbers in the x axis's unit (`(1, 2)`), values (`("10 Ω", "1 kΩ")`) or expressions of defined variables (`(0, "2 R")`, math works too). Two or more give the range from the smallest to the largest; a single one widens the picked range. `auto`: around the marked x values, else picked from the curves.
 /// - yrange (auto, array, str, content, int, float): y values that must be visible, like `xrange` (numbers in the y axis's SI unit). Two or more give the exact y range. `auto`: fitted to the curves.
 /// - mark (auto, none, array, str, content, int, float): What to mark, with both coordinates written on the axes: x values like `xrange` (`"R"`, `2`, `"5 V"`; a point with guide lines on every curve, the range grows to show it), `"crossings"`, `"roots"`, `"extrema"` (searched within the range) and `auto`: where two curves cross. An array combines them: `(auto, "R1")`. `()` or `none`: no marks.
 /// - xmark (none, array, str, content, int, float): Like `mark`, but only the x value is written on the axis.
 /// - ymark (none, array, str, content, int, float): y values to mark, like `yrange`: every point where a curve reaches one, with guide lines; the value is written on the y axis.
 /// - samples (int): Number of sample points.
-/// - width (auto, length, ratio, relative): Width of the whole graph, labels included: `12cm`, `300pt` or a share like `100%`. `auto`: a plot area of 8 cm.
-/// - height (auto, length, ratio, relative): Like `width`; `auto`: a plot area of 5 cm. A share is of the container's height, or of the width when the page grows with its content.
+/// - width (auto, length, ratio, relative, fraction): Width of the whole graph, labels included: `12cm`, `300pt` or a share like `100%`. `1fr` is the container's width – in a grid, the column's. `auto`: a plot area of 8 cm.
+/// - height (auto, length, ratio, relative, fraction): Like `width`; `auto`: a plot area of 5 cm. A share is of the container's height, or of the width when the page grows with its content.
 /// - colors (array, color): Colors of the curves, e.g. `(gray, blue, rgb("#f98eff"))`.
 /// - digits, separator, form, … (auto): Every option of `worksheet-config` (except `units`) works here too, for this call only.
 /// -> content
 #let graph(
-  ..args, xrange: auto, yrange: auto, mark: auto, xmark: (), ymark: (), samples: 400,
+  equation, ..args, xrange: auto, yrange: auto, mark: auto, xmark: (), ymark: (), samples: 400,
   width: auto, height: auto, colors: (blue, red.darken(10%), green.darken(25%), orange.darken(10%)),
   digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto,
   max-denominator: auto, fractions: auto, prefixes: auto, show-si: auto, preferred-units: auto, strict: auto, steps: auto, inline-steps: auto,
@@ -55,7 +56,8 @@
   let cf = _cf.get() + lc
   let fail(m) = _errc("graph: " + m, cf, wide: true)
   // types
-  let eqs = args.pos().filter(a => type(a) in (str, content))
+  if args.pos().len() > 0 { return fail("pass curves in one equation, separated by a backslash") }
+  let eqs = (equation,)
   if args.pos().any(a => type(a) == array) { return fail("the x range is named: xrange: " + repr(args.pos().find(a => type(a) == array))) }
   // options graph had: what replaces them
   let gone = (x: "x is the one variable of the curves that isn't defined", xunit: "x's unit comes from a function parameter with a unit (q(I: mA)), xrange or the marks", yunit: "y's unit comes from the curves; preferred-units: (\"mW\",) picks another")
@@ -80,55 +82,64 @@
   let mxs = ents.filter(((m, _)) => m != auto and not iskw(m))
   if type(samples) != int or samples < 2 { return fail("samples: an integer ≥ 2") }
   for (n, v) in (width: width, height: height) {
-    let ok = if v == auto { true } else if type(v) == length { v.to-absolute() > 0pt } else if type(v) == ratio { v > 0% } else if type(v) == relative { v.ratio >= 0% and v.length.to-absolute() >= -1e9pt } else { false }
-    if not ok { return fail(n + ": auto, a length like 8cm or 300pt, or a share like 100%, got " + repr(v) + if type(v) in (int, float) { " – write " + repr(v) + "cm" } else { "" }) }
+    let ok = if v == auto { true } else if type(v) == length { v.to-absolute() > 0pt } else if type(v) == ratio { v > 0% } else if type(v) == relative { v.ratio >= 0% and v.length.to-absolute() >= -1e9pt } else if type(v) == fraction { v > 0fr } else { false }
+    if not ok { return fail(n + ": auto, a length like 8cm or 300pt, or a share like 100% or 1fr, got " + repr(v) + if type(v) in (int, float) { " – write " + repr(v) + "cm" } else { "" }) }
   }
   let colors = if type(colors) == color { (colors,) } else { colors }
   if type(colors) == content { return fail("colors: square brackets make content – write an array with parentheses: (gray, blue, rgb(\"#f98eff\"))") }
   if type(colors) != array or colors.len() == 0 or colors.any(c => type(c) not in (color, gradient)) { return fail("colors: a color or an array of colors like (gray, blue, rgb(\"#f98eff\"))") }
 
   // what the engine reads: math as written for it, strings as code
-  let src(q) = if type(q) == content and q.func() == math.equation { let m = _src(q.body); (src: if _E(m) { "?" } else { m }, mode: "math") } else { (src: _plain(q), mode: "code") }
+  let src(q) = if type(q) == content and q.func() == math.equation { let m = _src(q.body); (src: if _E(m) { "?" } else { m }, mode: "math", label: _src(q.body, names: true), operators: _operator-names(q.body)) } else { (src: _plain(q), mode: "code", label: none, operators: ()) }
   let v(a) = if type(a) in (int, float) { float(a) } else { src(a) }
   let mk(m) = if m == auto { "auto" } else if type(m) == str and m in KW { m } else { v(m) }
   let req = (
-    cfg: _req-cfg(cf), curves: eqs.map(src), xrange: rng.map(v), yrange: yrng.map(v),
+    cfg: _req-cfg(cf), curves: eqs.map(src).map(q => {
+      let labels = if q.label == none or _E(q.label) { () } else { _call(_p.statements, q.label, q.mode) }
+      _call(_p.statements, q.src, q.mode).enumerate().map(((i, s)) => (src: s, mode: q.mode, label: labels.at(i, default: none), operators: q.operators))
+    }).flatten(), xrange: rng.map(v), yrange: yrng.map(v),
     marks: ms(mark).map(m => (mk(m), true)) + ms(xmark).map(m => (mk(m), false)), ymark: ymk.map(v), samples: samples,
   )
-  let g = _call(_p.graph, _env(_st.get()), req)
-  if "err" in g { return fail(g.err) }
-  let M(s) = _m(s, cf)
-  let dash = (paint: luma(110), thickness: 0.6pt, dash: "dashed")
-  let ser = g.series.map(s => _sp.line-plot(s.points, mark: "none", stroke: colors.at(calc.rem(s.curve, colors.len())) + 1.2pt,
-    label: if s.label != none { $#M(s.label)$ }, label-pos: s.label-pos))
-  for p in g.points {
-    if p.guides != "" { ser.push(_sp.vline(p.x, ymin: calc.min(g.ax, p.y), ymax: calc.max(g.ax, p.y), stroke: dash)) }
-    if p.guides == "xy" { ser.push(_sp.hline(p.y, xmin: calc.min(g.ay, p.x), xmax: calc.max(g.ay, p.x), stroke: dash)) }
-    ser.push(_sp.scatter(((p.x, p.y),), mark-fill: black, mark-stroke: black, mark-size: 0.08))
+  // drawn with the definitions made before; the curves written with := define what they name afterwards, as the
+  // same equation in a worksheet does – a pure update of the state, so graphs building on each other settle
+  let draw = context {
+    let g = _call(_p.graph, _env(_st.get()), req)
+    if "err" in g { return fail(g.err) }
+    let M(s) = _m(s, cf)
+    let dash = (paint: luma(110), thickness: 0.6pt, dash: "dashed")
+    let ser = g.series.map(s => _sp.line-plot(s.points, mark: "none", stroke: colors.at(calc.rem(s.curve, colors.len())) + 1.2pt,
+      label: if s.label != none { $#M(s.label)$ }, label-pos: s.label-pos))
+    for p in g.points {
+      if p.guides != "" { ser.push(_sp.vline(p.x, ymin: calc.min(g.ax, p.y), ymax: calc.max(g.ax, p.y), stroke: dash)) }
+      if p.guides == "xy" { ser.push(_sp.hline(p.y, xmin: calc.min(g.ay, p.x), xmax: calc.max(g.ay, p.x), stroke: dash)) }
+      ser.push(_sp.scatter(((p.x, p.y),), mark-fill: black, mark-stroke: black, mark-size: 0.08))
+    }
+    let o = (
+      xmin: g.x0, xmax: g.x1, ymin: g.y0, ymax: g.y1, width: width, height: height,
+      xtick: g.xticks, xtick-labels: g.xlabels.map(l => $#M(l)$), ytick: g.yticks, ytick-labels: g.ylabels.map(l => $#M(l)$), show-grid: "major",
+      axis-x-pos: if g.x-axis-zero { 0 } else { "bottom" }, axis-y-pos: if g.y-axis-zero { 0 } else { "left" }, show-origin: g.x-axis-zero and g.y-axis-zero,
+      xlabel: $#M(g.xlabel)$, ylabel: $#M(g.ylabel)$,
+    ) + args.named()
+    let make(w, h) = _sp.plot(..o + (width: w, height: h), ..ser, ..args.pos())
+    // auto: a plot area of 8 × 5 cm; lengths and shares (100%, 50pt) are the whole graph, labels included
+    let sized = std.layout(size => {
+      let (aw, ah) = (width == auto, height == auto)
+      let abs(v, full) = if type(v) == ratio { v * full } else if type(v) == relative { v.ratio * full + v.length.to-absolute() } else if type(v) == fraction { v / 1fr * full } else { v.to-absolute() }
+      if aw and ah { return make(8, 5) }
+      // HTML has no width to take a share of: a nominal 16cm, the SVG scales with the page anyway
+      let full-w = if calc.abs(size.width.pt()) < 1e6 { size.width } else { 16cm }
+      let W = if aw { 8cm } else { abs(width, full-w) }
+      // a share of the height: of the container, or of the width when the page grows with its content
+      let full-h = if calc.abs(size.height.pt()) < 1e6 { size.height } else { W }
+      let H = if ah { 5cm } else { abs(height, full-h) }
+      let m = measure(make(W, H))
+      let w1 = if aw { W } else { calc.max(W - (m.width - W), 1cm) }
+      let h1 = if ah { H } else { calc.max(H - (m.height - H), 1cm) }
+      make(w1, h1)
+    })
+    // HTML has no layout of its own for this: the graph becomes an inline SVG
+    if _target() == "html" { _css(); html.elem("div", attrs: (class: "solveng-plot"), html.frame(sized)) } else { align(center, sized) }
   }
-  let o = (
-    xmin: g.x0, xmax: g.x1, ymin: g.y0, ymax: g.y1, width: width, height: height,
-    xtick: g.xticks, xtick-labels: g.xlabels.map(l => $#M(l)$), ytick: g.yticks, ytick-labels: g.ylabels.map(l => $#M(l)$), show-grid: "major",
-    axis-x-pos: if g.x-axis-zero { 0 } else { "bottom" }, axis-y-pos: if g.y-axis-zero { 0 } else { "left" }, show-origin: g.x-axis-zero and g.y-axis-zero,
-    xlabel: $#M(g.xlabel)$, ylabel: $#M(g.ylabel)$,
-  ) + args.named()
-  let make(w, h) = _sp.plot(..o + (width: w, height: h), ..ser, ..args.pos())
-  // auto: a plot area of 8 × 5 cm; lengths and shares (100%, 50pt) are the whole graph, labels included
-  let sized = std.layout(size => {
-    let (aw, ah) = (width == auto, height == auto)
-    let abs(v, full) = if type(v) == ratio { v * full } else if type(v) == relative { v.ratio * full + v.length.to-absolute() } else { v.to-absolute() }
-    if aw and ah { return make(8, 5) }
-    // HTML has no width to take a share of: a nominal 16cm, the SVG scales with the page anyway
-    let full-w = if calc.abs(size.width.pt()) < 1e6 { size.width } else { 16cm }
-    let W = if aw { 8cm } else { abs(width, full-w) }
-    // a share of the height: of the container, or of the width when the page grows with its content
-    let full-h = if calc.abs(size.height.pt()) < 1e6 { size.height } else { W }
-    let H = if ah { 5cm } else { abs(height, full-h) }
-    let m = measure(make(W, H))
-    let w1 = if aw { W } else { calc.max(W - (m.width - W), 1cm) }
-    let h1 = if ah { H } else { calc.max(H - (m.height - H), 1cm) }
-    make(w1, h1)
-  })
-  // HTML has no layout of its own for this: the graph becomes an inline SVG
-  if _target() == "html" { _css(); html.elem("div", attrs: (class: "solveng-plot"), html.frame(sized)) } else { align(center, sized) }
+  draw + _st.update(s => { let r = _call(_p.graph_define, _env(s), req); s + (env: r.env, last: (errors: r.errors)) })
+  context _st.get().last.errors.map(fail).join()
 })

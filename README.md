@@ -34,7 +34,7 @@ That is the whole document – no function calls for the calculation:
 
 - **Keywords** after `=` or `->`: `solve(x, …)`, `simplify`, `frac` (exact fractions), `digits(n)` (n significant digits), `sci` and `eng` (scientific and engineering notation), and a unit.
 - **Code:** each line of ```` ```solveng ```` is calculated like math and shown with its steps: `t := Q_0/I = [h]`, `Q_0/I =`, `x + y = 3; x - y = 1 -> solve(x, y)`; units in brackets, `;` separates a system, `//` is a comment. Inline code and code without a language stay code samples.
-- **Integration:** `#show: worksheet-config.with(integration: "none")` leaves math alone, only code blocks and `#worksheet(…)` calls are calculated; `"math"` is the default.
+- **Evaluate:** `#worksheet(evaluate: false)[…]` leaves its math alone, only code blocks and `#worksheet(…)` calls are calculated; nested worksheets calculate theirs again. A code block passed to `#worksheet(…)` is calculated without the `solveng` tag.
 - **Exercises:** `#show: worksheet.with(clear-at: heading)` starts over at every heading; `#clear("x", "f")` forgets names, `#clear(all: true)` everything.
 
 ```typ
@@ -48,6 +48,14 @@ Runtime: $Q_0/I = 1 h$
 ```
 
 ![Definitions, a solved equation, an inequality and a quadratic](docs/basics.png)
+
+Separate equations with `\` in math (`#worksheet($t := 1 \ g := 2$)`) and strings (`#worksheet("t := 1 \\ g := 2")`). Complete string/code equations also end at a newline; parentheses and a trailing arithmetic operator continue the equation. A plain `:=` keeps its formula and definition marker; append `=` to evaluate it. Both forms render as Typst math.
+
+Calculus uses the same notation in both modes: `integral_(0)^(1) x^2 dif x ->` gives 1/3, and `dif / (dif t) f(t) ->` differentiates a defined function. `diff(expression, variable)` and `integrate(expression, variable, lower, upper)` are equivalent calls. Elementary antiderivatives stay exact; other definite integrals use adaptive numerical quadrature, including infinite bounds. Unsupported symbolic integrals stay as integrals; nonconvergent numerical integrals report an error.
+
+The acute accent `´` and the backtick (`` ` ``) are literal name characters: `$x´ := 3$` needs no escaping and defines a different variable from `x`. Variable names include digits: `t2`, `t""2`, and `"t2"` are the same name, distinct from `t_2`. Complete Latin letter runs normalize to Greek, so `Delta2tau` and `"Delta2tau"` both name Δ2τ; `Deltatau` stays unchanged. Empty strings join fragments: `Delta""tau` names Δτ, carried through Typst as `$"Delta\"\"tau"$`. Quotes provide no literal-name escape. Completion accepts partial spellings, symbols, joins, and quoted carriers, and inserts the normalized name with quotes only where Typst needs them.
+
+Signal functions `rect`, `tri`, and `sgn` work in strings and math operators (`#let rect = math.op("rect")`, likewise for the others). `rect(x)` is 1 inside ±½, ½ at its endpoints, and 0 outside; `tri(x)` is max(1 − |x|, 0); `sgn(0)` is 0. Linear combinations simplify and solve normally; numerical integrals split shifted/scaled signals at their corners. Distributional derivatives remain symbolic.
 
 ## Units and variables
 
@@ -66,7 +74,7 @@ Your own units: `#worksheet-config(units: (bar: "100 kPa", rpm: "1/min", T: none
 
 ## Functions
 
-A function's body is symbolic too, so it needn't define everything it uses: what isn't a parameter and isn't defined stays a name, looked up when the function is evaluated – and cancels where the algebra lets it. Parameters can have a unit (plain numbers passed get it), and `..` makes the body's other undefined names parameters.
+A function's body is symbolic too, so it needn't define everything it uses: what isn't a parameter and isn't defined stays a name, looked up when the function is evaluated – and cancels where the algebra lets it. Undefined function calls also stay symbolic: `$f(t) := integral_(-infinity)^t sigma(tau) dif tau$` is valid before `sigma` is defined, and uses its definition when evaluated later. Numerical evaluation requires its dependencies to be defined and the integral to converge. Parameters can have a unit (plain numbers passed get it), and `..` makes the body's other undefined names parameters.
 
 ```typ
 #import "@preview/solveng:1.0.0": *
@@ -84,7 +92,7 @@ $g(3 m) =$                                 // 3 m²
 #import "@preview/solveng:1.0.0": *
 #worksheet("R := 50 Ω", "P0 := 2 W", "U0 := 10 V", hidden: true)
 #graph("P(U: V) = U^2/R", ymark: "P0")         // a function of U: where P reaches P0
-#graph("cos(w)", "w")                           // two curves, the crossing marked
+#graph("cos(w) \\ w")                           // two curves, the crossing marked
 #graph("P(..) = U0^2/R_L", xrange: ("10 Ω", "1 kΩ"), width: 10cm)   // .. takes R_L
 ```
 

@@ -13,13 +13,35 @@ const SUPERSCRIPTS: &str = "²³⁻¹";
 /// Tokens of solveng code: numbers and their units, variables, functions, `@`-inlined formulas, relations and
 /// `->`, comments. `unit` says whether a word after a number is a unit beyond the built-in ones.
 pub(crate) fn code_tokens(code: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok> {
-    tokens_of(code, unit, true)
+    transported_tokens(code, unit, true)
 }
 
 /// Tokens of a formula, like a graph's curve: a word after a number is a variable (`12 A` is 12 times A), units
 /// are written in brackets (`12 [A]`).
 pub(crate) fn formula_tokens(code: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok> {
-    tokens_of(code, unit, false)
+    transported_tokens(code, unit, false)
+}
+
+fn transported_tokens(code: &[char], unit: &dyn Fn(&str) -> bool, values: bool) -> Vec<Tok> {
+    let (decoded, offsets) = crate::text::unescape(code);
+    tokens_of(&decoded, unit, values).into_iter().map(|(s, l, k)| (offsets[s], offsets[s + l] - offsets[s], k)).collect()
+}
+
+fn name_end(text: &[char], at: usize) -> usize {
+    solveng_names::scan(text, at).ok().flatten().map_or_else(|| {
+        if text[at] == '"' { solveng_names::quoted(text, at).map_or(text.len(), |(_, end)| end) }
+        else { (at + 1..text.len()).find(|&i| !solveng_names::is_continue(text[i])).unwrap_or(text.len()) }
+    }, |n| n.end)
+}
+
+fn subscript_at(text: &[char], start: usize, end: usize) -> Option<usize> {
+    let mut i = start;
+    while i < end {
+        if text[i] == '"' { i = solveng_names::quoted(text, i).ok()?.1; }
+        else if text[i] == '_' { return Some(i); }
+        else { i += 1; }
+    }
+    None
 }
 
 /// The tokens of a clause, `start..end` after its marker: keywords, the names `solve` takes, units.
@@ -32,11 +54,9 @@ fn clause_tokens(text: &[char], start: usize, end: usize, unit: &dyn Fn(&str) ->
             let close = (i + 1..end).find(|&j| text[j] == '"').map_or(end, |j| j + 1);
             out.push((i, close - i, K::UNIT));
             i = close;
-        } else if is_letter(c) || "°%‰µΩ".contains(c) {
-            let mut j = i + 1;
-            while j < end && (is_letter_or_digit(text[j]) || "_°%‰µΩ".contains(text[j])) {
-                j += 1;
-            }
+        } else if solveng_names::is_start(c) || solveng_names::numeric_start(text, i) || "°%‰µΩ".contains(c) {
+            let mut j = name_end(text, i).min(end);
+            while j < end && "°%‰µΩ".contains(text[j]) { j += 1; }
             let word = sub(text, i, j);
             let call = text[j..end].iter().find(|ch| !ch.is_whitespace()) == Some(&'(');
             let kind = if crate::clause::is_keyword(&word) {
@@ -78,14 +98,11 @@ fn clause_tokens(text: &[char], start: usize, end: usize, unit: &dyn Fn(&str) ->
 /// Markers (see [`crate::clause::marker`]) of each line of code, comments left out: (start, end, clause end).
 fn line_markers(code: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<(usize, usize, usize)> {
     let mut out = Vec::new();
-    let mut start = 0;
-    while start <= code.len() {
-        let end = (start..code.len()).find(|&j| code[j] == '\n').unwrap_or(code.len());
+    for (start, end) in crate::text::equation_ranges(code, true) {
         let text_end = (start..end).find(|&j| starts_with(code, j, "//")).unwrap_or(end);
         if let Some((s, e, _)) = crate::clause::marker(&code[start..text_end], unit) {
             out.push((start + s, start + e, text_end));
         }
-        start = end + 1;
     }
     out
 }
@@ -99,7 +116,7 @@ fn tokens_of(code: &[char], unit: &dyn Fn(&str) -> bool, values: bool) -> Vec<To
             out.push((start, end - start, kind));
         }
     };
-    let name_part = |c: char| is_letter_or_digit(c) || c == '_';
+    let name_part = solveng_names::is_continue;
     let n = code.len();
     let mut i = 0;
     // Where units are read: after a number, inside [ ], after ->.
@@ -163,7 +180,7 @@ fn tokens_of(code: &[char], unit: &dyn Fn(&str) -> bool, values: bool) -> Vec<To
                 (typed, in_bracket) = (false, false);
             }
             i = end;
-        } else if c == '@' && i + 1 < n && is_letter(code[i + 1]) {
+        } else if c == '@' && i + 1 < n && solveng_names::is_start(code[i + 1]) {
             let mut j = i + 1;
             while j < n && name_part(code[j]) {
                 j += 1;
@@ -171,6 +188,12 @@ fn tokens_of(code: &[char], unit: &dyn Fn(&str) -> bool, values: bool) -> Vec<To
             emit(i, j, K::ANNOTATION);
             unit_mode = false;
             i = j;
+        } else if solveng_names::numeric_start(code, i) {
+            let end = name_end(code, i);
+            let call = code[end..].iter().find(|c| !c.is_whitespace()) == Some(&'(');
+            emit(i, end, if call { K::FUNCTION } else { K::VARIABLE });
+            (unit_mode, bare_number) = (false, false);
+            i = end;
         } else if is_digit(c) || (c == '.' && i + 1 < n && is_digit(code[i + 1])) {
             let mut j = i;
             while j < n {
@@ -200,14 +223,12 @@ fn tokens_of(code: &[char], unit: &dyn Fn(&str) -> bool, values: bool) -> Vec<To
             unit_mode = false;
             bare_number = false;
             i += 1;
-        } else if is_letter(c) || UNIT_CHARS.contains(c) {
+        } else if solveng_names::is_start(c) || c == '"' || UNIT_CHARS.contains(c) {
             let after_number = bare_number;
             bare_number = false;
-            let mut j = i + 1;
-            while j < n && (name_part(code[j]) || UNIT_CHARS.contains(code[j]) || glue(code, j)) {
-                j += if code[j] == '"' { 2 } else { 1 };
-            }
-            let word = sub(code, i, j);
+            let mut j = name_end(code, i);
+            while j < n && UNIT_CHARS.contains(code[j]) { j += 1; }
+            let word = crate::resolved_name(&sub(code, i, j));
             let mut k = j;
             while k < n && code[k] == ' ' {
                 k += 1;
@@ -229,11 +250,13 @@ fn tokens_of(code: &[char], unit: &dyn Fn(&str) -> bool, values: bool) -> Vec<To
                 i = j;
                 continue;
             }
-            let kind = if call {
+            let kind = if word == "dif" || word.starts_with("integral_") {
+                K::OPERATOR
+            } else if call {
                 K::FUNCTION
             } else if unit_mode && (in_bracket || after_arrow || crate::is_unit(&word) || unit(&word)) {
                 K::UNIT
-            } else if CONSTANTS.iter().any(|(c, _)| *c == word) {
+            } else if CONSTANTS.iter().any(|(c, _)| crate::resolved_name(c) == word) {
                 K::KEYWORD
             } else {
                 K::VARIABLE
@@ -263,38 +286,28 @@ fn tokens_of(code: &[char], unit: &dyn Fn(&str) -> bool, values: bool) -> Vec<To
     out
 }
 
-/// An empty string gluing a name to the letters after it: `Delta""r`.
-fn glue(text: &[char], at: usize) -> bool {
-    at + 2 < text.len() && text[at] == '"' && text[at + 1] == '"' && is_letter(text[at + 2])
-}
-
 /// Whether quoted math text `math[start..end]` (quotes included) names a variable rather than a unit: a name
 /// that isn't a unit (`"tews"`), or anything with a subscript (`"x"_1`); `"k"Omega` is a prefix.
 fn quoted_name(math: &[char], start: usize, end: usize, unit: &dyn Fn(&str) -> bool) -> bool {
-    if end < start + 2 || math.get(end - 1) != Some(&'"') {
-        return false;
-    }
-    if math.get(end) == Some(&'_') {
-        return true;
-    }
-    let inner = sub(math, start + 1, end - 1);
-    let mut chars = inner.chars();
-    if !chars.next().is_some_and(is_letter) || !chars.all(is_letter_or_digit) {
-        return false;
-    }
+    let name = sub(math, start, end);
+    let Ok(inner) = solveng_names::resolve(&name) else { return false; };
+    if math.get(end) == Some(&'_') || inner.contains('_') { return true; }
     let known = |w: &str| crate::is_unit(w) || unit(w);
     let prefix = |w: &str| crate::units::PREFIXES.iter().any(|(p, _)| *p == w);
-    // With a prefix ("mü" for a unit ü), or a prefix before its unit: "k"Omega, "m" "A".
     let first = inner.chars().next().map(String::from).unwrap_or_default();
     let prefixed = prefix(&first) && known(&inner[first.len()..]);
     !(known(&inner) || prefixed || prefix(&inner))
 }
 
 /// Words math writes for operators.
-const MATH_OPERATORS: &[&str] = &["dot", "times", "div", "approx", "plus", "minus", "eq", "lt", "gt", "arrow"];
+const MATH_OPERATORS: &[&str] = &["dot", "times", "div", "approx", "plus", "minus", "eq", "lt", "gt", "arrow", "dif", "integral"];
 
 /// Tokens of one equation's body, coloured like solveng code: numbers, quoted units, variables, functions.
 pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok> {
+    let spans = crate::text::equation_ranges(math, false);
+    if spans.len() > 1 {
+        return spans.into_iter().flat_map(|(s, e)| math_tokens(&math[s..e], unit).into_iter().map(move |(a, l, k)| (s + a, l, k))).collect();
+    }
     let mut out = Vec::new();
     let mut emit = |start: usize, end: usize, kind: u8| {
         if end > start {
@@ -342,10 +355,11 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok
             unit_mode = false;
             i = j;
         } else if c == '"' {
-            let end = (i + 1..n).find(|&j| math[j] == '"').map_or(n, |j| j + 1);
+            let end = name_end(math, i);
+            let end = subscript_at(math, i, end).unwrap_or(end);
             // "as" casts: U "as" "mA"
             // after a number it's the unit, attosecond (3 "as")
-            if !sub_ && !unit_mode && sub(math, i, end) == "\"as\"" {
+            if !sub_ && !unit_mode && crate::resolved_name(&sub(math, i, end)) == "as" {
                 emit(i, end, K::KEYWORD);
                 unit_mode = true;
                 i = end;
@@ -355,7 +369,8 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok
             // unit("bar") always is
             let named = sub(math, 0, i).trim_end().ends_with("unit(");
             let name = !named && (sub_ || quoted_name(math, i, end, unit));
-            emit(i, end, if name { K::VARIABLE } else { K::UNIT });
+            let call = math[end..].iter().find(|c| !c.is_whitespace()) == Some(&'(');
+            emit(i, end, if !name { K::UNIT } else if call { K::FUNCTION } else { K::VARIABLE });
             if !name {
                 unit_mode = true;
             } else if !sub_ {
@@ -387,6 +402,12 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok
         } else if c == '_' {
             subscript = true;
             i += 1;
+        } else if solveng_names::numeric_start(math, i) {
+            let end = name_end(math, i);
+            let call = math[end..].iter().find(|c| !c.is_whitespace()) == Some(&'(');
+            emit(i, end, if call { K::FUNCTION } else { K::VARIABLE });
+            unit_mode = false;
+            i = end;
         } else if is_digit(c) {
             let mut j = i;
             while j < n && (is_digit(math[j]) || (".,".contains(math[j]) && j + 1 < n && is_digit(math[j + 1]))) {
@@ -417,12 +438,11 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok
             emit(i, j, K::ANNOTATION);
             unit_mode = false;
             i = j;
-        } else if is_letter(c) {
-            let mut j = i + 1;
-            while j < n && (is_letter(math[j]) || (math[j] == '.' && j + 1 < n && is_letter(math[j + 1])) || glue(math, j)) {
-                j += if math[j] == '"' { 2 } else { 1 };
-            }
-            let word = sub(math, i, j);
+        } else if solveng_names::is_start(c) {
+            let mut j = name_end(math, i);
+            if let Some(subscript) = subscript_at(math, i, j) { j = subscript; }
+            while j + 1 < n && math[j] == '.' && is_letter(math[j + 1]) { j = name_end(math, j + 1); }
+            let word = crate::resolved_name(&sub(math, i, j));
             let call = j < n && math[j] == '(';
             let base = word.split('.').next().unwrap_or("");
             let kind = if sub_ {
@@ -439,7 +459,7 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok
             } else if word.chars().count() > 1 && crate::is_unit(&word) {
                 // solveng's names of units: 4 mA, x "as" kΩ
                 K::UNIT
-            } else if word == "pi" || word == "e" {
+            } else if word == "pi" || word == "π" || word == "e" {
                 K::KEYWORD
             } else {
                 K::VARIABLE

@@ -55,6 +55,7 @@ fn answers_over_stdio() {
 
     send(&mut stdin, json!({"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file:///tmp/solveng-smoke.typ"}, "position": {"line": 1, "character": 21}}}));
     let completion = wait(&mut stdout, |m| m["id"] == 2);
+    assert_eq!(completion["result"]["isIncomplete"], true);
     let items = completion["result"]["items"].as_array().unwrap();
     let ma = items.iter().find(|i| i["label"] == "mA").unwrap();
     assert_eq!(ma["textEdit"]["range"]["start"], json!({"line": 1, "character": 20}));
@@ -67,6 +68,15 @@ fn answers_over_stdio() {
     let tokens = wait(&mut stdout, |m| m["id"] == 4);
     // `I` on line 1, column 12.
     assert_eq!(tokens["result"]["data"].as_array().unwrap()[..3], [json!(1), json!(12), json!(1)]);
+
+    let changed = "#worksheet(\"result := inte\")";
+    send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file:///tmp/solveng-smoke.typ", "version": 2}, "contentChanges": [{"text": changed}]}}));
+    let at = changed.find("inte").unwrap() + 4;
+    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 6, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file:///tmp/solveng-smoke.typ"}, "position": {"line": 0, "character": at}}}));
+    let completion = wait(&mut stdout, |m| m["id"] == 6);
+    let integrate = completion["result"]["items"].as_array().unwrap().iter().find(|item| item["label"] == "integrate").unwrap();
+    assert_eq!(integrate["insertTextFormat"], 2);
+    assert!(integrate["textEdit"]["newText"].as_str().unwrap().contains("${1:expression}"));
 
     send(&mut stdin, json!({"jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null}));
     wait(&mut stdout, |m| m["id"] == 5);

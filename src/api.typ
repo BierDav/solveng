@@ -9,10 +9,18 @@
 // something. Equations that aren't formulas are left alone. quiet: only problems are shown (prose stays).
 #let _math-def(it, quiet: false) = context {
   if _busy.get() > 0 or _reshown(it) or _own(it) { return it }
+  let children = if it.body.has("children") { it.body.children } else { (it.body,) }
+  if children.any(c => c.func() == linebreak) {
+    let groups = ((),)
+    for c in children {
+      if c.func() == linebreak { groups.push(()) } else { groups.last().push(c) }
+    }
+    return groups.map(g => _math-def(math.equation(g.join(), block: it.block), quiet: quiet)).join()
+  }
   let cf = _cf.get() + (block: it.block)
-  let src = _src(it.body)
+  let src = _src(it.body, names: true)
   if _E(src) or src.trim() == "" { return it }
-  _calc(src, "math", cf, out => {
+  _calc(src, "math", cf, operators: _operator-bindings(it.body), out => {
     let errs = out.errors.map(e => _errc(e, cf, wide: it.block)).join()
     if out.prose { return _with-body(it, _restyle(it.body, (), cf)) + errs }
     if quiet { return errs }
@@ -49,27 +57,29 @@
   let defined = _rows(_st.get(), cf).map(r => (name: r.name, kind: r.kind, value: r.plain))
   [#metadata((kind: "block", defined: defined, units: units))<solveng>]
 }
+// whether the innermost worksheet around calculates its math: its evaluate, one per worksheet, innermost first
+#let _evaluates(cf) = cf.at("#evaluate", default: ()).at(0, default: true)
 // the element `it` shown as `body`, followed by its record; `cf` is the configuration around it
 #let _noted(it, kind, active, cf, body) = {
   let loc = it.location()
   if loc == none { return body }
-  body + [#metadata((kind: kind, element: loc, active: active, integration: cf.integration))<solveng>]
+  body + [#metadata((kind: kind, element: loc, active: active, evaluate: _evaluates(cf)))<solveng>]
 }
 
 // how many worksheets are around, kept with the configuration that every element reads anyway
 #let _blocks(cf) = cf.at("#blocks", default: 0)
-// `b` with math (as worksheet-config(integration: …) says where each element is) and solveng code blocks calculated;
+// `b` with math (unless the innermost worksheet around an element says evaluate: false) and solveng code blocks calculated;
 // hidden: what is calculated isn't shown (only its problems), the rest of `b` is
 #let _rules(b, clear-at, hidden) = context {
   // raw text is set smaller, monospaced and in English; definitions use the surrounding text and language
   let (size, font, lang, region) = (text.size, text.font, text.lang, text.region)
   show raw.where(lang: "solveng", block: true): it => context {
-    _noted(it, "code", true, _cf.get(), text(size: size, font: font, lang: lang, region: region, it.text.split("\n").map(l => _line(l, true, quiet: hidden)).filter(x => x != none).join()))
+    _noted(it, "code", true, _cf.get(), text(size: size, font: font, lang: lang, region: region, _call(_p.statements, it.text, "code").map(l => _line(l, true, quiet: hidden)).filter(x => x != none).join()))
   }
   show std.math.equation: it => context {
     if _busy.get() > 0 or _reshown(it) or _own(it) { return it }
     let cf = _cf.get()
-    let on = cf.integration == "math"
+    let on = _evaluates(cf)
     _noted(it, "math", on, cf, if on { _math-def(it, quiet: hidden) } else { it })
   }
   // start over at each heading (or whatever clear-at selects): back to the state at the start of the worksheet
@@ -92,7 +102,7 @@
 ///
 /// **Math.** As in Mathcad:
 ///
-/// - `:=` defines (shown as ≔), symbolically: `$I := 30 mA$`, `$P := U I$`, `$f(x) := x^2 + 1$`. Names not defined yet stay names until they are, see [Calculating like Mathcad](#calculating-like-mathcad).
+/// - `:=` defines (shown as ≔), symbolically: `$I := 30 mA$`, `$P := U I$`, `$f(x) := x^2 + 1$`. Names not defined yet stay names until they are, see *Calculating like Mathcad*.
 /// - `=` inside an expression compares, 1 or 0: `$M := 1 = 2 =$` is 0.
 /// - `=` at the end shows the value, with a bold =: `$t =$` → t **=** 115 h, `$t := Q_0/I =$` defines and shows it. What follows it is the unit and keywords: `$t = 1 h$`, `$t = min, digits(2)$`.
 /// - `->` at the end shows the symbolic result, the known values put in, exactly: `$f := (x^2 - 1)/(x - 1) -> simplify$`. With `solve(x)` it solves an equation for x (and defines it when the solution is a value): `$Q_0/2 = I t -> solve(t)$`, `$x^2 - 4 = 0 -> solve(x)$`, `$x + y = 3, x - y = 1 -> solve(x, y)$`, `$R <= U/I -> solve(R)$`.
@@ -101,13 +111,32 @@
 ///
 /// **Units** are names: `$30 mA$`, `$4.7 kΩ$`, `$9.81 m/s^2$`, and `unit("bar")` for units without one (your own, from `worksheet-config(units: …)`). A single letter is a unit only right after a number: `$5 V$`, `$3 h$`, and `$t = 1 h$` shows t in hours. Anywhere else it's a variable, also alone after `=`: `$t = h$` compares t with a variable h, and `$3 dot h$` is 3 times h.
 ///
-/// **Code.** Each line of a ```` ```solveng ```` code block is calculated the same way and shown with all its steps: `t := Q0/I = [h]`, `Q0/I =`, `x^2 = 4 -> solve(x)`; units in brackets, `;` separates the equations of a system, `//` starts a comment. Inline code and code with another language are left alone.
+/// **Code.** Each line of a `solveng` code block is calculated the same way and shown with all its steps: `t := Q0/I = [h]`, `Q0/I =`, `x^2 = 4 -> solve(x)`; units in brackets, `;` separates the equations of a system, `//` starts a comment. Inline code and code with another language are left alone.
 ///
-/// **Calls.** `#worksheet($U := 5 V$, $I := U/R =$)` calculates its equations (and strings, read like a code line) where it stands, with the definitions made before. Its options are for these only; with content, for the content.
+/// **Calls.** `#worksheet($U := 5 V$, $I := U/R =$)` calculates its equations (and strings, read like a code line) where it stands, with the definitions made before. A code block passed to it is calculated line by line, like a `solveng` code block but without the tag. Its options are for these only; with content, for the content.
+///
+/// **Evaluate.** `#worksheet(evaluate: false)[…]` leaves its math alone: only its `solveng` code blocks and `#worksheet(…)` calls are calculated. Nested worksheets don't inherit it, so a `#worksheet[…]` or `#worksheet($t =$)` inside calculates its math again.
+///
+/// ````typ
+/// #worksheet(```
+///   t := 2 s
+///   v := 3 m / t =
+/// ```)
+/// ````
+///
+/// ```typ
+/// #worksheet[
+///   $t := 5 s$
+///   #worksheet(evaluate: false, inherit: true)[
+///     $E = m c^2$ stays as written, and so does $t = 3 s$;
+///     #worksheet($t =$) is still calculated.
+///   ]
+/// ]
+/// ```
 ///
 /// **Hidden.** `hidden: true` calculates without showing what is calculated: the equations of a call, or in `#worksheet(hidden: true)[…]` the math and code blocks it calculates – its text, headings and prose equations (`$E = m c^2$`) stay. Problems are still shown. Nested worksheets don't inherit it, so a `#worksheet($t =$)` inside shows its equation again.
 ///
-/// ```typ
+/// ````typ
 /// #worksheet(hidden: true)[
 ///   The values for the example:
 ///   $U := 5 V$, $R := 100 Ω$
@@ -116,9 +145,9 @@
 ///   ```
 ///   The current is #worksheet($I = mA$).
 /// ]
-/// ```
+/// ````
 ///
-/// **Editors.** Each equation and code block the worksheet sees leaves a `metadata` labelled `<solveng>` with its `location()`, whether it was calculated and the `integration` there; at the end (and before each match of `clear-at`) one lists everything defined, with values, and the units. Editors like Typewright read them after compiling: `query(<solveng>)`.
+/// **Editors.** Each equation and code block the worksheet sees leaves a `metadata` labelled `<solveng>` with its `location()`, whether it was calculated and whether math is evaluated there; at the end (and before each match of `clear-at`) one lists everything defined, with values, and the units. Editors like Typewright read them after compiling: `query(<solveng>)`.
 ///
 /// **Starting over.** `clear-at` clears every definition at each match; `#clear(all: true)` inside a worksheet does the same once: back to how it started (with `inherit: true` the outer definitions stay), and `#clear("x", "f")` forgets only those names. After a `#worksheet[…]` the outer definitions come back.
 ///
@@ -128,15 +157,16 @@
 /// #show: worksheet.with(clear-at: heading, inherit: true)     // keep the definitions made before
 /// ```
 ///
-/// - ..body (content, str): The content, or equations (math or code lines) to calculate.
-/// - inherit (auto, bool): See the definitions made before the worksheet (also after each match of `clear-at`). `auto` (default): yes for equations, no for content. `inherit: false` with equations calculates them on their own; what they define is dropped afterwards, as after `#worksheet[…]`.
+/// - ..body (content, str): The content, or equations to calculate: math, strings (code lines) and code blocks.
+/// - inherit (auto, bool): See the definitions made before the worksheet (also after each match of `clear-at`). `auto` (default): yes for equations, no for content. `inherit: false` with equations calculates them on their own; what they define still counts afterwards, as what a `graph` defines does.
 /// - clear-at (none, function, selector): Clear every definition at each match, e.g. `heading` (every heading) or `heading.where(level: 1)`: the definitions made since are forgotten, like `#clear(all: true)`.
 /// - hidden (bool): Calculate without showing what is calculated (only problems are shown): the equations, or the math and code blocks of the content. Not inherited by nested worksheets.
-/// - digits, separator, form, … (auto): Every option of `worksheet-config` (except `units` and `integration`), for this worksheet or these equations only.
+/// - evaluate (bool): Calculate the math in the content; `false`: only its code blocks and `#worksheet(…)` calls are. Not inherited by nested worksheets, and not for equations, which are always calculated.
+/// - digits, separator, form, … (auto): Every option of `worksheet-config` (except `units`), for this worksheet or these equations only.
 /// -> content
 #let worksheet(
   ..body,
-  inherit: auto, clear-at: none, hidden: false,
+  inherit: auto, clear-at: none, hidden: false, evaluate: true,
   digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto, max-denominator: auto, fractions: auto,
   prefixes: auto, show-si: auto, preferred-units: auto, strict: auto, steps: auto, layout: auto, implies: auto, approximate: auto, block: auto, max-solutions: auto,
   defined-style: auto, errors: auto, show-casts: auto, show-types: auto,
@@ -144,7 +174,7 @@
   let pos = body.pos()
   if body.named().len() > 0 {
     let k = body.named().keys().first()
-    return _err-now("unknown argument '" + k + "' for worksheet (arguments: inherit, clear-at, hidden and the options " + _DEF.keys().filter(k => k not in ("units", "integration", "inline-steps")).join(", ") + ")")
+    return _err-now("unknown argument '" + k + "' for worksheet (arguments: inherit, clear-at, hidden, evaluate and the options " + _DEF.keys().filter(k => k not in ("units", "inline-steps")).join(", ") + ")")
   }
   let lc = _check(_given((
     digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions,
@@ -153,15 +183,19 @@
   )))
   if _E(lc) { return _err-now(lc.err) }
   if type(hidden) != bool { return _err-now("hidden: true or false, got " + _tn(hidden)) }
+  if type(evaluate) != bool { return _err-now("evaluate: true or false, got " + _tn(evaluate)) }
   if inherit != auto and type(inherit) != bool { return _err-now("inherit: auto, true or false, got " + _tn(inherit)) }
-  let eqs = pos.len() > 0 and pos.all(x => type(x) == str or (type(x) == content and x.func() == math.equation))
+  let eqs = pos.len() > 0 and pos.all(x => type(x) == str or (type(x) == content and x.func() in (math.equation, raw)))
   let out = if eqs {
     if clear-at != none { return _err-now("clear-at is for a worksheet's content, #worksheet[…]") }
-    let shown = pos.map(x => if type(x) == str { x.split("\n").map(l => _line(l, true, quiet: hidden)).filter(l => l != none).join() } else { _math-def(x, quiet: hidden) }).join()
+    if not evaluate { return _err-now("evaluate: false is for a worksheet's content, #worksheet(evaluate: false)[…]; equations passed to worksheet are always calculated") }
+    let code(s, block) = _call(_p.statements, s, "code").map(l => _line(l, block, quiet: hidden)).filter(l => l != none).join()
+    let shown = pos.map(x => if type(x) == str { code(x, true) } else if x.func() == raw { code(x.text, x.block) } else { _math-def(x, quiet: hidden) }).join()
     if inherit != false { shown } else {
       _st.update(d => (:) + ("^": d))
       shown
-      _st.update(d => d.at("^") + if "last" in d { (last: d.last) } else { (:) })
+      // what they defined comes back, over the definitions around
+      _st.update(d => { let o = d.at("^"); o + (env: _p.merge(_env(o), _env(d))) + if "last" in d { (last: d.last) } else { (:) } })
     }
   } else {
     let b = pos.at(0, default: [])
@@ -169,10 +203,10 @@
     if type(clear-at) not in (type(none), function, selector, label) { return _err-now("clear-at: none or where to clear the definitions, like heading or heading.where(level: 1), got " + _tn(clear-at)) + b }
     // "^": the state outside, restored at the end; "^0": the state at the start, for clear-at and clear(all: true)
     _st.update(d => { let n = if inherit == true { d } else { (:) }; n.insert("^", d); n.insert("^0", n); n })
-    _cf.update(c => c + ("#blocks": _blocks(c) + 1))
+    _cf.update(c => c + ("#blocks": _blocks(c) + 1, "#evaluate": (evaluate,) + c.at("#evaluate", default: ())))
     _rules(b, clear-at, hidden)
     _block-note
-    _cf.update(c => c + ("#blocks": _blocks(c) - 1))
+    _cf.update(c => c + ("#blocks": _blocks(c) - 1, "#evaluate": c.at("#evaluate").slice(1)))
     _st.update(d => d.at("^"))
   }
   if lc.len() == 0 { out } else {

@@ -2,7 +2,7 @@
 //! The worksheet's definitions travel as opaque bytes the Typst side keeps in its state.
 
 use ciborium::Value;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use solveng_core::api::{self, Arg, ClearReq, DefinedReq, Lam, LamReq, LineReq, UnitReq};
 use solveng_core::env::Env;
@@ -30,9 +30,16 @@ fn to_value<T: Serialize>(v: &T) -> Result<Value, String> {
 /// (env, request) → (env: new env, out: what to show).
 #[wasm_func]
 pub fn line(env: &[u8], req: &[u8]) -> Result<Vec<u8>, String> {
+    #[derive(Deserialize)]
+    struct Request {
+        #[serde(flatten)]
+        line: LineReq,
+        #[serde(default)]
+        operators: Vec<solveng_core::env::Operator>,
+    }
     let mut e = env_of(env)?;
-    let r: LineReq = de(req, "request")?;
-    let out = api::line(&mut e, &r);
+    let r: Request = de(req, "request")?;
+    let out = api::line_with_operators(&mut e, &r.line, &r.operators);
     // the state only changes when something was defined
     let env = if out.defined.is_empty() { env.to_vec() } else { en(&e)? };
     en(&Value::Map(vec![(Value::Text("env".into()), Value::Bytes(env)), (Value::Text("out".into()), to_value(&out)?)]))
@@ -111,6 +118,27 @@ pub fn quantity(env: &[u8], req: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
+/// (env, graph request) → (env: with what its curves written with := define, errors: problems of these lines).
+/// Nothing is defined when the curves can't be read; the graph itself reports that.
+#[wasm_func]
+pub fn graph_define(env: &[u8], req: &[u8]) -> Result<Vec<u8>, String> {
+    let mut e = env_of(env)?;
+    let r: solveng_core::graph::GraphReq = de(req, "request")?;
+    let mut errors = vec![];
+    for d in solveng_core::graph::defines(&e, &r).unwrap_or_default() {
+        errors.extend(api::line(&mut e, &LineReq { src: d.src, mode: d.mode, cfg: r.cfg.clone(), listed: true }).errors);
+    }
+    en(&Value::Map(vec![(Value::Text("env".into()), Value::Bytes(en(&e)?)), (Value::Text("errors".into()), to_value(&errors)?)]))
+}
+
+/// (env, inner env) → the env with what the inner one defined taken over.
+#[wasm_func]
+pub fn merge(env: &[u8], inner: &[u8]) -> Result<Vec<u8>, String> {
+    let mut e = env_of(env)?;
+    e.merge(&env_of(inner)?);
+    en(&e)
+}
+
 /// (env, request) → what to draw, or (err: …).
 #[wasm_func]
 pub fn graph(env: &[u8], req: &[u8]) -> Result<Vec<u8>, String> {
@@ -120,4 +148,15 @@ pub fn graph(env: &[u8], req: &[u8]) -> Result<Vec<u8>, String> {
         Ok(g) => en(&g),
         Err(m) => en(&Value::Map(vec![(Value::Text("err".into()), Value::Text(m))])),
     }
+}
+
+#[wasm_func]
+pub fn statements(src: &[u8], mode: &[u8]) -> Result<Vec<u8>, String> {
+    en(&solveng_core::parse::statements(&de::<String>(src, "source")?, de(mode, "mode")?))
+}
+
+#[wasm_func]
+pub fn name(req: &[u8]) -> Result<Vec<u8>, String> {
+    let source: String = de(req, "name")?;
+    en(&solveng_names::resolve(&source).ok().map(|name| solveng_core::format::name(&name)))
 }

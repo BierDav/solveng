@@ -97,6 +97,9 @@ pub enum Func {
     Cosh,
     Tanh,
     Abs,
+    Rect,
+    Tri,
+    Sgn,
 }
 
 impl Func {
@@ -115,6 +118,9 @@ impl Func {
             "cosh" => Func::Cosh,
             "tanh" => Func::Tanh,
             "abs" => Func::Abs,
+            "rect" => Func::Rect,
+            "tri" => Func::Tri,
+            "sgn" => Func::Sgn,
             _ => return None,
         })
     }
@@ -133,6 +139,9 @@ impl Func {
             Func::Cosh => "cosh",
             Func::Tanh => "tanh",
             Func::Abs => "abs",
+            Func::Rect => "rect",
+            Func::Tri => "tri",
+            Func::Sgn => "sgn",
         }
     }
     pub fn inverse(self) -> Option<Func> {
@@ -164,6 +173,9 @@ impl Func {
             Func::Cosh => x.cosh(),
             Func::Tanh => x.tanh(),
             Func::Abs => x.abs(),
+            Func::Rect => if x.abs() < 0.5 { 1.0 } else if x.abs() == 0.5 { 0.5 } else { 0.0 },
+            Func::Tri => (1.0 - x.abs()).max(0.0),
+            Func::Sgn => if x == 0.0 { 0.0 } else { x.signum() },
             _ => return None,
         };
         (r.is_finite()).then_some(r)
@@ -176,14 +188,25 @@ pub enum Expr {
     Sym(String),
     Pi,
     E,
+    Vector(Vec<Expr>),
     Add(Vec<Expr>),
     Mul(Vec<Expr>),
     Pow(Box<Expr>, Box<Expr>),
     F(Func, Box<Expr>),
+    /// A Typst operator binding keeps its name through substitution.
+    Op(String, Func, Box<Expr>),
+    /// Ordered value/condition pairs; only the first matching value is evaluated.
+    Cases(Vec<(Expr, Expr)>),
+    /// An unspecified function, resolved when its definition becomes available.
+    Call(String, Vec<Expr>),
     /// a = b < c: 1 where all hold, else 0.
     Cmp(Vec<Expr>, Vec<Rel>),
     /// e as u: e's SI number as a value in u (factor, dims, unit).
     Cast(Box<Expr>, Num, Dim, UnitExpr),
+    Integral(Box<Expr>, String, Box<Expr>, Box<Expr>),
+    Derivative(Box<Expr>, String),
+    /// Substitute after a formal derivative has been resolved, preserving its variable.
+    Subs(Box<Expr>, String, Box<Expr>),
 }
 
 pub fn c(v: Num) -> Expr {
@@ -244,20 +267,29 @@ impl Expr {
     }
     pub fn children(&self) -> Vec<&Expr> {
         match self {
-            Expr::Add(v) | Expr::Mul(v) | Expr::Cmp(v, _) => v.iter().collect(),
-            Expr::Pow(a, b) => vec![a, b],
-            Expr::F(_, a) | Expr::Cast(a, ..) => vec![a],
+            Expr::Cases(v) => v.iter().flat_map(|(value, condition)| [value, condition]).collect(),
+            Expr::Vector(v) | Expr::Add(v) | Expr::Mul(v) | Expr::Cmp(v, _) | Expr::Call(_, v) => v.iter().collect(),
+            Expr::Pow(a, b) | Expr::Subs(a, _, b) => vec![a, b],
+            Expr::Integral(body, _, lo, hi) => vec![body, lo, hi],
+            Expr::F(_, a) | Expr::Op(_, _, a) | Expr::Cast(a, ..) | Expr::Derivative(a, _) => vec![a],
             _ => vec![],
         }
     }
     pub fn map(&self, f: &mut impl FnMut(&Expr) -> Expr) -> Expr {
         match self {
+            Expr::Cases(v) => Expr::Cases(v.iter().map(|(value, condition)| (f(value), f(condition))).collect()),
+            Expr::Call(n, v) => Expr::Call(n.clone(), v.iter().map(&mut *f).collect()),
+            Expr::Vector(v) => Expr::Vector(v.iter().map(&mut *f).collect()),
             Expr::Add(v) => Expr::Add(v.iter().map(&mut *f).collect()),
             Expr::Mul(v) => Expr::Mul(v.iter().map(&mut *f).collect()),
             Expr::Cmp(v, r) => Expr::Cmp(v.iter().map(&mut *f).collect(), r.clone()),
             Expr::Pow(a, b) => pow(f(a), f(b)),
             Expr::F(g, a) => func(*g, f(a)),
+            Expr::Op(n, g, a) => Expr::Op(n.clone(), *g, Box::new(f(a))),
+            Expr::Derivative(a, x) => Expr::Derivative(Box::new(f(a)), x.clone()),
+            Expr::Subs(a, x, by) => Expr::Subs(Box::new(f(a)), x.clone(), Box::new(f(by))),
             Expr::Cast(a, k, d, u) => Expr::Cast(Box::new(f(a)), *k, *d, u.clone()),
+            Expr::Integral(a, v, lo, hi) => Expr::Integral(Box::new(f(a)), v.clone(), Box::new(f(lo)), Box::new(f(hi))),
             e => e.clone(),
         }
     }
@@ -268,6 +300,18 @@ impl Expr {
         out
     }
     fn syms_into(&self, out: &mut Vec<String>) {
+        if let Expr::Subs(body, var, by) = self {
+            for n in body.syms().into_iter().filter(|n| n != var).chain(by.syms()) {
+                if !out.contains(&n) { out.push(n); }
+            }
+            return;
+        }
+        if let Expr::Integral(body, var, lo, hi) = self {
+            for n in body.syms().into_iter().filter(|n| n != var).chain(lo.syms()).chain(hi.syms()) {
+                if !out.contains(&n) { out.push(n); }
+            }
+            return;
+        }
         if let Expr::Sym(n) = self {
             if !out.contains(n) {
                 out.push(n.clone());
@@ -279,18 +323,53 @@ impl Expr {
     }
     pub fn has(&self, x: &str) -> bool {
         match self {
+            Expr::Integral(..) | Expr::Subs(..) => self.syms().iter().any(|n| n == x),
             Expr::Sym(n) => n == x,
             _ => self.children().iter().any(|c| c.has(x)),
         }
     }
     pub fn subst(&self, x: &str, by: &Expr) -> Expr {
         match self {
+            Expr::Integral(..) | Expr::Derivative(..) | Expr::Subs(..) => self.subst_all(&BTreeMap::from([(x.to_string(), by.clone())])),
             Expr::Sym(n) if n == x => by.clone(),
             _ => self.map(&mut |c| c.subst(x, by)),
         }
     }
     pub fn subst_all(&self, m: &BTreeMap<String, Expr>) -> Expr {
         match self {
+            Expr::Integral(a, v, lo, hi) => {
+                let mut local = m.clone();
+                local.remove(v);
+                let mut body = (**a).clone();
+                let mut var = v.clone();
+                if local.iter().any(|(key, by)| body.has(key) && by.has(v)) {
+                    let mut i = 0;
+                    loop {
+                        let fresh = format!("{v}_integral{i}");
+                        if !self.has(&fresh) && !local.values().any(|by| by.has(&fresh)) {
+                            body = body.subst(v, &sym(&fresh));
+                            var = fresh;
+                            break;
+                        }
+                        i += 1;
+                    }
+                }
+                Expr::Integral(Box::new(body.subst_all(&local)), var, Box::new(lo.subst_all(m)), Box::new(hi.subst_all(m)))
+            }
+            Expr::Derivative(_, var) if m.contains_key(var) => {
+                // Differentiate first, substitute the evaluation point afterwards.
+                let mut local = m.clone();
+                let by = local.remove(var).unwrap();
+                let scope = Expr::Integral(Box::new(self.clone()), var.clone(), Box::new(int(0)), Box::new(int(0))).subst_all(&local);
+                let Expr::Integral(body, var, _, _) = scope else { unreachable!() };
+                Expr::Subs(body, var, Box::new(by))
+            }
+            Expr::Subs(body, var, by) => {
+                // The same capture-avoiding scope as an integral, with `by` outside it.
+                let scope = Expr::Integral(body.clone(), var.clone(), Box::new(int(0)), by.clone()).subst_all(m);
+                let Expr::Integral(body, var, _, by) = scope else { unreachable!() };
+                Expr::Subs(body, var, by)
+            }
             Expr::Sym(n) => m.get(n).cloned().unwrap_or_else(|| self.clone()),
             _ => self.map(&mut |c| c.subst_all(m)),
         }
@@ -316,6 +395,7 @@ impl Expr {
         simp(&self.d(x))
     }
     fn d(&self, x: &str) -> Expr {
+        if let Expr::Vector(v) = self { return Expr::Vector(v.iter().map(|e| e.d(x)).collect()); }
         if !self.has(x) {
             return int(0);
         }
@@ -335,7 +415,8 @@ impl Expr {
                     mul(vec![self.clone(), add(vec![mul(vec![b.d(x), func(Func::Ln, (**a).clone())]), mul(vec![(**b).clone(), a.d(x), pow((**a).clone(), int(-1))])])])
                 }
             }
-            Expr::F(f, a) => {
+            Expr::Call(..) | Expr::Cases(..) | Expr::Derivative(..) | Expr::Subs(..) => return Expr::Derivative(Box::new(self.clone()), x.into()),
+            Expr::F(f, a) | Expr::Op(_, f, a) => {
                 let a0 = (**a).clone();
                 let inner = match f {
                     Func::Exp => func(Func::Exp, a0),
@@ -350,11 +431,16 @@ impl Expr {
                     Func::Sinh => func(Func::Cosh, a0),
                     Func::Cosh => func(Func::Sinh, a0),
                     Func::Tanh => pow(func(Func::Cosh, a0), int(-2)),
+                    Func::Rect | Func::Tri | Func::Sgn => return Expr::Derivative(Box::new(self.clone()), x.into()),
                     Func::Abs => mul(vec![a0.clone(), pow(func(Func::Abs, a0), int(-1))]),
                 };
                 mul(vec![inner, a.d(x)])
             }
             Expr::Cast(a, k, d, u) => Expr::Cast(Box::new(a.d(x)), *k, *d, u.clone()),
+            Expr::Integral(a, v, lo, hi) => {
+                let boundary = sub(mul(vec![a.subst(v, hi), hi.d(x)]), mul(vec![a.subst(v, lo), lo.d(x)]));
+                if v == x || !a.has(x) { boundary } else { add(vec![boundary, Expr::Integral(Box::new(a.d(x)), v.clone(), lo.clone(), hi.clone())]) }
+            }
             _ => int(0),
         }
     }
@@ -369,7 +455,7 @@ fn kind_rank(e: &Expr) -> u8 {
         Expr::Sym(_) => 2,
         Expr::Pow(b, _) if matches!(**b, Expr::Sym(_)) => 2,
         Expr::Pow(..) => 3,
-        Expr::F(..) => 4,
+        Expr::F(..) | Expr::Op(..) => 4,
         Expr::Add(_) => 5,
         _ => 6,
     }
@@ -484,11 +570,42 @@ fn with_coef(c: Val, rest: Option<Expr>) -> Expr {
 /// sorted.
 pub fn simp(e: &Expr) -> Expr {
     match e {
+        Expr::Cases(v) => {
+            let mut branches = vec![];
+            for (value, condition) in v {
+                let condition = simp(condition);
+                if let Some(n) = condition.as_num() {
+                    if n.is_zero() { continue; }
+                    if branches.is_empty() { return simp(value); }
+                    branches.push((simp(value), int(1)));
+                    break;
+                }
+                branches.push((simp(value), condition));
+            }
+            Expr::Cases(branches)
+        }
         Expr::C(_) | Expr::Sym(_) | Expr::Pi | Expr::E => e.clone(),
+        Expr::Subs(body, var, by) => {
+            let body = simp(body);
+            let by = simp(by);
+            if body.contains(&|e| matches!(e, Expr::Derivative(..))) {
+                Expr::Subs(Box::new(body), var.clone(), Box::new(by))
+            } else {
+                simp(&body.subst(var, &by))
+            }
+        }
+        Expr::Call(n, v) => Expr::Call(n.clone(), v.iter().map(simp).collect()),
+        Expr::Derivative(a, x) => Expr::Derivative(Box::new(simp(a)), x.clone()),
+        Expr::Integral(a, v, lo, hi) => crate::calculus::integral(simp(a), v.clone(), simp(lo), simp(hi)),
+        Expr::Vector(v) => Expr::Vector(v.iter().map(simp).collect()),
         Expr::Add(v) => simp_add(v.iter().map(simp).collect()),
         Expr::Mul(v) => simp_mul(v.iter().map(simp).collect()),
         Expr::Pow(a, b) => simp_pow(simp(a), simp(b)),
         Expr::F(f, a) => simp_f(*f, simp(a)),
+        Expr::Op(n, f, a) => match simp_f(*f, simp(a)) {
+            Expr::F(f, a) => Expr::Op(n.clone(), f, a),
+            e => e,
+        },
         Expr::Cmp(v, r) => simp_cmp(v.iter().map(simp).collect(), r.clone()),
         Expr::Cast(a, k, d, u) => {
             let a = simp(a);
@@ -658,7 +775,7 @@ fn simp_pow(b: Expr, x: Expr) -> Expr {
 
 fn simp_f(f: Func, a: Expr) -> Expr {
     // inverse pairs: exp(ln x) = x, ln(exp x) = x
-    if let Expr::F(g, inner) = &a {
+    if let Expr::F(g, inner) | Expr::Op(_, g, inner) = &a {
         if (f == Func::Exp && *g == Func::Ln) || (f == Func::Ln && *g == Func::Exp) {
             return (**inner).clone();
         }
@@ -694,6 +811,9 @@ fn simp_f(f: Func, a: Expr) -> Expr {
                 }
             }
             (Func::Abs, x) => return exact(x.abs()),
+            (Func::Rect, x) => return exact(if x.abs().cmp(Num::R(Rat::new(1, 2).unwrap())) == Ordering::Less { Num::ONE } else if x.abs().cmp(Num::R(Rat::new(1, 2).unwrap())) == Ordering::Equal { Num::R(Rat::new(1, 2).unwrap()) } else { Num::ZERO }),
+            (Func::Tri, x) => return exact(if x.abs().cmp(Num::ONE) == Ordering::Less { Num::ONE.sub(x.abs()) } else { Num::ZERO }),
+            (Func::Sgn, x) => return exact(if x.is_zero() { Num::ZERO } else if x.is_neg() { Num::int(-1) } else { Num::ONE }),
             (_, Num::F(x)) => {
                 if let Some(y) = f.eval(x) {
                     return exact(Num::F(y));

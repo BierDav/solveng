@@ -110,7 +110,7 @@ pub fn math_tokens_of(math: &str) -> Vec<Token> {
     local(math, math_toks(&chars(math), &|_| false))
 }
 
-/// Tokens of the equations solveng reads (with [`crate::Integration::MATH`], or passed to `worksheet`),
+/// Tokens of the equations solveng reads (in a `worksheet` that evaluates them, or passed to one),
 /// over the whole document, coloured like solveng code: numbers, quoted units, variables, functions.
 pub fn math_tokens(document: &str, context: &Context) -> Vec<Token> {
     let a = Analysis::new(document, context);
@@ -319,10 +319,27 @@ pub fn diagnostics(document: &str, context: &Context) -> Vec<Problem> {
     out
 }
 
+/// A function's docs as its hover: the summary and every parameter, with its types, default and description.
+fn function_docs(f: &crate::params::Function) -> String {
+    let mut out = format!("`{}` (solveng)\n\n{}", f.name, f.doc);
+    let params: Vec<String> = f.positional.iter().chain(&f.named).map(|p| {
+        let name = if p.variadic { format!("..{}", p.name) } else { p.name.clone() };
+        let types = if p.types.is_empty() { String::new() } else { format!(" ({})", p.types) };
+        let default = if p.default.is_empty() { String::new() } else { format!(" = `{}`", p.default) };
+        let doc = if p.doc.is_empty() { String::new() } else { format!(": {}", p.doc) };
+        format!("- `{name}`{types}{default}{doc}")
+    }).collect();
+    if !params.is_empty() {
+        out += &format!("\n\n### Parameters\n\n{}", params.join("\n"));
+    }
+    out
+}
+
 /// What the word at `offset` is: a defined name with its value, a unit, solveng's functions and constants, or a
 /// parameter of solveng's functions with its docs.
 pub fn hover(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     let a = Analysis::new(document, context);
+    if let Some(result) = crate::operators::hover(&a, offset) { return Some(result); }
     let at = a.doc.from16(offset as usize);
     let c = &a.doc.c;
     let part = |ch: char| is_letter_or_digit(ch) || "_°%‰µΩ".contains(ch);
@@ -338,7 +355,7 @@ pub fn hover(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     if let Some((start, end, name)) = identifier(&a.doc, at)
         && let Some(f) = crate::params::function(&name)
     {
-        return Some(Hover { start: a.doc.to16(start), end: a.doc.to16(end), markdown: format!("`{}` (solveng)\n\n{}", f.name, f.doc) });
+        return Some(Hover { start: a.doc.to16(start), end: a.doc.to16(end), markdown: function_docs(f) });
     }
     if s == e {
         return None;

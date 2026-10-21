@@ -11,7 +11,7 @@
 /// - **A trailing `->` shows the symbolic result**: defined values put in, exactly (fractions, roots and π stay), undefined names kept: `$x + 3/3 y -> simplify$` is x + y. With `solve(x)` it solves – symbolically when it can (`$0 = 1 + 3/x + y^2 -> solve(x)$` is x = −3/(y² + 1)), numerically when every other name has a value – and defines x when the solution is a value.
 /// - **Any other `=`** states something: it's checked when everything in it has a value (`$U = R I$`), and left alone as prose when not (`$E = m c^2$`).
 ///
-/// **Functions** are defined the same way: `$f(x) := x^2 + 1$`. Their body is symbolic too, so a function needn't define everything it uses: names that aren't parameters and aren't defined stay names, looked up when the function is evaluated, and cancel where the algebra lets them (`$U(x: m) := h x a$`, then `$g(x: m) := U(x)/a ->$` is `1 m · x` without any `a`). A parameter can have a unit, `f(I: mA)`: plain numbers passed to it get the unit (`f(2)` is `f(2 mA)`), values must have its dimension; `any` takes every unit. `..` makes the body's other undefined names parameters, in the order they appear: `$P(..) := U^2/R$` is `P(U, R)`. A parameter passed on to one with a unit takes that unit: with `$q(x: A) := 2 x$`, `$f(y) := q(y)$` makes y an A.
+/// **Functions** are defined the same way: `$f(x) := x^2 + 1$`. Their body is symbolic too, so a function needn't define everything it uses: names that aren't parameters and aren't defined stay names, looked up when the function is evaluated, and cancel where the algebra lets them (`$U(x: m) := h x a$`, then `$g(x: m) := U(x)/a ->$` is `1 m · x` without any `a`). Undefined function calls stay symbolic too: `$f(t) := integral_(-infinity)^t sigma(tau) dif tau$` is valid before `sigma` is defined; numerical evaluation requires its definition and convergence. A parameter can have a unit, `f(I: mA)`: plain numbers passed to it get the unit (`f(2)` is `f(2 mA)`), values must have its dimension; `any` takes every unit. `..` makes the body's other undefined names parameters, in the order they appear: `$P(..) := U^2/R$` is `P(U, R)`. A parameter passed on to one with a unit takes that unit: with `$q(x: A) := 2 x$`, `$f(y) := q(y)$` makes y an A.
 ///
 /// ````typ
 /// #show: worksheet
@@ -40,7 +40,8 @@
 /// - **Units:** SI base units (m kg s A K mol cd) and V A Ω W J C F H S Hz N Pa T Wb, min h Ah Wh As Ws eV l %, ‰, °, rad, °C (as a temperature *difference*), all SI prefixes; your own with the option `units`. Powers as `m^2`, `m²`, `s^-1`; quotients as `m/s^2`; products with spaces `kg m`.
 /// - **Typeable spellings:** `Omega` → Ω, with a prefix glued as in math: `k""Omega` → kΩ (`kOmega` is not a unit, like `DeltaT` is not ΔT); `u` → µ, `degC` → °C, `deg` → °. They are printed with the proper symbols (`[20 uA]` → 20 µA). In math, units are names (`$4.7 kΩ$`, `$20 µA$`), see [Units and variables](#units-and-variables).
 /// - **Decimal comma:** `7,2 V` works; the output separator follows the document language (option `separator`).
-/// - **Names:** `Q0`→Q₀, `R_min`→R_min, `rho`→ρ, `tol`→tol (upright). In math equations `Q_0` is a different variable than `Q0`. Typst reads a bare word in math as its own variable, so names of more than one letter are quoted there: `$"tews" := 23$`, `$"x"_"in"$` (x_in); subscripts may be grouped, `$R_(a b)$` is R_ab. A Greek letter spelled out alone or before an index is the letter, as in math: `Delta_R` is `$Delta_R$` (Δ_R), `alpha2` is α2; `DeltaT` and `Deltas` stay names of their own, set as written; `Delta""T` is ΔT. Empty strings glue names as math needs them to: `$Delta""r_R$` is Δr_R, which code writes `Δr_R` or `Delta""r_R` (in a string `"Delta\\"\\"r_R"`).
+/// - **Names:** the acute accent `´` and the backtick (`` ` ``) are literal name characters (`$x´ := 3$`), with no escaping needed. Digits continue a name: `t2` differs from `t_2` and keeps its digits on the baseline. Complete Latin letter runs normalize to Greek: `Delta2tau` → Δ2τ, while `Deltatau` stays unchanged. `""` joins name fragments: `Delta""tau` → Δτ and `t""2` → t2. Quotes only carry a name through Typst: `$"Delta2tau"$` names Δ2τ, and `$"Delta\"\"tau"$` names Δτ. Explicit subscripts may be grouped: `$R_(a b)$` names R_ab. Operators and whitespace end a name; a leading number remains a coefficient (`2t2` is 2 times t2).
+/// - **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. `#let rect = math.op("rect")` makes the spelling available in math. Linear combinations simplify and can be solved; definite integrals split affine arguments at their boundaries. Distributional derivatives stay symbolic.
 /// - **Operators:** `+ - * / ^ · ×`, implicit multiplication (`2 pi f C`), `sqrt exp ln log sin cos tan asin acos atan abs`, constants `pi e` (unless you define a variable with that name), your own functions.
 ///
 /// ## Units and variables
@@ -74,6 +75,8 @@
 ///
 /// solveng calculates in a WebAssembly plugin written in Rust (`core/` in the repository). Equations are solved symbolically first, other names as parameters: an unknown that occurs once is isolated; an equation that is a polynomial in it, once both sides are over one denominator, is solved by formula up to degree 2 and for all real roots numerically above; a system is solved one equation at a time where an equation has a single unknown, and by elimination where it's linear. Results are simplified: like terms combined, fractions cancelled (`(x^2 - 1)/(x - 1)` is x + 1), exact numbers kept exact. What can't be done symbolically is solved numerically, once every other name has a value: sign changes over ±10⁻¹⁵…10¹⁵ (times the target unit) are bisected and Newton starts from every local minimum of the absolute value; systems by damped Newton from 41 starts. Units of unknowns are inferred from the equations; mismatched units stop with an error.
 ///
+/// A solved definition keeps its solutions: `circle(x, r) := x^2 + b^2 = r^2 -> solve(b)` returns a vector of both branches. A relation function can supply the equation: `p(a, b, c) := a^2 + b^2 = c^2`, then `circle(x, r) := p(x, b, r) -> solve(b)`. The solve variable is local, not a parameter. One solution returns a scalar; several return a vector, with `at(vector, 0)` selecting its first component. Graphing a vector plots every branch. Solved definitions require a symbolic solution; equations in `vec(...)` with several solve variables return components in the requested order, nested by branch when needed.
+///
 /// ## Limits
 ///
 /// - **Numbers** are exact fractions as long as they fit (128-bit numerator and denominator), else 64-bit floats: about 15 significant digits, magnitudes up to 10³⁰⁰.
@@ -85,7 +88,7 @@
 /// - **°C** is a temperature difference (no 273.15 offset); temperatures in formulas like `p V = n R T` need K. New base dimensions (bit, €) can be added with `units: (bit: auto)`, at most 8.
 /// - **Prefixes:** a lone `m` before a unit is metre: `"m s"`, `$"m" Omega$` are m·s and Ω·m; write `"ms"`, `$"m"Omega$` for milli.
 /// - **Functions** can't call themselves.
-/// - **Math in a worksheet:** an equation with `=` and only known names is checked, so a formula meant as plain text that happens to use defined names (`$a^2 + b^2 = c^2$` after defining a, b and c) must hold. Put those outside the worksheet or use `worksheet-config(integration: "none")`.
+/// - **Math in a worksheet:** an equation with `=` and only known names is checked, so a formula meant as plain text that happens to use defined names (`$a^2 + b^2 = c^2$` after defining a, b and c) must hold. Put those outside the worksheet or use `#worksheet(evaluate: false)[…]` around them.
 
 #import "display.typ": *
 
@@ -120,6 +123,7 @@
 // what the engine's markup refers to
 #let _UDOT = h(0.06em) + math.class("normal", sym.dot.op) + h(0.06em)
 #let _scope(cf) = (
+  at: math.op("at"),
   svsep: { let s = cf.at("unit-separator", default: auto); if s == auto { _UDOT } else if type(s) == str { math.upright(s) } else { s } },
   svimp: cf.implies,
   svgroup: cf.grouping,
@@ -136,30 +140,53 @@
 #let _prefix = regex("^\"[afpnµμumcdkMGT]\"$")
 // math content -> the equation as text for the engine: letters as they are, quoted text "…" (names of several
 // letters, units, as), solveng's unit words ⦃mA⦄, keywords ⦅solve(x)⦆; or an error for what isn't a formula
-#let _src(c) = {
+#let _operator-binding(c) = {
+  if type(c) != content or c.func() != math.op { return none }
+  let parts = if c.text.has("children") { c.text.children } else { (c.text,) }
+  let alias = parts.find(p => p.func() == metadata and p.has("label") and p.label == <solveng-operator>)
+  if alias == none { none } else { (name: alias.value, function: _plain(c.text).trim()) }
+}
+#let _operator-bindings(c) = {
+  if type(c) == array { return c.map(_operator-bindings).flatten() }
+  if type(c) != content { return () }
+  let op = _operator-binding(c)
+  if op != none { return (op,) }
+  c.fields().values().map(_operator-bindings).flatten()
+}
+#let _operator-names(c) = _operator-bindings(c).map(op => op.name)
+
+#let _src(c, names: false) = {
+  if c == math.dif { return "dif" }
   if type(c) == str { return c }
   if type(c) in (int, float) { return str(c) }
-  if type(c) == symbol { return str(c) }
+  if type(c) == symbol { return if str(c) == "ⅆ" { "dif" } else { str(c) } }
   if type(c) != content { return _err("not a formula") }
   let f = c.func()
+  if f == math.vec {
+    let parts = c.children.map(x => _src(x, names: names))
+    let error = parts.find(_E)
+    return if error != none { error } else { "vec(" + parts.join(", ") + ")" }
+  }
   if c.has("label") and c.label == <solveng-unit> { return "⦃" + _plain(c) + "⦄" }
   if f == metadata {
     if c.has("label") and c.label == <solveng-key> {
-      let args = c.value.args.map(a => { let s = _src(a); if _E(s) { "?" } else { s.replace("\"", "").trim() } })
+      let args = c.value.args.map(a => { let s = _src(a, names: names); if _E(s) { "?" } else { s.replace("\"", "").trim() } })
       return "⦅" + c.value.key + (if args.len() > 0 { "(" + args.join(",") + ")" } else { "" }) + "⦆"
     }
     return ""
   }
   if f == text {
     let t = c.text
-    return if t == "" { "\"\"" } else if t.match(regex("\\p{L}|[°%‰]")) != none { "\"" + t + "\"" } else { t }
+    if t == "ⅆ" { return "dif" }
+    return if t == "" { "\"\"" } else if t.match(regex("\\p{L}|\\p{So}|[°%‰]")) != none { repr(t) } else { t }
   }
+  if f == linebreak { return "\\" }
   if f == _space or f == h { return " " }
   if c.has("children") {
     let out = ""
     let prev = ""
     for x in c.children {
-      let s = _src(x)
+      let s = _src(x, names: names)
       if _E(s) { return s }
       if s == "" { continue }
       // m glued to Ω is milliohm, apart it's metre times ohm
@@ -178,38 +205,47 @@
     return out
   }
   if f == math.frac {
-    let (a, b) = (_src(c.num), _src(c.denom))
-    return if _E(a) { a } else if _E(b) { b } else { "frac(" + a + ", " + b + ")" }
+    let (a, b) = (_src(c.num, names: names), _src(c.denom, names: names))
+    return if _E(a) { a } else if _E(b) { b } else if a.trim() == "dif" { "dif / (" + b.replace("ⅆ", "dif") + ")" } else { "frac(" + a + ", " + b + ")" }
   }
   if f == math.attach {
-    let base = _src(c.base)
+    let base = _src(c.base, names: names)
     if _E(base) { return base }
+    if base == "∫" and c.has("b") and c.b != none and c.has("t") and c.t != none {
+      return "integral_(" + _src(c.b, names: names) + ")^(" + _src(c.t, names: names) + ")"
+    }
     let out = base
     // subscripts are part of a name (R_"load", "x"_("in" Delta))
     if c.has("b") and c.b != none {
-      let sub = _src(c.b)
+      let sub = _src(c.b, names: names)
       if _E(sub) { return sub }
       out = base.trim("\"") + "_" + sub.replace("\"", "").replace(regex("\\s"), "")
     }
     if c.has("t") and c.t != none {
-      let t = _src(c.t)
+      let t = _src(c.t, names: names)
       if _E(t) { return t }
       out += "^(" + t + ")"
     }
     for k in ("tl", "tr", "bl", "br") { if c.has(k) and c.at(k) != none { return _err("not a formula") } }
     return out
   }
-  if f == math.op { return _plain(c.text) }
+  if f == math.class and _plain(c.body) == "d" { return "dif" }
+  if f == math.op {
+    let op = _operator-binding(c)
+    if names and op != none { return repr(op.name) }
+    let name = _plain(c.text).trim()
+    return if name == "d" { "dif" } else { name }
+  }
   if f == math.root {
-    let r = _src(c.radicand)
+    let r = _src(c.radicand, names: names)
     if _E(r) { return r }
-    if c.has("index") and c.index != none { let i = _src(c.index); return if _E(i) { i } else { "(" + r + ")^(1/(" + i + "))" } }
+    if c.has("index") and c.index != none { let i = _src(c.index, names: names); return if _E(i) { i } else { "(" + r + ")^(1/(" + i + "))" } }
     return "sqrt(" + r + ")"
   }
-  if f == math.lr { return _src(c.body) }
+  if f == math.lr { return _src(c.body, names: names) }
   if f == raw { return if c.text == "frac" { "⦅frac⦆" } else { _err("not a formula") } }
   // styling (upright, class, …) is read through
-  if c.has("body") { return _src(c.body) }
+  if c.has("body") { return _src(c.body, names: names) }
 
   if c.has("text") and type(c.text) == str { return c.text }
   _err("not a formula")
@@ -228,6 +264,13 @@
 #let _restyle(c, letters, cf) = {
   if type(c) != content { return c }
   let f = c.func()
+  let op = _operator-binding(c)
+  if op != none { return math.op(_m(_call(_p.name, repr(op.name)), cf), limits: c.limits) }
+  if f == text and not (c.has("label") and c.label == <solveng-unit>) {
+    let normalized = _call(_p.name, c.text)
+    if normalized != none { return _m(normalized, cf) }
+  }
+  if f == math.vec { return math.vec(..c.children.map(x => _restyle(x, letters, cf))) }
   let space(x) = x == none or x.func() == _space
   let word(x) = if x.has("text") and type(x.text) == str { x.text } else { none }
   if c.has("children") {
@@ -268,14 +311,30 @@
         i += 1
         continue
       }
-      out.push(_restyle(x, letters, cf))
-      i += 1
+      let (end, normalized, source) = (none, none, "")
+      let k = i
+      while k < ch.len() and not space(ch.at(k)) {
+        if _operator-binding(ch.at(k)) != none { break }
+        let s = _src(ch.at(k))
+        if _E(s) { break }
+        source += s
+        let n = _call(_p.name, source)
+        if n != none { (end, normalized) = (k + 1, n) } else if s != "\"\"" { break }
+        k += 1
+      }
+      if end != none {
+        out.push(_m(normalized, cf))
+        i = end
+      } else {
+        out.push(_restyle(x, letters, cf))
+        i += 1
+      }
     }
     return out.join()
   }
   if f == math.lr { return math.lr(_restyle(c.body, letters, cf)) }
   if f == math.frac { return math.frac(_restyle(c.num, letters, cf), _restyle(c.denom, letters, cf)) }
-  if f == math.root { return math.root(..(if c.has("index") { (c.index,) } else { () }), _restyle(c.radicand, letters, cf)) }
+  if f == math.root { return math.root(c.at("index", default: none), _restyle(c.radicand, letters, cf)) }
   c
 }
 // the equation with a new body, marked as read
@@ -305,8 +364,8 @@
   s + (env: r.env, last: r.out)
 }
 // one line: calculated in the state, shown with view(out) (in context)
-#let _calc(src, mode, cf, view) = {
-  let req = (src: src, mode: mode, cfg: _req-cfg(cf))
+#let _calc(src, mode, cf, view, operators: ()) = {
+  let req = (src: src, mode: mode, cfg: _req-cfg(cf), operators: operators)
   _st.update(s => _run(s, req))
   context view(_st.get().at("last"))
 }

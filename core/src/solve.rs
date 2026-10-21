@@ -40,7 +40,15 @@ pub fn solve1(e: &Expr, x: &str, numeric_params: &dyn Fn(&str) -> bool) -> Resul
         } else if deg == 2 && !(only_known && cs.iter().any(|c| !c.syms().is_empty())) {
             let (c0, b, a) = (cs[0].clone(), cs[1].clone(), cs[2].clone());
             let disc = simplify(&expr::sub(expr::pow(b.clone(), int(2)), expr::mul(vec![int(4), a.clone(), c0.clone()])));
-            if let Some(dv) = disc.as_c() {
+            if b.is_zero() {
+                let square = simplify(&expr::div(expr::neg(c0), a));
+                if square.as_c().is_some_and(|v| v.v.is_neg()) { vec![] }
+                else if square.is_zero() { vec![int(0)] }
+                else {
+                    let root = simplify(&expr::sqrt(square));
+                    vec![simp(&expr::neg(root.clone())), root]
+                }
+            } else if let Some(dv) = disc.as_c() {
                 if dv.v.is_neg() {
                     return Ok(vec![]);
                 }
@@ -157,7 +165,7 @@ fn isolate(mut l: Expr, mut r: Expr, x: &str) -> Option<Expr> {
                     l = *k;
                 }
             }
-            Expr::F(f, a) => {
+            Expr::F(f, a) | Expr::Op(_, f, a) => {
                 r = match f {
                     Func::Log => expr::pow(int(10), r),
                     Func::Abs | Func::Cosh => return None,
@@ -496,6 +504,17 @@ fn lin(e: &Expr, xs: &[String], known: &dyn Fn(&str) -> Option<Dim>, cons: &mut 
     let addl = |x: &Lin, y: &Lin, s: f64| Lin { c: x.c.iter().zip(&y.c).map(|(p, q)| p + s * q).collect(), a: x.a.iter().zip(&y.a).map(|(p, q)| p + s * q).collect() };
     let scale = |x: &Lin, f: f64| Lin { c: x.c.iter().map(|z| z * f).collect(), a: x.a.iter().map(|z| z * f).collect() };
     Ok(match e {
+        Expr::Cases(v) => {
+            let mut result = None;
+            for (value, condition) in v {
+                if let Some(test) = lin(condition, xs, known, cons)? { cons.push(test); }
+                if let Some(branch) = lin(value, xs, known, cons)? {
+                    if let Some(previous) = &result { cons.push(addl(&branch, previous, -1.0)); }
+                    else { result = Some(branch); }
+                }
+            }
+            result
+        }
         Expr::C(v) => {
             if v.is_zero() && v.d.is_one() {
                 None
@@ -554,7 +573,7 @@ fn lin(e: &Expr, xs: &[String], known: &dyn Fn(&str) -> Option<Dim>, cons: &mut 
                 bl.map(|b| scale(&b, p))
             }
         }
-        Expr::F(f, a) => {
+        Expr::F(f, a) | Expr::Op(_, f, a) => {
             let l = lin(a, xs, known, cons)?;
             if *f == Func::Abs {
                 l
@@ -565,6 +584,7 @@ fn lin(e: &Expr, xs: &[String], known: &dyn Fn(&str) -> Option<Dim>, cons: &mut 
                 Some(k(Dim::ONE))
             }
         }
+        Expr::Vector(_) => return Err("solving requires scalar equations, not a vector".into()),
         Expr::Cmp(v, _) => {
             let ls: Vec<Option<Lin>> = v.iter().map(|x| lin(x, xs, known, cons)).collect::<Result<_, _>>()?;
             for w in ls.windows(2) {
@@ -573,6 +593,26 @@ fn lin(e: &Expr, xs: &[String], known: &dyn Fn(&str) -> Option<Dim>, cons: &mut 
                 }
             }
             Some(k(Dim::ONE))
+        }
+        Expr::Call(_, args) => {
+            for a in args { lin(a, xs, known, cons)?; }
+            None
+        }
+        Expr::Subs(body, var, by) => {
+            let d = crate::eval::dim_of(by, known)?;
+            lin(body, xs, &|n| if n == var { d } else { known(n) }, cons)?
+        }
+        Expr::Derivative(body, var) => {
+            let d = crate::eval::dim_of(body, known)?;
+            match (d, known(var)) { (Some(a), Some(b)) => Some(k(a.mul(&b.powi(-1)))), _ => None }
+        }
+        Expr::Integral(body, var, lo, hi) => {
+            let l = lin(lo, xs, known, cons)?;
+            let h = lin(hi, xs, known, cons)?;
+            if let (Some(a), Some(b)) = (&l, &h) { cons.push(addl(a, b, -1.0)); }
+            let d = crate::eval::dim_of(lo, known)?.or(crate::eval::dim_of(hi, known)?);
+            let body = lin(body, xs, &|s| if s == var { d } else { known(s) }, cons)?;
+            match (l.or(h), body) { (Some(a), Some(b)) => Some(addl(&a, &b, 1.0)), _ => None }
         }
         Expr::Cast(a, _, d, _) => {
             lin(a, xs, known, cons)?;

@@ -164,9 +164,7 @@ pub(crate) fn rename(a: &Analysis, offset: u32, name: &str) -> Option<Vec<Edit>>
     let all = all(a);
     let (key, ..) = at(a, &all, offset)?;
     let name = name.trim();
-    if !NAME.is_match(name) {
-        return Some(Vec::new());
-    }
+    if !NAME.is_match(name) { return Some(Vec::new()); }
     let mut out = Vec::new();
     for (path, doc, spots) in &all {
         for s in spots.iter().filter(|s| s.key == key) {

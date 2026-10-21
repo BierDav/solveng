@@ -36,6 +36,15 @@ pub fn value(e: &Expr) -> Result<Val, NoValue> {
     if let Expr::C(v) = s {
         return Ok(v);
     }
+    let mut pending = vec![&s];
+    while let Some(e) = pending.pop() {
+        if let Expr::Call(n, _) = e {
+            return Err(NoValue::Error(if n == "sng" {
+                "sng isn't defined – did you mean sgn(…)?".into()
+            } else { format!("{n} isn't defined – define it first with :=") }));
+        }
+        pending.extend(e.children());
+    }
     let free = s.syms();
     if !free.is_empty() {
         return Err(NoValue::Unknown(free));
@@ -51,9 +60,19 @@ fn units_text(d: &Dim) -> String {
 /// Numeric value with dimension; problems as messages.
 pub fn eval_d(e: &Expr) -> Result<(f64, Dim), String> {
     let r = match e {
+        Expr::Cases(v) => {
+            for (value, condition) in v {
+                let (test, dim) = eval_d(condition)?;
+                if !dim.is_one() { return Err("a cases condition must be unitless".into()); }
+                if test != 0.0 { return eval_d(value); }
+            }
+            return Err("no cases condition matches here".into());
+        }
+        Expr::Vector(_) => return Err("a vector has several components – select one with at(vector, index), starting at 0".into()),
         Expr::C(v) => (v.v.f(), v.d),
         Expr::Pi => (std::f64::consts::PI, Dim::ONE),
         Expr::E => (std::f64::consts::E, Dim::ONE),
+        Expr::Call(n, _) => return Err(format!("{n} isn't defined – define it first with :=")),
         Expr::Sym(n) => return Err(format!("'{n}' isn't defined")),
         Expr::Add(ts) => {
             let mut acc: Option<(f64, Dim)> = None;
@@ -112,7 +131,7 @@ pub fn eval_d(e: &Expr) -> Result<(f64, Dim), String> {
             };
             (v, d)
         }
-        Expr::F(f, a) => {
+        Expr::F(f, a) | Expr::Op(_, f, a) => {
             let (v, d) = eval_d(a)?;
             if *f == Func::Abs {
                 return Ok((v.abs(), d));
@@ -138,6 +157,18 @@ pub fn eval_d(e: &Expr) -> Result<(f64, Dim), String> {
             });
             (if ok { 1.0 } else { 0.0 }, Dim::ONE)
         }
+        Expr::Subs(..) | Expr::Derivative(..) => return Err("this derivative needs piecewise or distributional calculus; it is kept symbolic".into()),
+        Expr::Integral(body, var, lo, hi) => {
+            let bound = |e: &Expr| if let Expr::C(v) = e { Ok((v.v.f(), v.d)) } else { eval_d(e) };
+            let (l, ld) = bound(lo)?;
+            let (h, hd) = bound(hi)?;
+            if ld != hd { return Err("integral bounds have different units".into()); }
+            let sample = |x| body.subst(var, &Expr::C(Val::new(Num::F(x), ld)));
+            let d = dim_of(body, &|n| if n == var { Some(ld) } else { None })?.ok_or("unknown integrand dimension")?;
+            let points = crate::calculus::signal_points(body, var, &|_| None);
+            let v = crate::calculus::piecewise_quadrature(&|x| eval_d(&sample(x)).ok().filter(|(_, sd)| *sd == d).map(|(v, _)| v), l, h, &points)?;
+            (v, d.mul(&ld))
+        }
         Expr::Cast(a, k, d, _) => {
             let (v, _) = eval_d(a)?;
             (v * k.f(), *d)
@@ -152,6 +183,14 @@ pub fn eval_d(e: &Expr) -> Result<(f64, Dim), String> {
 /// A plain number, symbols from `vars`; None where it isn't defined (domain, division by zero, unknown names).
 pub fn eval_f(e: &Expr, vars: &dyn Fn(&str) -> Option<f64>) -> Option<f64> {
     let r = match e {
+        Expr::Cases(v) => {
+            let mut selected = None;
+            for (value, condition) in v {
+                if eval_f(condition, vars)? != 0.0 { selected = Some(value); break; }
+            }
+            return eval_f(selected?, vars);
+        }
+        Expr::Vector(_) => return None,
         Expr::C(v) => v.v.f(),
         Expr::Pi => std::f64::consts::PI,
         Expr::E => std::f64::consts::E,
@@ -185,11 +224,17 @@ pub fn eval_f(e: &Expr, vars: &dyn Fn(&str) -> Option<f64>) -> Option<f64> {
                 b.powf(x)
             }
         }
-        Expr::F(f, a) => f.eval(eval_f(a, vars)?)?,
+        Expr::F(f, a) | Expr::Op(_, f, a) => f.eval(eval_f(a, vars)?)?,
         Expr::Cmp(v, rs) => {
             let vals: Vec<f64> = v.iter().map(|x| eval_f(x, vars)).collect::<Option<_>>()?;
             let ok = rs.iter().enumerate().all(|(i, r)| r.holds(vals[i].total_cmp(&vals[i + 1]), close(vals[i], vals[i + 1])));
             if ok { 1.0 } else { 0.0 }
+        }
+        Expr::Call(..) | Expr::Subs(..) | Expr::Derivative(..) => return None,
+        Expr::Integral(body, var, lo, hi) => {
+            let bound = |e: &Expr| if let Expr::C(v) = e { Some(v.v.f()) } else { eval_f(e, vars) };
+            let points = crate::calculus::signal_points(body, var, vars);
+            crate::calculus::piecewise_quadrature(&|x| eval_f(body, &|n| if n == var { Some(x) } else { vars(n) }), bound(lo)?, bound(hi)?, &points).ok()?
         }
         Expr::Cast(a, k, ..) => eval_f(a, vars)? * k.f(),
     };
@@ -200,9 +245,29 @@ pub fn eval_f(e: &Expr, vars: &dyn Fn(&str) -> Option<f64>) -> Option<f64> {
 /// Errors where units can't match.
 pub fn dim_of(e: &Expr, sd: &dyn Fn(&str) -> Option<Dim>) -> Result<Option<Dim>, String> {
     Ok(match e {
+        Expr::Cases(v) => {
+            let mut result = None;
+            for (value, condition) in v {
+                if dim_of(condition, sd)?.is_some_and(|d| !d.is_one()) { return Err("a cases condition must be unitless".into()); }
+                if value.is_zero() { continue; }
+                if let Some(d) = dim_of(value, sd)? {
+                    if result.is_some_and(|previous| previous != d) { return Err("cases branches have different units".into()); }
+                    result = Some(d);
+                }
+            }
+            result.or(Some(Dim::ONE))
+        }
+        Expr::Vector(v) => {
+            for e in v { dim_of(e, sd)?; }
+            None
+        }
         Expr::C(v) => Some(v.d),
         Expr::Pi | Expr::E => Some(Dim::ONE),
         Expr::Sym(n) => sd(n),
+        Expr::Call(_, args) => {
+            for a in args { dim_of(a, sd)?; }
+            None
+        }
         Expr::Add(ts) => {
             let mut d: Option<Dim> = None;
             let mut unknown = false;
@@ -251,7 +316,7 @@ pub fn dim_of(e: &Expr, sd: &dyn Fn(&str) -> Option<Dim>) -> Result<Option<Dim>,
                 }
             }
         }
-        Expr::F(f, a) => {
+        Expr::F(f, a) | Expr::Op(_, f, a) => {
             let d = dim_of(a, sd)?;
             if *f == Func::Abs {
                 d
@@ -269,6 +334,23 @@ pub fn dim_of(e: &Expr, sd: &dyn Fn(&str) -> Option<Dim>) -> Result<Option<Dim>,
                 dim_of(x, sd)?;
             }
             Some(Dim::ONE)
+        }
+        Expr::Subs(body, var, by) => {
+            let d = dim_of(by, sd)?;
+            dim_of(body, &|n| if n == var { d } else { sd(n) })?
+        }
+        Expr::Derivative(body, var) => match (dim_of(body, sd)?, sd(var)) {
+            (Some(a), Some(b)) => Some(a.mul(&b.powi(-1))),
+            _ => None,
+        },
+        Expr::Integral(body, var, lo, hi) => {
+            let ld = dim_of(lo, sd)?;
+            let hd = dim_of(hi, sd)?;
+            if let (Some(l), Some(h)) = (ld, hd) { if l != h { return Err("integral bounds have different units".into()); } }
+            match (ld.or(hd), dim_of(body, &|n| if n == var { ld.or(hd) } else { sd(n) })?) {
+                (Some(x), Some(y)) => Some(y.mul(&x)),
+                _ => None,
+            }
         }
         Expr::Cast(a, _, d, _) => {
             dim_of(a, sd)?;

@@ -67,4 +67,5 @@ div.solveng-error { border-left: 3px solid #b3261e; padding: 0.4em 0.7em; margin
 // output of the package: its equations are not read as definitions by worksheet's math rule
 #let _busy = state("solveng-busy", 0)
 #let _mine(body) = _busy.update(n => n + 1) + body + _busy.update(n => n - 1)
-#let _tn(x) = if x == none { "none" } else if x == auto { "auto" } else { str(type(x)) }
+// repr, not comparisons and str: editors infer the parameters' types from what their values are passed to
+#let _tn(x) = repr(type(x)).trim("type(", at: start).trim(")", at: end)

@@ -1,0 +1,11 @@
+[package]
+name = "solveng-names"
+description = "Shared identifier syntax and normalization for solveng"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+unicode-normalization = "0.1"
+unicode-general-category = "1"

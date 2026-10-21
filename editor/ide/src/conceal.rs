@@ -1,27 +1,14 @@
-//! Solveng code shown as it renders while the caret is elsewhere, like math: `Delta_T` as `Δ_T`, `Q0` as `Q₀`,
+//! Solveng code shown as it renders while the caret is elsewhere, like math: `Delta_T` as `Δ_T`, `Q0` on the baseline,
 //! `k""Omega` as `kΩ`, `->` as `→`, `m^2` as `m²`.
 
-use std::sync::LazyLock;
-
-use regex::Regex;
-
 use crate::TokenKind as K;
-use crate::text::{Doc, before, chars, sub};
+use crate::text::{Doc, chars, sub};
 use crate::tokens::code_tokens;
 use crate::calls::Role;
 use crate::{Analysis, Conceal, Context};
 
-pub(crate) const GREEK: &[(&str, char)] = &[
-    ("alpha", 'α'), ("beta", 'β'), ("gamma", 'γ'), ("Gamma", 'Γ'), ("delta", 'δ'), ("Delta", 'Δ'), ("epsilon", 'ε'),
-    ("zeta", 'ζ'), ("eta", 'η'), ("theta", 'θ'), ("Theta", 'Θ'), ("iota", 'ι'), ("kappa", 'κ'), ("lambda", 'λ'),
-    ("Lambda", 'Λ'), ("mu", 'μ'), ("nu", 'ν'), ("xi", 'ξ'), ("Xi", 'Ξ'), ("pi", 'π'), ("Pi", 'Π'), ("rho", 'ρ'),
-    ("sigma", 'σ'), ("Sigma", 'Σ'), ("tau", 'τ'), ("upsilon", 'υ'), ("phi", 'φ'), ("Phi", 'Φ'), ("chi", 'χ'),
-    ("psi", 'ψ'), ("Psi", 'Ψ'), ("omega", 'ω'), ("Omega", 'Ω'),
-];
-
-pub(crate) fn greek(name: &str) -> Option<char> {
-    GREEK.iter().find(|(n, _)| *n == name).map(|(_, c)| *c)
-}
+pub(crate) use solveng_names::GREEK;
+pub(crate) use solveng_names::greek;
 
 fn greek_name(c: char) -> Option<&'static str> {
     GREEK.iter().find(|(_, g)| *g == c).map(|(n, _)| *n)
@@ -30,11 +17,6 @@ fn greek_name(c: char) -> Option<&'static str> {
 /// A name spelled out for typing, as math writes it: `Δ_R` → `Delta_R`, `Δr_R` → `Delta""r_R`.
 pub(crate) fn spelled(name: &str) -> String {
     glued(name, |c| greek_name(c).map(String::from))
-}
-
-/// A name as typst math can read it, Greek letters glued to their neighbours: `Δr_R` → `Δ""r_R`.
-pub(crate) fn math_glued(name: &str) -> String {
-    glued(name, |c| greek_name(c).map(|_| c.to_string()))
 }
 
 /// The name with each Greek letter of its base written by `letter`, and `""` between it and other letters.
@@ -60,52 +42,29 @@ fn glued(name: &str, letter: impl Fn(char) -> Option<String>) -> String {
     out + rest
 }
 
-/// A variable's name as solveng stores it: a Greek letter spelled out, alone or before an index, is the letter, as
-/// math reads it (`Delta_R` → `Δ_R`, `alpha2` → `α2`); `DeltaT` stays a name of its own.
-/// Empty strings glue names as in math: `Delta""r_R` → `Δr_R`, `Delta""Gamma` → `ΔΓ`.
+/// The engine and every editor operation use the same identifier normalization.
 pub fn resolved_name(name: &str) -> String {
-    name.split("\"\"")
-        .map(|part| {
-            let split = part.find(|c: char| c == '_' || c.is_ascii_digit()).unwrap_or(part.len());
-            match greek(&part[..split]) {
-                Some(letter) => format!("{letter}{}", &part[split..]),
-                None => part.into(),
-            }
-        })
-        .collect()
+    solveng_names::resolve(name).unwrap_or_else(|_| solveng_names::normalize(name))
 }
 
-const SUBSCRIPTS: [char; 10] = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'];
 const SUPERSCRIPTS: [char; 10] = ['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'];
 
-static TRAILING_DIGITS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\p{L}+?)(\d+)$").unwrap());
-
-/// Conceals of one part of a name at `at`: a spelled Greek letter before an index (`Delta_R`, `alpha1`), digits
-/// as a subscript (`Q0`).
+/// Only explicit underscores make subscripts; digits inside names stay on the baseline.
 fn piece_conceals(piece: &str, at: usize, out: &mut Vec<(usize, usize, char)>) {
-    let base = before(piece, "_");
-    if let Some(g) = greek(base) {
-        out.push((at, base.chars().count(), g));
-        return;
-    }
-    let Some(m) = TRAILING_DIGITS.captures(piece) else { return };
-    let (letters, digits) = (&m[1], &m[2]);
-    if letters.chars().count() > 1 && greek(letters).is_none() {
-        return;
-    }
-    let n = letters.chars().count();
-    if let Some(g) = greek(letters) {
-        out.push((at, n, g));
-    }
-    for (j, d) in digits.chars().enumerate() {
-        out.push((at + n + j, 1, SUBSCRIPTS[d.to_digit(10).unwrap() as usize]));
+    let c: Vec<char> = piece.chars().collect();
+    let mut i = 0;
+    while i < c.len() {
+        if c[i].is_ascii_alphabetic() {
+            let start = i;
+            while i < c.len() && c[i].is_ascii_alphabetic() { i += 1; }
+            if let Some(symbol) = greek(&c[start..i].iter().collect::<String>()) { out.push((at + start, i - start, symbol)); }
+        } else { i += 1; }
     }
 }
 
 /// Conceals of one piece of code in characters: start, length, the character shown instead.
 fn conceals_in(code: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<(usize, usize, char)> {
     let mut out = Vec::new();
-    let mut comments = Vec::new();
     for (start, len, kind) in code_tokens(code, unit) {
         let word = sub(code, start, start + len);
         let digit = |w: &str| w.chars().next().and_then(|c| c.to_digit(10)).map(|d| d as usize);
@@ -115,18 +74,11 @@ fn conceals_in(code: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<(usize, usize,
                     out.push((start, 4, '√'));
                     continue;
                 }
-                // Each part of a glued name on its own (Delta""Omega is ΔΩ), the empty strings hidden; a longer
-                // word starting like a letter (Deltas) is a name of its own.
-                let mut at = start;
-                for (k, piece) in word.split("\"\"").enumerate() {
-                    if k > 0 {
-                        out.push((at, 1, '\0'));
-                        out.push((at + 1, 1, '\0'));
-                        at += 2;
-                    }
-                    piece_conceals(piece, at, &mut out);
-                    at += piece.chars().count();
+                let c: Vec<char> = word.chars().collect();
+                for (i, &ch) in c.iter().enumerate() {
+                    if ch == '"' || (ch == '\\' && c.get(i + 1) == Some(&'"')) { out.push((start + i, 1, '\0')); }
                 }
+                piece_conceals(&word, start, &mut out);
             }
             K::UNIT => {
                 let exponent = start > 0 && code[start - 1] == '^';
@@ -164,13 +116,7 @@ fn conceals_in(code: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<(usize, usize,
                 ">=" => out.push((start, 2, '≥')),
                 _ => {}
             },
-            K::COMMENT => comments.push(start..start + len),
             _ => {}
-        }
-    }
-    for (i, c) in code.iter().enumerate() {
-        if *c == '*' && !comments.iter().any(|r| r.contains(&i)) {
-            out.push((i, 1, '·'));
         }
     }
     out.sort_by_key(|t| t.0);

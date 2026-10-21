@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["core", "plugin", "editor/ide", "editor/lsp"]
+members = ["names", "core", "plugin", "editor/ide", "editor/lsp"]
 
 [workspace.package]
 version = "1.0.0"

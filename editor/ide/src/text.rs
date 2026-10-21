@@ -105,3 +105,43 @@ pub(crate) fn before<'a>(s: &'a str, sep: &str) -> &'a str {
 pub(crate) fn after<'a>(s: &'a str, sep: &str, missing: &'a str) -> &'a str {
     s.find(sep).map_or(missing, |i| &s[i + sep.len()..])
 }
+
+/// Equation spans keep source offsets intact for navigation and highlighting.
+pub(crate) fn equation_ranges(text: &[char], code: bool) -> Vec<(usize, usize)> {
+    let (mut start, mut depth, mut quoted, mut comment) = (0, 0i32, false, false);
+    let mut out = Vec::new();
+    for (i, &c) in text.iter().enumerate() {
+        if !quoted && c == '/' && text.get(i + 1) == Some(&'/') { comment = true; }
+        if comment && c != '\n' { continue; }
+        if c == '\n' { comment = false; }
+        if c == '"' { quoted = !quoted; }
+        if quoted { continue; }
+        if "([{".contains(c) { depth += 1; }
+        if ")]}".contains(c) { depth -= 1; }
+        let unfinished = code && c == '\n' && {
+            let before: String = text[start..i].iter().collect();
+            before.trim_end().ends_with(['+', '-', '*', '/', '^', ':', ',', '(']) || before.trim_end().ends_with(":=")
+        };
+        if c == '\\' || (code && c == '\n' && depth == 0 && !unfinished) {
+            if start < i { out.push((start, i)); }
+            start = i + 1;
+        }
+    }
+    if start < text.len() { out.push((start, text.len())); }
+    out
+}
+
+/// Unescape one Typst string layer while retaining each decoded character's source range.
+pub(crate) fn unescape(text: &[char]) -> (Vec<char>, Vec<usize>) {
+    let mut chars = Vec::new();
+    let mut offsets = Vec::new();
+    let mut i = 0;
+    while i < text.len() {
+        offsets.push(i);
+        if text[i] == '\\' && text.get(i + 1).is_some_and(|c| matches!(c, '\\' | '"')) { i += 1; }
+        chars.push(text[i]);
+        i += 1;
+    }
+    offsets.push(text.len());
+    (chars, offsets)
+}

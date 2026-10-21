@@ -54,7 +54,7 @@
 /// - show-si (auto, bool): `defined` also shows the SI value (`Q₀ = 3450 mAh = 12420 C`). Default `false`.
 /// - units (auto, dictionary): Your own units, defined by a value in known units: `(bar: "100 kPa", rpm: "1/min", dozen: 12)`; `auto` makes a base unit of its own, a dimension no other unit has (`(ü: auto)`, then `mü`, `ü/s`); `none` removes one, `(T: none)`. Adds to the units set before. Only here, not per call.
 /// - preferred-units (auto, str, array): Units for results of their dimension, `("bar", "kWh")`, before the unit of the inputs and the SI unit.
-/// - strict (auto, bool): Unit names can't be variable names, and units in math must be quoted (`$5 "V"$`), see [Units and variables](#units-and-variables).
+/// - strict (auto, bool): Unit names can't be variable names, and units in math must be quoted (`$5 "V"$`), see *Units and variables*.
 /// - steps (auto, str): Default for `steps` of `solve`: `"full"` (default), `"formula"`, `"result"` or `"value"`.
 /// - layout (auto, str): Default for `layout` of `solve`: `"row"` (default) or `"column"`.
 /// - inline-steps (auto, str): Steps for `inline: true` and inline code: `"full"`, `"formula"`, `"result"` (default) or `"value"`.
@@ -70,14 +70,13 @@
 /// - chips (auto, dictionary, function): The colours of the chips per kind, `(cast: (fill: …, mark: …, ink: …), type: (…))` (`mark` is the colour of `as` and `:`, `ink` the unit's), or a function `(kind, mark, unit) => content` drawing them, with `kind` `"cast"` or `"type"` and `mark` and `unit` as content.
 /// - unit-style (auto, function): A function given every shown unit as content, `u => text(fill: blue, u)`.
 /// - unit-separator (auto, content, str, symbol): What goes between units, a thin dot by default (A·as): `sym.times`, `h(0.2em)`.
-/// - integration (auto, str): Whether a `worksheet` calculates the math in it: `"math"` (default) or `"none"`, then only ```` ```solveng ```` code blocks and `#worksheet(…)` calls are calculated. Only here, not per call.
 /// -> content
 #let worksheet-config(
   ..body,
   digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto, max-denominator: auto, fractions: auto,
   prefixes: auto, show-si: auto, units: auto, preferred-units: auto, strict: auto,
   steps: auto, inline-steps: auto, layout: auto, implies: auto, approximate: auto, block: auto, max-solutions: auto,
-  defined-style: auto, errors: auto, integration: auto, show-casts: auto, show-types: auto,
+  defined-style: auto, errors: auto, show-casts: auto, show-types: auto,
   words: auto, chips: auto, unit-style: auto, unit-separator: auto,
 ) = {
   let b = body.pos().at(0, default: none)
@@ -88,7 +87,7 @@
     digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions,
     prefixes: prefixes, show-si: show-si, units: units, preferred-units: preferred-units, strict: strict,
     steps: steps, inline-steps: inline-steps, layout: layout, implies: implies, approximate: approximate, block: block,
-    max-solutions: max-solutions, defined-style: defined-style, errors: errors, integration: integration, show-casts: show-casts, show-types: show-types,
+    max-solutions: max-solutions, defined-style: defined-style, errors: errors, show-casts: show-casts, show-types: show-types,
     words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator,
   )), global: true)
   if _E(n) { return _err-now(n.err) + b }

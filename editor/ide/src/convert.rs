@@ -218,7 +218,12 @@ fn code_of(math: &str) -> Option<String> {
     let mut i = 0;
     while i < n {
         let c = m[i];
-        if c == '"' {
+        if solveng_names::numeric_start(&m, i) {
+            let name = solveng_names::scan(&m, i).ok()??;
+            out.push_str(&solveng_names::code(&name.value));
+            i = name.end;
+            after_value = false;
+        } else if c == '"' {
             let end = (i + 1..n).find(|&j| m[j] == '"')?;
             let text = sub(&m, i + 1, end);
             i = end + 1;

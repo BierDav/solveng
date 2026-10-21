@@ -7,5 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+solveng-names = { path = "../names", version = "=1.0.0" }
 serde = { version = "1", features = ["derive"] }
 indexmap = { version = "2", features = ["serde"] }
+
+[dev-dependencies]
+ciborium = "0.2"

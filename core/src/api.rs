@@ -29,8 +29,15 @@ fn yes() -> bool {
 
 /// Calculates a line against the worksheet so far.
 pub fn line(env: &mut Env, req: &LineReq) -> Out {
+    line_with_operators(env, req, &[])
+}
+
+pub fn line_with_operators(env: &mut Env, req: &LineReq, operators: &[crate::env::Operator]) -> Out {
     match Sheet::new(env, &req.cfg, req.mode, req.listed) {
-        Ok(s) => s.run(&req.src),
+        Ok(mut s) => {
+            s.operators = operators.to_vec();
+            s.run(&req.src)
+        }
         Err(e) => Out { errors: vec![e], ..Out::default() },
     }
 }
@@ -90,7 +97,7 @@ pub fn defined(env: &Env, req: &DefinedReq) -> Result<Vec<Row>, String> {
             continue;
         }
         let Some(v) = env.vars.get(&e.name) else { continue };
-        let bound = env.bind(&v.expr, &BTreeSet::new()).unwrap_or(v.expr.clone());
+        let bound = env.bind_with_units(&v.expr, &BTreeSet::new(), &units).unwrap_or(v.expr.clone());
         let mut si = None;
         let mut shown_unit = None;
         let (values, plain) = match value(&bound) {
@@ -108,7 +115,16 @@ pub fn defined(env: &Env, req: &DefinedReq) -> Result<Vec<Row>, String> {
                 }
                 (vs, format::plain(&val, v.unit.as_ref(), &units, cfg))
             }
-            Err(_) => (vec![r.expr(&simp(&bound)).0], String::new()),
+            Err(_) => {
+                fn vector_plain(e: &Expr, want: Option<&UnitExpr>, units: &Units, cfg: &Cfg) -> String {
+                    if let Expr::Vector(v) = e {
+                        return format!("[{}]", v.iter().map(|e| vector_plain(e, want, units, cfg)).collect::<Vec<_>>().join(", "));
+                    }
+                    value(e).map(|v| format::plain(&v, want, units, cfg)).unwrap_or_default()
+                }
+                let plain = if matches!(bound, Expr::Vector(_)) { vector_plain(&bound, v.unit.as_ref(), &units, cfg) } else { String::new() };
+                (vec![r.expr(&simp(&bound)).0], plain)
+            },
         };
         rows.push(Row {
             name: e.name.clone(),
@@ -177,7 +193,7 @@ pub fn lambdify(env: &Env, req: &LamReq) -> Result<Lam, String> {
     let units = Units::build(&req.cfg.units)?;
     let is_fn = |n: &str| env.funs.contains_key(n);
     let is_var = |n: &str| env.vars.contains_key(n);
-    let ctx = Ctx { units: &units, mode: req.mode, is_fn: &is_fn, is_var: &is_var, strict: req.cfg.strict };
+    let ctx = Ctx { operators: &[], units: &units, mode: req.mode, is_fn: &is_fn, is_var: &is_var, strict: req.cfg.strict };
     let line = parse::parse_line(&req.src, &ctx)?;
     let [parse::Stmt::Expr(a)] = line.stmts.as_slice() else { return Err("an expression, like \"U^2/R\"".into()) };
     let ps: Vec<String> = req.params.iter().map(|p| parse::greek(p)).collect();
@@ -263,7 +279,7 @@ pub fn quantity(env: &Env, cfg: &Cfg, src: &str, mode: Mode) -> Result<(f64, cra
     let units = Units::build(&cfg.units)?;
     let is_fn = |n: &str| env.funs.contains_key(n);
     let is_var = |n: &str| env.vars.contains_key(n);
-    let ctx = Ctx { units: &units, mode, is_fn: &is_fn, is_var: &is_var, strict: cfg.strict };
+    let ctx = Ctx { operators: &[], units: &units, mode, is_fn: &is_fn, is_var: &is_var, strict: cfg.strict };
     let line = parse::parse_line(src, &ctx)?;
     let [parse::Stmt::Expr(a)] = line.stmts.as_slice() else { return Err(format!("'{src}' isn't a value")) };
     let e = Lower::new(env, &units).expr(a)?;

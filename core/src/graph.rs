@@ -20,6 +20,10 @@ use crate::units::{UnitExpr, Units};
 pub struct Src {
     pub src: String,
     pub mode: Mode,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub operators: Vec<String>,
 }
 
 /// A value for a range or a mark: a plain number (in the axis unit) or an expression.
@@ -106,6 +110,8 @@ struct Curve {
     name: Option<String>,
     /// The function a single call is to (for the unit the result is typed with).
     call: Option<String>,
+    /// The parameters written in its head.
+    params: Vec<String>,
 }
 
 /// An x or y value: (SI value, dims, unit text, source) or a plain number.
@@ -114,24 +120,27 @@ enum V {
     Q(f64, Dim, String, String),
 }
 
-pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
-    let units = Units::build(&req.cfg.units)?;
+/// The curves read: what each plots, what they're plotted against, and the ones written with `:=`.
+struct Read {
+    curves: Vec<Curve>,
+    x: String,
+    xunit_typed: Option<UnitExpr>,
+    defines: Vec<Src>,
+    eq: String,
+}
+
+fn read(env: &Env, req: &GraphReq, units: &Units) -> Result<Read, String> {
     let cfg = &req.cfg;
-    let r = R { units: &units, cfg, exact: false, sub: None };
-    if req.curves.is_empty() {
-        return Err("nothing to plot – pass an equation like \"P = U^2/R\"".into());
-    }
-    if req.samples < 2 {
-        return Err("samples: an integer ≥ 2".into());
-    }
     let is_fn = |n: &str| env.funs.contains_key(n);
     let is_var = |n: &str| env.vars.contains_key(n);
+    let r = R { units, cfg, exact: false, sub: None };
     let tidy = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ").replace("( ", "(").replace(" )", ")");
     let mut curves = vec![];
     let mut takes: Vec<String> = vec![];
     let mut xunit_typed: Option<UnitExpr> = None;
+    let mut defines = vec![];
     for c in &req.curves {
-        let ctx = Ctx { units: &units, mode: c.mode, is_fn: &is_fn, is_var: &is_var, strict: cfg.strict };
+        let ctx = Ctx { operators: &[], units, mode: c.mode, is_fn: &is_fn, is_var: &is_var, strict: cfg.strict };
         let cv = match parse::parse_curve(&c.src, &ctx) {
             Ok(cv) => cv,
             Err(e) if e.starts_with("NAMED:") => {
@@ -150,7 +159,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
             Err(e) => return Err(e),
         };
         // the free names: what the curve is plotted against
-        let mut lo = Lower::new(env, &units);
+        let mut lo = Lower::new(env, units);
         let mut written: Vec<String> = vec![];
         if let Some((_, ps, _)) = &cv.head {
             for p in ps {
@@ -165,9 +174,28 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
             }
         }
         let e0 = lo.expr(&cv.body)?;
-        let free = e0.syms();
+        let mut free = e0.syms();
+        // names written but not defined vary too, also where they cancel: X(x) with X(x) := 20 is a constant line
+        let mut names = vec![];
+        crate::sheet::ast_names(&cv.body, &mut names);
+        for n in names {
+            if !free.contains(&n) && !is_var(&n) && !is_fn(&n) && !matches!(n.as_str(), "π" | "pi" | "e") {
+                free.push(n);
+            }
+        }
+        // and the parameters written out, whatever the name means outside: y(y) := X(y) with y defined
+        for p in written.iter().rev() {
+            if !free.contains(p) {
+                free.insert(0, p.clone());
+            }
+        }
+        // a function with its parameters written out may use only them and defined names, as any function
+        if let Some((n, _, false)) = &cv.head
+            && let Some(f) = free.iter().find(|f| !written.contains(f)) {
+                return Err(format!("'{f}' in '{n}' isn't defined – define it first with :=, or plot against it: {n}({f}) or {n}(..)"));
+            }
         // read again with every free name as a parameter: the units they get from the functions they're passed to
-        let mut lo2 = Lower::new(env, &units);
+        let mut lo2 = Lower::new(env, units);
         lo2.params = free.iter().cloned().collect();
         lo2.inferred = lo.inferred.clone();
         let e = simp(&lo2.expr(&cv.body)?);
@@ -187,9 +215,21 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
             parse::Ast::Call(n, _) => Some(n.clone()),
             _ => None,
         };
-        let label = r.ast(&cv.body, &|_| None).0;
-        curves.push(Curve { e, label, name: cv.head.map(|h| h.0), call });
-        let _ = written;
+        let display = c.label.as_ref().map(|label| parse::parse_curve(label, &ctx)).transpose()?;
+        let label = r.ast_ops(display.as_ref().map_or(&cv.body, |cv| &cv.body), &|_| None, &c.operators).0;
+        if cv.defines {
+            defines.push(c.clone());
+        }
+        let branches = match e { Expr::Vector(v) => v, e => vec![e] };
+        let count = branches.len();
+        if count == 0 { return Err("an empty vector has no curves to plot".into()); }
+        for (i, e) in branches.into_iter().enumerate() {
+            if matches!(e, Expr::Vector(_)) { return Err("a graph needs scalar components – select a solution with at(vector, index)".into()); }
+            curves.push(Curve {
+                e, label: if count == 1 { label.clone() } else { format!("{}_({})", label, i + 1) },
+                name: cv.head.as_ref().map(|h| h.0.clone()), call: call.clone(), params: written.clone(),
+            });
+        }
     }
     let eq = req.curves.iter().map(|c| tidy(&c.src)).collect::<Vec<_>>().join("', '");
     if takes.len() > 1 {
@@ -199,9 +239,30 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         ));
     }
     let Some(x) = takes.first().cloned() else { return Err(format!("nothing varies in '{eq}' – a curve takes what it's plotted against: U(x) = …")) };
-    if curves.iter().any(|c| c.name.as_deref() == Some(x.as_str())) {
+    // y(y) := … names its parameter so on purpose
+    if curves.iter().any(|c| c.name.as_deref() == Some(x.as_str()) && !c.params.contains(&x)) {
         return Err(format!("'{x}' is what the curve is plotted against, so it can't name it"));
     }
+    Ok(Read { curves, x, xunit_typed, defines, eq })
+}
+
+/// The curves written with `:=`, if the graph can read its curves: what calculating them as lines defines.
+pub fn defines(env: &Env, req: &GraphReq) -> Result<Vec<Src>, String> {
+    let units = Units::build(&req.cfg.units)?;
+    Ok(read(env, req, &units)?.defines)
+}
+
+pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
+    let units = Units::build(&req.cfg.units)?;
+    let cfg = &req.cfg;
+    if req.curves.is_empty() {
+        return Err("nothing to plot – pass an equation like \"P = U^2/R\"".into());
+    }
+    if req.samples < 2 {
+        return Err("samples: an integer ≥ 2".into());
+    }
+    let Read { curves, x, xunit_typed, eq, .. } = read(env, req, &units)?;
+    let tidy = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ").replace("( ", "(").replace(" )", ")");
     // values of ranges and marks
     let xv = |v: &XV| -> Result<V, String> {
         match v {
@@ -251,7 +312,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
     });
     if xunit.is_empty() && withu.is_empty() {
         if let Some(yd) = yu {
-            let known = |n: &str| env.vars.get(n).and_then(|v| value(&env.bind(&v.expr, &BTreeSet::new()).ok()?).ok()).map(|v| v.d);
+            let known = |n: &str| env.vars.get(n).and_then(|v| value(&env.bind_with_units(&v.expr, &BTreeSet::new(), &units).ok()?).ok()).map(|v| v.d);
             let y = Expr::C(crate::expr::Val::new(Num::ONE, yd));
             if let Ok(ds) = infer_dims(&[(curves[0].e.clone(), y)], std::slice::from_ref(&x), &known) {
                 if let Some(Some(d)) = ds.first() {
@@ -289,7 +350,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         if n == x {
             return Some(xd);
         }
-        env.vars.get(n).and_then(|v| value(&env.bind(&v.expr, &BTreeSet::new()).ok()?).ok()).map(|v| v.d)
+        env.vars.get(n).and_then(|v| value(&env.bind_with_units(&v.expr, &BTreeSet::new(), &units).ok()?).ok()).map(|v| v.d)
     };
     let yd = dim_of(&curves[0].e, &known)?.unwrap_or(Dim::ONE);
     for c in &curves[1..] {
@@ -458,7 +519,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
     for (i, c) in curves.iter().enumerate() {
         let label = match &c.name {
             None => c.label.clone(),
-            Some(nm) if names.iter().filter(|m| m.as_ref() == Some(nm)).count() > 1 => format!("{} = {}", name(nm), r.expr(&c.e).0),
+            Some(nm) if names.iter().filter(|m| m.as_ref() == Some(nm)).count() > 1 => format!("{} = {}", name(nm), c.label),
             Some(nm) => name(nm),
         };
         let mut runs: Vec<Vec<(f64, f64, usize)>> = vec![vec![]];
@@ -805,6 +866,26 @@ mod tests {
     use crate::api::{LineReq, line};
 
     #[test]
+    fn operator_labels_are_independent_of_calculation_names() {
+        let mut req = GraphReq {
+            cfg: Cfg::default(), curves: vec![Src {
+                src: "tri(2x)".into(), mode: Mode::Code, label: Some("Λ(2x)".into()), operators: vec!["Λ".into(), "dreieick".into(), "sqrt".into()],
+            }],
+            xrange: vec![XV::Num(-1.0), XV::Num(1.0)], yrange: vec![], marks: vec![], ymark: vec![], samples: 101,
+        };
+        let first = graph(&Env::default(), &req).unwrap();
+        assert!(first.series.iter().filter_map(|s| s.label.as_ref()).all(|s| s.contains("Λ") && !s.contains("tri")));
+        assert!(first.ylabel.contains("Λ"), "{}", first.ylabel);
+        req.curves[0].label = Some("dreieick(2x)".into());
+        let second = graph(&Env::default(), &req).unwrap();
+        assert_eq!(first.series[0].points, second.series[0].points);
+        assert!(second.ylabel.contains("dreieick"), "{}", second.ylabel);
+        req.curves[0].label = Some("sqrt(2x)".into());
+        let third = graph(&Env::default(), &req).unwrap();
+        assert!(third.ylabel.contains("upright(\"sqrt\")"), "{}", third.ylabel);
+    }
+
+    #[test]
     fn graphs() {
         let mut env = Env::default();
         for s in ["R := 50 Ω", "P0 := 2 W", "U0 := 10 V"] {
@@ -813,11 +894,11 @@ mod tests {
         }
         let req = |curves: Vec<&str>, ymark: Vec<&str>| GraphReq {
             cfg: Cfg::default(),
-            curves: curves.into_iter().map(|c| Src { src: c.into(), mode: Mode::Code }).collect(),
+            curves: curves.into_iter().map(|c| Src { src: c.into(), mode: Mode::Code, label: None, operators: vec![] }).collect(),
             xrange: vec![],
             yrange: vec![],
             marks: vec![(Mark::Key("auto".into()), true)],
-            ymark: ymark.into_iter().map(|c| XV::Src(Src { src: c.into(), mode: Mode::Code })).collect(),
+            ymark: ymark.into_iter().map(|c| XV::Src(Src { src: c.into(), mode: Mode::Code, label: None, operators: vec![] })).collect(),
             samples: 100,
         };
         let g = graph(&env, &req(vec!["P(U: V) = U^2/R"], vec!["P0"])).unwrap();
@@ -829,5 +910,38 @@ mod tests {
         assert!(e.contains("two curves"), "{e}");
         let g = graph(&env, &req(vec!["P(..) = U0^2/R_L"], vec!["P0"])).unwrap();
         assert!(g.xlabel.contains("Ω"), "{}", g.xlabel);
+    }
+
+    #[test]
+    fn curves_with_define() {
+        let mut env = Env::default();
+        let run = |env: &mut Env, s: &str| line(env, &LineReq { src: s.into(), mode: Mode::Code, cfg: Cfg::default(), listed: true });
+        assert!(run(&mut env, "X(x) := x^2 + 1").errors.is_empty());
+        let req = |c: &str| GraphReq { cfg: Cfg::default(), curves: vec![Src { src: c.into(), mode: Mode::Code, label: None, operators: vec![] }], xrange: vec![], yrange: vec![], marks: vec![], ymark: vec![], samples: 50 };
+        // y := X(x): plotted over x, and as a line it defines y with x left free
+        graph(&env, &req("y := X(x)")).unwrap();
+        assert_eq!(defines(&env, &req("y := X(x)")).unwrap().len(), 1);
+        assert!(run(&mut env, "y := X(x)").errors.is_empty());
+        assert!(env.vars.contains_key("y"));
+        // y := y*2: the value before, doubled
+        let g = graph(&env, &req("y := y*2")).unwrap();
+        assert!(g.series.iter().flat_map(|s| &s.points).all(|p| (p.1 - 2.0 * (p.0 * p.0 + 1.0)).abs() < 1e-9));
+        // a parameter of the curve's name is the parameter
+        graph(&env, &req("y(y) := X(y)")).unwrap();
+        // also over a y that is defined as a value, and with a constant X
+        assert!(run(&mut env, "y := 20").errors.is_empty());
+        assert!(run(&mut env, "K(x) := 20").errors.is_empty());
+        graph(&env, &req("y(y) := K(y)")).unwrap();
+        assert!(run(&mut env, "y(y) := X(y)").errors.is_empty());
+        // with its parameters written out, a curve may use only them and defined names
+        let e = graph(&env, &req("z(y) := X(x)")).unwrap_err();
+        assert!(e.contains("'x' in 'z' isn't defined"), "{e}");
+        // a name passed to a constant function still varies: a constant line over it
+        assert!(run(&mut env, "C(x) := 20").errors.is_empty());
+        let g = graph(&env, &req("c := C(x)")).unwrap();
+        assert!(g.series.iter().flat_map(|s| &s.points).all(|p| (p.1 - 20.0).abs() < 1e-9));
+        assert!(g.y0 < 20.0 && 20.0 < g.y1, "{} {}", g.y0, g.y1);
+        // = plots without defining
+        assert!(defines(&env, &req("w(t) = X(t)")).unwrap().is_empty());
     }
 }

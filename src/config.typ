@@ -19,8 +19,6 @@
   defined-style: "grid",
   // problems: shown in the document, or stop the compilation
   errors: "document",
-  // what worksheet calculates besides code tagged solveng: math equations, code without a language
-  integration: "math",
   // casts (U as A) and types (f(x: A)) in what solveng shows, the equations as written included: left out, as plain math or as chips
   show-casts: "chip", show-types: "chip",
   // how they look: the words for casts and any-unit types (a German text might want als), the chips' colours or a
@@ -29,7 +27,7 @@
 )
 #let _CH = (
   form: ("auto", "decimal", "fraction", "input"), multiplication: ("dot", "times"), fractions: ("stacked", "slash"), steps: ("full", "formula", "result", "value", auto), inline-steps: ("full", "formula", "result", "value"),
-  layout: ("row", "column"), errors: ("document", "panic"), integration: ("math", "none"),
+  layout: ("row", "column"), errors: ("document", "panic"),
   show-casts: ("no", "plain", "chip"), show-types: ("no", "plain", "chip"), defined-style: ("grid", "column", "inline", "list"),
 )
 // allowed types per option
@@ -38,7 +36,7 @@
   multiplication: (str,), form: (str,), max-denominator: (int,), fractions: (str,), prefixes: (str, type(none), array), show-si: (bool,),
   units: (dictionary,), preferred-units: (array, str), strict: (bool,),
   steps: (str, type(auto)), inline-steps: (str,), layout: (str,), implies: (content, symbol, str), approximate: (bool,), block: (bool,),
-  max-solutions: (int,), defined-style: (str,), errors: (str,), integration: (str,), show-casts: (str,), show-types: (str,),
+  max-solutions: (int,), defined-style: (str,), errors: (str,), show-casts: (str,), show-types: (str,),
   words: (dictionary,), chips: (type(auto), dictionary, function), unit-style: (type(auto), function), unit-separator: (type(auto), content, str, symbol),
 )
 #let _tyname(ts) = ts.map(t => if t == type(none) { "none" } else if t == type(auto) { "auto" } else { str(t) }).join(" or ")

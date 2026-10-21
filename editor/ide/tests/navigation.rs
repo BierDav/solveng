@@ -11,20 +11,20 @@ fn text_at(doc: &str, start: u32, end: u32) -> String {
     String::from_utf16(&u[start as usize..end as usize]).unwrap()
 }
 
-/// A report of `(element text, active, integration)` in `main.typ`, at their positions in `doc`.
-fn report(doc: &str, elements: &[(&str, bool, &str)]) -> Report {
+/// A report of `(element text, active, evaluate)` in `main.typ`, at their positions in `doc`.
+fn report(doc: &str, elements: &[(&str, bool, bool)]) -> Report {
     Report {
         blocks: 1,
         elements: elements
             .iter()
-            .map(|(text, active, integration)| ReportElement {
+            .map(|(text, active, evaluate)| ReportElement {
                 path: "main.typ".into(),
                 start: u16_at(doc, text) as usize,
                 end: (u16_at(doc, text) + text.encode_utf16().count() as u32) as usize,
                 text: (*text).into(),
                 kind: if text.starts_with('$') { "math".into() } else { "code".into() },
                 active: *active,
-                integration: (*integration).into(),
+                evaluate: *evaluate,
             })
             .collect(),
         ..Report::default()
@@ -39,8 +39,8 @@ fn coloured(doc: &str, context: &Context, needle: &str) -> bool {
 
 #[test]
 fn decides_per_element_from_the_report() {
-    let doc = "$a := 1$\n#show: worksheet\n$b := 2$\n#worksheet-config(integration: \"none\")\n$d := 4$\n";
-    let compiled = report(doc, &[("$b := 2$", true, "math"), ("$d := 4$", false, "none")]);
+    let doc = "$a := 1$\n#show: worksheet\n$b := 2$\n#worksheet(evaluate: false)[\n$d := 4$\n]";
+    let compiled = report(doc, &[("$b := 2$", true, true), ("$d := 4$", false, false)]);
     let context = Context::new("").with_report(&compiled, "main.typ", true);
     // Before the worksheet, not calculated; then as the compiler saw each.
     assert!(!coloured(doc, &context, "a := 1"));
@@ -48,7 +48,7 @@ fn decides_per_element_from_the_report() {
     assert!(!coloured(doc, &context, "d := 4"));
 
     // Written since the compile: like the matched element before it.
-    let edited = "$a := 1$\n#show: worksheet\n$b := 2$ $x := 9$\n#worksheet-config(integration: \"none\")\n$d := 4$ $y := 8$\n";
+    let edited = "$a := 1$\n#show: worksheet\n$b := 2$ $x := 9$\n#worksheet(evaluate: false)[\n$d := 4$ $y := 8$\n]";
     assert!(coloured(edited, &context, "x := 9"));
     assert!(!coloured(edited, &context, "y := 8"));
 }
@@ -56,7 +56,7 @@ fn decides_per_element_from_the_report() {
 #[test]
 fn files_without_reported_elements_keep_the_settings() {
     let doc = "#show: worksheet\n$b := 2$\n";
-    let compiled = report("$q := 1$", &[("$q := 1$", true, "math")]);
+    let compiled = report("$q := 1$", &[("$q := 1$", true, true)]);
     // The main file was compiled: nothing of it is in a worksheet.
     assert!(!coloured(doc, &Context::new("").with_report(&compiled, "main2.typ", true), "b := 2"));
     // Another file falls back to its settings, as does a solveng without reports.
@@ -67,7 +67,7 @@ fn files_without_reported_elements_keep_the_settings() {
 #[test]
 fn tagged_code_is_shown_but_defines_only_when_calculated() {
     let doc = "```solveng\nk := 1\n```\n#show: worksheet\n$b := 2$\n$b + k =$\n";
-    let compiled = report(doc, &[("$b := 2$", true, "math"), ("$b + k =$", true, "math")]);
+    let compiled = report(doc, &[("$b := 2$", true, true), ("$b + k =$", true, true)]);
     let context = Context::new("").with_report(&compiled, "main.typ", true);
     assert!(coloured(doc, &context, "k := 1"));
     let at = u16_at(doc, "$b + k =$") + 1;
@@ -211,7 +211,7 @@ fn finds_math_names_with_subscripts() {
 #[test]
 fn warns_of_unknown_units_where_calculated() {
     let doc = "$a := 3 \"zorp\"$\n#show: worksheet\n$b := 3 \"zorp\"$\n#lambdify(\"b\", \"b\", unit: \"blop\")\n```solveng\nc := b = [blip]\n```\n#worksheet-config(units: (zorp: \"2 m\"))\n";
-    let compiled = report(doc, &[("$b := 3 \"zorp\"$", true, "math")]);
+    let compiled = report(doc, &[("$b := 3 \"zorp\"$", true, true)]);
     let context = Context::new("").with_report(&compiled, "main.typ", true);
     let found = diagnostics(doc, &context);
     let words: Vec<String> = found.iter().map(|p| text_at(doc, p.start, p.end)).collect();
@@ -219,7 +219,24 @@ fn warns_of_unknown_units_where_calculated() {
     assert!(found.iter().all(|p| p.severity == "warning"));
     // Without the custom unit, only the calculated equation warns.
     let bare = doc.replace("#worksheet-config(units: (zorp: \"2 m\"))\n", "");
-    let compiled = report(&bare, &[("$b := 3 \"zorp\"$", true, "math")]);
+    let compiled = report(&bare, &[("$b := 3 \"zorp\"$", true, true)]);
     let found = diagnostics(&bare, &Context::new("").with_report(&compiled, "main.typ", true));
     assert_eq!(found.iter().filter(|p| text_at(&bare, p.start, p.end) == "zorp").count(), 1);
+}
+
+#[test]
+fn backslashes_separate_definitions_and_result_markers() {
+    for doc in [
+        "#worksheet($ t := 1 \\ g := t + 2 \\ g = $)",
+        "#worksheet(\"t := 1 \\\\ g := t + 2 \\\\ g =\")",
+        "#show: worksheet\n```solveng\nt := 1 \\ g := t + 2 \\ g =\n```",
+    ] {
+        let context = Context::default();
+        let at = doc.rfind("g =").unwrap();
+        let target = definition(doc, &context, doc[..at].encode_utf16().count() as u32).expect(doc);
+        assert_eq!(text_at(doc, target.start, target.end), "g", "{doc}");
+        assert_eq!(target.start, u16_at(doc, "g :="), "{doc}");
+        let results = document_tokens(doc, &context).into_iter().filter(|t| t.kind == TokenKind::EVALUATE).count();
+        assert_eq!(results, 1, "{doc}");
+    }
 }

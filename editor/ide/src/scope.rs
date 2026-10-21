@@ -395,7 +395,10 @@ fn parameters(files: &[File], out: &mut [Occurrence], implicit: &str) -> Params 
             let rest = implicit == "allow"
                 || (implicit == "empty" && list.trim().is_empty())
                 || list.split(',').any(|p| p.trim() == ".." || p.trim() == "…");
-            let mut written: Vec<String> = list.split(',').map(str::trim).filter(|p| !p.is_empty() && *p != ".." && *p != "…").map(String::from).collect();
+            let mut written: Vec<String> = list.split(',').map(str::trim).filter(|p| !p.is_empty() && *p != ".." && *p != "…").map(|p| match p.split_once(':') {
+                Some((name, unit)) => format!("{}: {}", crate::resolved_name(name.trim()), unit.trim()),
+                None => crate::resolved_name(p),
+            }).collect();
             let in_body = |o: &Occurrence| o.file == index && o.start > close && o.end <= statement_end;
             let mut declared: Vec<(String, usize)> = Vec::new();
             for i in 0..out.len() {
@@ -405,6 +408,17 @@ fn parameters(files: &[File], out: &mut [Occurrence], implicit: &str) -> Params 
                     out[i].definition = Some(i);
                     params.uses.push(i);
                     params.owners.push(params.signatures.len());
+                }
+            }
+            if let Some((_, marker_end, _)) = crate::clause::marker(&c[close + 1..statement_end], &|_| false) {
+                let clause_start = close + 1 + marker_end;
+                let tail = file.doc.sub(clause_start, statement_end);
+                let locals = crate::clause::solved(&tail).into_iter().map(|n| crate::resolved_name(&n)).collect::<Vec<_>>();
+                for i in 0..out.len() {
+                    if out[i].file == index && out[i].start >= clause_start && out[i].end <= statement_end
+                        && locals.contains(&out[i].key) && !declared.iter().any(|(k, _)| *k == out[i].key) {
+                        declared.push((out[i].key.clone(), i));
+                    }
                 }
             }
             let mut inferred: Vec<(String, usize)> = Vec::new();
@@ -430,7 +444,7 @@ fn parameters(files: &[File], out: &mut [Occurrence], implicit: &str) -> Params 
             }
             written.extend(inferred.into_iter().map(|(k, _)| k));
             params.signatures.push((index, start, written));
-            params.names.push(file.doc.sub(start, end).trim().to_string());
+            params.names.push(crate::resolved_name(file.doc.sub(start, end).trim()));
         }
     }
     params

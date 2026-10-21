@@ -20,10 +20,12 @@ struct Name {
 fn code_names(doc: &Doc, base: usize, toks: Vec<Tok>, out: &mut Vec<Name>) {
     for (s, l, kind) in toks {
         let (start, end) = (base + s, base + s + l);
-        let text = doc.sub(start, end);
+        let raw: Vec<char> = doc.sub(start, end).chars().collect();
+        let (decoded, _) = crate::text::unescape(&raw);
+        let text: String = decoded.into_iter().collect();
         match kind {
             K::VARIABLE => out.push(Name { key: crate::resolved_name(&text), start, end }),
-            K::FUNCTION if !FUNCTIONS.contains(&text.as_str()) => out.push(Name { key: text, start, end }),
+            K::FUNCTION if !FUNCTIONS.contains(&text.as_str()) => out.push(Name { key: crate::resolved_name(&text), start, end }),
             K::ANNOTATION if text.starts_with('@') => out.push(Name { key: crate::resolved_name(&text[1..]), start: start + 1, end }),
             _ => {}
         }
@@ -47,7 +49,7 @@ fn math_names(doc: &Doc, base: usize, toks: Vec<Tok>, out: &mut Vec<Name>) {
         if !matches!(kind, K::VARIABLE | K::FUNCTION) || (start > 0 && c[start - 1] == '_') {
             continue;
         }
-        let mut key = unquoted(&doc.sub(start, end));
+        let mut key = crate::resolved_name(&doc.sub(start, end));
         if kind == K::FUNCTION && FUNCTIONS.contains(&key.as_str()) {
             continue;
         }
@@ -72,7 +74,7 @@ fn math_names(doc: &Doc, base: usize, toks: Vec<Tok>, out: &mut Vec<Name>) {
                 i += 1;
             }
         }
-        let key = if kind == K::VARIABLE { crate::resolved_name(&key) } else { key };
+        let key = crate::resolved_name(&key);
         out.push(Name { key, start, end });
     }
 }
@@ -92,21 +94,8 @@ pub(crate) fn math_name_of(math: &[char]) -> Option<(String, usize, usize)> {
     Some((n.key, n.start, n.end))
 }
 
-/// Quoted text's contents, other text as it is.
-fn unquoted(text: &str) -> String {
-    match text.strip_prefix('"').and_then(|t| t.strip_suffix('"')) {
-        Some(inner) => inner.into(),
-        None => text.into(),
-    }
-}
-
 /// A piece of a subscript as solveng reads it: quotes go, a spelled Greek letter is the letter (`Delta` is Δ).
-pub(crate) fn math_piece(text: &str) -> String {
-    match crate::conceal::greek(text) {
-        Some(letter) => letter.to_string(),
-        None => unquoted(text),
-    }
-}
+pub(crate) fn math_piece(text: &str) -> String { crate::resolved_name(text) }
 
 /// Every name solveng reads in a text: in calculated code and math, and in the strings of its calls.
 fn names(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Element) -> bool, unit: &dyn Fn(&str) -> bool) -> Vec<Name> {
@@ -193,7 +182,7 @@ fn graphed(files: &[File], out: &mut [Occurrence]) -> Vec<usize> {
             let mut first: Vec<(String, usize)> = Vec::new();
             for i in 0..out.len() {
                 let o = &out[i];
-                if o.file != index || o.definition.is_some() || !inside(o, curves) || inside(o, names) {
+                if o.file != index || o.definition.is_some() || FUNCTIONS.contains(&o.key.as_str()) || !inside(o, curves) || inside(o, names) {
                     continue;
                 }
                 let id = match first.iter().find(|(k, _)| *k == o.key) {
@@ -291,6 +280,10 @@ fn resolved_all<'a>(a: &'a Analysis) -> (Vec<File<'a>>, Vec<Occurrence>, Vec<usi
             functions: curve_functions(&part.doc, &part.calls),
         });
     }
+    for file in &mut files {
+        let typst = crate::operator_edits(&file.doc.s);
+        file.names.retain(|(_, start, end)| !typst.iter().any(|e| e.start == file.doc.to16(*start) && e.end == file.doc.to16(*end)));
+    }
     let main = a.context.main.as_ref().and_then(|m| files.iter().position(|f| f.path == *m));
     let implicit = crate::implicit_parameters(&a.doc.s).or_else(|| crate::implicit_parameters(&a.context.text)).unwrap_or_else(|| "no".into());
     let (mut occurrences, params) = scope::occurrences(&files, 0, main, implicit);
@@ -316,6 +309,7 @@ fn location(files: &[File], o: &Occurrence) -> Location {
 /// just the name. On one of the document's own units (`ü` of `units: (ü: auto)`), its key in `units: (…)`.
 pub fn definition(document: &str, context: &Context, offset: u32) -> Option<Location> {
     let a = Analysis::new(document, context);
+    if let Some(result) = crate::operators::definition(&a, offset) { return Some(result); }
     let (files, occurrences) = resolved(&a);
     let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::definition(&a, offset) };
     Some(location(&files, &occurrences[occurrences[i].definition?]))
@@ -327,6 +321,7 @@ pub fn definition(document: &str, context: &Context, offset: u32) -> Option<Loca
 /// On one of the document's own units, its keys and every use, prefixed ones (`mü`) and other units' values included.
 pub fn usages(document: &str, context: &Context, offset: u32) -> Vec<Location> {
     let a = Analysis::new(document, context);
+    if let Some(result) = crate::operators::usages(&a, offset) { return result; }
     let (files, occurrences) = resolved(&a);
     let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::usages(&a, offset).unwrap_or_default() };
     let Some(id) = occurrences[i].definition else { return Vec::new() };
@@ -336,6 +331,7 @@ pub fn usages(document: &str, context: &Context, offset: u32) -> Vec<Location> {
 /// The solveng name at `offset` that [`rename`] renames, as it's written there: its range and text.
 pub fn rename_target(document: &str, context: &Context, offset: u32) -> Option<RenameTarget> {
     let a = Analysis::new(document, context);
+    if let Some(result) = crate::operators::rename_target(&a, offset) { return Some(result); }
     let (files, occurrences) = resolved(&a);
     let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::rename_target(&a, offset) };
     let o = &occurrences[i];
@@ -346,15 +342,19 @@ pub fn rename_target(document: &str, context: &Context, offset: u32) -> Option<R
 
 /// Renames the solveng name at `offset` and its [`usages`] to `name`, typed as code (`R_load`, `Delta""r`) or
 /// as math (`R_"load"`, `"tews"`). Each place gets the spelling it needs: code as typed, strings escaped, math
-/// with longer names quoted (`"tews"`, `t_"half"`). Empty if there's nothing to rename or `name` isn't a name.
+/// with longer names quoted (`"tews"`, `t_"half"`). Empty if there's nothing to rename or the input is empty.
 pub fn rename(document: &str, context: &Context, offset: u32, name: &str) -> Vec<Edit> {
     let a = Analysis::new(document, context);
+    if let Some(result) = crate::operators::rename(&a, offset, name) { return result; }
     let (files, occurrences) = resolved(&a);
     let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::rename(&a, offset, name).unwrap_or_default() };
     let Some(id) = occurrences[i].definition else { return Vec::new() };
-    let typed = name.trim();
+    let raw: Vec<char> = name.trim().chars().collect();
+    let (decoded, _) = crate::text::unescape(&raw);
+    let decoded: String = decoded.into_iter().collect();
+    let typed = decoded.as_str();
     let quoted = typed.replace("\"\"", "").contains('"');
-    let key = if quoted {
+    let candidate = if quoted {
         match math_name_of(&typed.chars().collect::<Vec<_>>()) {
             Some((key, _, _)) => key,
             None => return Vec::new(),
@@ -362,19 +362,16 @@ pub fn rename(document: &str, context: &Context, offset: u32, name: &str) -> Vec
     } else {
         crate::resolved_name(typed)
     };
-    let function = files[occurrences[id].file].definitions.iter().any(|d| d.function && d.start == occurrences[id].start);
-    let valid = key.chars().next().is_some_and(char::is_alphabetic) && key.chars().all(|c| c.is_alphanumeric() || c == '_');
-    if !valid {
-        return Vec::new();
-    }
-    let code = if quoted { key.clone() } else { typed.to_string() };
+    let Some(key) = solveng_names::for_rename(&candidate) else { return Vec::new() };
+    let code = solveng_names::code(&key);
     occurrences
         .iter()
         .filter(|o| o.definition == Some(id))
         .map(|o| {
             let f = &files[o.file];
             let inside = |spans: &[(usize, usize)]| spans.iter().any(|&(s, e)| s <= o.start && o.end <= e);
-            let text = if inside(&f.maths) && !function {
+            // Math quotes longer names, functions too: `"pytagoras"(a, b, c)`.
+            let text = if inside(&f.maths) {
                 crate::complete::math_name(&key)
             } else if inside(&f.strings) {
                 code.replace('\\', "\\\\").replace('"', "\\\"")

@@ -3,8 +3,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::Integration;
-
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Report {
@@ -18,7 +16,7 @@ pub struct Report {
     pub units: Vec<ReportValue>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ReportElement {
     /// The file, relative to the root as typst names it.
@@ -31,8 +29,14 @@ pub struct ReportElement {
     pub kind: String,
     /// Whether it was calculated.
     pub active: bool,
-    /// `worksheet-config(integration: …)` there.
-    pub integration: String,
+    /// Whether the innermost `worksheet` around calculates its math: `evaluate` there.
+    pub evaluate: bool,
+}
+
+impl Default for ReportElement {
+    fn default() -> ReportElement {
+        ReportElement { path: String::new(), start: 0, end: 0, text: String::new(), kind: String::new(), active: false, evaluate: true }
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -51,25 +55,17 @@ impl Report {
         serde_json::from_str(json).unwrap_or_default()
     }
 
-    /// What the `worksheet`s calculate in the file at `path`, or None when the report can't tell, as with a
-    /// solveng that predates reports or a file the compile may not have reached. `main` is the compiled file, which
-    /// the compile did reach: without reported elements nothing in it is in a `worksheet`.
-    pub fn integration(&self, path: &str, main: bool) -> Option<u8> {
+    /// Whether a `worksheet` calculates math anywhere in the file at `path`, or None when the report can't tell, as
+    /// with a solveng that predates reports or a file the compile may not have reached. `main` is the compiled file,
+    /// which the compile did reach: without reported elements nothing in it is in a `worksheet`.
+    pub fn evaluates(&self, path: &str, main: bool) -> Option<bool> {
         if self.blocks == 0 {
             return None;
         }
-        let here: Vec<u8> = self.elements.iter().filter(|e| e.path == path).map(|e| flags(&e.integration)).collect();
-        if here.is_empty() {
-            return if main { Some(Integration::NONE) } else { None };
+        let mut here = self.elements.iter().filter(|e| e.path == path).peekable();
+        if here.peek().is_none() {
+            return if main { Some(false) } else { None };
         }
-        Some(here.into_iter().fold(Integration::NONE, |a, b| a | b))
-    }
-}
-
-/// The flags of an `integration` setting.
-pub(crate) fn flags(setting: &str) -> u8 {
-    match setting {
-        "none" => Integration::NONE,
-        _ => Integration::MATH,
+        Some(here.any(|e| e.evaluate))
     }
 }

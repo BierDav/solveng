@@ -10,4 +10,4 @@ keywords = ["units", "solver", "equations", "engineering", "physics", "calculati
 categories = ["scripting", "visualization", "utility"]
 disciplines = ["engineering", "physics", "education"]
 compiler = "0.14.0"
-exclude = ["tests", "docs", "editor", "core", "plugin", "target", "Cargo.toml", "Cargo.lock", ".gitignore"]
+exclude = ["tests", "docs", "editor", "names", "core", "plugin", "target", "Cargo.toml", "Cargo.lock", ".gitignore"]

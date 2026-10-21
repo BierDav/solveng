@@ -111,13 +111,27 @@
   #undefined("x") #undefined("z")
   #expect("y", 2) #expect("w", 4, u: "cm")
 ]
+// evaluate: false leaves the worksheet's math alone, not its code blocks and calls, and isn't inherited
 #worksheet[
-  #worksheet-config(integration: "none")[$d := 2$ ```solveng
+  #worksheet(evaluate: false, inherit: true)[$d := 2$ ```solveng
   e := 3
-  ```]
+  ```
   #expect("e", 3) #undefined("d")
+  #worksheet($d_e := e + 1$) #expect("d_e", 4)
+  #worksheet(inherit: true)[$f_e := 6$ #expect("f_e", 6)]
+  ]
   $g := 5$ #expect("g", 5)
 ]
+#context {
+  let r = query(<solveng>).map(it => it.value).filter(x => x.kind == "math")
+  assert(r.any(x => not x.active and not x.evaluate), message: "math in evaluate: false reported as calculated")
+}
+// a code block passed to worksheet is code without the solveng tag
+#worksheet(```
+t_c := 2 s
+v_c := 4 m / t_c
+```)
+#expect("t_c", 2) #expect("v_c", 2)
 
 // editors read what a worksheet saw: each element (by location) and what the block defined
 #worksheet[$k := 2 V$ `m := 1`]
@@ -183,12 +197,29 @@
     assert(measure(worksheet(hidden: true)[text $E = m c^2$]).width > 0pt, message: "hidden text and prose not shown")
     assert(measure(worksheet(hidden: true)[#worksheet($g_w := 1 =$)]).width > 0pt, message: "nested worksheet hidden")
   }
-  // content doesn't inherit by default, equations do; inherit: false calculates them on their own
+  // content doesn't inherit by default, equations do; inherit: false calculates them on their own, and what they
+  // define comes back
   #worksheet[$a_w := 5$ #expect("a_w", 5)]
   #expect("a_w", 2) #undefined("b_w")
   #worksheet($k_w := a_w + 1$) #expect("k_w", 3)
-  #worksheet($m_w := 7$, inherit: false) #undefined("m_w")
+  #worksheet($m_w := 7$, inherit: false) #expect("m_w", 7)
   #worksheet($n_w := a_w =$, inherit: false) #fails("'a_w' in 'n_w' isn't defined")
   #worksheet(hidden: true)[$a_w := 9$ #undefined("k_w")]
   #worksheet(hidden: true, inherit: true)[#expect("k_w", 3)]
+]
+
+// graph: curves written with := define what they name, as the same equation in a worksheet
+#worksheet[
+  $X_g(x) := x^2 + 1$
+  #graph($y_g := X_g(x)$)
+  #worksheet(inherit: true)[$x := 2$ $v := y_g$ #expect("v", 5)]
+  #graph($y_g := 2 y_g$)
+  #worksheet(inherit: true)[$x := 2$ $v := y_g$ #expect("v", 10)]
+  #graph($y_g(y_g) := X_g(y_g)$)
+  $v_g := y_g(3)$ #expect("v_g", 10)
+  // a parameter named like a value, and a constant: a line over it
+  $C_g(x) := 20$ $c_g := 4$
+  #graph($c_g(c_g) := C_g(c_g)$) #passes()
+  $v_c := c_g(1)$ #expect("v_c", 20)
+  #graph("w_g(t) = X_g(t)") #undefined("w_g")
 ]

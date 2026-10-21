@@ -43,3 +43,64 @@
   $q := "tews" / R_(a b)$
   #expect("tews", 23) #expect("test_testΔ", 3) #expect("x_in", 2) #expect("R_ab", 4) #expect("k", 46) #expect("y", 6) #expect("q", 5.75)
 ]
+
+// Quotes transport names; digits stay in the identifier and only underscores make subscripts.
+#worksheet[
+  $"Delta2tau" := 7$
+  $a := "Δ2τ" =$
+  #passes() #expect("a", 7)
+  #def("b := Delta2tau", "c := Δ2τ")
+  #expect("b", 7) #expect("c", 7)
+  $Delta""tau := 8$
+  $d := "Delta\"\"tau" =$
+  #passes() #expect("d", 8)
+  $t""2 := 3$
+  $t_2 := 5$
+  $q := "t2" + t_2 =$
+  #passes() #expect("q", 8)
+  $"😅2Delta_🫠" := 9$
+  #def("emoji := 😅2Δ_🫠")
+  #expect("emoji", 9)
+]
+
+// The acute accent is a literal part of a name.
+#worksheet[
+  $x := 2$
+  $x´ := 3$
+  $x´´ := 5$
+  $´x := 7$
+  $x´_2 := 11$
+  $a := x + x´ + x´´ + ´x + x´_2 =$
+  #passes() #expect("a", 28)
+  $f´(t´) := x´ t´$
+  $b := f´(4) =$
+  #passes() #expect("b", 12)
+  ```solveng
+  c := x´ + x´´ =
+  ```
+  #passes() #expect("c", 8)
+]
+
+#worksheet[
+  $r := 2$
+  $r` := 3$
+  $a := r + r` =$
+  #passes() #expect("a", 5)
+]
+
+// A join keeps leading digits in a name instead of multiplying a coefficient.
+#worksheet[
+  $x := 3$
+  $2""x := 7$
+  #passes() #expect("2x", 7)
+  $a := 2""x =$
+  #passes() #expect("a", 7)
+  $b := 2x =$
+  #passes() #expect("b", 6)
+  #def("c := 2\"\"x")
+  #passes() #expect("c", 7)
+  $2"""foo" := 11$
+  #passes() #expect("2foo", 11)
+  $2""x_tau := 13$
+  #passes() #expect("2x_τ", 13)
+]

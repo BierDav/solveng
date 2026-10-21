@@ -1,6 +1,6 @@
 //! Editor support for solveng (`@preview/solveng`), the calculation language of Typst documents: ```` ```solveng ````
-//! code blocks, math in a `worksheet` (as `worksheet-config(integration: …)` says) and equations passed to
-//! `#worksheet(…)`, and the strings of `#worksheet`, `#graph` and `#lambdify`. Like Mathcad, `:=` defines, a
+//! code blocks, math in a `worksheet` (unless the innermost one says `evaluate: false`) and equations and code
+//! passed to `#worksheet(…)`, and the strings of `#worksheet`, `#graph` and `#lambdify`. Like Mathcad, `:=` defines, a
 //! trailing `=` shows a value and `->` a symbolic result or a solution, each followed by a clause of a unit and
 //! keywords.
 //!
@@ -15,6 +15,7 @@ mod convert;
 mod elements;
 mod highlight;
 mod navigate;
+mod operators;
 pub mod params;
 mod report;
 mod scope;
@@ -32,6 +33,7 @@ use serde::Serialize;
 pub use complete::complete;
 pub use conceal::{conceals, conceals_of, resolved_name};
 pub use convert::{conversions, from_math, to_math};
+pub use operators::{operator_edits, operator_declaration, OperatorEdit};
 pub use navigate::{definition, rename, rename_target, usages};
 pub use highlight::{diagnostics, document_tokens, hover, math_tokens, math_tokens_of, pretty, regions, tokens, tokens_with_units};
 pub use report::{Report, ReportElement, ReportValue};
@@ -67,14 +69,6 @@ impl TokenKind {
     pub const EVALUATE: u8 = 11;
 }
 
-/// What a `worksheet` calculates besides ```` ```solveng ```` code blocks, as `worksheet-config(integration: …)`
-/// sets it; bit flags.
-pub struct Integration;
-impl Integration {
-    pub const NONE: u8 = 0;
-    pub const MATH: u8 = 2;
-}
-
 /// Kinds of [`Item`].
 pub struct ItemKind;
 impl ItemKind {
@@ -101,6 +95,8 @@ pub struct Token {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Item {
     pub label: String,
+    #[serde(skip)]
+    pub(crate) typst: bool,
     /// An [`ItemKind`].
     pub kind: u8,
     /// What it is: `= 30 mA`, `milliampere`, `f(x) = x^2 + 1`.
@@ -117,15 +113,17 @@ pub struct Item {
 
 impl Item {
     pub(crate) fn new(label: &str, kind: u8, detail: &str, insert: &str) -> Item {
-        Item { label: label.into(), kind, detail: detail.into(), insert: insert.into(), documentation: None, filter: None }
+        Item { label: label.into(), typst: false, kind, detail: detail.into(), insert: insert.into(), documentation: None, filter: None }
     }
 }
 
-/// Completions at a caret: `items` replace the UTF-16 range `from..<offset`. `exclusive` ones (in solveng code
+/// Completions at a caret: `items` replace the UTF-16 range `from..<(to.unwrap_or(offset))`. `exclusive` ones (in solveng code
 /// and strings) replace the Typst language server's; others (in math, parameter names) come first next to its.
 #[derive(Clone, Debug, Serialize)]
 pub struct Completions {
     pub from: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to: Option<u32>,
     pub items: Vec<Item>,
     pub exclusive: bool,
 }
@@ -213,8 +211,8 @@ pub struct Region {
 #[derive(Clone, Debug, Default)]
 pub struct Context {
     pub text: String,
-    /// The compiler's [`Integration`] for the document, which beats reading the settings.
-    pub integration: Option<u8>,
+    /// Whether the compiler calculated math in the document, which beats reading the settings.
+    pub evaluate: Option<bool>,
     /// Values the compiler computed, used as completion details.
     pub defined: Vec<ReportValue>,
     /// Units `worksheet-config(units: …)` set, as the compiler saw them.
@@ -229,23 +227,23 @@ pub struct Context {
     pub main: Option<String>,
 }
 
-const COMPILED: &str = "\u{1}solveng-integration:";
+const COMPILED: &str = "\u{1}solveng-evaluate:";
 
 impl Context {
-    /// The text of the files around; one starting like [`with_compiled`]'s carries the compiler's integration.
+    /// The text of the files around; one starting like [`with_compiled`]'s carries whether the compiler calculated math.
     pub fn new(text: &str) -> Context {
         if let Some(rest) = text.strip_prefix(COMPILED)
             && let Some(d) = rest.chars().next().and_then(|c| c.to_digit(10)) {
                 let text = rest.split_once('\n').map_or("", |(_, t)| t);
-                return Context { text: text.into(), integration: Some(d as u8), ..Context::default() };
+                return Context { text: text.into(), evaluate: Some(d != 0), ..Context::default() };
             }
         Context { text: text.into(), ..Context::default() }
     }
 
     /// Adds what the compile reported for the document at `path` (relative to the root); `main` is the compiled file.
     pub fn with_report(mut self, report: &Report, path: &str, main: bool) -> Context {
-        if let Some(i) = report.integration(path, main) {
-            self.integration = Some(i);
+        if let Some(e) = report.evaluates(path, main) {
+            self.evaluate = Some(e);
         }
         self.defined = report.defined.clone();
         self.units = report.units.clone();
@@ -277,15 +275,16 @@ impl Context {
     }
 }
 
-/// `context` carrying the compiler's integration for the document, unless that's negative; [`Context::new`]
-/// reads it back. For editors that pass the context around as one string.
-pub fn with_compiled(context: &str, integration: i32) -> String {
-    if integration < 0 { context.into() } else { format!("{COMPILED}{integration}\n{context}") }
+/// `context` carrying whether the compiler calculated math in the document (1 or 0), unless that's negative;
+/// [`Context::new`] reads it back. For editors that pass the context around as one string.
+pub fn with_compiled(context: &str, evaluate: i32) -> String {
+    if evaluate < 0 { context.into() } else { format!("{COMPILED}{}\n{context}", i32::from(evaluate != 0)) }
 }
 
-/// What the compile reported for the file at `path`: an [`Integration`], or -1 when the report can't tell.
-pub fn compiled_integration(report: &str, path: &str, main: bool) -> i32 {
-    Report::parse(report).integration(path, main).map_or(-1, i32::from)
+/// What the compile reported for the file at `path`: 1 when it calculated math, 0 when not, -1 when the report
+/// can't tell.
+pub fn compiled_evaluate(report: &str, path: &str, main: bool) -> i32 {
+    Report::parse(report).evaluates(path, main).map_or(-1, i32::from)
 }
 
 static REFERENCE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"#(?:import|include)\s+"([^"@][^"]*)""#).unwrap());
@@ -296,8 +295,6 @@ static IMPLICIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"implicit-param
 pub(crate) fn implicit_parameters(text: &str) -> Option<String> {
     IMPLICIT.captures_iter(text).last().map(|m| m[1].to_string())
 }
-
-static SETTING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"integration\s*:\s*"(math|none)""#).unwrap());
 
 /// Local files a document imports or includes (`#import "defaults.typ": *`, `#include "ch1.typ"`), as written;
 /// editors read them (and the compiled main file) into the [`Context`].
@@ -311,34 +308,28 @@ pub fn references(document: &str) -> Vec<String> {
     out
 }
 
-/// What the document's `worksheet` calculates besides code blocks: `"math"` unless `integration` says otherwise,
-/// nothing without a `worksheet`. The compiler's answer wins, then the document's own setting.
-pub fn integration(document: &str, context: &Context) -> u8 {
-    if let Some(i) = context.integration {
-        return i;
-    }
-    fallback(document, &context.text)
+/// Whether the document's math is calculated: in a `worksheet`, nothing without one. The compiler's answer wins;
+/// a `worksheet(evaluate: false)[…]` still leaves the math in it alone, see [`activity`].
+pub fn evaluates(document: &str, context: &Context) -> bool {
+    context.evaluate.unwrap_or_else(|| fallback(document, &context.text))
 }
 
-/// What a text calculates by its settings: in a `worksheet`, math unless an `integration` setting says `"none"`;
-/// else nothing.
-fn fallback(text: &str, around: &str) -> u8 {
-    if !text.contains("worksheet") && !around.contains("worksheet") {
-        return Integration::NONE;
-    }
-    SETTING.captures(text).or_else(|| SETTING.captures(around)).map_or(Integration::MATH, |m| report::flags(&m[1]))
+/// Whether a text's math is calculated by its settings: in a `worksheet`.
+fn fallback(text: &str, around: &str) -> bool {
+    text.contains("worksheet") || around.contains("worksheet")
 }
 
-/// Math as `integration` says; of raw elements only ```` ```solveng ```` code blocks, wherever they are.
-pub(crate) fn is_solveng(e: &Element, integration: u8) -> bool {
-    if e.math { integration & Integration::MATH != 0 } else { e.tag == TAG && e.block }
+/// Math if `math`, unless the innermost worksheet around it says `evaluate: false`; of raw elements only
+/// ```` ```solveng ```` code blocks, wherever they are.
+pub(crate) fn is_solveng(e: &Element, math: bool, scopes: &[calls::Scope]) -> bool {
+    if e.math { math && calls::evaluates_at(scopes, e.start) != Some(false) } else { e.tag == TAG && e.block }
 }
 
 /// The UTF-16 `(body_start, body_end)` of a raw element that holds solveng code: a ```` ```solveng ```` block.
-pub fn body(raw: &str, integration: u8) -> Option<(u32, u32)> {
+pub fn body(raw: &str) -> Option<(u32, u32)> {
     let doc = Doc::new(raw);
     let r = elements::elements(&doc.c).into_iter().next()?;
-    if r.start != 0 || r.math || !is_solveng(&r, integration) {
+    if r.start != 0 || r.math || !is_solveng(&r, false, &[]) {
         return None;
     }
     Some((doc.to16(r.body_start), doc.to16(r.body_end)))
@@ -359,15 +350,16 @@ pub(crate) fn scan(doc: &Doc, calls: &[calls::Call]) -> Vec<Element> {
 
 /// Which elements solveng calculates. With the compiler's elements for the file (`reported`), an element whose
 /// source matches one (the nearest by position, each used once) takes its flag; one written since takes the
-/// `integration` of the matched element before it, and nothing before the first. Without them `fallback` decides.
-/// Equations passed to `worksheet` are calculated wherever they are.
-pub(crate) fn activity(doc: &Doc, elements: &[Element], calls: &[calls::Call], reported: &[&ReportElement], fallback: u8) -> Vec<bool> {
-    let in_call = |e: &Element| e.math && calls.iter().any(|c| c.maths.iter().any(|m| m.0 == e.start));
+/// `evaluate` of the matched element before it (and of the worksheets written around it), and nothing before the
+/// first. Without them `fallback` and the worksheets' `evaluate` decide. Equations and code passed to `worksheet`
+/// are calculated wherever they are.
+pub(crate) fn activity(doc: &Doc, elements: &[Element], calls: &[calls::Call], scopes: &[calls::Scope], reported: &[&ReportElement], fallback: bool) -> Vec<bool> {
+    let in_call = |e: &Element| calls.iter().any(|c| c.maths.iter().any(|m| m.0 == e.start));
     if reported.is_empty() {
-        return elements.iter().map(|e| is_solveng(e, fallback) || in_call(e)).collect();
+        return elements.iter().map(|e| is_solveng(e, fallback, scopes) || in_call(e)).collect();
     }
     let mut used = vec![false; reported.len()];
-    let mut before: Option<u8> = None;
+    let mut before: Option<bool> = None;
     elements
         .iter()
         .map(|e| {
@@ -379,10 +371,10 @@ pub(crate) fn activity(doc: &Doc, elements: &[Element], calls: &[calls::Call], r
             let active = match found {
                 Some(i) => {
                     used[i] = true;
-                    before = Some(report::flags(&reported[i].integration));
+                    before = Some(reported[i].evaluate);
                     reported[i].active
                 }
-                None => before.is_some_and(|f| is_solveng(e, f)),
+                None => before.is_some_and(|f| is_solveng(e, f, scopes)),
             };
             active || in_call(e)
         })
@@ -402,12 +394,12 @@ pub(crate) struct Part {
 impl Part {
     fn new(path: Option<String>, text: &str, context: &Context) -> Part {
         let doc = Doc::new(text);
-        let calls = if text.is_empty() { Vec::new() } else { calls::calls(&doc) };
+        let (calls, scopes) = if text.is_empty() { Default::default() } else { calls::read(&doc) };
         let elements = scan(&doc, &calls);
         let reported = path.as_deref().map(|p| context.reported_in(p)).unwrap_or_default();
-        // A file's own setting, else the ones around.
+        // In a worksheet of its own, or of the files around.
         let fallback = fallback(text, &context.text);
-        let active = activity(&doc, &elements, &calls, &reported, fallback);
+        let active = activity(&doc, &elements, &calls, &scopes, &reported, fallback);
         Part { path, doc, calls, elements, active }
     }
 
@@ -431,7 +423,7 @@ pub(crate) struct Analysis<'a> {
 impl<'a> Analysis<'a> {
     pub fn new(document: &str, context: &'a Context) -> Analysis<'a> {
         let doc = Doc::new(document);
-        let calls = calls::calls(&doc);
+        let (calls, scopes) = calls::read(&doc);
         let elements = scan(&doc, &calls);
         let mut units = Vec::new();
         units::custom_units(&context.text, &mut units);
@@ -441,8 +433,8 @@ impl<'a> Analysis<'a> {
                 units.push(units::Custom { name: u.name.clone(), value: u.value.clone() });
             }
         }
-        let integration = integration(document, context);
-        let calculated = activity(&doc, &elements, &calls, &context.reported_in(&context.path), integration);
+        let math = evaluates(document, context);
+        let calculated = activity(&doc, &elements, &calls, &scopes, &context.reported_in(&context.path), math);
         Analysis { doc, context, elements, calculated, calls, units, around: OnceCell::new() }
     }
 

@@ -174,7 +174,7 @@ impl Server {
     }
 
     /// The files around a document: the main file and what it and the document import or include, so a
-    /// `worksheet`, `integration`, units and definitions set up elsewhere count here too.
+    /// `worksheet`, units and definitions set up elsewhere count here too.
     fn context(&self, uri: &str, text: &str) -> Context {
         let Some(file) = path_of(uri) else { return Context::default() };
         let root = self.root_for(&file);
@@ -233,7 +233,7 @@ impl Server {
                     .enumerate()
                     .map(|(i, item)| {
                         let snippet = item.insert.contains("$0");
-                        let new_text = if snippet { item.insert.replace('$', "\\$").replace("\\$0", "$0") } else { item.insert.clone() };
+                        let new_text = item.insert.clone();
                         let mut v = json!({
                             "label": item.label,
                             "kind": match item.kind {
@@ -249,7 +249,7 @@ impl Server {
                             "sortText": format!("{i:05}"),
                             "filterText": item.filter.clone().unwrap_or_else(|| item.insert.replace("$0", "")),
                             "insertTextFormat": if snippet { 2 } else { 1 },
-                            "textEdit": { "range": range(&starts, c.from, at), "newText": new_text },
+                            "textEdit": { "range": range(&starts, c.from, c.to.unwrap_or(at)), "newText": new_text },
                         });
                         if let Some(doc) = &item.documentation {
                             v["documentation"] = json!({ "kind": "markdown", "value": doc });
@@ -257,7 +257,7 @@ impl Server {
                         v
                     })
                     .collect();
-                json!({ "isIncomplete": false, "items": items })
+                json!({ "isIncomplete": true, "items": items })
             }
             "textDocument/hover" => match ide::hover(&text, &context, offset(&text, &p["position"])) {
                 Some(h) => json!({ "contents": { "kind": "markdown", "value": h.markdown }, "range": range(&starts, h.start, h.end) }),

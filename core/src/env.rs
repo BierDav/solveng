@@ -25,6 +25,12 @@ pub enum Kind {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Operator {
+    pub name: String,
+    pub function: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Var {
     /// The value, symbolic: names defined when it was defined are put in, others are free.
     pub expr: Expr,
@@ -41,8 +47,8 @@ pub struct Fun {
     pub params: Vec<Param>,
     /// The body with the parameters as symbols.
     pub body: Expr,
-    /// As written, for showing it.
-    pub ast: Ast,
+    /// As written, unless solving produced the body.
+    pub ast: Option<Ast>,
     pub src: String,
     /// The dimension of the result, when every parameter has a unit.
     pub ret: Option<Dim>,
@@ -81,6 +87,17 @@ impl Env {
         self.order.retain(|e| e.name != name);
         known
     }
+    /// Takes over what `other` defined, in its order, over what was here: what a worksheet call calculated on its
+    /// own (`inherit: false`) comes back.
+    pub fn merge(&mut self, other: &Env) {
+        for e in &other.order {
+            if let Some(v) = other.vars.get(&e.name) {
+                self.define_var(&e.name, v.clone(), e.kind, e.listed);
+            } else if let Some(f) = other.funs.get(&e.name) {
+                self.define_fun(&e.name, f.clone(), e.listed);
+            }
+        }
+    }
     fn note(&mut self, name: &str, kind: Kind, listed: bool) {
         self.order.retain(|e| e.name != name);
         self.order.push(Entry { name: name.to_string(), kind, listed });
@@ -89,9 +106,12 @@ impl Env {
     /// Defined names put in, recursively (free symbols of their values too, if those are defined by now);
     /// `keep` are parameters, never replaced.
     pub fn bind(&self, e: &Expr, keep: &BTreeSet<String>) -> Result<Expr, String> {
-        self.bind_(e, keep, &mut vec![])
+        self.bind_with_units(e, keep, &Units::default())
     }
-    fn bind_(&self, e: &Expr, keep: &BTreeSet<String>, path: &mut Vec<String>) -> Result<Expr, String> {
+    pub fn bind_with_units(&self, e: &Expr, keep: &BTreeSet<String>, units: &Units) -> Result<Expr, String> {
+        self.bind_(e, keep, &mut vec![], units)
+    }
+    fn bind_(&self, e: &Expr, keep: &BTreeSet<String>, path: &mut Vec<String>, units: &Units) -> Result<Expr, String> {
         Ok(match e {
             Expr::Sym(n) if !keep.contains(n) => match self.vars.get(n) {
                 Some(v) => {
@@ -99,16 +119,52 @@ impl Env {
                         return Err(format!("'{n}' is defined by itself ({} → {n})", path.join(" → ")));
                     }
                     path.push(n.clone());
-                    let r = self.bind_(&v.expr, keep, path)?;
+                    let r = self.bind_(&v.expr, keep, path, units)?;
                     path.pop();
                     r
                 }
                 None => e.clone(),
             },
+            Expr::Call(n, args) => {
+                let args = args.iter().map(|a| self.bind_(a, keep, path, units)).collect::<Result<Vec<_>, _>>()?;
+                if self.funs.contains_key(n) {
+                    if path.contains(n) {
+                        return Err(format!("'{n}' is defined by itself ({} → {n})", path.join(" → ")));
+                    }
+                    path.push(n.clone());
+                    let lower = Lower::new(self, units);
+                    let expanded = lower.apply(n, args)?;
+                    let result = self.bind_(&expanded, keep, path, units)?;
+                    path.pop();
+                    result
+                } else if self.vars.contains_key(n) {
+                    return Err(format!("{n} is a variable – it can't be called as a function"));
+                } else {
+                    Expr::Call(n.clone(), args)
+                }
+            }
+            Expr::Subs(body, var, by) => {
+                let mut local = keep.clone();
+                local.insert(var.clone());
+                let body = self.bind_(body, &local, path, units)?;
+                let by = self.bind_(by, keep, path, units)?;
+                simp(&Expr::Subs(Box::new(body), var.clone(), Box::new(by)))
+            }
+            Expr::Derivative(body, var) => {
+                let mut local = keep.clone();
+                local.insert(var.clone());
+                let body = self.bind_(body, &local, path, units)?;
+                body.diff(var)
+            }
+            Expr::Integral(body, var, lo, hi) => {
+                let mut local = keep.clone();
+                local.insert(var.clone());
+                crate::calculus::integral(self.bind_(body, &local, path, units)?, var.clone(), self.bind_(lo, keep, path, units)?, self.bind_(hi, keep, path, units)?)
+            }
             Expr::Sym(_) | Expr::C(_) | Expr::Pi | Expr::E => e.clone(),
             _ => {
                 let mut err = None;
-                let r = e.map(&mut |c| match self.bind_(c, keep, path) {
+                let r = e.map(&mut |c| match self.bind_(c, keep, path, units) {
                     Ok(x) => x,
                     Err(m) => {
                         err.get_or_insert(m);
@@ -143,7 +199,7 @@ impl<'a> Lower<'a> {
 
     pub fn expr(&mut self, a: &Ast) -> Result<Expr, String> {
         let e = self.raw(a)?;
-        if self.bind { self.env.bind(&e, &self.params) } else { Ok(e) }
+        if self.bind { self.env.bind_with_units(&e, &self.params, self.units) } else { Ok(e) }
     }
 
     fn raw(&mut self, a: &Ast) -> Result<Expr, String> {
@@ -201,6 +257,10 @@ impl<'a> Lower<'a> {
                 None => return Err(format!("no stored formula for '{n}' (@{n} puts in how {n} was computed)")),
             },
             Ast::Call(n, args) => self.call(n, args)?,
+            Ast::Op(op, args) => match self.call(&op.function, args)? {
+                Expr::F(f, a) => Expr::Op(op.name.clone(), f, a),
+                e => e,
+            },
         })
     }
 
@@ -219,11 +279,42 @@ impl<'a> Lower<'a> {
         Ok(match n {
             "π" | "pi" => Expr::Pi,
             "e" => Expr::E,
+            "infinity" | "∞" => Expr::C(Val::num(Num::F(f64::INFINITY))),
             _ => Expr::Sym(n.to_string()),
         })
     }
 
     fn call(&mut self, n: &str, args: &[Ast]) -> Result<Expr, String> {
+        if n == "cases" {
+            if args.len() < 2 { return Err("cases needs a value and condition for each branch, with an optional final default value".into()); }
+            let mut branches = vec![];
+            for pair in args.chunks(2) {
+                branches.push((self.raw(&pair[0])?, if pair.len() == 2 { self.raw(&pair[1])? } else { expr::int(1) }));
+            }
+            return Ok(Expr::Cases(branches));
+        }
+        if n == "vec" { return Ok(Expr::Vector(args.iter().map(|a| self.raw(a)).collect::<Result<_, _>>()?)); }
+        if n == "at" {
+            if args.len() != 2 { return Err("at takes a vector and a zero-based index".into()); }
+            let v = simp(&self.expr(&args[0])?);
+            let i = simp(&self.expr(&args[1])?);
+            let Some(i) = i.as_num().and_then(|n| n.as_int()).filter(|i| *i >= 0) else { return Err("at needs a nonnegative integer index, starting at 0".into()); };
+            let Expr::Vector(v) = v else { return Err("at needs a vector".into()); };
+            return usize::try_from(i).ok().and_then(|i| v.get(i)).cloned().ok_or_else(|| format!("index {i} is outside a vector with {} components", v.len()));
+        }
+        if n == "diff" || n == "integrate" {
+            let count = if n == "diff" { 2 } else { 4 };
+            if args.len() != count { return Err(format!("{n} takes {count} arguments")); }
+            let Ast::Name(var) = &args[1] else { return Err("the calculus variable must be a name".into()); };
+            let added = self.params.insert(var.clone());
+            let body = self.expr(&args[0]);
+            if added { self.params.remove(var); }
+            let body = body?;
+            if n == "diff" { return Ok(body.diff(var)); }
+            let lo = self.raw(&args[2])?;
+            let hi = self.raw(&args[3])?;
+            return Ok(crate::calculus::integral(body, var.clone(), lo, hi));
+        }
         if n == "sqrt" || Func::of(n).is_some() {
             if args.len() != 1 {
                 return Err(format!("{n} takes one argument, got {}", args.len()));
@@ -231,25 +322,33 @@ impl<'a> Lower<'a> {
             let a = self.raw(&args[0])?;
             return Ok(if n == "sqrt" { expr::sqrt(a) } else { expr::func(Func::of(n).unwrap(), a) });
         }
-        let Some(f) = self.env.funs.get(n) else { return Err(format!("{n} isn't defined")) };
+        let Some(f) = self.env.funs.get(n) else {
+            if self.env.vars.contains_key(n) { return Err(format!("{n} is a variable – it can't be called as a function")); }
+            return Ok(Expr::Call(n.to_string(), args.iter().map(|a| self.raw(a)).collect::<Result<_, _>>()?));
+        };
         if args.len() != f.params.len() {
             return Err(format!("{n} takes {} argument{} ({}), got {}", f.params.len(), if f.params.len() == 1 { "" } else { "s" }, f.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", "), args.len()));
         }
-        let mut m = BTreeMap::new();
+        let mut lowered = vec![];
         for (p, a) in f.params.iter().zip(args) {
-            // a parameter passed on as it is takes the type of the one it's passed to
             if let (Ast::Name(x), Some(t)) = (a, &p.ty) {
-                if self.params.contains(x) {
-                    self.inferred.entry(x.clone()).or_insert(t.clone());
-                }
+                if self.params.contains(x) { self.inferred.entry(x.clone()).or_insert(t.clone()); }
             }
             let mut x = self.raw(a)?;
-            if self.bind {
-                x = self.env.bind(&x, &self.params)?;
-            }
-            if let Some(ParamType::Unit(u)) = &p.ty {
-                x = self.typed(x, u, n, &p.name)?;
-            }
+            if self.bind { x = self.env.bind_with_units(&x, &self.params, self.units)?; }
+            lowered.push(x);
+        }
+        self.apply(n, lowered)
+    }
+
+    fn apply(&self, n: &str, args: Vec<Expr>) -> Result<Expr, String> {
+        let f = &self.env.funs[n];
+        if args.len() != f.params.len() {
+            return Err(format!("{n} takes {} arguments, got {}", f.params.len(), args.len()));
+        }
+        let mut m = BTreeMap::new();
+        for (p, mut x) in f.params.iter().zip(args) {
+            if let Some(ParamType::Unit(u)) = &p.ty { x = self.typed(x, u, n, &p.name)?; }
             m.insert(p.name.clone(), x);
         }
         Ok(f.body.subst_all(&m))

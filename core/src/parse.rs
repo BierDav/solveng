@@ -38,49 +38,26 @@ const OPS: &[(&str, &str)] = &[
     (",", ","), (";", ";"), (":", ":"), ("..", ".."), ("…", ".."), ("|", "|"), ("±", "±"),
 ];
 
-pub const GREEK: &[(&str, char)] = &[
-    ("alpha", 'α'), ("beta", 'β'), ("gamma", 'γ'), ("Gamma", 'Γ'), ("delta", 'δ'), ("Delta", 'Δ'), ("epsilon", 'ε'),
-    ("zeta", 'ζ'), ("eta", 'η'), ("theta", 'θ'), ("Theta", 'Θ'), ("iota", 'ι'), ("kappa", 'κ'), ("lambda", 'λ'),
-    ("Lambda", 'Λ'), ("mu", 'μ'), ("nu", 'ν'), ("xi", 'ξ'), ("Xi", 'Ξ'), ("pi", 'π'), ("Pi", 'Π'), ("rho", 'ρ'),
-    ("sigma", 'σ'), ("Sigma", 'Σ'), ("tau", 'τ'), ("upsilon", 'υ'), ("phi", 'φ'), ("Phi", 'Φ'), ("chi", 'χ'),
-    ("psi", 'ψ'), ("Psi", 'Ψ'), ("omega", 'ω'), ("Omega", 'Ω'),
-];
+pub use solveng_names::GREEK;
 
-/// A Greek letter spelled out, alone or before an index (Delta_R, alpha2), is the letter, as math reads it;
-/// DeltaT stays a name of its own.
-pub fn greek(n: &str) -> String {
-    for (g, c) in GREEK {
-        if let Some(rest) = n.strip_prefix(g) {
-            if rest.is_empty() || rest.starts_with('_') || rest.starts_with(|c: char| c.is_ascii_digit()) {
-                return format!("{c}{rest}");
-            }
-        }
-    }
-    n.to_string()
-}
-
-fn is_name_start(c: char) -> bool {
-    c.is_alphabetic()
-}
-fn is_name_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
-}
+pub fn greek(name: &str) -> String { solveng_names::normalize(name) }
 
 pub fn lex(s: &str, mode: Mode) -> Result<Vec<Tok>, String> {
     let cs: Vec<char> = s.chars().collect();
     let mut out: Vec<Tok> = vec![];
     let mut i = 0;
-    // whether the last token touches this one (no space): glued names, decimal commas
-    let mut glued = false;
     while i < cs.len() {
         let c = cs[i];
         if c.is_whitespace() {
             i += 1;
-            glued = false;
             continue;
         }
-        let was_glued = glued;
-        glued = true;
+        if solveng_names::numeric_start(&cs, i) {
+            let name = solveng_names::scan(&cs, i)?.ok_or("expected a joined variable name")?;
+            i = name.end;
+            out.push(Tok::Name(name.value));
+            continue;
+        }
         if c.is_ascii_digit() || (c == '.' && cs.get(i + 1).is_some_and(|d| d.is_ascii_digit())) {
             let st = i;
             while i < cs.len() && cs[i].is_ascii_digit() {
@@ -111,44 +88,23 @@ pub fn lex(s: &str, mode: Mode) -> Result<Vec<Tok>, String> {
             out.push(Tok::Num(cs[st..i].iter().collect::<String>().replace(',', ".").replace('−', "-")));
             continue;
         }
-        if is_name_start(c) {
-            let st = i;
-            while i < cs.len() && is_name_char(cs[i]) {
-                i += 1;
-            }
-            let n: String = cs[st..i].iter().collect();
-            // Delta""r: names glued by empty strings are one
-            if let (true, Some(Tok::Quoted(q))) = (was_glued, out.last()) {
-                if q.is_empty() && out.len() >= 2 {
-                    if let Tok::Name(a) = &out[out.len() - 2] {
-                        let joined = format!("{a}{}", greek(&n));
-                        out.pop();
-                        out.pop();
-                        out.push(Tok::Name(joined));
-                        continue;
-                    }
-                }
-            }
-            if n == "as" {
-                out.push(Tok::Quoted("as".into()));
-            } else {
-                out.push(Tok::Name(greek(&n)));
-            }
+        if solveng_names::is_start(c) || c == '"' {
+            if c == '"' && cs.get(i + 1) == Some(&'"') { i += 2; continue; }
+            let quoted = c == '"';
+            let name = solveng_names::scan(&cs, i)?.ok_or("expected a variable name")?;
+            i = name.end;
+            let n = name.value;
+            if let Some(index) = n.strip_prefix("integral_").filter(|s| !s.is_empty()) {
+                out.push(Tok::Name("integral_".into()));
+                out.extend(lex(index, mode)?);
+            } else if quoted || n == "as" { out.push(Tok::Quoted(n)); }
+            else { out.push(Tok::Name(n)); }
             continue;
         }
         match c {
-            '"' => {
-                let st = i + 1;
+            '∞' => {
+                out.push(Tok::Name("infinity".into()));
                 i += 1;
-                while i < cs.len() && cs[i] != '"' {
-                    i += 1;
-                }
-                if i >= cs.len() {
-                    return Err("a '\"' isn't closed".into());
-                }
-                let q: String = cs[st..i].iter().collect();
-                i += 1;
-                out.push(Tok::Quoted(q));
                 continue;
             }
             '⦃' => {
@@ -191,12 +147,10 @@ pub fn lex(s: &str, mode: Mode) -> Result<Vec<Tok>, String> {
                 continue;
             }
             '@' => {
-                let st = i + 1;
                 i += 1;
-                while i < cs.len() && is_name_char(cs[i]) {
-                    i += 1;
-                }
-                out.push(Tok::At(greek(&cs[st..i].iter().collect::<String>())));
+                let name = solveng_names::scan(&cs, i)?.ok_or("a variable name after @")?;
+                i = name.end;
+                out.push(Tok::At(name.value));
                 continue;
             }
             '°' => {
@@ -329,6 +283,7 @@ pub enum Ast {
     Div(Box<Ast>, Box<Ast>),
     Pow(Box<Ast>, Box<Ast>),
     Call(String, Vec<Ast>),
+    Op(crate::env::Operator, Vec<Ast>),
     Abs(Box<Ast>),
     /// a = b < c: a chain of comparisons, 1 where all hold.
     Cmp(Box<Ast>, Vec<(Rel, Ast)>),
@@ -391,7 +346,7 @@ pub struct Line {
 
 const BUILTIN_FNS: &[&str] = &[
     "sqrt", "exp", "ln", "log", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "abs", "arcsin",
-    "arccos", "arctan", "cot", "sec", "csc",
+    "arccos", "arctan", "cot", "sec", "csc", "diff", "integrate", "vec", "at", "rect", "tri", "sgn", "cases",
 ];
 pub fn is_builtin(n: &str) -> bool {
     BUILTIN_FNS.contains(&n)
@@ -402,6 +357,7 @@ const KEYWORDS: &[&str] = &["solve", "simplify", "digits", "sci", "eng", "frac"]
 pub struct Ctx<'a> {
     pub units: &'a Units,
     pub mode: Mode,
+    pub operators: &'a [crate::env::Operator],
     /// Names of user functions (and the one being defined).
     pub is_fn: &'a dyn Fn(&str) -> bool,
     /// Names of defined variables.
@@ -446,10 +402,6 @@ impl<'a, 'b> P<'a, 'b> {
     }
     fn expect(&mut self, o: &str, what: &str) -> Result<(), String> {
         if self.eat(o) { Ok(()) } else { Err(format!("missing '{o}' {what}")) }
-    }
-
-    fn is_fn(&self, n: &str) -> bool {
-        is_builtin(n) || (self.c.is_fn)(n) || self.defining.iter().any(|d| d == n)
     }
 
     /// Whether the token at k can be read as a unit right after a number.
@@ -656,7 +608,7 @@ impl<'a, 'b> P<'a, 'b> {
             Some(Tok::Op(o)) => matches!(*o, "(" | "|"),
             Some(Tok::Quoted(q)) => q != "as",
             Some(Tok::Kw(_)) => false,
-            Some(Tok::Name(n)) => n != "as",
+            Some(Tok::Name(n)) => n != "as" && n != "dif",
             _ => true,
         }
     }
@@ -757,6 +709,11 @@ impl<'a, 'b> P<'a, 'b> {
                 Ok(Ast::Unit(u))
             }
             Tok::Quoted(q) => {
+                if self.op() == Some("(")
+                    && let Some(op) = self.c.operators.iter().find(|op| greek(&op.name) == greek(&q)).cloned() {
+                        self.i += 1;
+                        return Ok(Ast::Op(op, self.args(&q)?));
+                    }
                 if q == "as" {
                     return Err("a value before 'as' to cast".into());
                 }
@@ -791,6 +748,26 @@ impl<'a, 'b> P<'a, 'b> {
         }
     }
     fn name(&mut self, n: String) -> Result<Ast, String> {
+        if n == "dif" && self.eat("/") {
+            self.expect("(", "around the differential")?;
+            if !matches!(self.peek(), Some(Tok::Name(n)) if n == "dif") { return Err("expected dif in the denominator".into()); }
+            self.i += 1;
+            let Some(Tok::Name(var)) = self.peek().cloned() else { return Err("a differentiation variable after dif".into()); };
+            self.i += 1;
+            self.expect(")", "after the differential")?;
+            return Ok(Ast::Call("diff".into(), vec![self.sum()?, Ast::Name(var)]));
+        }
+        if n == "integral_" {
+            let lo = self.atom()?;
+            self.expect("^", "before the upper integral bound")?;
+            let hi = self.atom()?;
+            let body = self.sum()?;
+            if !matches!(self.peek(), Some(Tok::Name(n)) if n == "dif") { return Err("an integral ends with dif and its variable".into()); }
+            self.i += 1;
+            let Some(Tok::Name(var)) = self.peek().cloned() else { return Err("an integration variable after dif".into()); };
+            self.i += 1;
+            return Ok(Ast::Call("integrate".into(), vec![body, Ast::Name(var), lo, hi]));
+        }
         // Typst's frac(a, b), as math writes a fraction out: one factor
         if n == "frac" && self.op() == Some("(") {
             self.i += 1;
@@ -804,7 +781,7 @@ impl<'a, 'b> P<'a, 'b> {
             let d = a.pop().unwrap();
             return Ok(Ast::Div(Box::new(a.pop().unwrap()), Box::new(d)));
         }
-        if self.op() == Some("(") && self.is_fn(&n) {
+        if self.op() == Some("(") {
             self.i += 1;
             let args = self.args(&n)?;
             return Ok(Ast::Call(n, args));
@@ -835,7 +812,7 @@ impl<'a, 'b> P<'a, 'b> {
         if np.is_empty() {
             return Ok(Ast::Unit(u.u));
         }
-        let sub = Ctx { units: self.c.units, mode: Mode::Code, is_fn: &|_| false, is_var: &|_| false, strict: false };
+        let sub = Ctx { operators: &[], units: self.c.units, mode: Mode::Code, is_fn: &|_| false, is_var: &|_| false, strict: false };
         let toks = lex(np, Mode::Code)?;
         let mut p = P { t: toks, i: 0, c: &sub, letters: vec![], defining: vec![], abs_depth: 0, in_exp: 0 };
         let n = p.sum()?;
@@ -1044,8 +1021,7 @@ fn params(t: &[Tok], c: &Ctx) -> Result<(Vec<Param>, bool), String> {
             continue;
         }
         let name = match g.first() {
-            Some(Tok::Name(x)) => x.clone(),
-            Some(Tok::Quoted(x)) => greek(x),
+            Some(Tok::Name(x) | Tok::Quoted(x)) => x.clone(),
             _ => return Err(format!("the parameters are names, optionally with a unit (I: mA), and .. for the rest, got '{}'", g.iter().map(tok_text).collect::<String>())),
         };
         let ty = if g.len() > 1 {
@@ -1186,12 +1162,12 @@ mod tests {
 
     fn line(s: &str, mode: Mode) -> Line {
         let u = Units::default();
-        let c = Ctx { units: &u, mode, is_fn: &|n| n == "f" || n == "q", is_var: &|n| n == "h", strict: false };
+        let c = Ctx { operators: &[], units: &u, mode, is_fn: &|n| n == "f" || n == "q", is_var: &|n| n == "h", strict: false };
         parse_line(s, &c).unwrap()
     }
     fn err(s: &str, mode: Mode) -> String {
         let u = Units::default();
-        let c = Ctx { units: &u, mode, is_fn: &|_| false, is_var: &|n| n == "h", strict: false };
+        let c = Ctx { operators: &[], units: &u, mode, is_fn: &|_| false, is_var: &|n| n == "h", strict: false };
         parse_line(s, &c).unwrap_err()
     }
 
@@ -1290,6 +1266,8 @@ pub struct Curve {
     /// The function's name and parameters, for a named curve.
     pub head: Option<(String, Vec<Param>, bool)>,
     pub body: Ast,
+    /// Written with `:=`: the curve also defines what it names, as the same line in a worksheet does.
+    pub defines: bool,
 }
 
 pub fn parse_curve(src: &str, c: &Ctx) -> Result<Curve, String> {
@@ -1317,14 +1295,52 @@ pub fn parse_curve(src: &str, c: &Ctx) -> Result<Curve, String> {
         }
         Ok(e)
     };
-    let Some(i) = at else { return Ok(Curve { head: None, body: body(&t, None)? }) };
+    let Some(i) = at else { return Ok(Curve { head: None, body: body(&t, None)?, defines: false }) };
     let (lhs, rhs) = (&t[..i], &t[i + 1..]);
+    // := (re)defines, so a function of that name already is no call: y(y) := X(y) after y(x) := …
+    let defines = t[i] == Tok::Op(":=");
     match lhs {
-        [Tok::Name(n), Tok::Op("("), inner @ .., Tok::Op(")")] if !is_builtin(n) && !(c.is_fn)(n) => {
+        [Tok::Name(n), Tok::Op("("), inner @ .., Tok::Op(")")] if !is_builtin(n) && (defines || !(c.is_fn)(n)) => {
             let (ps, rest) = params(inner, c)?;
-            Ok(Curve { head: Some((n.clone(), ps, rest)), body: body(rhs, None)? })
+            Ok(Curve { head: Some((n.clone(), ps, rest)), body: body(rhs, None)?, defines })
         }
+        // y := X(x): y is X(x) with x left free, plotted over x
+        [Tok::Name(n)] if defines && !is_builtin(n) => Ok(Curve { head: Some((n.clone(), vec![], true)), body: body(rhs, None)?, defines }),
         [Tok::Name(n)] => Err(format!("NAMED:{n}")),
         _ => Err(format!("EQUATION:{}|{}", src_text(lhs), src_text(rhs))),
     }
+}
+
+/// Equation separators outside grouping; unfinished code lines continue on the next line.
+pub fn statements(src: &str, mode: Mode) -> Vec<String> {
+    let mut out = vec![];
+    let mut buf = String::new();
+    let (mut depth, mut quoted, mut comment) = (0i32, false, false);
+    let mut chars = src.chars().peekable();
+    while let Some(c) = chars.next() {
+        if comment {
+            if c != '\n' { continue; }
+            comment = false;
+        }
+        if !quoted && c == '/' && chars.peek() == Some(&'/') {
+            chars.next();
+            comment = true;
+            continue;
+        }
+        if c == '"' { quoted = !quoted; }
+        if !quoted {
+            if c == '(' || c == '[' { depth += 1; }
+            if c == ')' || c == ']' { depth -= 1; }
+            let newline = c == '\n' && mode == Mode::Code && depth == 0;
+            let unfinished = buf.trim_end().ends_with(['+', '-', '*', '/', '^', ':', ',', '(']) || buf.trim_end().ends_with(":=");
+            if c == '\\' || (newline && !unfinished) {
+                if !buf.trim().is_empty() { out.push(buf.trim().to_string()); }
+                buf.clear();
+                continue;
+            }
+        }
+        buf.push(c);
+    }
+    if !buf.trim().is_empty() { out.push(buf.trim().to_string()); }
+    out
 }

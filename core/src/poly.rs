@@ -378,7 +378,7 @@ pub fn cancel_expr(e: &Expr) -> Option<Expr> {
 
 /// The simplest of the forms solveng knows: as it is (canonical), with fractions cancelled, multiplied out.
 pub fn simplify(e: &Expr) -> Expr {
-    let a = simp(e);
+    let a = simp(&e.map(&mut simplify));
     let mut best = a.clone();
     let mut cands = vec![];
     if let Some(b) = cancel_expr(&a) {

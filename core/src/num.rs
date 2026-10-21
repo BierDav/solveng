@@ -357,7 +357,7 @@ impl Num {
 
 /// Equal within rounding: 1e-9 relative.
 pub fn close(a: f64, b: f64) -> bool {
-    (a - b).abs() <= 1e-9 * a.abs().max(b.abs()).max(1e-300)
+    a == b || (a.is_finite() && b.is_finite() && (a - b).abs() <= 1e-9 * a.abs().max(b.abs()).max(1e-300))
 }
 
 #[cfg(test)]

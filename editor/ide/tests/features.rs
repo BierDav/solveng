@@ -38,7 +38,8 @@ fn reads_the_package_signatures() {
     // Options documented only at worksheet-config.
     assert!(!graph.named.iter().find(|p| p.name == "digits").unwrap().doc.is_empty());
     let config = params::functions().iter().find(|f| f.name == "worksheet-config").unwrap();
-    assert_eq!(config.named.iter().find(|p| p.name == "integration").unwrap().values, vec!["math", "none"]);
+    assert!(config.named.iter().all(|p| p.name != "evaluate"));
+    assert_eq!(ws.named.iter().find(|p| p.name == "evaluate").unwrap().default, "true");
     let defined = params::functions().iter().find(|f| f.name == "defined").unwrap();
     assert_eq!(defined.named.iter().find(|p| p.name == "style").unwrap().values, vec!["grid", "column", "inline", "list"]);
     // the keywords and unit() are documented too
@@ -92,7 +93,7 @@ fn completes_options_of_calls() {
     // Given ones aren't offered again.
     assert!(!labels("#worksheet($x =$, digits: 2, |)").contains(&"digits".into()));
     assert_eq!(labels("#worksheet($x =$, steps: |)"), vec!["\"full\"", "\"formula\"", "\"result\"", "\"value\""]);
-    assert!(labels("#show: worksheet-config.with(integration: |)").contains(&"\"none\"".into()));
+    assert!(labels("#worksheet(|)").contains(&"evaluate".into()));
     assert!(labels("#defined(style: \"|\")").contains(&"grid".into()));
 }
 
@@ -176,7 +177,7 @@ fn resolves_spelled_greek_names() {
     let items = complete_at(doc, &Context::default()).unwrap().items;
     let item = items.iter().find(|i| i.label == "Δ_R: cm").unwrap();
     assert_eq!(item.insert, "Δ_R");
-    assert_eq!(item.filter.as_deref(), Some("Delta_R"));
+    assert_eq!(item.filter.as_deref(), Some("Del"));
     // The spelled name in code is the math one.
     let doc = "#show: worksheet\n$Delta_R := 5 cm$\n```solveng\nx := Delta_R\ny := Δ_R\n```";
     let at = u16len(&doc[..doc.find("Δ_R\n").unwrap()]);
@@ -201,8 +202,8 @@ fn glues_names_with_empty_strings() {
     let doc = "#show: worksheet\n$Delta\"\"r_R := 5 cm$\n```solveng\nx := Delta\"\"r_R + Δr_R\n```\n$y := Del|$";
     let items = complete_at(doc, &Context::default()).unwrap().items;
     let item = items.iter().find(|i| i.label == "Δr_R: cm").unwrap();
-    assert_eq!(item.insert, "Δ\"\"r_R");
-    assert_eq!(item.filter.as_deref(), Some("Delta\"\"r_R"));
+    assert_eq!(item.insert, "\"Δr\"_R");
+    assert_eq!(item.filter.as_deref(), Some("Del"));
     let doc = doc.replace('|', "");
     assert!(found(&doc).contains(&"Delta\"\"r:6".to_string()), "{:?}", found(&doc));
     let at = u16len(&doc[..doc.find("Δr_R").unwrap()]);
