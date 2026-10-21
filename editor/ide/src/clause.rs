@@ -75,11 +75,16 @@ pub(crate) fn clause_like(tail: &str, arrow: bool, unit: &dyn Fn(&str) -> bool) 
     })
 }
 
-/// A unit as written in a clause: unit words, powers, `/`, `*`, brackets, `unit("…")`; no numbers but exponents.
+/// A unit as written in a clause: unit words, powers, `/`, `*`, brackets, `unit("…")`; no numbers but exponents
+/// and a leading 1. A single letter is a unit only after the 1 (`= 1 h`) or with a unit of more letters (`km/h`):
+/// alone it's a variable, and `t = h` compares.
 fn unit_like(p: &str, unit: &dyn Fn(&str) -> bool) -> bool {
     if p.is_empty() {
         return false;
     }
+    let one = p.strip_prefix('1').filter(|r| r.starts_with(|c: char| c.is_whitespace() || is_letter(c) || "°%‰µΩ[".contains(c)));
+    let p = one.unwrap_or(p);
+    let mut named = one.is_some() || p.contains('[') || p.contains("unit(");
     let mut s = p.to_string();
     while let Some(i) = s.find("unit(") {
         let end = s[i..].find(')').map_or(s.len(), |j| i + j + 1);
@@ -107,6 +112,7 @@ fn unit_like(p: &str, unit: &dyn Fn(&str) -> bool) -> bool {
             if w != "dot" && !crate::is_unit(&w) && !unit(&w) {
                 return false;
             }
+            named |= w != "dot" && w.chars().count() > 1;
             words += 1;
             continue;
         }
@@ -115,7 +121,7 @@ fn unit_like(p: &str, unit: &dyn Fn(&str) -> bool) -> bool {
         }
         i += 1;
     }
-    words > 0 || p.contains("unit(")
+    (words > 0 || p.contains("unit(")) && named
 }
 
 /// `a, f(b, c), d` split at the top level.

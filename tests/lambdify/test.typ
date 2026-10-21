@@ -1,7 +1,7 @@
 // lambdify: expressions as plain functions.
 #import "/tests/util.typ": *
 
-#def("R = 50 Ω")
+#worksheet("R := 50 Ω", hidden: true)
 #context {
   let P = lambdify("U^2/R", "U", unit: "W", units: (U: "V"))
   assert.eq(P(10), 2.0)

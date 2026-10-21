@@ -11,18 +11,8 @@
 ///
 /// With `typst compile --features html --format html`, equations become MathML, `defined` columns that reflow with the width (or a table with `style: "column"`), graphs inline SVGs (via `html.frame`) that shrink with the page, errors styled notes. One small stylesheet is added to the page (math font STIX Two Math / Cambria Math / Latin Modern Math, spacing, table stripes; classes `solveng`, `solveng-defs`, `solveng-list`, `solveng-plot`, `solveng-error`). HTML export is experimental in Typst; in column layout browsers drop the space after a leading `=`.
 
-#import "numeric.typ": *
+#import "config.typ": *
 
-// ---------- display ----------
-#let _name(n) = {
-  let g(b) = if b.match(regex("^(" + _GR + ")$")) != none or b.match(regex("^\\p{L}$")) != none { eval(b, mode: "math") } else if b.clusters().len() == 1 { math.italic(b) } else { math.upright(b) }
-  // a Greek letter glued to more, as math writes Delta""r_R
-  let c = n.clusters()
-  if c.len() > 1 and c.first() in _GRC and c.at(1).match(regex("\\p{L}")) != none { return $#eval(c.first(), mode: "math") #_name(c.slice(1).join())$ }
-  let m = n.match(regex("^(" + _GR + "|\\p{L})(\\d+)$"))
-  let (b, s) = if n.contains("_") { let p = n.split("_"); (p.first(), p.slice(1).join("_")) } else if m != none { m.captures } else { (n, "") }
-  if s == "" { g(b) } else { math.attach(g(b), br: math.upright(s)) }
-}
 // casts and types aren't maths: small filled chips that stand out from it, amber for a cast, blue for a type; the
 // mark (as, :) tinted lighter than the unit, so the two can't be confused
 #let _CHIPS = (
@@ -34,40 +24,6 @@
   if type(ch) == function { return ch(kind, mark, u) }
   let c = _CHIPS.at(kind) + if type(ch) == dictionary { ch.at(kind, default: (:)) } else { (:) }
   box(fill: c.fill, radius: 0.3em, inset: (x: 0.28em, y: 0.16em), baseline: 0.1em, text(size: 0.7em, fill: c.ink, $#text(fill: c.mark, mark) thin #u$))
-}
-// a cast or type after what it's on, as the option (show-casts, show-types) says: none, plain maths or a chip
-#let _mark(kind, u, cf) = {
-  let how = cf.at(if kind == "as" { "show-casts" } else { "show-types" }, default: "chip")
-  let unit = _ushow(u, U: cf.at("#U", default: _U), cf: cf)
-  let mark = if kind == "as" { math.upright(cf.at("words", default: (:)).at("cast", default: "as")) } else { math.class("normal", sym.ratio) }
-  if how == "chip" { h(0.15em) + _chip(if kind == "as" { "cast" } else { "type" }, mark, unit, cf) }
-  else if how == "plain" { $med #mark med #unit$.body }
-}
-#let _dp(e, s, cf) = { // -> (content, precedence)
-  let P(x, p) = { let (c, q) = _dp(x, s, cf); if q < p { $(#c)$ } else { c } }
-  let (k, ..a) = e
-  if k == "tuple" { return (a.map(t => _dp(t, s, cf).at(0)).join($, $), 0) }
-  if k == "cmp" {
-    let op = (("<=", sym.lt.eq), ("≤", sym.lt.eq), (">=", sym.gt.eq), ("≥", sym.gt.eq), ("!=", sym.eq.not), ("≠", sym.eq.not)).find(p => p.at(0) == a.first())
-    return ($#_dp(a.at(1), s, cf).at(0) #math.class("relation", if op == none { a.first() } else { op.at(1) }) #_dp(a.at(2), s, cf).at(0)$, 0)
-  }
-  if k == "n" { (_nc(.._fmt(a.first(), cf + (digits: 6, trailing-zeros: false)), cf), if a.first() < 0 { 2 } else { 9 }) }
-  else if k == "q" { (_qc(a.first(), cf), if a.first().u != "" { 3 } else { 9 }) }
-  else if k == "c" { (if a.first() == "e" { $e$ } else { $pi$ }, 9) }
-  else if k == "as" { if cf.at("show-casts", default: "chip") != "no" { ($#P(a.first(), 5) #_mark("as", a.at(1).u, cf)$, 2) } else { _dp(a.first(), s, cf) } }
-  else if k == "v" { if s != none and a.first() in s { s.at(a.first()) } else { (_name(a.first()), 9) } }
-  // x - 1, also when simplifying left a negative number: x + (−1)
-  else if k == "+" { (a.enumerate().map(((i, t)) => if t.at(0) == "-" { $- #P(t.at(1), 2)$ } else if i > 0 and t.at(0) == "n" and t.at(1) < 0 { $- #P(("n", -t.at(1)), 2)$ } else if i == 0 { P(t, 1) } else { $+ #P(t, 1)$ }).join(), 1) }
-  else if k == "-" { ($-#P(a.first(), 3)$, 2) }
-  else if k == "*" { (a.enumerate().map(((i, t)) => if i > 0 and (s != none or t.at(0) in ("n", "q") or a.at(i - 1).at(0) == "q") { $dot #P(t, 3)$ } else { P(t, 3) }).join(), 3) }
-  else if k == "/" { (math.frac(_dp(a.at(0), s, cf).at(0), _dp(a.at(1), s, cf).at(0)), 4) }
-  else if k == "^" { (math.attach(P(a.at(0), 9), tr: _dp(a.at(1), s, cf).at(0)), 5) }
-  else {
-    let (f, x) = a
-    let c = _dp(x, s, cf).at(0)
-    if f == "sqrt" { (math.sqrt(c), 9) } else if f == "abs" { (math.abs(c), 9) } else if f == "exp" { (math.attach($e$, tr: c), 5) }
-    else if f in _F { ($#math.op(f) (#c)$, 9) } else { ($#_name(f) (#c)$, 9) }
-  }
 }
 
 // HTML: one stylesheet per document (browsers set math fonts on <math> itself, so inline styles can't reach it)

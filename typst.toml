@@ -1,6 +1,6 @@
 [package]
 name = "solveng"
-version = "0.2.0"
+version = "1.0.0"
 entrypoint = "lib.typ"
 authors = ["David Bieregger <@BierDav>"]
 license = "MIT"
@@ -10,4 +10,4 @@ keywords = ["units", "solver", "equations", "engineering", "physics", "calculati
 categories = ["scripting", "visualization", "utility"]
 disciplines = ["engineering", "physics", "education"]
 compiler = "0.14.0"
-exclude = ["tests", "docs", "editor", ".gitignore"]
+exclude = ["tests", "docs", "editor", "core", "plugin", "target", "Cargo.toml", "Cargo.lock", ".gitignore"]

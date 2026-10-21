@@ -363,8 +363,8 @@ fn chains_define_with_their_last_step() {
 #[test]
 fn completes_unquoted_units_with_the_whole_import() {
     let insert = |doc: &str, label: &str| complete_at(doc, &Context::default()).and_then(|c| c.items.into_iter().find(|i| i.label == label)).map(|i| i.insert);
-    let all = "#import \"@preview/solveng:0.2.0\": *\n#show: worksheet\n#worksheet-config(units: (über: auto))\n";
-    let some = "#import \"@preview/solveng:0.2.0\": worksheet\n#show: worksheet\n";
+    let all = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet\n#worksheet-config(units: (über: auto))\n";
+    let some = "#import \"@preview/solveng:1.0.0\": worksheet\n#show: worksheet\n";
     assert_eq!(insert(&format!("{all}$I := 30 |$"), "mA").as_deref(), Some("mA"));
     assert_eq!(insert(&format!("{all}$I := 30 |$"), "über").as_deref(), Some("\"über\""));
     assert_eq!(insert(&format!("{all}$f(x: |) := x$"), "kΩ").as_deref(), Some("kΩ"));

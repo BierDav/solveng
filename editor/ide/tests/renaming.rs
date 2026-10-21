@@ -97,7 +97,7 @@ fn renames_in_each_spelling() {
 
 #[test]
 fn docs_of_the_whole_function_name() {
-    let doc = "#import \"@preview/solveng:0.2.0\": *\n#show: worksheet-config.with(digits: 4)\n#show: worksheet-config\n";
+    let doc = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet-config.with(digits: 4)\n#show: worksheet-config\n";
     for needle in ["worksheet-config.with", "worksheet-config\n"] {
         let h = hover(doc, &Context::default(), u16_at(doc, needle) + 2).unwrap();
         assert!(h.markdown.starts_with("`worksheet-config`"), "{}", h.markdown);

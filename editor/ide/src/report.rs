@@ -8,7 +8,7 @@ use crate::Integration;
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Report {
-    /// How many `worksheet`s (and resets in them) reported; none means solveng didn't run or predates reports.
+    /// How many `worksheet`s (and each `clear-at` match in them) reported; none means solveng didn't run or predates reports.
     pub blocks: usize,
     /// Equations and raw elements a `worksheet` saw.
     pub elements: Vec<ReportElement>,

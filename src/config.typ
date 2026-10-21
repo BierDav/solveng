@@ -1,6 +1,9 @@
 // Options, their checks, and the two states: definitions and options.
 
 #let _st = state("solveng", (:))
+// errors are values (typst can't catch panics): (err: "message"), passed up and shown in the document
+#let _err(m) = (err: m)
+#let _E(x) = type(x) == dictionary and "err" in x
 // the export target; Typst 0.14 only knows target() with --features html, else it is paged
 #let _target() = if "target" in dictionary(std) { std.target() } else { "paged" }
 // ---------- configuration: #worksheet-config(..) globally, #worksheet-config(..)[..] / #show: worksheet-config.with(..) scoped, or per call ----------
@@ -23,12 +26,10 @@
   // how they look: the words for casts and any-unit types (a German text might want als), the chips' colours or a
   // function drawing them, and units: a function given each shown unit, the separator between units
   words: (cast: "as", any: "any"), chips: auto, unit-style: auto, unit-separator: auto,
-  // functions: what takes the body's undefined names besides .., "no", f() ("empty") or every function ("allow")
-  implicit-parameters: "no",
 )
 #let _CH = (
   form: ("auto", "decimal", "fraction", "input"), multiplication: ("dot", "times"), fractions: ("stacked", "slash"), steps: ("full", "formula", "result", "value", auto), inline-steps: ("full", "formula", "result", "value"),
-  layout: ("row", "column"), errors: ("document", "panic"), integration: ("math", "none"), implicit-parameters: ("no", "empty", "allow"),
+  layout: ("row", "column"), errors: ("document", "panic"), integration: ("math", "none"),
   show-casts: ("no", "plain", "chip"), show-types: ("no", "plain", "chip"), defined-style: ("grid", "column", "inline", "list"),
 )
 // allowed types per option
@@ -37,7 +38,7 @@
   multiplication: (str,), form: (str,), max-denominator: (int,), fractions: (str,), prefixes: (str, type(none), array), show-si: (bool,),
   units: (dictionary,), preferred-units: (array, str), strict: (bool,),
   steps: (str, type(auto)), inline-steps: (str,), layout: (str,), implies: (content, symbol, str), approximate: (bool,), block: (bool,),
-  max-solutions: (int,), defined-style: (str,), errors: (str,), integration: (str,), implicit-parameters: (str,), show-casts: (str,), show-types: (str,),
+  max-solutions: (int,), defined-style: (str,), errors: (str,), integration: (str,), show-casts: (str,), show-types: (str,),
   words: (dictionary,), chips: (type(auto), dictionary, function), unit-style: (type(auto), function), unit-separator: (type(auto), content, str, symbol),
 )
 #let _tyname(ts) = ts.map(t => if t == type(none) { "none" } else if t == type(auto) { "auto" } else { str(t) }).join(" or ")

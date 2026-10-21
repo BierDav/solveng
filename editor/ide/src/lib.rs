@@ -62,7 +62,7 @@ impl TokenKind {
     /// A function's parameter, where it's defined and used (`x` in `f(x: A) = 2 x`, what `..` takes), and what a
     /// graph plots against. Editors without it show a variable.
     pub const PARAMETER: u8 = 10;
-    /// The `=` or `->` that shows a result (`$t := Q_0/I = h$`), set bold as Mathcad does. Editors without it show
+    /// The `=` or `->` that shows a result (`$t := Q_0/I = 1 h$`), set bold as Mathcad does. Editors without it show
     /// an operator.
     pub const EVALUATE: u8 = 11;
 }

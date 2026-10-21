@@ -61,7 +61,12 @@ fn math_clause(tail: &str) -> String {
         .filter(|p| !p.is_empty())
         .map(|p| {
             let word: String = p.chars().take_while(|c| is_letter(*c)).collect();
-            if is_keyword(&word) { p.to_string() } else { math_unit(p.trim_start_matches('[').trim_end_matches(']')) }
+            if is_keyword(&word) {
+                return p.to_string();
+            }
+            // a letter alone after = is a variable in math; after a 1 it's the unit
+            let u = math_unit(p.trim_start_matches('[').trim_end_matches(']'));
+            if u.chars().count() == 1 { format!("1 {u}") } else { u }
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -71,7 +76,7 @@ const MATH_FUNCTIONS: &[&str] = &["sqrt", "exp", "ln", "log", "sin", "cos", "tan
 static SPACES: LazyLock<Regex> = LazyLock::new(|| Regex::new(" {2,}").unwrap());
 
 /// A line of solveng code as math: `I := 30 mA` → `I := 30 mA`, `x = A [A]` → `x = A unit("A")`,
-/// `t := Q0/I = [h]` → `t := Q0/I = h`; None for what math can't say the same way.
+/// `t := Q0/I = [h]` → `t := Q0/I = 1 h`; None for what math can't say the same way.
 pub fn to_math(code: &str) -> Option<String> {
     if code.contains('@') || code.contains("//") || code.contains('$') {
         return None;
@@ -159,7 +164,7 @@ fn matching(s: &[char], open: usize) -> Option<usize> {
     None
 }
 
-/// An equation's body as a line of solveng code: `I := 30 mA` → `I := 30 mA`, `t = h, digits(2)` →
+/// An equation's body as a line of solveng code: `I := 30 mA` → `I := 30 mA`, `t = 1 h, digits(2)` →
 /// `t = [h], digits(2)`; None for what isn't a calculation.
 pub fn from_math(math: &str) -> Option<String> {
     // derivations (=>, ⇒) and alignment aren't calculations
@@ -182,6 +187,7 @@ pub fn from_math(math: &str) -> Option<String> {
                 if is_keyword(&word) {
                     p.to_string()
                 } else {
+                    let p = p.strip_prefix('1').filter(|r| r.starts_with(char::is_whitespace)).map_or(p, str::trim_start);
                     let u = p.strip_prefix("unit(").and_then(|r| r.strip_suffix(')')).unwrap_or(p).trim_matches('"');
                     format!("[{}]", u.replace(" dot ", " "))
                 }

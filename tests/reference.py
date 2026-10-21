@@ -12,8 +12,8 @@ import os, re, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "docs", "reference.md")
 # public functions in the order they are documented; worksheet-config comes with the option tables
-FUNCTIONS = ["worksheet", "unit", "solve", "simplify", "digits", "sci", "eng", "defined", "graph", "lambdify", "reset", "worksheet-config"]
-CHAPTERS = ["src/numbers.typ", "src/read.typ", "src/display.typ", "src/numeric.typ", "tests/util.typ"]
+FUNCTIONS = ["worksheet", "unit", "solve", "simplify", "digits", "sci", "eng", "defined", "graph", "lambdify", "clear", "worksheet-config"]
+CHAPTERS = ["src/engine.typ", "src/display.typ", "tests/util.typ"]
 PARAM = re.compile(r"^- ((?:\.\.)?[a-z][\w-]*(?:, [a-z][\w-]*)*(?:, …)?) \(([^)]*)\): (.*)$")
 
 
@@ -61,6 +61,8 @@ def signature(text, start):
 def functions():
     found = {}
     for f in sorted(os.listdir(os.path.join(ROOT, "src"))):
+        if not f.endswith(".typ"):
+            continue
         text = read("src/" + f)
         lines = text.split("\n")
         for n, line in enumerate(lines):

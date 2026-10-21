@@ -48,7 +48,7 @@ fn answers_over_stdio() {
     let init = wait(&mut stdout, |m| m["id"] == 1);
     assert!(init["result"]["capabilities"]["semanticTokensProvider"]["full"].as_bool().unwrap());
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}));
-    let text = "#import \"@preview/solveng:0.2.0\": *\n#worksheet(\"I := 30 m\")\n#lambdify(\"x\", \"x\", unit: \"furlong\")\n";
+    let text = "#import \"@preview/solveng:1.0.0\": *\n#worksheet(\"I := 30 m\")\n#lambdify(\"x\", \"x\", unit: \"furlong\")\n";
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file:///tmp/solveng-smoke.typ", "languageId": "typst", "version": 1, "text": text}}}));
     let diagnostics = wait(&mut stdout, |m| m["method"] == "textDocument/publishDiagnostics");
     assert_eq!(diagnostics["params"]["diagnostics"][0]["range"]["start"], json!({"line": 2, "character": 27}));

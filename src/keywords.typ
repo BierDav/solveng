@@ -9,7 +9,7 @@
 #let solve(..names) = _key("solve", ..names.pos())
 /// The symbolic result, what `->` shows anyway: `$f := (x^2 - 1)/(x - 1) -> simplify$`.
 #let simplify = _key("simplify")
-/// Decimals with n significant digits: `$t = h, digits(2)$`.
+/// Decimals with n significant digits: `$t = 1 h, digits(2)$`.
 ///
 /// - n (int, content): The digits, 1…15.
 /// -> content

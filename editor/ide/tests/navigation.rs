@@ -103,18 +103,24 @@ fn keeps_worksheets_apart() {
 }
 
 #[test]
-fn resets_split_scopes() {
+fn clearing_splits_scopes() {
     let c = Context::new("");
-    let doc = "#show: worksheet.with(reset: heading)\n= One\n$x := 1$ $a := x$\n= Two\n$b := x$\n";
+    let doc = "#show: worksheet.with(clear-at: heading)\n= One\n$x := 1$ $a := x$\n= Two\n$b := x$\n";
     assert_eq!(definition(doc, &c, nth(doc, "x", 2)), None);
     assert_eq!(used(doc, &c, nth(doc, "x", 0)).len(), 2);
     // Only headings of the level.
-    let doc = "#show: worksheet.with(reset: heading.where(level: 1))\n= One\n$x := 1$\n== Sub\n$a := x$\n= Two\n$b := x$\n";
+    let doc = "#show: worksheet.with(clear-at: heading.where(level: 1))\n= One\n$x := 1$\n== Sub\n$a := x$\n= Two\n$b := x$\n";
     assert_eq!(definition(doc, &c, nth(doc, "x", 1)).unwrap().start, nth(doc, "x", 0));
     assert_eq!(definition(doc, &c, nth(doc, "x", 2)), None);
-    // `#reset` starts over once.
-    let doc = "#show: worksheet\n$x := 1$\n#reset\n$b := x$\n";
+    // `#clear(all: true)` starts over once, `#clear(…)` forgets the names given.
+    let doc = "#show: worksheet\n$x := 1$\n#clear(all: true)\n$b := x$\n";
     assert_eq!(definition(doc, &c, nth(doc, "x", 1)), None);
+    let doc = "#show: worksheet\n$x := 1$ $y := 2$ $f(t) := t$\n#clear(\"x\", $f$)\n$b := x + y + f(1)$\n";
+    assert_eq!(definition(doc, &c, nth(doc, "x", 2)), None);
+    assert_eq!(definition(doc, &c, nth(doc, "y", 1)).unwrap().start, nth(doc, "y", 0));
+    assert_eq!(definition(doc, &c, nth(doc, "f", 2)), None);
+    // the name in the call is a use of what it forgets
+    assert_eq!(definition(doc, &c, nth(doc, "x", 1)).unwrap().start, nth(doc, "x", 0));
 }
 
 #[test]
@@ -143,6 +149,11 @@ fn inherits_only_when_asked() {
     assert_eq!(definition(doc, &c, nth(doc, "x", 1)).unwrap().start, nth(doc, "x", 0));
     assert_eq!(definition(doc, &c, nth(doc, "x", 2)), None);
     // After a worksheet the outer definitions come back.
+    assert_eq!(definition(doc, &c, nth(doc, "x", 4)).unwrap().start, nth(doc, "x", 0));
+    // Equations inherit, unless `inherit: false`; what they define then is dropped afterwards.
+    let doc = "#show: worksheet\n$x := 1$\n#worksheet($a := x$)\n#worksheet($x := 9$, $b := x$, inherit: false)\n$c := x$\n";
+    assert_eq!(definition(doc, &c, nth(doc, "x", 1)).unwrap().start, nth(doc, "x", 0));
+    assert_eq!(definition(doc, &c, nth(doc, "x", 3)).unwrap().start, nth(doc, "x", 2));
     assert_eq!(definition(doc, &c, nth(doc, "x", 4)).unwrap().start, nth(doc, "x", 0));
 }
 

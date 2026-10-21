@@ -5,7 +5,7 @@
 
 // A worksheet: math and a code block
 #worksheet[
-  The battery holds $Q_0 := 3450 mAh$ and the load draws $I := 30 mA$, so it lasts $t := Q_0 / I = h$.
+  The battery holds $Q_0 := 3450 mAh$ and the load draws $I := 30 mA$, so it lasts $t := Q_0 / I = 1 h$.
   ```solveng
   t_half := Q_0 / (2 I) = [h]     // half the charge
   P(U) := U I
@@ -18,10 +18,10 @@
 #worksheet[
   $Q_0 := 3450 mAh$, $I := 30 mA$, $U := 5 V$
   #defined()
-  $Q_0/2 = I t -> solve(t)$ and $t = h$
+  $Q_0/2 = I t -> solve(t)$ and $t = 1 h$
   $R <= U/I -> solve(R)$
   $x^2 + 2x - 3 = 0 -> solve(x)$
-  Runtime: $Q_0/I = h$
+  Runtime: $Q_0/I = 1 h$
 ]
 
 // Units and variables

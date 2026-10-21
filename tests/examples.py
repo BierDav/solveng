@@ -7,7 +7,7 @@ import os, re, subprocess, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TYPST = os.environ.get("TYPST", "typst")
-IMPORT = '#import "@preview/solveng:0.2.0": *'
+IMPORT = '#import "@preview/solveng:1.0.0": *'
 
 def examples(path):
     text = open(os.path.join(ROOT, path)).read()

@@ -74,6 +74,7 @@ fn role(function: &str, param: Option<&str>, index: usize) -> Option<Role> {
             "worksheet" | "graph" => Some(Role::Code),
             "unit" => Some(Role::Unit),
             "lambdify" => Some(if index == 0 { Role::Code } else { Role::Name }),
+            "clear" => Some(Role::Name),
             _ => None,
         };
     };

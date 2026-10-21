@@ -10,11 +10,10 @@
   DeltaT := 4 K
   ```
   $x := 2 Delta_T$
-  #def("f(alpha) = 2 alpha")
-  #solves("k = f(3)")
+  #def("f(alpha) := 2 alpha", "k := f(3)")
   #expect("Δ_R", 0.05) #expect("Δ_T", 3) #expect("α2", 2) #expect("DeltaT", 4) #expect("x", 6) #expect("k", 6)
   $Delta_x := 2 Delta_T$
-  #solves("q = @Delta_x")
+  #def("q := @Delta_x")
   #expect("q", 6)
 ]
 
@@ -26,7 +25,7 @@
   a := Delta""r_R * 2
   b := ΔΓΩ + Δr_R
   ```
-  #solves("c = Delta\"\"Gamma\"\"Omega")
+  #def("c := Delta\"\"Gamma\"\"Omega")
   #expect("Δr_R", 0.05) #expect("ΔΓΩ", 2) #expect("a", 0.1) #expect("c", 2)
   #context assert(calc.abs(lambdify("Delta\"\"r_R * k", "k")(2) - 0.1) < 1e-12)
 ]

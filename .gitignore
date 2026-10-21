@@ -7,3 +7,4 @@ tests/scratch/
 tests/**/out/
 tests/**/diff/
 !docs/*.png
+target/

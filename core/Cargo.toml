@@ -1,0 +1,11 @@
+[package]
+name = "solveng-core"
+description = "The calculation engine of solveng: units, a symbolic and numeric solver, and Typst markup of the results"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+indexmap = { version = "2", features = ["serde"] }

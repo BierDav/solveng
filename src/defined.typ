@@ -37,8 +37,6 @@
   let lc = _check(_given((defined-style: style, digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions, prefixes: prefixes, show-si: show-si, preferred-units: preferred-units, strict: strict, steps: steps, inline-steps: inline-steps, layout: layout, implies: implies, approximate: approximate, block: block, max-solutions: max-solutions, errors: errors)))
   if _E(lc) { return _errc(lc.err, _cf.get(), wide: true) }
   let cf0 = _cf.get() + lc
-  let st = _st.get()
-  let fns = st.at("#fn", default: (:))
   let ok(p) = p == none or type(p) in (str, regex, function) or (type(p) == array and p.all(ok))
   if not ok(included) or not ok(excluded) { return _errc("included/excluded: use \"all\", a kind, names, a regex or a function", cf0, wide: true) }
   let hit(e, p) = if p == none { false }
@@ -46,21 +44,9 @@
     else if type(p) == array { p.any(x => hit(e, x)) }
     else if type(p) == regex { e.name.match(p) != none }
     else { p(e.name) }
-  let es = st.at("!", default: ()).filter(e => e.listed and hit(e, included) and not hit(e, excluded) and (e.name in st or e.name in fns))
+  let es = _rows(_st.get(), cf0).filter(e => e.listed and hit(e, included) and not hit(e, excluded))
   if es.len() == 0 { return }
-  let rows = es.map(e => {
-    let cf = cf0 + e.cf
-    if e.kind == "function" {
-      let fn = fns.at(e.name)
-      ($#_name(e.name) (#fn.params.map(_name).join($, $))$, (_dp(fn.body, none, cf).at(0),), $=$)
-    } else {
-      let q = st.at(e.name)
-      let U = _UT(cf)
-      let si = _auto(q.d, U: U)
-      let sv = (raw: none, u: si, n: q.v / _factor(si, U: U))
-      (_name(e.name), if cf.show-si and q.u != si and _ushow(q.u, U: U) != _ushow(si, U: U) { (_qc(q, cf), _qc(sv, cf)) } else { (_qc(q, cf),) }, _relc(q, $=$))
-    }
-  })
+  let rows = es.map(e => ($#_m(e.lhs, cf0)$, e.values.map(v => _m(v, cf0)), if e.rel == "=" { $=$ } else { _m(e.rel, cf0) }))
   let style = cf0.defined-style
   let eqs = rows.map(((nm, vs, r0)) => (nm, vs.enumerate().map(((i, v)) => if i == 0 { $#r0 #v$ } else { $= #v$ }).join()))
   if style == "list" { std.list(..eqs.map(((nm, v)) => $#nm #v$)) }

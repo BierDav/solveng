@@ -185,16 +185,20 @@ fn completes_in_math() {
 
 #[test]
 fn colors_math_like_code() {
-    let doc = "#show: worksheet\n$I := 30 mA dot R_\"load\" + sqrt(x) = A$";
+    let doc = "#show: worksheet\n$I := 30 mA dot R_\"load\" + sqrt(x) = 1 A$";
     let found: Vec<String> = math_tokens(doc, &ctx("")).iter().map(|x| format!("{}:{}", slice(doc, x.start, x.length), x.kind)).collect();
     assert_eq!(
         found,
         vec![
             t("I", TokenKind::VARIABLE), t(":=", TokenKind::OPERATOR), t("30", TokenKind::NUMBER), t("mA", TokenKind::UNIT),
             t("dot", TokenKind::OPERATOR), t("R", TokenKind::VARIABLE), t("\"load\"", TokenKind::VARIABLE), t("sqrt", TokenKind::FUNCTION),
-            t("x", TokenKind::VARIABLE), t("=", TokenKind::EVALUATE), t("A", TokenKind::UNIT),
+            t("x", TokenKind::VARIABLE), t("=", TokenKind::EVALUATE), t("1", TokenKind::NUMBER), t("A", TokenKind::UNIT),
         ]
     );
+    // a letter alone after = is a variable: t = A compares
+    let doc = "#show: worksheet\n$t = A$";
+    let found: Vec<String> = math_tokens(doc, &ctx("")).iter().map(|x| format!("{}:{}", slice(doc, x.start, x.length), x.kind)).collect();
+    assert_eq!(found, vec![t("t", TokenKind::VARIABLE), t("=", TokenKind::OPERATOR), t("A", TokenKind::VARIABLE)]);
     // solveng's names of units are units anywhere in math, unit("…") too
     let doc = "#show: worksheet\n$x := U \"as\" kΩ + unit(\"bar\")$";
     let found: Vec<String> = math_tokens(doc, &ctx("")).iter().map(|x| format!("{}:{}", slice(doc, x.start, x.length), x.kind)).collect();
@@ -243,13 +247,13 @@ fn convert(doc: &str) -> Vec<String> {
         .collect()
 }
 
-const WS: &str = "#import \"@preview/solveng:0.2.0\": *\n#show: worksheet\n";
+const WS: &str = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet\n";
 
 #[test]
 fn converts_math_to_code_and_back() {
     let i = WS;
     assert_eq!(convert(&format!("{i}$R := |7.2 kΩ$")), vec![format!("{i}```solveng\nR := 7.2 kΩ\n```")]);
-    assert_eq!(convert(&format!("{i}$t := Q_0/I = h, digits(2)|$")), vec![format!("{i}```solveng\nt := Q_0/I = [h], digits(2)\n```")]);
+    assert_eq!(convert(&format!("{i}$t := Q_0/I = 1 h, digits(2)|$")), vec![format!("{i}```solveng\nt := Q_0/I = [h], digits(2)\n```")]);
     assert_eq!(convert(&format!("{i}$I := frac(3450 mAh, 30 h) dot 2|$")), vec![format!("{i}```solveng\nI := (3450 mAh)/(30 h) * 2\n```")]);
     assert_eq!(convert(&format!("{i}$x| := A unit(\"A\")$")), vec![format!("{i}```solveng\nx := A [A]\n```")]);
     assert_eq!(convert(&format!("{i}$x + y = 3, x - y = 1 -> solve(x, y)|$")), vec![format!("{i}```solveng\nx + y = 3; x - y = 1 -> solve(x, y)\n```")]);
@@ -264,7 +268,7 @@ fn converts_math_to_code_and_back() {
 #[test]
 fn reads_the_files_around() {
     assert_eq!(
-        references("#import \"defaults.typ\": *\n#import \"@preview/solveng:0.2.0\": *\n#include \"ch/1.typ\""),
+        references("#import \"defaults.typ\": *\n#import \"@preview/solveng:1.0.0\": *\n#include \"ch/1.typ\""),
         vec!["defaults.typ", "ch/1.typ"]
     );
     // A chapter of a main file that sets everything up.

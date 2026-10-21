@@ -9,7 +9,7 @@
 //   ```
 
 #import "src/api.typ": worksheet
-#import "src/core.typ": reset, worksheet-config
+#import "src/core.typ": clear, worksheet-config
 #import "src/keywords.typ": solve, simplify, digits, sci, eng
 #import "src/defined.typ": defined
 #import "src/graph.typ": graph

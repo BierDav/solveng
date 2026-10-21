@@ -129,9 +129,11 @@ fn names(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Eleme
             Role::Name => {
                 let text = doc.sub(t.start, t.end);
                 let lead = text.chars().take_while(|ch| ch.is_whitespace()).count();
-                let key = crate::resolved_name(text.trim());
+                // a function by its name: clear("f()")
+                let name = text.split('(').next().unwrap_or("").trim();
+                let key = crate::resolved_name(name);
                 if !key.is_empty() {
-                    out.push(Name { start: t.start + lead, end: t.start + lead + text.trim().chars().count(), key });
+                    out.push(Name { start: t.start + lead, end: t.start + lead + name.chars().count(), key });
                 }
             }
             _ => {}
@@ -310,7 +312,7 @@ fn location(files: &[File], o: &Occurrence) -> Location {
 /// Where the solveng name at `offset` is defined, as the compile sees it: the latest definition before it that's
 /// visible there, reading the document in compile order from the main file (see [`Context::with_main`]), where
 /// `#include` inlines a file, a `worksheet` starts empty (or with the outer definitions with `inherit: true`)
-/// and its definitions end with it, and `reset` starts over. On a definition, that definition. The range covers
+/// and its definitions end with it, and `clear` forgets. On a definition, that definition. The range covers
 /// just the name. On one of the document's own units (`ü` of `units: (ü: auto)`), its key in `units: (…)`.
 pub fn definition(document: &str, context: &Context, offset: u32) -> Option<Location> {
     let a = Analysis::new(document, context);
@@ -320,7 +322,7 @@ pub fn definition(document: &str, context: &Context, offset: u32) -> Option<Loca
 }
 
 /// The usages of the definition the solveng name at `offset` means (see [`definition`]), the definition included:
-/// the names after it while it's visible, up to a redefinition, a reset or the end of its block, in the document
+/// the names after it while it's visible, up to a redefinition, a `clear` or the end of its block, in the document
 /// and in the files it includes or is included from. Units spelled like it (`5 V` next to a variable `V`) don't count.
 /// On one of the document's own units, its keys and every use, prefixed ones (`mü`) and other units' values included.
 pub fn usages(document: &str, context: &Context, offset: u32) -> Vec<Location> {

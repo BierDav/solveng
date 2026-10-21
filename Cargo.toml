@@ -1,0 +1,18 @@
+[workspace]
+resolver = "3"
+members = ["core", "plugin", "editor/ide", "editor/lsp"]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/BierDav/solveng"
+
+# the Typst plugin: cargo build -p solveng-plugin --profile wasm --target wasm32-unknown-unknown
+[profile.wasm]
+inherits = "release"
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

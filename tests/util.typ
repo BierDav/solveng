@@ -1,39 +1,46 @@
-// Helpers for the tests: read what def/solve stored and check it.
+// Helpers for the tests: read what the worksheet defined and check it.
 /// ## Testing
 ///
-/// The tests use [tytanic](https://github.com/typst-community/tytanic) (`cargo install tytanic`); the scripts need Python 3 and `typst` on the `PATH`:
+/// The engine is tested in Rust, the package with [tytanic](https://github.com/typst-community/tytanic) (`cargo install tytanic`); the scripts need Python 3 and `typst` on the `PATH`:
 ///
 /// ```sh
-/// tt run                                        # units, solving, lambdify and the README examples (reference images)
+/// cargo test                                    # the engine: units, parsing, algebra, solving, worksheets, graphs, random inputs
+/// plugin/build.sh                               # src/solveng.wasm from the engine (rustup target add wasm32-unknown-unknown; wasm-opt if installed)
+/// tt run                                        # units, solving, names, lambdify and the README examples (reference images)
 /// tt update readme                              # accept changed output of the README examples
 /// python3 tests/examples.py                     # every example in README.md and docs/reference.md compiles on its own
 /// python3 tests/reference.py                    # docs/reference.md from the doc comments in src/ (--check: is it up to date?)
-/// python3 tests/fuzz.py                         # random inputs checked against Python, every category, 300 cases each
-/// python3 tests/fuzz.py -n 2000 -c solve1 --seed 7 --save /tmp/fails
 /// ```
 ///
-/// Fuzzer categories: `parse` (quantities and math content), `solve1` (random nonlinear equations), `poly`, `system`, `units` (physics formulas with random prefixes), `edge` (hostile inputs must be refused or solved right), `edge-doc` (the same inputs must never stop the compilation), `format`, `ratio`, `display` (random options must never crash). `--typst …` (fuzzer) and `TYPST=…` (examples) pick another compiler, e.g. the oldest supported version.
+/// `cargo test` includes a fuzzer (`core/tests/fuzz.rs`): random nonlinear equations, polynomials, systems, physics formulas with random prefixes and random numbers to format, checked against direct calculation (`FUZZ_N=5000 cargo test --release fuzz` for more cases). `TYPST=…` picks another compiler for the examples, e.g. the oldest supported version.
 
 #import "/lib.typ": *
-// the string API behind code lines; solves, since solve is the keyword
-#import "/src/api.typ": def, solve as solves
-#import "/src/lambdify.typ": _st, _math-src, _DEF, _U
+#import "/src/api.typ": _rows, _st, _cf, _line
 
-// the value of x is v (in SI), optionally stored with unit u
+// definitions as code lines, silently
+#let def(..eqs) = eqs.pos().map(l => _line(l, true, quiet: true)).join()
+// the value of x is v (in SI), optionally shown in unit u
 #let expect(x, v, u: none) = context {
-  let q = _st.get().at(x, default: none)
-  assert(q != none, message: x + " is not defined")
-  assert(calc.abs(q.v - v) <= 1e-9 * calc.abs(v) + 1e-300, message: x + " = " + repr(q.v) + ", want " + repr(v))
-  if u != none { assert.eq(q.u, u, message: x + " has unit " + repr(q.u) + ", want " + repr(u)) }
+  let r = _rows(_st.get(), _cf.get()).find(r => r.name == x)
+  assert(r != none and r.si != none, message: x + " is not defined")
+  assert(calc.abs(r.si - v) <= 1e-9 * calc.abs(v) + 1e-300, message: x + " = " + repr(r.si) + ", want " + repr(v))
+  if u != none { assert.eq(r.unit, u, message: x + " has unit " + repr(r.unit) + ", want " + repr(u)) }
 }
-// the last def/solve reported a problem containing msg
+// x isn't defined
+#let undefined(x) = context assert(_rows(_st.get(), _cf.get()).all(r => r.name != x), message: x + " is defined")
+// the last line reported a problem containing msg
 #let fails(msg) = context {
-  let e = _st.get().at("..").find(r => r.k == "error")
-  assert(e != none, message: "expected an error containing '" + msg + "'")
-  assert(e.err.contains(msg), message: "error '" + e.err + "' doesn't contain '" + msg + "'")
+  let e = _st.get().at("last", default: (errors: ())).errors
+  assert(e.len() > 0, message: "expected an error containing '" + msg + "'")
+  assert(e.any(m => m.contains(msg)), message: "errors " + repr(e) + " don't contain '" + msg + "'")
 }
-// the last def/solve went through without problems
+// the last line went through without problems
 #let passes() = context {
-  let e = _st.get().at("..").find(r => r.k == "error")
-  assert(e == none, message: "unexpected error: " + if e != none { e.err })
+  let e = _st.get().at("last", default: (errors: ())).errors
+  assert(e.len() == 0, message: "unexpected errors: " + repr(e))
+}
+// what the last line showed as its result (markup)
+#let result(want) = context {
+  let r = _st.get().at("last").result
+  assert.eq(r, want, message: "result " + repr(r) + ", want " + repr(want))
 }

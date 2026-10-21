@@ -1,5 +1,5 @@
 //! Which definition a name means, as the compile sees it: the document flattened in compile order from the main
-//! file (`#include` inlines a file), `worksheet` scopes, `inherit`, resets and redefinitions.
+//! file (`#include` inlines a file), `worksheet` scopes, `inherit`, `clear-at`, `clear` and redefinitions.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -14,11 +14,13 @@ use crate::text::Doc;
 /// Structure of a file that decides what's visible, at character positions.
 #[derive(Clone, Debug)]
 enum Mark {
-    /// A `worksheet` starts; `reset` is `heading` (None) or `heading.where(level: n)`.
-    Start { inherit: bool, reset: Option<Option<usize>> },
+    /// A `worksheet` starts; `clear_at` is `heading` (None) or `heading.where(level: n)`.
+    Start { inherit: bool, clear_at: Option<Option<usize>> },
     End,
-    /// `#reset`.
+    /// `#clear(all: true)`.
     Reset,
+    /// `#clear("x", $f$)`: the keys it forgets.
+    Clear(Vec<String>),
     /// A heading of this level.
     Heading(usize),
     /// `#include "path"`, as written.
@@ -27,21 +29,43 @@ enum Mark {
 
 static LEVEL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^heading\s*\.\s*where\s*\(\s*level\s*:\s*(\d+)\s*\)$").unwrap());
 
-/// `inherit` and `reset` of a `worksheet` call's arguments.
+/// The named arguments of a call's arguments: name, value as written.
+fn named_args(args: &LinkedNode) -> impl Iterator<Item = (String, String)> {
+    args.children().filter(|c| c.kind() == SyntaxKind::Named).filter_map(|named| {
+        let mut parts = named.children().filter(|c| !c.kind().is_trivia() && c.kind() != SyntaxKind::Colon);
+        let (Some(name), Some(value)) = (parts.next(), parts.next()) else { return None };
+        Some((name.get().leaf_text().to_string(), value.get().clone().full_text().trim().to_string()))
+    })
+}
+
+/// The value of the named argument `name`, as written.
+fn named(args: &LinkedNode, name: &str) -> Option<String> {
+    named_args(args).find(|(n, _)| n == name).map(|(_, v)| v)
+}
+
+/// `inherit` and `clear-at` of a `worksheet` call's arguments, for its content (`inherit: auto` means no there).
 fn options(args: Option<LinkedNode>) -> (bool, Option<Option<usize>>) {
     let (mut inherit, mut reset) = (false, None);
-    for named in args.iter().flat_map(|a| a.children()).filter(|c| c.kind() == SyntaxKind::Named) {
-        let mut parts = named.children().filter(|c| !c.kind().is_trivia() && c.kind() != SyntaxKind::Colon);
-        let (Some(name), Some(value)) = (parts.next(), parts.next()) else { continue };
-        let value = value.get().clone().full_text().trim().to_string();
-        match name.get().leaf_text().as_str() {
+    for (name, value) in args.iter().flat_map(named_args) {
+        match name.as_str() {
             "inherit" => inherit = value == "true",
-            "reset" if value == "heading" => reset = Some(None),
-            "reset" => reset = LEVEL.captures(&value).and_then(|m| m[1].parse().ok()).map(Some),
+            "clear-at" if value == "heading" => reset = Some(None),
+            "clear-at" => reset = LEVEL.captures(&value).and_then(|m| m[1].parse().ok()).map(Some),
             _ => {}
         }
     }
     (inherit, reset)
+}
+
+/// The key of a name `clear` takes: `"x"`, `"f()"`, `$Q_0$`; None for other arguments.
+fn clear_key(arg: &LinkedNode) -> Option<String> {
+    let text = match arg.kind() {
+        SyntaxKind::Str => arg.get().clone().full_text().trim_matches('"').to_string(),
+        SyntaxKind::Equation => arg.get().clone().full_text().trim_matches('$').to_string(),
+        _ => return None,
+    };
+    let name = text.split('(').next().unwrap_or("").trim().trim_matches('"');
+    (!name.is_empty()).then(|| crate::conceal::resolved_name(name))
 }
 
 struct Reader<'a> {
@@ -64,18 +88,29 @@ impl Reader<'_> {
                         let body = args.as_ref().and_then(|a| a.children().find(|c| c.kind() == SyntaxKind::ContentBlock));
                         if let Some(body) = body {
                             let (inherit, reset) = options(args);
-                            self.out.push((self.at(body.offset() + 1), Mark::Start { inherit, reset }));
+                            self.out.push((self.at(body.offset() + 1), Mark::Start { inherit, clear_at: reset }));
                             self.out.push((self.at(body.offset() + body.len()).saturating_sub(1), Mark::End));
+                        } else if let Some(args) = args.as_ref().filter(|a| named(a, "inherit").as_deref() == Some("false")) {
+                            // Equations see the definitions around them, unless `inherit: false`: then they're on their own.
+                            self.out.push((self.at(args.offset()), Mark::Start { inherit: false, clear_at: None }));
+                            self.out.push((self.at(args.offset() + args.len()), Mark::End));
                         }
                     }
-                    Some("reset") => self.out.push((self.at(node.offset()), Mark::Reset)),
+                    Some("clear") => {
+                        let Some(args) = args else { return };
+                        // after the call, so the names in it still mean what they forget
+                        let at = self.at(node.offset() + node.len());
+                        if named(&args, "all").as_deref() == Some("true") {
+                            self.out.push((at, Mark::Reset));
+                        } else {
+                            let keys = args.children().filter_map(|a| clear_key(&a)).collect();
+                            self.out.push((at, Mark::Clear(keys)));
+                        }
+                    }
                     _ => {}
                 }
             }
             SyntaxKind::ShowRule => self.show(node),
-            SyntaxKind::Ident if node.get().leaf_text() == "reset" && node.parent_kind() == Some(SyntaxKind::Markup) => {
-                self.out.push((self.at(node.offset()), Mark::Reset));
-            }
             SyntaxKind::Heading => {
                 let level = node.children().find(|c| c.kind() == SyntaxKind::HeadingMarker).map_or(1, |m| m.len());
                 self.out.push((self.at(node.offset()), Mark::Heading(level)));
@@ -112,7 +147,7 @@ impl Reader<'_> {
         let (inherit, reset) = options(args);
         // The markup around it; in a content block that ends before its `]`.
         let end = node.parent().map_or(self.doc.s.len(), |p| p.offset() + p.len());
-        self.out.push((self.at(node.offset() + node.len()), Mark::Start { inherit, reset }));
+        self.out.push((self.at(node.offset() + node.len()), Mark::Start { inherit, clear_at: reset }));
         self.out.push((self.at(end), Mark::End));
     }
 }
@@ -242,7 +277,7 @@ impl Run<'_, '_> {
         let file = &self.files[index];
         for (_, _, event) in events {
             match event {
-                Event::Mark(Mark::Start { inherit, reset }) => {
+                Event::Mark(Mark::Start { inherit, clear_at: reset }) => {
                     let start = if inherit { self.visible.clone() } else { HashMap::new() };
                     let outer = std::mem::replace(&mut self.visible, start.clone());
                     self.stack.push(Frame { outer, start, reset });
@@ -253,6 +288,11 @@ impl Run<'_, '_> {
                     }
                 }
                 Event::Mark(Mark::Reset) => self.restart(),
+                Event::Mark(Mark::Clear(keys)) => {
+                    for key in keys {
+                        self.visible.remove(&key);
+                    }
+                }
                 Event::Mark(Mark::Heading(level)) => {
                     if self.stack.iter().any(|f| f.reset.is_some_and(|r| r.is_none_or(|l| l == level))) {
                         self.restart();
