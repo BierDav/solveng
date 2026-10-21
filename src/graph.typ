@@ -10,7 +10,7 @@
 /// the parameter's unit for the x axis, or `"P(..) = U^2/R"`, where `..` takes the one variable
 /// that isn't defined (with its unit from the range or the marks). Like every function, a curve
 /// may use only its parameters and defined variables. With `:=` the curve also defines what it names, as the same equation in a worksheet does: `#graph($y := X(x)$)` plots y over x and defines y as X(x), with x left free; `#graph($y := 2 y$)` plots and defines twice that; `#graph($y(t) := X(t)$)` defines the function y. All curves share x. Where two cross is marked:
-/// `#graph("cos(w) \\ w")` shows the solution of cos(w) = w. `xrange:` / `yrange:` list values that must be visible;
+/// `#graph("cos(w) \\ w", mark: auto)` shows the solution of cos(w) = w. `xrange:` / `yrange:` list values that must be visible;
 /// without them the x range is picked around the marks, else around the interesting part
 /// (roots, extrema, poles, intersections). Marked values are always visible too.
 ///
@@ -18,7 +18,7 @@
 /// #worksheet("R := 50 Ω", "P0 := 2 W", "U0 := 10 V", hidden: true)
 /// #graph("P(U: V) = U^2/R", ymark: "P0")                    // where P reaches P0
 /// #graph("P(..) = U0^2/R_L", xrange: ("10 Ω", "1 kΩ"))       // R_L, in Ω from the range
-/// #graph("cos(w) \\ w")                                      // range picked, crossing marked
+/// #graph("cos(w) \\ w", mark: auto)                          // range picked, crossing marked
 /// #graph("y(x) = x^2 \\ y(x) = 2x + 3", xrange: (-3, 5))     // several curves
 /// #graph("P(R_L: Ω) = U0^2/R_L", xrange: (0, "2 R"), mark: ("R", "extrema"))
 /// ```
@@ -27,7 +27,7 @@
 ///
 /// **Ranges:** values and expressions in `xrange` / `yrange` must have the axis unit (`$f(20) Omega$` and `"f(20) Ω"` are fine) – `xrange: ("10 Ω", "f(20)")` with a unitless `f(20)` is an error, since it isn't clear what was meant. Without a range: around the marks; else around what's interesting – roots, extrema, poles, edges of the domain (√, ln) and, above all, where curves cross – rounded to nice ticks, starting at 0 when everything interesting is positive. With `ymark`, the y range is around the marked values (steep curves leave the picture). **Units** follow from what's plotted: y's from the curves (shown in the SI unit with a fitting prefix; `preferred-units` picks others), x's from the curve's parameter (`U(I: mA) = …`) or a function x is passed to whose parameter has one (`$q(I: mA) := I R$`, then `#graph("U(I) = q(I)")` is over I in mA), else from the units in `xrange` and the marks, else from the curve and the units of the y values (`P(..) = U0^2/R2` with `ymark: "2 W"`: R₂ in Ω).
 ///
-/// **Marks** are always visible – the ranges grow to show them. Combine them in an array, `(auto, "R1")`; `mark: ()` marks nothing.
+/// **Marks** default to none. Requested marks are always visible – the ranges grow to show them. Combine them in an array, `(auto, "R1")`.
 ///
 /// **Size:** `width` / `height` are the whole graph, labels included; `auto` makes the plot area 8 × 5 cm. Any other named argument goes straight to simple-plot's `plot` (e.g. `show-grid: false`), other positional ones (series from simple-plot) are added as they are. For full control, plot with simple-plot directly.
 ///
@@ -35,7 +35,7 @@
 /// - ..args (any): Named options passed on to simple-plot's `plot` (e.g. `show-grid: false`).
 /// - xrange (auto, array, str, content, int, float): x values that must be visible: numbers in the x axis's unit (`(1, 2)`), values (`("10 Ω", "1 kΩ")`) or expressions of defined variables (`(0, "2 R")`, math works too). Two or more give the range from the smallest to the largest; a single one widens the picked range. `auto`: around the marked x values, else picked from the curves.
 /// - yrange (auto, array, str, content, int, float): y values that must be visible, like `xrange` (numbers in the y axis's SI unit). Two or more give the exact y range. `auto`: fitted to the curves.
-/// - mark (auto, none, array, str, content, int, float): What to mark, with both coordinates written on the axes: x values like `xrange` (`"R"`, `2`, `"5 V"`; a point with guide lines on every curve, the range grows to show it), `"crossings"`, `"roots"`, `"extrema"` (searched within the range) and `auto`: where two curves cross. An array combines them: `(auto, "R1")`. `()` or `none`: no marks.
+/// - mark (none, auto, array, str, content, int, float): What to mark, with both coordinates written on the axes: x values like `xrange` (`"R"`, `2`, `"5 V"`; a point with guide lines on every curve, the range grows to show it), `"crossings"`, `"roots"`, `"extrema"` (searched within the range) and `auto`: where two curves cross. An array combines them: `(auto, "R1")`. `()` or `none` (default): no marks.
 /// - xmark (none, array, str, content, int, float): Like `mark`, but only the x value is written on the axis.
 /// - ymark (none, array, str, content, int, float): y values to mark, like `yrange`: every point where a curve reaches one, with guide lines; the value is written on the y axis.
 /// - samples (int): Number of sample points.
@@ -45,7 +45,7 @@
 /// - digits, separator, form, … (auto): Every option of `worksheet-config` (except `units`) works here too, for this call only.
 /// -> content
 #let graph(
-  equation, ..args, xrange: auto, yrange: auto, mark: auto, xmark: (), ymark: (), samples: 400,
+  equation, ..args, xrange: auto, yrange: auto, mark: none, xmark: (), ymark: (), samples: 400,
   width: auto, height: auto, colors: (blue, red.darken(10%), green.darken(25%), orange.darken(10%)),
   digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto,
   max-denominator: auto, fractions: auto, prefixes: auto, show-si: auto, preferred-units: auto, strict: auto, steps: auto, inline-steps: auto,

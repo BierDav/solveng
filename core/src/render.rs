@@ -12,6 +12,13 @@ fn function(name: &str) -> String {
     else { name.into() }
 }
 
+fn cases(branches: Vec<(String, String)>) -> String {
+    format!("cases({})", branches.into_iter().map(|(value, condition)| {
+        if condition == "\"1\"" { format!("{value} & upright(\"otherwise\")") }
+        else { format!("{value} & upright(\"if\") {condition}") }
+    }).collect::<Vec<_>>().join(", "))
+}
+
 pub const P_REL: u8 = 0;
 pub const P_SUM: u8 = 1;
 pub const P_NEG: u8 = 2;
@@ -80,6 +87,7 @@ impl R<'_> {
 
     pub fn expr(&self, e: &Expr) -> (String, u8) {
         match e {
+            Expr::Cases(v) => (cases(v.iter().map(|(value, condition)| (self.expr(value).0, self.expr(condition).0)).collect()), P_ATOM),
             Expr::Vector(v) => (format!("vec({})", v.iter().map(|e| self.expr(e).0).collect::<Vec<_>>().join(", ")), P_ATOM),
             Expr::C(v) => self.val(v),
             Expr::Sym(n) => self.sub.and_then(|f| f(n)).unwrap_or_else(|| (name(n), P_ATOM)),
@@ -256,6 +264,10 @@ impl R<'_> {
             Ast::Div(x, y) => (format!("frac({}, {})", self.ast_ops(x, sub, operators).0, self.ast_ops(y, sub, operators).0), P_FRAC),
             Ast::Pow(x, y) => (format!("{}^({})", wrap(self.ast_ops(x, sub, operators), P_ATOM), self.ast_ops(y, sub, operators).0), P_POW),
             Ast::Call(n, args) => {
+                if n == "cases" {
+                    return (cases(args.chunks(2).map(|pair| (self.ast_ops(&pair[0], sub, operators).0,
+                        pair.get(1).map(|a| self.ast_ops(a, sub, operators).0).unwrap_or_else(|| "\"1\"".into()))).collect()), P_ATOM);
+                }
                 let a: Vec<String> = args.iter().map(|x| self.ast_ops(x, sub, operators).0).collect();
                 if operators.iter().any(|op| solveng_names::normalize(op) == *n) {
                     return (format!("{}({})", name(n), a.join(", ")), P_ATOM);

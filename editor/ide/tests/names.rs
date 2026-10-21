@@ -40,6 +40,23 @@ fn quoted_prefixes_replace_the_whole_carrier_without_duplicate_quotes() {
 }
 
 #[test]
+fn numeric_subscript_functions_complete_without_trailing_name_joins() {
+    for name in ["g_2", "g_12", "g_2x"] {
+        let expected = if name == "g_2x" { "g_\"2x\"" } else { name };
+        for call in [format!("${name}|$"), format!("#graph(${name}|$)")] {
+            let doc = format!("#show: worksheet\n${expected}(t) := t$\n{call}");
+            let (applied, _, item) = completion(&doc, &format!("{name}(t)"));
+            assert_eq!(item.insert, format!("{expected}($0)"));
+            assert!(applied.ends_with(&call.replace(&format!("{name}|"), &format!("{expected}()"))), "{applied}");
+        }
+    }
+    let doc = "#show: worksheet\n$g_2(t) := t$\n#graph($g_2|(3)$)";
+    let (applied, _, item) = completion(doc, "g_2(t)");
+    assert_eq!(item.insert, "g_2");
+    assert!(applied.ends_with("#graph($g_2(3)$)"), "{applied}");
+}
+
+#[test]
 fn worksheet_strings_complete_escaped_carriers_and_keep_utf16_ranges() {
     for prefix in ["Delta2ta|", "Δ2t|", "\\\"Delta2ta|\\\""] {
         let document = format!("#worksheet(\"😅 := 1\nDelta2tau := 2\nx := {prefix}\")");

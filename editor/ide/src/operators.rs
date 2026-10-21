@@ -220,5 +220,5 @@ pub struct OperatorEdit {
 
 /// Source-level operator definition for an unresolved intrinsic in math.
 pub fn operator_declaration(name: &str) -> Option<String> {
-    crate::complete::FUNCTIONS.contains(&name).then(|| format!("#let {name} = math.op({name:?})"))
+    (name != "cases" && crate::complete::FUNCTIONS.contains(&name)).then(|| format!("#let {name} = math.op({name:?})"))
 }

@@ -138,6 +138,7 @@
 #let _word-end = regex("[\\p{L}\\p{N}\"⦄⦆)]$")
 #let _word-start = regex("^[\\p{L}\\p{N}\"⦃⦅]")
 #let _prefix = regex("^\"[afpnµμumcdkMGT]\"$")
+#let _align-point = $&$.body.func()
 // math content -> the equation as text for the engine: letters as they are, quoted text "…" (names of several
 // letters, units, as), solveng's unit words ⦃mA⦄, keywords ⦅solve(x)⦆; or an error for what isn't a formula
 #let _operator-binding(c) = {
@@ -166,6 +167,24 @@
     let parts = c.children.map(x => _src(x, names: names))
     let error = parts.find(_E)
     return if error != none { error } else { "vec(" + parts.join(", ") + ")" }
+  }
+  if f == math.cases {
+    let branches = ()
+    for (i, row) in c.children.enumerate() {
+      let parts = if row.has("children") { row.children } else { (row,) }
+      let at = range(parts.len()).filter(i => parts.at(i).func() == _align-point)
+      if at.len() > 1 { return _err("cases: one & separates a value from its condition") }
+      let value = _src(if at.len() == 0 { row } else { parts.slice(0, at.first()).join() }, names: names)
+      if _E(value) { return value }
+      let condition = if at.len() == 0 { () } else { parts.slice(at.first() + 1).filter(p => p.func() != _space and p.func() != h) }
+      if condition.len() > 0 and condition.first().func() == text and condition.first().text.trim() in ("für", "if", "for", "wenn", "falls") { condition = condition.slice(1) }
+      if condition.len() == 1 and condition.first().func() == text and condition.first().text.trim() in ("otherwise", "else", "sonst", "andernfalls") { condition = () }
+      if condition.len() == 0 and i != c.children.len() - 1 { return _err("cases: only the last branch can omit its condition") }
+      let test = if condition.len() == 0 { "1" } else { _src(condition.join(), names: names) }
+      if _E(test) { return test }
+      branches.push(value + ", " + test)
+    }
+    return "cases(" + branches.join(", ") + ")"
   }
   if c.has("label") and c.label == <solveng-unit> { return "⦃" + _plain(c) + "⦄" }
   if f == metadata {
@@ -271,6 +290,11 @@
     if normalized != none { return _m(normalized, cf) }
   }
   if f == math.vec { return math.vec(..c.children.map(x => _restyle(x, letters, cf))) }
+  if f == math.cases {
+    let fields = c.fields()
+    let children = fields.remove("children")
+    return math.cases(..fields, ..children.map(x => _restyle(x, letters, cf)))
+  }
   let space(x) = x == none or x.func() == _space
   let word(x) = if x.has("text") and type(x.text) == str { x.text } else { none }
   if c.has("children") {

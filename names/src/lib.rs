@@ -157,7 +157,12 @@ pub fn math(name: &str) -> String {
         if s.chars().count() == 1 && s.chars().all(char::is_alphabetic) { s.into() } else { quote(s) }
     }
     match name.split_once('_') {
-        Some((base, sub)) => format!("{}_{}", fragment(base), fragment(sub)),
+        Some((base, sub)) => {
+            let sub = if !sub.is_empty() && sub.chars().all(|c| c.is_ascii_digit()) { sub.into() }
+                else if sub.starts_with(|c: char| c.is_ascii_digit()) { quote(sub) }
+                else { fragment(sub) };
+            format!("{}_{}", fragment(base), sub)
+        }
         None => fragment(name),
     }
 }
@@ -201,6 +206,14 @@ mod tests {
     fn names_reject_hidden_delimiters_and_invalid_joiners() {
         for source in ["2t", "t2.5", "t 2", "\"t 2\"", "t\u{200b}2", "t\u{200d}x", "t٢", "\"t+2\"", "\"\"", "\"t\\n\""] {
             assert!(resolve(source).is_err(), "{source}");
+        }
+    }
+
+    #[test]
+    fn numeric_subscripts_do_not_need_a_name_join() {
+        for (name, expected) in [("g_2", "g_2"), ("g_12", "g_12"), ("g_2x", "g_\"2x\""), ("2g_2", "2\"\"g_2")] {
+            assert_eq!(math(name), expected);
+            assert_eq!(resolve(&math(name)).unwrap(), name);
         }
     }
 }

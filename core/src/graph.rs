@@ -129,6 +129,29 @@ struct Read {
     eq: String,
 }
 
+fn branches(e: &Expr, vars: &dyn Fn(&str) -> Option<f64>, selected: &mut Vec<usize>) {
+    if let Expr::Cases(v) = e {
+        let branch = v.iter().position(|(_, condition)| eval_f(condition, vars).is_some_and(|v| v != 0.0));
+        selected.push(branch.unwrap_or(usize::MAX));
+        if let Some(i) = branch { branches(&v[i].0, vars, selected); }
+    } else {
+        for child in e.children() { branches(child, vars, selected); }
+    }
+}
+
+fn case_boundaries(e: &Expr, x: &str, scale: f64, points: &mut Vec<f64>) {
+    fn conditions(e: &Expr, x: &str, scale: f64, points: &mut Vec<f64>) {
+        if let Expr::Cmp(values, _) = e {
+            for pair in values.windows(2) { points.extend(scan(&expr::sub(pair[0].clone(), pair[1].clone()), x, scale)); }
+        }
+        for child in e.children() { conditions(child, x, scale, points); }
+    }
+    if let Expr::Cases(v) = e {
+        for (_, condition) in v { conditions(condition, x, scale, points); }
+    }
+    for child in e.children() { case_boundaries(child, x, scale, points); }
+}
+
 fn read(env: &Env, req: &GraphReq, units: &Units) -> Result<Read, String> {
     let cfg = &req.cfg;
     let is_fn = |n: &str| env.funs.contains_key(n);
@@ -388,7 +411,13 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
             }
         }
     }
-    let need: Vec<f64> = mv.iter().map(|m| m.0).chain(yneed).collect();
+    let mut boundaries = vec![];
+    for c in &curves { case_boundaries(&c.e, &x, xf, &mut boundaries); }
+    boundaries.retain(|point| point.is_finite());
+    boundaries.sort_by(f64::total_cmp);
+    boundaries.dedup();
+    let mut need: Vec<f64> = mv.iter().map(|m| m.0).chain(yneed).collect();
+    if rv.is_empty() { need.extend(&boundaries); }
     let mut dedup_rv = rv.clone();
     dedup_rv.sort_by(|a, b| a.total_cmp(b));
     dedup_rv.dedup();
@@ -427,7 +456,16 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         return Err("the range is empty – give two different x values".into());
     }
     let n = req.samples;
-    let ts: Vec<f64> = (0..=n).map(|i| xa + i as f64 * (xb - xa) / n as f64).collect();
+    let mut ts: Vec<f64> = (0..=n).map(|i| xa + i as f64 * (xb - xa) / n as f64).collect();
+    if !boundaries.is_empty() {
+        let mut edges = vec![xa];
+        edges.extend(boundaries.iter().copied().filter(|point| *point > xa && *point < xb));
+        edges.push(xb);
+        ts.extend(&edges);
+        ts.extend(edges.windows(2).map(|pair| pair[0] + (pair[1] - pair[0]) / 2.0));
+        ts.sort_by(f64::total_cmp);
+        ts.dedup();
+    }
     let ys: Vec<Vec<Option<f64>>> = curves.iter().map(|c| ts.iter().map(|&t| f(c, t)).collect()).collect();
     let mut all: Vec<f64> = ys.iter().flatten().filter_map(|y| *y).collect();
     all.sort_by(|a, b| a.total_cmp(b));
@@ -523,6 +561,12 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
             Some(nm) => name(nm),
         };
         let mut runs: Vec<Vec<(f64, f64, usize)>> = vec![vec![]];
+        let piecewise = c.e.contains(&|e| matches!(e, Expr::Cases(_)));
+        let branch = |t: f64| {
+            let mut selected = vec![];
+            branches(&c.e, &|n| (n == x).then_some(t), &mut selected);
+            selected
+        };
         for (j, &t) in ts.iter().enumerate() {
             let Some(v) = ys[i][j] else {
                 if !runs.last().unwrap().is_empty() {
@@ -531,7 +575,19 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
                 continue;
             };
             let p = (t / xf, v / yf, j);
-            if let Some(q) = runs.last().unwrap().last() {
+            if let Some(q) = runs.last().unwrap().last().copied() {
+                if piecewise && branch(q.0 * xf) != branch(t) {
+                    let (mut a, mut b) = (q.0 * xf, t);
+                    let before = branch(a);
+                    for _ in 0..40 {
+                        let mid = a + (b - a) / 2.0;
+                        if mid == a || mid == b { break; }
+                        if branch(mid) == before { a = mid; } else { b = mid; }
+                    }
+                    if let Some(y) = f(c, a) { runs.last_mut().unwrap().push((a / xf, y / yf, q.2)); }
+                    runs.push(vec![]);
+                    if let Some(y) = f(c, b) { runs.last_mut().unwrap().push((b / xf, y / yf, j)); }
+                }
                 if (q.1 > 0.0) != (p.1 > 0.0) && (q.1 - p.1).abs() > 2.0 * (y1 - y0) {
                     runs.push(vec![]);
                 }

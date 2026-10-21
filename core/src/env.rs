@@ -286,7 +286,7 @@ impl<'a> Lower<'a> {
 
     fn call(&mut self, n: &str, args: &[Ast]) -> Result<Expr, String> {
         if n == "cases" {
-            if args.len() < 2 { return Err("cases needs a value and condition for each branch, with an optional final default value".into()); }
+            if args.is_empty() { return Err("cases needs a value and condition for each branch, with an optional final default value".into()); }
             let mut branches = vec![];
             for pair in args.chunks(2) {
                 branches.push((self.raw(&pair[0])?, if pair.len() == 2 { self.raw(&pair[1])? } else { expr::int(1) }));

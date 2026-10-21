@@ -13,7 +13,8 @@ use crate::tokens::CONSTANTS;
 use crate::units::{self, Custom};
 use crate::{Analysis, Completions, Context, Item, ItemKind, TAG};
 
-pub(crate) const FUNCTIONS: &[&str] = &["sqrt", "exp", "ln", "log", "sin", "cos", "tan", "asin", "acos", "atan", "abs", "diff", "integrate", "vec", "at", "rect", "tri", "sgn"];
+pub(crate) const FUNCTIONS: &[&str] = &["sqrt", "exp", "ln", "log", "sin", "cos", "tan", "asin", "acos", "atan", "abs", "diff", "integrate", "vec", "at", "rect", "tri", "sgn", "cases"];
+const NATIVE_FUNCTIONS: &[&str] = &["sqrt", "exp", "ln", "log", "sin", "cos", "tan", "abs", "cases"];
 /// Fence languages Typewright highlights, offered after ```` ``` ````.
 const TAGS: &[&str] =
     &["sql", "bash", "javascript", "typescript", "kotlin", "java", "python", "csharp", "markdown", "typst", "typc", "mermaid"];
@@ -419,6 +420,7 @@ fn code_items(a: &Analysis, line: &str) -> Vec<Item> {
             let insert = match *f {
                 "at" => "at(${1:vector}, ${2:0})$0".into(),
                 "vec" => "vec(${1:first}, ${2:second})$0".into(),
+                "cases" => "cases(${1:0}, ${2:t < 0}, ${3:1})$0".into(),
                 "diff" => "diff(${1:expression}, ${2:x})$0".into(),
                 "integrate" => "integrate(${1:expression}, ${2:x}, ${3:0}, ${4:1})$0".into(),
                 _ => format!("{f}($0)"),
@@ -426,6 +428,7 @@ fn code_items(a: &Analysis, line: &str) -> Vec<Item> {
             let detail = match *f {
                 "at" => "at(vector, index): select a component, starting at 0",
                 "vec" => "vec(a, b, …): a column vector",
+                "cases" => "cases(value, condition, …, default): first matching branch",
                 "rect" => "rect(x): 1 for |x| < ½, ½ at ±½, otherwise 0",
                 "tri" => "tri(x): max(1 − |x|, 0)",
                 "sgn" => "sgn(x): −1, 0 or 1 according to the sign of x",
@@ -504,7 +507,7 @@ pub fn complete(document: &str, context: &Context, offset: u32) -> Option<Comple
         // Client-side filtering must accept the exact spelling typed, including transport quotes.
         if !prefix.is_empty() { item.filter = Some(prefix.clone()); }
         if math {
-            let standard = matches!(canonical.as_str(), "sqrt" | "exp" | "ln" | "log" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "abs");
+            let standard = NATIVE_FUNCTIONS.contains(&canonical.as_str());
             let base = if item.typst { label.to_string() }
                 else if item.kind == ItemKind::FUNCTION && standard { canonical.clone() }
                 else { math_name(&canonical) };
@@ -614,8 +617,11 @@ fn complete_math(a: &Analysis, e: &Element, from: usize) -> Option<Completions> 
         return None;
     }
     let mut items = code_items(a, "");
-    let native = ["sqrt", "exp", "ln", "log", "sin", "cos", "tan", "abs"];
-    items.retain(|i| !FUNCTIONS.iter().any(|f| i.label == *f || i.label.starts_with(&format!("{f}("))) || native.iter().any(|f| i.label == *f || i.label.starts_with(&format!("{f}("))));
+    items.retain(|i| !FUNCTIONS.iter().any(|f| i.label == *f || i.label.starts_with(&format!("{f}("))) || NATIVE_FUNCTIONS.iter().any(|f| i.label == *f || i.label.starts_with(&format!("{f}("))));
+    if let Some(item) = items.iter_mut().find(|item| item.label == "cases") {
+        item.insert = "cases(${1:0} & ${2:t < 0}, ${3:1} & \"otherwise\")$0".into();
+        item.detail = "cases(value & condition, …): first matching branch".into();
+    }
     items.extend(crate::operators::completions(a, from));
     items.extend(keyword_items(&before_, true));
     if items.is_empty() { None } else { Some(Completions { to: None, from: a.doc.to16(from), items, exclusive: false }) }
