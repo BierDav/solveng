@@ -74,3 +74,23 @@
 
 // options are checked
 #def("x = 1", units: (bar: "1e5 Pa")) #context assert(_st.get().at("x", default: none) == none)
+
+// auto: a base unit of its own, with prefixes and in products; numbers are plain factors
+#solve-block[
+  #solve-config(units: (ü: auto, sheep: auto, dozen: 12))
+  #def("x = 3 mü", "y = 2 ü", "n = 2 dozen", "a = 4 [sheep m]")
+  #solve("w = x * y")
+  #solve("v = x + y", unit: "ü")
+  #expect("x", 0.003) #expect("y", 2) #expect("n", 24) #expect("a", 4) #expect("w", 0.006) #expect("v", 2.003)
+  #context assert.eq(_st.get().at("v").u, "ü")
+  #solve("z = x + [1 m]")
+  #fails("different units")
+]
+
+// Omega is Ω; a prefix goes with it glued, as in math, never written together
+#def("R1 = 3 k\"\"Omega", "R2 = 3 kΩ", "R3 = 2 Omega")
+#expect("R1", 3000) #expect("R2", 3000) #expect("R3", 2)
+#def("R4 = 3 kOhm")
+#fails("kOhm")
+#def("R5 = 3 kOmega")
+#fails("kOmega")

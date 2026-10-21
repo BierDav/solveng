@@ -125,11 +125,15 @@ fn resets_split_scopes() {
 #[test]
 fn redefinitions_split_usages() {
     let c = Context::new("");
-    let doc = "#show: solve-block\n$x = 1$ $a = x$\n$x = 2$ $b = x$\n";
+    let doc = "#show: solve-block\n$x = 1$ $a = x$\n$x := 2$ $b = x$\n";
     assert_eq!(used(doc, &c, nth(doc, "x", 0)), [nth(doc, "x", 0), nth(doc, "x", 1)]);
     assert_eq!(definition(doc, &c, nth(doc, "x", 3)).unwrap().start, nth(doc, "x", 2));
+    // = on a defined name states something about it: a use of the definition
+    let doc = "#show: solve-block\n$x = 1$\n$x = 1$ $b = x$\n";
+    assert_eq!(definition(doc, &c, nth(doc, "x", 2)).unwrap().start, nth(doc, "x", 0));
+    assert_eq!(definition(doc, &c, nth(doc, "x", 1)).unwrap().start, nth(doc, "x", 0));
     // The right side still means the old value.
-    let doc = "```solveng\nx = 1\nx = x + 1\ny = x\n```\n";
+    let doc = "```solveng\nx = 1\nx := x + 1\ny = x\n```\n";
     assert_eq!(definition(doc, &c, nth(doc, "x", 2)).unwrap().start, nth(doc, "x", 0));
     assert_eq!(definition(doc, &c, nth(doc, "x", 3)).unwrap().start, nth(doc, "x", 1));
 }

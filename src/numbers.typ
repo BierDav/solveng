@@ -2,7 +2,7 @@
 /// ## Writing values
 ///
 /// ```typ
-/// #def("R = 4.7 kOhm")                // strings: name = number + unit ("I = 30mA" works without the space too)
+/// #def("R = 4.7 kΩ")                  // strings: name = number + unit ("I = 30mA" works without the space too)
 /// #def($R_1 = 4.7 "k"Omega$)          // math content
 /// #def($I = frac(2, 4) "A"$, "Q0 = 3450/2 mAh", "U = (1+2)*1,5 V", "A = 2^3 m^2")  // arithmetic in the number
 /// #def("R2 = 2 R", "Z = [5 V] / I")   // [5 V] is a value inside an equation
@@ -11,9 +11,9 @@
 /// ```
 ///
 /// - **Units:** SI base units (m kg s A K mol cd) and V A Ω W J C F H S Hz N Pa T Wb, min h Ah Wh As Ws eV l %, ‰, °, rad, °C (as a temperature *difference*), all SI prefixes; your own with the option `units`. Powers as `m^2`, `m²`, `s^-1`; quotients as `m/s^2`; products with spaces `kg m`.
-/// - **Typeable spellings:** `Ohm`/`ohm`/`Omega` → Ω, `u` → µ, `degC` → °C, `deg` → °. They are printed with the proper symbols (`"20 uA"` → 20 µA).
+/// - **Typeable spellings:** `Omega` → Ω, with a prefix glued as in math: `k""Omega` → kΩ (`kOmega` is not a unit, like `DeltaT` is not ΔT); `u` → µ, `degC` → °C, `deg` → °. They are printed with the proper symbols (`"20 uA"` → 20 µA).
 /// - **Decimal comma:** `"7,2 V"` works; the output separator follows the document language (option `separator`).
-/// - **Names:** `Q0`→Q₀, `R_min`→R_min, `rho`→ρ, `DeltaT`→ΔT, `tol`→tol (upright). In math equations `Q_0` is a different variable than `Q0`.
+/// - **Names:** `Q0`→Q₀, `R_min`→R_min, `rho`→ρ, `tol`→tol (upright). In math equations `Q_0` is a different variable than `Q0`. Typst reads a bare word in math as its own variable, so names of more than one letter are quoted there: `$"tews" = 23$`, `$"x"_"in"$` (x_in); subscripts may be grouped, `$R_(a b)$` is R_ab. A Greek letter spelled out alone or before an index is the letter, as in math: `Delta_R` is `$Delta_R$` (Δ_R), `alpha2` is α2; `DeltaT` and `Deltas` stay names of their own, set as written; `Delta""T` is ΔT. Empty strings glue names as math needs them to: `$Delta""r_R$` is Δr_R, which code writes `Δr_R` or `Delta""r_R` (in a string `"Delta\\"\\"r_R"`).
 /// - **Operators:** `+ - * / ^ · ×`, implicit multiplication (`2 pi f C`), `sqrt exp ln log sin cos tan asin acos atan abs`, constants `pi e` (unless you define a variable with that name), your own functions.
 
 #import "units.typ": *
@@ -100,7 +100,7 @@
 // quantity -> content
 #let _qc(q, cf) = {
   let n = _nshow(q, cf).at(0)
-  let u = _ushow(q.u, U: _UT(cf))
+  let u = _ushow(q.u, U: _UT(cf), cf: cf)
   // a bare unit in an expression: A [A]
   if q.at("bare", default: false) { u } else if q.u == "" { n } else { $#n thin #u$ }
 }
@@ -111,7 +111,7 @@
   let x = x.trim()
   let N = "[-+−]?[\\d.,()]+(?:[eE][-+−]?\\d+)?"
   let m = x.match(regex("^(" + N + "(?:\\s*[-+−*/·⋅^]\\s*" + N + ")*)\\s*(.*)$"))
-  if m == none { return _err("cannot read the value '" + x + "' (a number with a unit, e.g. 7.2 kOhm)") }
+  if m == none { return _err("cannot read the value '" + x + "' (a number with a unit, e.g. 7.2 kΩ)") }
   let (s, u) = m.captures
   let s = s.trim().replace(",", ".")
   if s.match(regex("\\d*\\.\\d*\\.")) != none { return _err("cannot read the number '" + s + "'") }

@@ -4,7 +4,7 @@
 /// Lists the definitions made so far, in order.
 ///
 /// ```typ
-/// #def("R = 7.2 kOhm", "U = 5 V", "I = U/R", "f(x) = x^2")
+/// #def("R = 7.2 kΩ", "U = 5 V", "I = U/R", "f(x) = x^2")
 /// #defined()                                          // everything, in columns side by side
 /// #defined(included: "given")                         // only plain values (also "computed", "function")
 /// #defined(excluded: ("U", "function"))               // names and kinds
@@ -56,7 +56,7 @@
       let q = st.at(e.name)
       let U = _UT(cf)
       let si = _auto(q.d, U: U)
-      let sv = (raw: none, u: si, n: q.v / _unit(si, U: U).at(0))
+      let sv = (raw: none, u: si, n: q.v / _factor(si, U: U))
       (_name(e.name), if cf.show-si and q.u != si and _ushow(q.u, U: U) != _ushow(si, U: U) { (_qc(q, cf), _qc(sv, cf)) } else { (_qc(q, cf),) }, _relc(q, $=$))
     }
   })

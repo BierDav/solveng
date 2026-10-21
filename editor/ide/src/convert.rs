@@ -229,9 +229,9 @@ pub fn to_math(code: &str) -> Option<String> {
     Some(SPACES.replace_all(&out, " ").trim().to_string())
 }
 
-/// A unit as written in math quotes: `kOhm` → `kΩ`, `uA` → `µA`.
+/// A unit as written in math quotes: `k""Omega` → `kΩ`, `uA` → `µA`.
 fn spell_unit(unit: &str) -> String {
-    let mut u = unit.to_string();
+    let mut u = unit.replace("\"\"", "");
     for (spelling, symbol) in SPELLINGS {
         if let Some(rest) = u.strip_suffix(spelling) {
             u = format!("{rest}{symbol}");
@@ -308,14 +308,14 @@ pub fn from_math(math: &str) -> Option<String> {
             }
             // A quoted prefix before a symbol: "k"Omega.
             let next = word(i);
-            if next > i && ["Omega", "ohm"].contains(&sub(&m, i, next).as_str()) {
+            if next > i && sub(&m, i, next) == "Omega" {
                 text.push('Ω');
                 i = next;
             } else if i < n && m[i] == 'Ω' {
                 text.push('Ω');
                 i += 1;
             }
-            let unit = text.replace('Ω', "Ohm");
+            let unit = text;
             if after_value { out.push_str(&unit) } else { out.push_str(&format!("[{unit}]")) }
             after_value = true;
         } else if is_digit(c) {
@@ -334,7 +334,7 @@ pub fn from_math(math: &str) -> Option<String> {
                 out.push('*');
                 after_value = false;
             } else if w == "Omega" && after_value {
-                out.push_str("Ohm");
+                out.push('Ω');
             } else if w == "frac" && i < n && m[i] == '(' {
                 let close = matching(&m, i)?;
                 let parts = split_top(&sub(&m, i + 1, close));

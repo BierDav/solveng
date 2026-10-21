@@ -17,6 +17,7 @@ mod report;
 mod scope;
 mod text;
 mod tokens;
+mod unit_refs;
 mod units;
 
 use std::cell::OnceCell;
@@ -26,10 +27,10 @@ use regex::Regex;
 use serde::Serialize;
 
 pub use complete::complete;
-pub use conceal::{conceals, conceals_of};
+pub use conceal::{conceals, conceals_of, resolved_name};
 pub use convert::{conversions, from_math, to_math};
-pub use navigate::{definition, usages};
-pub use highlight::{diagnostics, hover, math_tokens, math_tokens_of, regions, tokens, tokens_with_units, document_tokens};
+pub use navigate::{definition, rename, rename_target, usages};
+pub use highlight::{diagnostics, document_tokens, hover, math_tokens, math_tokens_of, pretty, regions, tokens, tokens_with_units};
 pub use report::{Report, ReportElement, ReportValue};
 pub use units::{is_unit, unit_name};
 
@@ -55,6 +56,9 @@ impl TokenKind {
     pub const ANNOTATION: u8 = 7;
     pub const OPERATOR: u8 = 8;
     pub const UNIT: u8 = 9;
+    /// A function's parameter, where it's defined and used (`x` in `f(x: A) = 2 x`, what `..` takes), and what a
+    /// graph plots against. Editors without it show a variable.
+    pub const PARAMETER: u8 = 10;
 }
 
 /// What a `solve-block` calculates besides tagged code, as `solve-config(integration: …)` sets it; bit flags.
@@ -77,6 +81,8 @@ impl ItemKind {
     pub const PARAMETER: u8 = 4;
     /// One of an option's values: `"value"`.
     pub const VALUE: u8 = 5;
+    /// A word of solveng's own: `as`, `any`.
+    pub const KEYWORD: u8 = 6;
 }
 
 /// A highlighted range: UTF-16 start and length, and a [`TokenKind`].
@@ -99,11 +105,14 @@ pub struct Item {
     /// Markdown, for parameters.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub documentation: Option<String>,
+    /// What typing matches when it differs from `insert`: `Delta_R` for `Δ_R`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
 }
 
 impl Item {
     pub(crate) fn new(label: &str, kind: u8, detail: &str, insert: &str) -> Item {
-        Item { label: label.into(), kind, detail: detail.into(), insert: insert.into(), documentation: None }
+        Item { label: label.into(), kind, detail: detail.into(), insert: insert.into(), documentation: None, filter: None }
     }
 }
 
@@ -152,6 +161,23 @@ pub struct Location {
     pub path: Option<String>,
     pub start: u32,
     pub end: u32,
+}
+
+/// Replace UTF-16 `start..<end` with `text`, in the document (`path` None) or one of the context's files.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Edit {
+    pub path: Option<String>,
+    pub start: u32,
+    pub end: u32,
+    pub text: String,
+}
+
+/// A name that can be renamed, as written at its UTF-16 range.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct RenameTarget {
+    pub start: u32,
+    pub end: u32,
+    pub name: String,
 }
 
 /// One of the files around a document, by its path relative to the root.
@@ -258,6 +284,14 @@ pub fn compiled_integration(report: &str, path: &str, main: bool) -> i32 {
 }
 
 static REFERENCE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"#(?:import|include)\s+"([^"@][^"]*)""#).unwrap());
+static IMPLICIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"implicit-parameters\s*:\s*"(no|empty|allow)""#).unwrap());
+
+/// What a text sets with `solve-config(implicit-parameters: …)`, the last one: `"empty"` makes `f()` take what
+/// `f(..)` does, `"allow"` every function; None without a setting.
+pub(crate) fn implicit_parameters(text: &str) -> Option<String> {
+    IMPLICIT.captures_iter(text).last().map(|m| m[1].to_string())
+}
+
 static SETTING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"integration\s*:\s*"(full|code|math|none)""#).unwrap());
 
 /// Local files a document imports or includes (`#import "defaults.typ": *`, `#include "ch1.typ"`), as written;
@@ -273,17 +307,21 @@ pub fn references(document: &str) -> Vec<String> {
 }
 
 /// What the document's `solve-block` calculates besides tagged code: `"math"` unless `integration` says
-/// otherwise, nothing without a `solve-block`. The compiler's answer wins, then the document's own setting.
+/// otherwise, nothing without a `solve-block` or an `integration` setting. The compiler's answer wins, then the document's own setting.
 pub fn integration(document: &str, context: &Context) -> u8 {
     if let Some(i) = context.integration {
         return i;
     }
-    if !document.contains("solve-block") && !context.text.contains("solve-block") {
-        return Integration::NONE;
-    }
-    match SETTING.captures(document).or_else(|| SETTING.captures(&context.text)) {
+    fallback(document, &context.text)
+}
+
+/// What a text calculates by its settings: an `integration` setting (which calculates outside a `solve-block` too),
+/// else `"math"` in a `solve-block`, else nothing.
+fn fallback(text: &str, around: &str) -> u8 {
+    match SETTING.captures(text).or_else(|| SETTING.captures(around)) {
         Some(m) => report::flags(&m[1]),
-        None => Integration::MATH,
+        None if text.contains("solve-block") || around.contains("solve-block") => Integration::MATH,
+        None => Integration::NONE,
     }
 }
 
@@ -364,14 +402,7 @@ impl Part {
         let elements = scan(&doc, &calls);
         let reported = path.as_deref().map(|p| context.reported_in(p)).unwrap_or_default();
         // A file's own setting, else the ones around.
-        let fallback = if !text.contains("solve-block") && !context.text.contains("solve-block") {
-            Integration::NONE
-        } else {
-            match SETTING.captures(text).or_else(|| SETTING.captures(&context.text)) {
-                Some(m) => report::flags(&m[1]),
-                None => Integration::MATH,
-            }
-        };
+        let fallback = fallback(text, &context.text);
         let active = activity(&doc, &elements, &calls, &reported, fallback);
         Part { path, doc, calls, elements, active }
     }

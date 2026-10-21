@@ -18,10 +18,18 @@
   errors: "document",
   // what solve-block calculates besides code tagged solveng: math equations, code without a language
   integration: "math",
+  // casts (U as A) and types (f(x: A)) in what solveng shows, the equations as written included: left out, as plain math or as chips
+  show-casts: "chip", show-types: "chip",
+  // how they look: the words for casts and any-unit types (a German text might want als), the chips' colours or a
+  // function drawing them, and units: a function given each shown unit, the separator between units
+  words: (cast: "as", any: "any"), chips: auto, unit-style: auto, unit-separator: auto,
+  // functions: what takes the body's undefined names besides .., "no", f() ("empty") or every function ("allow")
+  implicit-parameters: "no",
 )
 #let _CH = (
   form: ("auto", "decimal", "fraction", "input"), multiplication: ("dot", "times"), fractions: ("stacked", "slash"), steps: ("full", "formula", "result", "value", auto), inline-steps: ("full", "formula", "result", "value"),
-  layout: ("row", "column"), errors: ("document", "panic"), integration: ("full", "code", "math", "none"), defined-style: ("grid", "column", "inline", "list"),
+  layout: ("row", "column"), errors: ("document", "panic"), integration: ("full", "code", "math", "none"), implicit-parameters: ("no", "empty", "allow"),
+  show-casts: ("no", "plain", "chip"), show-types: ("no", "plain", "chip"), defined-style: ("grid", "column", "inline", "list"),
 )
 // allowed types per option
 #let _TY = (
@@ -29,7 +37,8 @@
   multiplication: (str,), form: (str,), max-denominator: (int,), fractions: (str,), prefixes: (str, type(none), array), show-si: (bool,),
   units: (dictionary,), preferred-units: (array, str), strict: (bool,),
   steps: (str, type(auto)), inline-steps: (str,), layout: (str,), implies: (content, symbol, str), approximate: (bool,), block: (bool,),
-  max-solutions: (int,), defined-style: (str,), errors: (str,), integration: (str,),
+  max-solutions: (int,), defined-style: (str,), errors: (str,), integration: (str,), implicit-parameters: (str,), show-casts: (str,), show-types: (str,),
+  words: (dictionary,), chips: (type(auto), dictionary, function), unit-style: (type(auto), function), unit-separator: (type(auto), content, str, symbol),
 )
 #let _tyname(ts) = ts.map(t => if t == type(none) { "none" } else if t == type(auto) { "auto" } else { str(t) }).join(" or ")
 // global: units can only be set with solve-config (the unit table is built there)
@@ -47,8 +56,10 @@
   if "scientific" in o and o.scientific != none and (o.scientific.len() != 2 or o.scientific.any(x => type(x) != int)) { return (err: "scientific must be (low, high) with integers, or none") }
   if "prefixes" in o and type(o.prefixes) == str and o.prefixes != "all" { return (err: "prefixes: \"all\", none or an array like (\"m\", \"k\")") }
   if "prefixes" in o and type(o.prefixes) == array and o.prefixes.any(p => type(p) != str) { return (err: "prefixes: the array must hold strings like \"m\"") }
+  if "words" in o and o.words.keys().any(k => k not in ("cast", "any")) { return (err: "words: the words shown for casts and any-unit types, (cast: \"als\", any: \"beliebig\")") }
+  if "chips" in o and type(o.chips) == dictionary and o.chips.pairs().any(((k, v)) => k not in ("cast", "type") or type(v) != dictionary or v.keys().any(c => c not in ("fill", "mark", "ink"))) { return (err: "chips: colours per kind, (cast: (fill: …, mark: …, ink: …), type: (…)), or a function (kind, mark, unit) => content") }
   if "units" in o and not global { return (err: "units can only be set with solve-config, e.g. #solve-config(units: (bar: \"100 kPa\"))") }
-  if "units" in o and o.units.values().any(v => type(v) not in (str, content, type(none))) { return (err: "units: a dictionary of definitions like (bar: \"100 kPa\", rpm: \"1/min\"), or none to remove a unit: (T: none)") }
+  if "units" in o and o.units.values().any(v => type(v) not in (str, content, int, float, type(none), type(auto))) { return (err: "units: a dictionary of definitions like (bar: \"100 kPa\", rpm: \"1/min\", dozen: 12), auto for a base unit of your own (ü: auto), or none to remove a unit (T: none)") }
   if "preferred-units" in o { if type(o.preferred-units) == str { o.preferred-units = (o.preferred-units,) }; if o.preferred-units.any(u => type(u) != str) { return (err: "preferred-units: units like (\"kWh\", \"mm\")") } }
   o
 }

@@ -45,7 +45,8 @@
   if _E(e) { fail(e.err) }
   let ps = params.pos()
   if ps.any(p => type(p) != str) { fail("the parameters must be names like \"U\", got " + repr(ps.find(p => type(p) != str))) }
-  let ps = if ps.len() == 0 { _vars(e).dedup().filter(v => v not in d) } else { ps }
+  let ps = if ps.len() == 0 { _vars(e).dedup().filter(v => v not in d) } else { ps.map(_resolve) }
+  let units = _resolve-keys(units)
   let miss = _vars(e).dedup().filter(v => v not in d and v not in ps)
   if miss.len() > 0 { fail(miss.map(v => "'" + v + "'").join(", ") + " is neither defined nor a parameter") }
   // parameter name -> (factor, dims)

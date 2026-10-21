@@ -3,7 +3,7 @@
 use crate::calls::Role;
 use crate::complete::{FUNCTIONS, defined};
 use crate::text::{Doc, chars, is_letter_or_digit};
-use crate::tokens::{CONSTANTS, Tok, code_tokens, math_tokens as math_toks};
+use crate::tokens::{CONSTANTS, Tok, code_tokens, formula_tokens, math_tokens as math_toks};
 use crate::units::{self, Custom};
 use crate::{Analysis, Context, Hover, Problem, Region, Token, TokenKind as K};
 
@@ -23,6 +23,81 @@ fn local(text: &str, toks: Vec<Tok>) -> Vec<Token> {
 /// formulas, relations and `->`, comments.
 pub fn tokens(code: &str) -> Vec<Token> {
     local(code, code_tokens(&chars(code), &|_| false))
+}
+
+/// solveng code as documentation shows it, with its tokens: powers and indices written out (`A^2` is A², `m^-1` m⁻¹,
+/// `x_2` x₂, where every character has a subscript), spaces inside brackets and before commas left out
+/// (`f ( x , y )` from math is f(x, y)).
+/// `units` are the document's own unit names, read as units after a number like the built-in ones.
+pub fn pretty(code: &str, units: &[String]) -> (String, Vec<Token>) {
+    const SUP: &str = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+    const SUB_FROM: &str = "0123456789aehijklmnoprstuvx";
+    const SUB: &str = "₀₁₂₃₄₅₆₇₈₉ₐₑₕᵢⱼₖₗₘₙₒₚᵣₛₜᵤᵥₓ";
+    let sup = |d: char| SUP.chars().nth(d.to_digit(10).unwrap_or(0) as usize).unwrap_or(d);
+    let sub = |ch: char| SUB_FROM.chars().position(|f| f == ch).and_then(|i| SUB.chars().nth(i));
+    let c = chars(code);
+    let toks = code_tokens(&c, &|w| units.iter().any(|u| u == w));
+    // calls lose the space before their parenthesis: f ( x ) is f(x)
+    let calls: Vec<usize> = toks.iter().filter(|t| t.2 == K::FUNCTION).map(|t| t.0 + t.1).collect();
+    let mut out: Vec<char> = Vec::new();
+    // where each character of the code went
+    let mut at = vec![0; c.len() + 1];
+    let mut i = 0;
+    while i < c.len() {
+        at[i] = out.len();
+        let mut end = None;
+        if c[i] == '^' && i > 0 {
+            // ^2, ^-1, ^(2), ^(-1)
+            let paren = c.get(i + 1) == Some(&'(');
+            let mut j = i + 1 + paren as usize;
+            let neg = matches!(c.get(j), Some('-' | '−'));
+            j += neg as usize;
+            let digits = j;
+            while j < c.len() && c[j].is_ascii_digit() {
+                j += 1;
+            }
+            if j > digits && (!paren || c.get(j) == Some(&')')) {
+                if neg {
+                    out.push('⁻');
+                }
+                out.extend(c[digits..j].iter().map(|&d| sup(d)));
+                end = Some(j + paren as usize);
+            }
+        } else if c[i] == '_' && i > 0 && is_letter_or_digit(c[i - 1]) {
+            let mut j = i + 1;
+            while j < c.len() && is_letter_or_digit(c[j]) {
+                j += 1;
+            }
+            if j > i + 1 && c[i + 1..j].iter().all(|&ch| sub(ch).is_some()) {
+                out.extend(c[i + 1..j].iter().filter_map(|&ch| sub(ch)));
+                end = Some(j);
+            }
+        } else if c[i].is_whitespace() {
+            let next = c[i..].iter().find(|ch| !ch.is_whitespace());
+            let call = next == Some(&'(') && calls.iter().any(|&e| e <= i && c[e..i].iter().all(|ch| ch.is_whitespace()));
+            if matches!(next, Some(')' | ',')) || out.last() == Some(&'(') || call {
+                end = Some(i + 1);
+            }
+        }
+        match end {
+            Some(e) => {
+                // what's inside starts where the span does, so the exponent's token covers the ²
+                for k in i + 1..e {
+                    at[k] = at[i];
+                }
+                i = e;
+            }
+            None => {
+                out.push(c[i]);
+                i += 1;
+            }
+        }
+    }
+    at[c.len()] = out.len();
+    let text: String = out.iter().collect();
+    let moved = toks.into_iter().map(|(s, n, k)| (at[s], at[s + n] - at[s], k)).filter(|t| t.1 > 0).collect();
+    let tokens = local(&text, moved);
+    (text, tokens)
 }
 
 /// [`tokens`], with the document's own unit names (`bar`) read as units after a number.
@@ -73,6 +148,8 @@ fn call_tokens(a: &Analysis) -> Vec<Token> {
                 vec![(lead, trimmed.chars().count(), kind)]
             };
             let toks = match t.role {
+                // A graph's curves are formulas.
+                Role::Code if call.is_curve(t) => formula_tokens(code, &unit),
                 Role::Code => code_tokens(code, &unit),
                 Role::Unit => unit_tokens(code, &a.units),
                 Role::Name if !trimmed.is_empty() => whole(K::VARIABLE),
@@ -102,6 +179,13 @@ pub fn document_tokens(document: &str, context: &Context) -> Vec<Token> {
         out.extend(utf16(&a.doc, e.body_start, toks));
     }
     out.extend(call_tokens(&a));
+    // Parameters stand out, in their function and graphs.
+    let params: Vec<(u32, u32)> = crate::navigate::parameter_ranges(&a).into_iter().map(|(s, e)| (a.doc.to16(s), a.doc.to16(e))).collect();
+    for t in out.iter_mut().filter(|t| t.kind == K::VARIABLE) {
+        if params.iter().any(|&(ps, pe)| ps <= t.start && t.start + t.length <= pe) {
+            t.kind = K::PARAMETER;
+        }
+    }
     out.sort_by_key(|t| t.start);
     out
 }
@@ -206,6 +290,19 @@ pub fn diagnostics(document: &str, context: &Context) -> Vec<Problem> {
             }
         }
     }
+    // A name assigned again in its scope: the last assignment wins, so the earlier one counts only until there.
+    let defs = crate::complete::definitions(&a.doc, &a.elements, &a.calls, &|e| a.active(e));
+    for (earlier, later) in crate::navigate::replaced(&a) {
+        let Some(d) = defs.iter().find(|d| d.start == earlier) else { continue };
+        let line = a.doc.c[..later].iter().filter(|&&ch| ch == '\n').count() + 1;
+        let what = if d.function { "function" } else { "variable" };
+        out.push(Problem {
+            start: a.doc.to16(d.start),
+            end: a.doc.to16(d.start + d.written),
+            message: format!("the {what} '{}' is assigned again on line {line} – the last assignment wins, so this one only counts until there", d.base()),
+            severity: "warning",
+        });
+    }
     out
 }
 
@@ -224,6 +321,12 @@ pub fn hover(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     while e < c.len() && part(c[e]) {
         e += 1;
     }
+    // The functions themselves, by their whole identifier (solve-config, not solve), in code anywhere.
+    if let Some((start, end, name)) = identifier(&a.doc, at)
+        && let Some(f) = crate::params::function(&name)
+    {
+        return Some(Hover { start: a.doc.to16(start), end: a.doc.to16(end), markdown: format!("`{}` (solveng)\n\n{}", f.name, f.doc) });
+    }
     if s == e {
         return None;
     }
@@ -239,12 +342,36 @@ pub fn hover(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     let inside = a.elements.iter().any(|el| el.body_start <= s && e <= el.body_end && a.shown(el))
         || a.calls.iter().any(|call| call.texts.iter().any(|t| t.start <= s && e <= t.end));
     if !inside {
-        // The functions themselves, anywhere.
-        let f = crate::params::function(&word)?;
-        if s == 0 || c[s - 1] != '#' && !a.calls.iter().any(|call| call.start == s) {
-            return None;
+        return None;
+    }
+    // solveng's words: as casting where it's highlighted so (after a number it's the unit attosecond), any as a type
+    let (start, end) = (a.doc.to16(s) as u32, a.doc.to16(e) as u32);
+    let tokens = document_tokens(document, context);
+    let kind = tokens.iter().find(|t| t.start <= start && end <= t.start + t.length).map(|t| t.kind);
+    if word == "as" {
+        if kind == Some(K::KEYWORD) {
+            return hover("`as` cast: the number of what's before it, in SI units, as a value in the unit after it – with `U = 5 V`, `U as A` is 5 A, `U as mA` 5 mA, `U as 1` the plain number 5. It casts the term before it with its power: `2 U as A` is 2 · (U as A).".to_string());
         }
-        return hover(format!("`{}` (solveng)\n\n{}", f.name, f.doc));
+    }
+    if word == "any" && a.doc.sub(0, s).trim_end().trim_end_matches('"').trim_end().ends_with(':') {
+        return hover("`any` type: a parameter that takes every unit; the result's unit follows what's passed. `1` is the type of a plain number.".to_string());
+    }
+    // a unit where one is read, though a variable has its name: V in f(x: V) or x as "V"
+    if kind == Some(K::UNIT)
+        && let Some(d) = units::describe(&word, &a.units) {
+            return hover(d);
+        }
+    if let Some((name, owner)) = crate::navigate::parameter_at(&a, at) {
+        let Some((function, written)) = owner else { return hover(format!("`{word}` what the graph plots against, its x axis")) };
+        // Its type as compiled (inferred ones too), else as written.
+        let typed = |list: &[String]| list.iter().map(|p| p.trim().to_string()).find(|p| p.split(':').next().map(str::trim) == Some(name.as_str()));
+        let reported = context.defined.iter().find(|d| d.name == function && d.kind == "function").and_then(|d| {
+            let sig = d.value.split_once(" = ")?.0;
+            let list = sig.strip_prefix('(')?.rsplit_once(')')?.0;
+            typed(&list.split(", ").map(String::from).collect::<Vec<_>>())
+        });
+        let shown = reported.or_else(|| typed(&written)).unwrap_or(name);
+        return hover(format!("`{shown}` parameter of `{function}`"));
     }
     if let Some(d) = defined(&a, &word) {
         return hover(d);
@@ -256,4 +383,17 @@ pub fn hover(document: &str, context: &Context, offset: u32) -> Option<Hover> {
         return hover(format!("`{word}` {d}"));
     }
     units::describe(&word, &a.units).and_then(hover)
+}
+
+/// The typst identifier in code at character `at` (or just before it), not a named argument's: its range and text.
+fn identifier(doc: &Doc, at: usize) -> Option<(usize, usize, String)> {
+    let root = typst_syntax::parse(&doc.s);
+    let node = typst_syntax::LinkedNode::new(&root);
+    let byte = doc.s.char_indices().nth(at).map_or(doc.s.len(), |(b, _)| b);
+    let leaf = [typst_syntax::Side::After, typst_syntax::Side::Before]
+        .into_iter()
+        .filter_map(|side| node.leaf_at(byte, side))
+        .find(|l| l.kind() == typst_syntax::SyntaxKind::Ident && l.parent_kind() != Some(typst_syntax::SyntaxKind::Named))?;
+    let (start, end) = (doc.of_byte(leaf.offset()), doc.of_byte(leaf.offset() + leaf.len()));
+    Some((start, end, leaf.get().leaf_text().to_string()))
 }

@@ -131,12 +131,20 @@ pub(crate) struct File<'a> {
     pub doc: &'a Doc,
     pub definitions: Vec<Definition>,
     pub names: Vec<(String, usize, usize)>,
+    /// Equation bodies and the strings of solveng's calls, where a name is spelled differently than in code.
+    pub maths: Vec<(usize, usize)>,
+    pub strings: Vec<(usize, usize)>,
+    /// Per graph call: its curves, and the names they give curves (`U` in `U(x) = …`), which aren't plotted against.
+    pub graphs: Vec<(Vec<(usize, usize)>, Vec<(usize, usize)>)>,
+    /// Functions defined where `definitions` doesn't look, like graph curves: name start, name end, end.
+    pub functions: Vec<(usize, usize, usize)>,
 }
 
 /// A name in the flattened document: in `file` (an index into the files), and the definition it means (an index
 /// into the occurrences; a definition means itself).
 #[derive(Clone, Debug)]
 pub(crate) struct Occurrence {
+    pub key: String,
     pub file: usize,
     pub start: usize,
     pub end: usize,
@@ -215,6 +223,8 @@ struct Run<'f, 'a> {
     visible: HashMap<String, usize>,
     stack: Vec<Frame>,
     out: Vec<Occurrence>,
+    statements: Vec<(usize, usize)>,
+    replaced: Vec<((usize, usize), (usize, usize))>,
 }
 
 impl Run<'_, '_> {
@@ -256,14 +266,24 @@ impl Run<'_, '_> {
                 }
                 Event::Define(i) => {
                     let d = &file.definitions[i];
+                    // = on a name the scope has states something about it: a use, := assigns anew
+                    if !d.assign && let Some(&known) = self.visible.get(d.base()) {
+                        self.statements.push((index, d.start));
+                        self.out.push(Occurrence { key: d.base().to_string(), file: index, start: d.start, end: d.end, definition: Some(known) });
+                        continue;
+                    }
+                    if let Some(&before) = self.visible.get(d.base()) {
+                        let o = &self.out[before];
+                        self.replaced.push(((o.file, o.start), (index, d.start)));
+                    }
                     let id = self.out.len();
-                    self.out.push(Occurrence { file: index, start: d.start, end: d.end, definition: Some(id) });
+                    self.out.push(Occurrence { key: d.base().to_string(), file: index, start: d.start, end: d.end, definition: Some(id) });
                     self.visible.insert(d.base().to_string(), id);
                 }
                 Event::Use(i) => {
                     let (key, start, end) = &file.names[i];
                     let definition = self.visible.get(key).copied();
-                    self.out.push(Occurrence { file: index, start: *start, end: *end, definition });
+                    self.out.push(Occurrence { key: key.clone(), file: index, start: *start, end: *end, definition });
                 }
             }
         }
@@ -273,7 +293,9 @@ impl Run<'_, '_> {
 
 /// Every name of the flattened document with the definition it means: from `main` (an index into `files`) when
 /// it reaches `document`, else the document alone.
-pub(crate) fn occurrences(files: &[File], document: usize, main: Option<usize>) -> Vec<Occurrence> {
+/// `implicit`: what `solve-config(implicit-parameters: …)` says, `"empty"` makes `f()` take what `f(..)` does,
+/// `"allow"` every function.
+pub(crate) fn occurrences(files: &[File], document: usize, main: Option<usize>, implicit: String) -> (Vec<Occurrence>, Params) {
     let run = |start: usize| {
         let mut run = Run {
             files,
@@ -283,15 +305,93 @@ pub(crate) fn occurrences(files: &[File], document: usize, main: Option<usize>) 
             visible: HashMap::new(),
             stack: Vec::new(),
             out: Vec::new(),
+            statements: Vec::new(),
+            replaced: Vec::new(),
         };
         run.file(start);
-        (run.out, run.reached[document])
+        (run.out, run.reached[document], run.statements, run.replaced)
     };
-    if let Some(main) = main {
-        let (out, reached) = run(main);
-        if reached {
-            return out;
+    let (mut out, statements, replaced) = match main.map(run) {
+        Some((out, true, statements, replaced)) => (out, statements, replaced),
+        _ => {
+            let (out, _, statements, replaced) = run(document);
+            (out, statements, replaced)
+        }
+    };
+    let mut params = parameters(files, &mut out, &implicit);
+    params.statements = statements;
+    params.replaced = replaced;
+    (out, params)
+}
+
+/// Functions' parameters: every occurrence that is one or a use of one, and per function (file, start of its
+/// name) its parameters resolved, as written (`I: mA`) and then those `..` takes.
+#[derive(Default)]
+pub(crate) struct Params {
+    pub uses: Vec<usize>,
+    /// Per use, the function it belongs to: an index into `signatures` and `names`.
+    pub owners: Vec<usize>,
+    pub signatures: Vec<(usize, usize, Vec<String>)>,
+    /// The functions' names.
+    pub names: Vec<String>,
+    /// Definitions with `=` of a name their scope already has: statements about it, by file and start.
+    pub statements: Vec<(usize, usize)>,
+    /// Definitions a later `:=` in their scope replaces: (file, start) of the earlier one and of the later one.
+    pub replaced: Vec<((usize, usize), (usize, usize))>,
+}
+
+/// A function's parameters are its own: `x` in `f(x) = x^2` means the parameter, not a variable `x`; with `..` the
+/// body's other undefined names are parameters too.
+fn parameters(files: &[File], out: &mut [Occurrence], implicit: &str) -> Params {
+    let mut params = Params::default();
+    for (index, file) in files.iter().enumerate() {
+        let c = &file.doc.c;
+        let spans = file.definitions.iter().filter(|d| d.function).map(|d| (d.start, d.end, d.statement_end)).chain(file.functions.iter().copied());
+        for (start, end, statement_end) in spans {
+            let Some(open) = (end..statement_end).find(|&i| c[i] == '(') else { continue };
+            let Some(close) = (open..statement_end).find(|&i| c[i] == ')') else { continue };
+            let list = file.doc.sub(open + 1, close);
+            // .., and as implicit-parameters says: f() ("empty") or every function ("allow")
+            let rest = implicit == "allow"
+                || (implicit == "empty" && list.trim().is_empty())
+                || list.split(',').any(|p| p.trim() == ".." || p.trim() == "…");
+            let mut written: Vec<String> = list.split(',').map(str::trim).filter(|p| !p.is_empty() && *p != ".." && *p != "…").map(String::from).collect();
+            let in_body = |o: &Occurrence| o.file == index && o.start > close && o.end <= statement_end;
+            let mut declared: Vec<(String, usize)> = Vec::new();
+            for i in 0..out.len() {
+                let o = &out[i];
+                if o.file == index && o.start > open && o.end <= close {
+                    declared.push((o.key.clone(), i));
+                    out[i].definition = Some(i);
+                    params.uses.push(i);
+                    params.owners.push(params.signatures.len());
+                }
+            }
+            let mut inferred: Vec<(String, usize)> = Vec::new();
+            for i in 0..out.len() {
+                if !in_body(&out[i]) {
+                    continue;
+                }
+                let key = out[i].key.clone();
+                let id = match declared.iter().find(|(k, _)| *k == key) {
+                    Some((_, id)) => *id,
+                    None if rest && out[i].definition.is_none() => match inferred.iter().find(|(k, _)| *k == key) {
+                        Some((_, id)) => *id,
+                        None => {
+                            inferred.push((key, i));
+                            i
+                        }
+                    },
+                    None => continue,
+                };
+                out[i].definition = Some(id);
+                params.uses.push(i);
+                params.owners.push(params.signatures.len());
+            }
+            written.extend(inferred.into_iter().map(|(k, _)| k));
+            params.signatures.push((index, start, written));
+            params.names.push(file.doc.sub(start, end).trim().to_string());
         }
     }
-    run(document).0
+    params
 }

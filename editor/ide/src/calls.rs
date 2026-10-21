@@ -78,10 +78,10 @@ fn role(function: &str, param: Option<&str>, index: usize) -> Option<Role> {
         };
     };
     Some(match param {
-        "unit" | "xunit" | "yunit" | "preferred-units" => Role::Unit,
+        "unit" | "preferred-units" => Role::Unit,
         "units" if function == "lambdify" => Role::Unit,
         "units" | "guess" | "xrange" | "yrange" | "ymark" => Role::Code,
-        "x" | "unknown" => Role::Name,
+        "unknown" => Role::Name,
         "mark" | "xmark" => Role::Mark,
         _ => {
             let f = params::function(function)?;
@@ -127,8 +127,9 @@ impl Reader<'_> {
                 }
             }
             SyntaxKind::Dict => {
-                for child in node.children().filter(|c| c.kind() == SyntaxKind::Named) {
-                    if let Some(value) = child.children().filter(|c| c.kind() != SyntaxKind::Colon).nth(1) {
+                // `bar: "…"` and `"k q": "…"`
+                for child in node.children().filter(|c| matches!(c.kind(), SyntaxKind::Named | SyntaxKind::Keyed)) {
+                    if let Some(value) = child.children().filter(|c| c.kind() != SyntaxKind::Colon && !c.kind().is_trivia()).nth(1) {
                         self.strings(&value, role, param, out);
                     }
                 }
@@ -196,6 +197,17 @@ impl Reader<'_> {
             }
         }
         self.calls.push(call);
+    }
+}
+
+impl Call {
+    /// The strings that are a graph's curves: `"q = 12 A"`, read as formulas.
+    pub(crate) fn curves(&self) -> impl Iterator<Item = &Text> {
+        self.texts.iter().filter(move |t| self.function.name == "graph" && t.param.is_none() && t.role == Role::Code)
+    }
+
+    pub(crate) fn is_curve(&self, t: &Text) -> bool {
+        self.function.name == "graph" && t.param.is_none() && t.role == Role::Code
     }
 }
 

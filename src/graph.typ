@@ -4,7 +4,7 @@
 
 // ---------- plotting (simple-plot) ----------
 #let _nice(r) = { let b = calc.pow(10.0, calc.floor(calc.log(r))); for m in (1, 2, 5, 10) { if m * b >= r * (1 - 1e-9) { return m * b } } }
-#let _axlabel(n, u, U: _U) = if u == "" { $#n$ } else { $#n thin slash thin #_ushow(u, U: U)$ }
+#let _axlabel(n, u, U: _U, cf: (:)) = if u == "" { $#n$ } else { $#n thin slash thin #_ushow(u, U: U, cf: cf)$ }
 // tick positions + labels with the document's decimal separator
 #let _ticks(a, b, st, skip0, cf) = {
   let ps = ()
@@ -93,40 +93,49 @@
   (if ok(a2) or a2 == a { a2 } else { a }, if ok(b2) or b2 == b { b2 } else { b })
 }
 
+// the unit of a parameter x is passed to directly, as in q(x) with q(x: A) (from a parse with keep: true), or none
+#let _typed-x(e, x, fns) = {
+  if type(e) != array { return none }
+  if e.at(0) == "f" and e.at(1) in fns {
+    let fn = fns.at(e.at(1))
+    let args = if e.at(2).at(0) == "tuple" { e.at(2).slice(1) } else { (e.at(2),) }
+    for (p, a) in fn.params.zip(args) { if a == ("v", x) and p in fn.at("units", default: (:)) { return fn.units.at(p) } }
+  }
+  for t in e.slice(1) { let r = _typed-x(t, x, fns); if r != none { return r } }
+  none
+}
 /// Plots an equation with `simple-plot`: ranges, nice ticks, axis labels and units are picked automatically.
 ///
-/// Every positional string or math is a curve: `y = …` gives one curve (named `y` in the
-/// legend) and marks the stored point with guide lines; other equations draw both sides
-/// and mark the intersections. `xrange:` / `yrange:` list values that must be visible;
+/// Every positional string or math is a curve: an expression (`"cos(w)"`), or a function of
+/// what it's plotted against, named in the legend and on the axis: `"U(x: A) = x * [2 Ω]"`, with
+/// the parameter's unit for the x axis, or `"P(..) = U^2/R"`, where `..` takes the one variable
+/// that isn't defined (with its unit from the range or the marks). Like every function, a curve
+/// may use only its parameters and defined variables. All curves share x. Where two cross is marked:
+/// `#graph("cos(w)", "w")` shows the solution of cos(w) = w. `xrange:` / `yrange:` list values that must be visible;
 /// without them the x range is picked around the marks, else around the interesting part
 /// (roots, extrema, poles, intersections). Marked values are always visible too.
 ///
 /// ```typ
-/// #def("R = 50 Ω", "P0 = 2 W")
-/// #solve("P0 = U^2/R")
-/// #graph("P = U^2/R", x: "U")                                // 0…2·U, the solved point marked
-/// #graph("P = U^2/R", x: "R", xrange: ("10 Ω", "1 kΩ"))
-/// #graph("cos(w) = w")                                       // range picked, intersection marked
-/// #graph("y = x^2", "y = 2x + 3", xrange: (-3, 5))           // several curves
-/// #graph("P = U^2/R", x: "R", xrange: (0, "2 R"), mark: ("R", "extrema"))
-/// #graph("P = U^2/R", x: "R", ymark: "P0")                  // where P reaches P0
+/// #def("R = 50 Ω", "P0 = 2 W", "U0 = 10 V")
+/// #graph("P(U: V) = U^2/R", ymark: "P0")                    // where P reaches P0
+/// #graph("P(..) = U0^2/R_L", xrange: ("10 Ω", "1 kΩ"))       // R_L, in Ω from the range
+/// #graph("cos(w)", "w")                                      // range picked, crossing marked
+/// #graph("y(x) = x^2", "y(x) = 2x + 3", xrange: (-3, 5))     // several curves
+/// #graph("P(R_L: Ω) = U0^2/R_L", xrange: (0, "2 R"), mark: ("R", "extrema"))
 /// ```
 ///
 /// Uses `@preview/simple-plot:1.1.0`. Ticks use the document's decimal separator, axis labels read `U / V`; curves of the same unit share one graph, with a legend.
 ///
-/// **Ranges:** values and expressions in `xrange` / `yrange` must have the axis unit (`$f(20) Omega$` and `"f(20) Ω"` are fine) – `xrange: ("10 Ω", "f(20)")` with a unitless `f(20)` is an error, since it isn't clear what was meant. Without a range: if x is defined, 0…2·x with the solved point marked; else around the marks; else around what's interesting – roots, extrema, poles, edges of the domain (√, ln) and, above all, where curves cross – rounded to nice ticks, starting at 0 when everything interesting is positive. With `ymark`, the y range is around the marked values (steep curves leave the picture). If x has no unit yet, it follows from the curve and the units of the y values (`P = U0^2/R2` with `ymark: "2 W"`: R₂ in Ω).
+/// **Ranges:** values and expressions in `xrange` / `yrange` must have the axis unit (`$f(20) Omega$` and `"f(20) Ω"` are fine) – `xrange: ("10 Ω", "f(20)")` with a unitless `f(20)` is an error, since it isn't clear what was meant. Without a range: around the marks; else around what's interesting – roots, extrema, poles, edges of the domain (√, ln) and, above all, where curves cross – rounded to nice ticks, starting at 0 when everything interesting is positive. With `ymark`, the y range is around the marked values (steep curves leave the picture). **Units** follow from what's plotted: y's from the curves (shown in the SI unit with a fitting prefix; `preferred-units` picks others), x's from the curve's parameter (`U(I: mA) = …`) or a function x is passed to whose parameter has one (`#def("q(I: mA) = I R")`, then `#graph("U(I) = q(I)")` is over I in mA), else from the units in `xrange` and the marks, else from the curve and the units of the y values (`P(..) = U0^2/R2` with `ymark: "2 W"`: R₂ in Ω).
 ///
 /// **Marks** are always visible – the ranges grow to show them. Combine them in an array, `(auto, "R1")`; `mark: ()` marks nothing.
 ///
 /// **Size:** `width` / `height` are the whole graph, labels included; `auto` makes the plot area 8 × 5 cm. Any other named argument goes straight to simple-plot's `plot` (e.g. `show-grid: false`), other positional ones (series from simple-plot) are added as they are. For full control, plot with simple-plot directly.
 ///
 /// - ..args (str, content, any): The curves (equations or expressions) and options passed on to simple-plot's `plot` (e.g. `show-grid: false`); other positional ones are added as series.
-/// - x (auto, str): The x variable. `auto`: the only variable that isn't defined.
-/// - xrange (auto, array, str, content, int, float): x values that must be visible: numbers in `xunit` (`(1, 2)`), values (`("10 Ω", "1 kΩ")`) or expressions of defined variables (`(0, "2 R")`, math works too). Two or more give the range from the smallest to the largest; a single one widens the picked range. `auto`: 0…2·x if x is defined, else around the marked x values, else picked from the curves.
-/// - yrange (auto, array, str, content, int, float): y values that must be visible, like `xrange` (numbers in `yunit`). Two or more give the exact y range. `auto`: fitted to the curves.
-/// - xunit (auto, str, content): Unit of the x axis. `auto`: from the range or the variable.
-/// - yunit (auto, str, content): Unit of the y axis. `auto`: SI unit with a fitting prefix.
-/// - mark (auto, none, array, str, content, int, float): What to mark, with both coordinates written on the axes: x values like `xrange` (`"R"`, `2`, `"5 V"`; a point with guide lines on every curve, the range grows to show it), `"crossings"`, `"roots"`, `"extrema"` (searched within the range) and `auto`: the solved point or where the two sides cross. An array combines them: `(auto, "R1")`. `()` or `none`: no marks.
+/// - xrange (auto, array, str, content, int, float): x values that must be visible: numbers in the x axis's unit (`(1, 2)`), values (`("10 Ω", "1 kΩ")`) or expressions of defined variables (`(0, "2 R")`, math works too). Two or more give the range from the smallest to the largest; a single one widens the picked range. `auto`: around the marked x values, else picked from the curves.
+/// - yrange (auto, array, str, content, int, float): y values that must be visible, like `xrange` (numbers in the y axis's SI unit). Two or more give the exact y range. `auto`: fitted to the curves.
+/// - mark (auto, none, array, str, content, int, float): What to mark, with both coordinates written on the axes: x values like `xrange` (`"R"`, `2`, `"5 V"`; a point with guide lines on every curve, the range grows to show it), `"crossings"`, `"roots"`, `"extrema"` (searched within the range) and `auto`: where two curves cross. An array combines them: `(auto, "R1")`. `()` or `none`: no marks.
 /// - xmark (none, array, str, content, int, float): Like `mark`, but only the x value is written on the axis.
 /// - ymark (none, array, str, content, int, float): y values to mark, like `yrange`: every point where a curve reaches one, with guide lines; the value is written on the y axis.
 /// - samples (int): Number of sample points.
@@ -136,7 +145,7 @@
 /// - digits, separator, form, … (auto): Every option of `solve-config` (except `units`) works here too, for this call only.
 /// -> content
 #let graph(
-  ..args, x: auto, xrange: auto, yrange: auto, xunit: auto, yunit: auto, mark: auto, xmark: (), ymark: (), samples: 400,
+  ..args, xrange: auto, yrange: auto, mark: auto, xmark: (), ymark: (), samples: 400,
   width: auto, height: auto, colors: (blue, red.darken(10%), green.darken(25%), orange.darken(10%)),
   digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto,
   max-denominator: auto, fractions: auto, prefixes: auto, show-si: auto, preferred-units: auto, strict: auto, steps: auto, inline-steps: auto,
@@ -150,6 +159,10 @@
   // types
   let eqs = args.pos().filter(a => type(a) in (str, content))
   if args.pos().any(a => type(a) == array) { return fail("the x range is named: xrange: " + repr(args.pos().find(a => type(a) == array))) }
+  // options graph had: what replaces them
+  let gone = (x: "x is the one variable of the curves that isn't defined", xunit: "x's unit comes from a function parameter with a unit (q(I: mA)), xrange or the marks", yunit: "y's unit comes from the curves; preferred-units: (\"mW\",) picks another")
+  let old = args.named().keys().find(k => k in gone)
+  if old != none { return fail(old + ": is gone – " + gone.at(old)) }
   let args = arguments(..args.pos().filter(a => type(a) not in (str, content)), ..args.named())
   if eqs.len() == 0 { return fail("nothing to plot – pass an equation like \"P = U^2/R\"") }
   let XV = (str, content, int, float)
@@ -167,8 +180,6 @@
   let kws = ents.filter(((m, _)) => iskw(m))
   let autos = ents.filter(((m, _)) => m == auto).map(e => e.at(1))
   let mxs = ents.filter(((m, _)) => m != auto and not iskw(m))
-  if x != auto and type(x) != str { return fail("x: a variable name like \"U\", got " + _tn(x)) }
-  for (n, v) in (xunit: xunit, yunit: yunit) { if v != auto and type(v) not in (str, content) { return fail(n + ": a unit like \"V\", got " + _tn(v)) } }
   if type(samples) != int or samples < 2 { return fail("samples: an integer ≥ 2") }
   for (n, v) in (width: width, height: height) {
     let ok = if v == auto { true } else if type(v) == length { v.to-absolute() > 0pt } else if type(v) == ratio { v > 0% } else if type(v) == relative { v.ratio >= 0% and v.length.to-absolute() >= -1e9pt } else { false }
@@ -177,51 +188,80 @@
   let colors = if type(colors) == color { (colors,) } else { colors }
   if type(colors) == content { return fail("colors: square brackets make content – write an array with parentheses: (gray, blue, rgb(\"#f98eff\"))") }
   if type(colors) != array or colors.len() == 0 or colors.any(c => type(c) not in (color, gradient)) { return fail("colors: a color or an array of colors like (gray, blue, rgb(\"#f98eff\"))") }
-  let (xunit, yunit) = (xunit, yunit).map(v => if type(v) == content { _str(v) } else { v })
-  let b = _first-err((xunit, yunit))
-  if b != none { return fail(b.err) }
-  for v in (xunit, yunit) { if type(v) == str { let u = _unit(v, U: U); if _E(u) { return fail(u.err) } } }
   let d = _vars-of(_st.get())
   let fns = _st.get().at("#fn", default: (:))
   let env = _env(d)
   let D(e) = _dp(e, none, cf).at(0)
-  // each equation: (source, left, right or none)
-  let ps = ()
+  // each curve: (source, left, right or none): an expression ("cos(w)"), or a function of what it's plotted against,
+  // named by the left side ("U(x: A) = q(x)", "P(..) = U^2/R"); with what each takes and the units given to those
+  let (ps, takes, units, kept) = ((), (), (:), ())
+  // math reads as cos ( w ): tidied for hints
+  let tidy(t) = t.trim().replace(regex("\\s*([()])\\s*"), m => m.captures.at(0)).replace(regex("\\)(\\w)"), m => ") " + m.captures.at(0))
   for q in eqs {
     let s = if type(q) == content and q.func() == math.equation { let m = _str(q, q: true); if _E(m) { m } else { _math-eq(m, d, cf) } } else { _str(q) }
     if _E(s) { return fail(s.err) }
     let sides = s.split("=")
     if sides.len() > 2 { return fail("more than one '=' in '" + s + "'") }
-    let L = _parse(sides.at(0), d, f: fns, U: U)
-    let R = if sides.len() > 1 { _parse(sides.at(1), d, f: fns, U: U) }
-    let b = _first-err((L, R))
-    if b != none { return fail(b.err) }
-    ps.push((s, L, R))
+    if sides.len() == 1 {
+      let L = _parse(s, d, f: fns, U: U)
+      if _E(L) { return fail(L.err) }
+      ps.push((s, L, none))
+      // shown with its calls, U(x) rather than what U does; with the type a function returns
+      let K = _parse(s, d, f: fns, keep: true, U: U)
+      kept.push(if _E(K) { L } else { K })
+      takes.push(_vars(L).dedup().filter(n => n not in d))
+      continue
+    }
+    let (l, r) = sides.map(str.trim)
+    let fm = l.match(regex("^(\\p{L}[\\p{L}\\p{N}_]*)\\s*\\((.*)\\)$"))
+    // cos(w) = w, f(x) = 9 with a known f: an equation, not a curve
+    let fm = if fm != none and fm.captures.at(0) not in _F and fm.captures.at(0) not in fns { fm }
+    if fm == none {
+      let R = _parse(r, d, f: fns, U: U)
+      if _E(R) { return fail(R.err) }
+      if l.match(regex("^\\p{L}[\\p{L}\\p{N}_]*$")) == none {
+        return fail("a curve is an expression or a function like U(x) = …; for where both sides of '" + s.trim() + "' meet, plot them as two curves: #graph(\"" + tidy(l) + "\", \"" + tidy(r) + "\")")
+      }
+      let free = _vars(R).dedup().filter(n => n not in d)
+      let one = free.len() == 1
+      return fail("a named curve is a function of what it's plotted against: #graph(\"" + l + "(" + (if one { free.first() } else { ".." }) + ") = " + tidy(r) + "\")" + if one { ", or " + l + "(..) to leave that to solveng" } else { "" })
+    }
+    let name = _greek(fm.captures.at(0))
+    let pl = _plist(fm.captures.at(1), name, U: U, implicit: cf.implicit-parameters)
+    if _E(pl) { return fail(pl.err) }
+    // read knowing the units of the parameters: q(x) with q(x: A) checks x
+    let R = _parse(r, d + _pvars(pl), f: fns, U: U)
+    if _E(R) { return fail(R.err) }
+    let t = _pfree(R, pl, d, name)
+    if _E(t) { return fail(t.err) }
+    ps.push((s, ("v", name), R))
+    kept.push(none)
+    takes.push(t)
+    units += pl.units
   }
   let eq = ps.map(p => p.at(0)).join("', '")
-  let x = if x != auto { x } else {
-    let ys = ps.filter(((_, L, R)) => R != none and L.at(0) == "v").map(p => p.at(1).at(1))
-    let u = ps.map(((_, L, R)) => _vars(L) + if R != none { _vars(R) } else { () }).flatten().dedup().filter(n => n not in d and n not in ys)
-    if u.len() != 1 { return fail("can't tell the x variable in '" + eq + "', pass x: \"…\"") }
-    u.first()
-  }
+  // x is what the curves are functions of
+  let xs = takes.flatten().dedup()
+  if xs.len() > 1 { return fail("a graph has one x axis, but " + xs.map(n => "'" + n + "'").join(", ", last: " and ") + " vary in '" + eq + "' – define all but one") }
+  if xs.len() == 0 { return fail("nothing varies in '" + eq + "' – a curve takes what it's plotted against: U(x) = …") }
+  let x = xs.first()
   // curves with their legend labels; pairs whose crossings are marked
   let (curves, labels, pairs) = ((), (), ())
-  let ns = ps.filter(((_, L, R)) => R != none and L.at(0) == "v" and L.at(1) != x).map(p => p.at(1).at(1))
-  for (_, L, R) in ps {
-    if R == none { curves.push(L); labels.push(D(L)) }
-    else if L.at(0) == "v" and L.at(1) != x {
-      // y = x², y = 2x + 3: the same name twice, so the legend shows the equations
+  let ns = ps.filter(((_, L, R)) => R != none).map(p => p.at(1).at(1))
+  for (i, (src, L, R)) in ps.enumerate() {
+    if R == none { curves.push(L); labels.push(D(kept.at(i))) }
+    else if L.at(1) == x { return fail("'" + x + "' is what '" + src.trim() + "' is plotted against, so it can't name the curve") }
+    else {
+      // y(x) = x², y(x) = 2x + 3: the same name twice, so the legend shows the functions
       curves.push(R); labels.push(if ns.filter(n => n == L.at(1)).len() > 1 { $#_name(L.at(1)) = #D(R)$ } else { _name(L.at(1)) })
     }
-    else { pairs.push((curves.len(), curves.len() + 1)); curves += (L, R); labels += (D(L), D(R)) }
   }
   if curves.len() == 2 and pairs.len() == 0 { pairs.push((0, 1)) }
-  let named = ps.filter(((_, L, R)) => R != none and L.at(0) == "v" and L.at(1) != x).map(p => p.at(1).at(1))
+  let named = ps.filter(((_, L, R)) => R != none).map(p => p.at(1).at(1))
   let yname = if named.len() == ps.len() { named.dedup().join(", ") }
   let (L, R) = (ps.first().at(1), ps.first().at(2))
   // x range and unit
-  // x values of range and mark: plain numbers (in xunit, known later) or (v, dims, unit) of a value or expression
+  // x values of range and mark: plain numbers (in x's unit, known later) or (v, dims, unit) of a value or expression
   let xv(a) = {
     if type(a) in (int, float) { return float(a) }
     let s = _str(a, q: type(a) == content and a.func() == math.equation)
@@ -242,12 +282,12 @@
     let r = _ev(e, d)
     if _E(r) { return _err(r.err + " in '" + s.trim() + "'") }
     let a = _auto(r.at(1), U: U)
-    (r.at(0), r.at(1), if r.at(1) == _Z { "" } else { _pre(r.at(0) / _unit(a, U: U).at(0), a, cf) }, s.trim())
+    (r.at(0), r.at(1), if r.at(1) == _Z { "" } else { _pre(r.at(0) / _factor(a, U: U), a, cf) }, s.trim())
   }
   // a value whose unit doesn't fit its axis: "'f(20)' is 40 (no unit), but x is in Ω"
   let misfit(v, axis, u) = {
     let (val, dm, vu, src) = v
-    let shown = if vu == "" { str(calc.round(val, digits: 4)) + " (no unit)" } else { str(calc.round(val / _unit(vu, U: U).at(0), digits: 4)) + " " + vu }
+    let shown = if vu == "" { str(calc.round(val, digits: 4)) + " (no unit)" } else { str(calc.round(val / _factor(vu, U: U), digits: 4)) + " " + vu }
     "'" + src + "' is " + shown + ", but " + axis + (if u == "" { " has no unit" } else { " is in " + u }) + " – plain numbers count in the axis unit"
   }
   let rvs = rng.map(xv)
@@ -257,9 +297,11 @@
   let b = _first-err(rvs + mvs + yrv + ymv)
   if b != none { return fail(b.err) }
   let withu = (rvs + mvs).filter(v => type(v) == array and v.at(1) != _Z)
-  let xunit = if xunit != auto { xunit } else if x in d { d.at(x).u } else if withu.len() > 0 { withu.first().at(2) } else { "" }
+  // x's unit: given with it (U(x: A)), or by a function it's passed to (q(I: mA)), else from the range and marks
+  let typed = if x in units { units.at(x) } else { ps.map(((s, ..)) => s.split("=").last()).map(side => _typed-x(_parse(side, d, f: fns, keep: true, U: U), x, fns)).find(t => t != none) }
+  let xunit = if typed != none { typed.u } else if withu.len() > 0 { withu.first().at(2) } else { "" }
   let (xf, xd) = _unit(xunit, U: U)
-  if x in d { xd = d.at(x).d } else if xunit == "" and withu.len() > 0 { xd = withu.first().at(1) }
+  if xunit == "" and withu.len() > 0 { xd = withu.first().at(1) }
   // no unit for x yet, but y values have one: x's unit follows from the curve (P = U0²/R2 and P0 in W: R2 in Ω)
   let yu = (yrv + ymv).find(v => type(v) == array and v.at(1) != _Z)
   if xunit == "" and x not in d and withu.len() == 0 and yu != none {
@@ -267,7 +309,7 @@
     if not _E(r) and r.at(0) != none and r.at(0).at(1).first() != 0 {
       let (c, (k,)) = r.at(0)
       let dm = yu.at(1).zip(c).map(((y, z)) => calc.round((y - z) / k, digits: 6))
-      if dm != _Z { xd = dm; xunit = _auto(dm, U: U); xf = _unit(xunit, U: U).at(0) }
+      if dm != _Z { xd = dm; xunit = _auto(dm, U: U); xf = _factor(xunit, U: U) }
     }
   }
   let bad = (rvs + mvs).find(v => type(v) == array and v.at(1) != xd)
@@ -286,8 +328,8 @@
   }
   let bad = (yrv + ymv).find(v => type(v) == array and v.at(1) != yd)
   if bad != none { return fail(misfit(bad, if yname != none { yname } else { "y" }, if yd == _Z { "" } else { _auto(yd, U: U) })) }
-  // plain numbers for y are in yunit, or in the SI unit
-  let yb = _unit(if yunit != auto { yunit } else { _auto(yd, U: U) }, U: U).at(0)
+  // plain numbers for y are in the SI unit
+  let yb = _factor(_auto(yd, U: U), U: U)
   let ysi(v) = if type(v) == float { v * yb } else { v.at(0) }
   let (yrv, ymv) = (yrv.map(ysi), ymv.map(ysi))
   // where the curves reach the y marks: the nearest ones must be visible
@@ -299,10 +341,7 @@
     }
   }
   let need = mvs + yneed
-  let (xa, xb) = if rvs.dedup().len() >= 2 { (calc.min(..rvs), calc.max(..rvs)) } else if x in d {
-    let v = d.at(x).v
-    if v > 0 { (0.0, 2 * v) } else if v < 0 { (2 * v, 0.0) } else { (-xf, xf) }
-  } else if need.len() > 0 {
+  let (xa, xb) = if rvs.dedup().len() >= 2 { (calc.min(..rvs), calc.max(..rvs)) } else if need.len() > 0 {
     // the marks are what's interesting: around them, not back to 0
     let (lo, hi) = (calc.min(..need), calc.max(..need))
     let (a, b) = if lo == hi { let w = if lo == 0 { xf } else { calc.abs(lo) / 2 }; (lo - w, lo + w) } else { let p = (hi - lo) * 0.25; (lo - p, hi + p) }
@@ -328,8 +367,11 @@
     (lo, hi) = (calc.min(..vs), calc.max(..vs))
     if lo == hi { let w = if lo == 0 { yb } else { calc.abs(lo) }; (lo, hi) = (lo - w, lo + w) } else { let p = (hi - lo) * 0.25; (lo, hi) = (lo - p, hi + p) }
   }
-  let yunit = if yunit != auto { yunit } else { let a = _auto(yd, U: U); _pre(calc.max(calc.abs(lo), calc.abs(hi)) / _unit(a, U: U).at(0), a, cf) }
-  let yf = _unit(yunit, U: U).at(0)
+  // a function's result in the type it returns (A², not W from V·A)
+  let ret = if kept.len() == 1 and kept.first() != none and kept.first().at(0) == "f" { fns.at(kept.first().at(1), default: (:)).at("ret", default: none) }
+  let ret = if ret != none and ret != "1" { let r = _unit(ret, U: U); if not _E(r) and r.at(1).map(z => calc.round(z, digits: 6)) == yd { ret } }
+  let yunit = { let a = if ret != none { ret } else { _auto(yd, U: U) }; _pre(calc.max(calc.abs(lo), calc.abs(hi)) / _factor(a, U: U), a, cf) }
+  let yf = _factor(yunit, U: U)
   // display ranges and ticks
   let (x0, x1) = (xa / xf, xb / xf)
   let (y0, y1) = if yrv.dedup().len() >= 2 { (calc.min(..yrv) / yf, calc.max(..yrv) / yf) } else {
@@ -408,10 +450,7 @@
     }
     r
   }
-  for ly in autos {
-    if curves.len() == 1 and yname != none and x in d { mvs.push(d.at(x).v); mly.push(ly) }
-    pts += crossings(pairs, ly)
-  }
+  for ly in autos { pts += crossings(pairs, ly) }
   for (t, ly) in mvs.zip(mly) { for e in curves { pts.push((t, F(e, t), if ly or curves.len() == 1 { "xy" } else { "x" }, true, ly)) } }
   for Y in ymv { for e in curves { pts += zeros(t => { let v = F(e, t); if v == none { none } else { v - Y } }).map(t => (t, Y, "xy", false, true)) } }
   let kw(k) = kws.filter(((m, _)) => m == k).map(e => e.at(1))
@@ -450,8 +489,8 @@
     xmin: x0, xmax: x1, ymin: y0, ymax: y1, width: width, height: height,
     xtick: xt.at(0), xtick-labels: xt.at(1), ytick: yt.at(0), ytick-labels: yt.at(1), show-grid: "major",
     axis-x-pos: if yc { 0 } else { "bottom" }, axis-y-pos: if xc { 0 } else { "left" }, show-origin: xc and yc,
-    xlabel: _axlabel(_name(x), xunit, U: U),
-    ylabel: _axlabel(if yname != none { named.dedup().map(_name).join($, $) } else if curves.len() == 1 { D(curves.first()) } else { $$ }, yunit, U: U),
+    xlabel: _axlabel(_name(x), xunit, U: U, cf: cf),
+    ylabel: _axlabel(if yname != none { named.dedup().map(_name).join($, $) } else if curves.len() == 1 { labels.first() } else { $$ }, yunit, U: U, cf: cf),
   ) + args.named()
   let make(w, h) = _sp.plot(..o + (width: w, height: h), ..ser, ..args.pos())
   // auto: a plot area of 8 × 5 cm; lengths and shares (100%, 50pt) are the whole graph, labels included

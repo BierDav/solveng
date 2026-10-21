@@ -5,6 +5,7 @@
 ///
 /// - **Strings:** a unit is read only where a value is written – right after a number (`"I = 30 mA"`) or in brackets (`[5 V]`, `[A]` for one ampere). Every other name in an equation is a variable.
 /// - **Math:** quoted text is a unit (`$30 "mA"$`, `$3 "h"$` – set upright, as units should be); a bare letter is a variable if one with that name is defined (`$3 h$` with `h` defined is 3 times h, in italics), else a unit after a number (`$5 V$`).
+/// - **Units of several letters** need no quotes in math when solveng is imported with `*`, which brings their names: `$30 mA$`, `$R: kΩ = 4.7 kΩ$`. Not `min` and `deg` (Typst's own) and units you define with `units`; those stay quoted. The cast `"as"` is always quoted.
 /// - **Unclear is an error:** a value whose unit is also a defined variable (`"t = 3 h"` with `h` defined, `"f = 1/T"` with `T` defined) is refused, with a hint how to write either meaning: `[3 h]` for hours, `3*h` or `1/(T)` for the variable.
 ///
 /// ```typ
@@ -35,6 +36,17 @@
 // strict: a unit typed bare in math is set in italics like a variable, so it has to be quoted
 #let _strict-unit(k) = _err("write " + k + " in quotes, \"" + k + "\": with the option strict, units in math are quoted (set upright), bare letters are variables")
 
+// "k"Omega, "k" "A": a quoted prefix belongs to the unit after it ("m" Omega is metre times ohm, "m"Omega milliohm);
+// other quoted units glued stay apart ("A""as" is A·as)
+#let _uglue(s, U) = {
+  let join(m) = {
+    let (p, sp, u) = m.captures
+    if sp == "" or not _known(p, U) { "\"" + p + u.trim("\"") + "\"" } else { m.text }
+  }
+  s.replace(regex("\"(" + _P.keys().join("|") + ")\"(\\s*)(\"[^\"]*\"|Ω|\u{2126})"), join)
+}
+// a unit as math content (from _str(…, q: true)) -> (factor, dims, unit) of _uexpr, or an error
+#let _math-unit(s, U) = if _E(s) { s } else { _uexpr(_uglue(s, U).replace("\"", " ").replace("∗", "*"), U: U) }
 // one side of a math equation as typed: decimal commas (0,95) and quantities written without brackets
 // (frac(3450/2 "mAh", 30 "mA") → [(3450)/(2) mAh]/[30 mA]). Quoted text ("V") is a unit; a bare letter is a
 // unit only after a number and if it isn't a defined variable ($3 h$ with a variable h is 3 times h).
@@ -42,13 +54,9 @@
 // -> a string _parse reads, or an error
 #let _math-src(s, vars, cf, bare: false) = {
   let U = _UT(cf)
-  let s = s.replace(regex("(\d),(\d)"), m => m.captures.at(0) + "." + m.captures.at(1))
-  // "k"Omega, "k" "A": a quoted prefix belongs to the unit after it ("m" Omega is metre times ohm, "m"Omega milliohm)
-  let join(m) = {
-    let (p, sp, u) = m.captures
-    if sp == "" or (p in _P and not _known(p, U)) { "\"" + p + u.trim("\"") + "\"" } else { m.text }
-  }
-  let s = s.replace(regex("\"([^\"]*)\"(\\s*)(\"[^\"]*\"|Ω|\u{2126})"), join)
+  // math sets * as ∗
+  let s = s.replace(regex("(\d),(\d)"), m => m.captures.at(0) + "." + m.captures.at(1)).replace("∗", "*")
+  let s = _uglue(s, U)
   let t = _tkq(s)
   let num(k) = k.match(regex("^[\d.]")) != none
   let name(k) = k != none and k.match(regex("^\p{L}")) != none
@@ -75,6 +83,41 @@
     let u = inner.map(_unq).join(" ").replace(regex("\^\s*\(\s*([-−]?)\s*(\d+)\s*\)"), m => "^" + m.captures.at(0).replace("−", "-") + m.captures.at(1))
     (u.replace(regex("[()]"), "").replace(regex("\s*\^\s*"), "^").trim(), e + 1, inner.find(k => unit(k) and loose(k)))
   }
+  // the unit of a cast or type at j, as math writes it: "A" "as", ("A" * "as")/"V", "m"^2 -> (unit, index after it), or none
+  let urun(j) = {
+    let atom(j) = {
+      let k = t.at(j, default: none)
+      let e = if unit(k) { j + 1 } else if k == "(" {
+        let (dp, e) = (0, j)
+        while e < t.len() {
+          if t.at(e) == "(" { dp += 1 } else if t.at(e) == ")" { dp -= 1; if dp == 0 { break } }
+          e += 1
+        }
+        let inner = t.slice(j + 1, calc.min(e, t.len()))
+        if e < t.len() and inner.any(unit) and inner.all(k => unit(k) or k in ("^", "(", ")", "-", "−", "*", "·", "⋅", "/") or k.match(regex("^\d+$")) != none) { e + 1 }
+      }
+      if e == none { return none }
+      // a power: ^2, ^(2), ^(-1), ^-1
+      let p = t.slice(e, calc.min(e + 5, t.len()))
+      let n = if p.at(0, default: none) != "^" { 0 } else if p.at(1, default: none) == "(" {
+        let o = int(p.at(2, default: none) in ("-", "−"))
+        if num(p.at(2 + o, default: "")) and p.at(3 + o, default: none) == ")" { 4 + o } else { 0 }
+      } else {
+        let o = int(p.at(1, default: none) in ("-", "−"))
+        if num(p.at(1 + o, default: "")) { 2 + o } else { 0 }
+      }
+      e + n
+    }
+    let e = atom(j)
+    if e == none { return none }
+    while true {
+      let op = t.at(e, default: none) in ("*", "·", "⋅", "/")
+      let n = atom(e + int(op))
+      if n == none { break }
+      e = n
+    }
+    (t.slice(j, e).map(_unq).join(" "), e)
+  }
   // start of the numeric factor at the end of out ((3450)/(2), 2^3), or none
   let start(out) = {
     let (d, best) = (0, none)
@@ -96,6 +139,19 @@
     let k = t.at(i)
     let b = if (unit(k) or group(i) != none) and out.len() > 0 and (num(out.last()) or out.last() == ")") { start(out) }
     if b == none and bare and (unit(k) or group(i) != none) and out.len() > 0 and (out.last() == ")" or name(out.last())) { b = out.len() }
+    // "as" after anything but a value casts (x "as" "mA"); after a number it's the unit, attosecond
+    // with its unit in brackets, which casts read whole
+    if b == none and _unq(k) == "as" {
+      let r = urun(i + 1)
+      out.push("as")
+      if r != none { out.push("[" + r.at(0) + "]"); i = r.at(1) } else { i += 1 }
+      continue
+    }
+    // a parameter's type, f(I: "mA"), and what isn't allowed but is read to say so: V: A, f(…): A
+    if b == none and k == ":" and out.len() > 0 and (name(out.last()) or out.last() == ")") {
+      let r = urun(i + 1)
+      if r != none { out += (":", "[" + r.at(0) + "]"); i = r.at(1); continue }
+    }
     // a quoted unit on its own: "A" alone is one ampere
     if b == none and _quoted(k) and unit(k) { b = out.len() }
     if b == none {
@@ -108,7 +164,8 @@
     let go = true
     while go and j < t.len() {
       let a = t.at(j)
-      if unit(a) {
+      // as after a unit casts (2 "A" "as" "mA"); right after the number it's attoseconds
+      if unit(a) and not (_unq(a) == "as" and u.len() > 0) {
         if loose(a) { return _strict-unit(a) }
         u.push(_unq(a)); j += 1
         // m^2, s^-1, m^(2) (math writes the exponent in parentheses)

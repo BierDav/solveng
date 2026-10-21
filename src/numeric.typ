@@ -28,6 +28,8 @@
   let r = if k == "n" { (float(a.first()), none) }
   else if k == "q" { (float(a.first().v), none) }
   else if k == "c" { (if a.first() == "e" { calc.e } else { calc.pi }, none) }
+  else if k == "as" { let r = _nd(a.first(), env); if r == none { return none }; let f = float(a.at(1).f); (r.at(0) * f, _lc(f, r.at(1))) }
+  else if k == "cmp" { let (l, r) = (_nd(a.at(1), env), _nd(a.at(2), env)); if l == none or r == none { return none }; (_holds(a.first(), l.at(0), r.at(0)), none) }
   else if k == "v" {
     let x = env.at(a.first(), default: none)
     if x == none { return none }
@@ -115,6 +117,10 @@
   }
   else if k == "*" { (if none in ds { none } else { ds.reduce(A) }, cons) }
   else if k == "/" { let (x, y) = ds; (if x == none { none } else if y == none { K(_Z) } else { A(x, y, s: -1) }, cons) }
+  // a cast has its unit, whatever went in
+  else if k == "as" { (K(a.at(1).d), cons) }
+  // a comparison is 1 or 0, its sides in one unit
+  else if k == "cmp" { let (l, r) = ds; (K(_Z), cons + eq(l, r)) }
   else if k == "^" {
     let (b, x) = ds
     if xs.any(v => _has(a.at(1), v)) { (K(_Z), cons + eq(b, K(_Z)) + eq(x, K(_Z))) }

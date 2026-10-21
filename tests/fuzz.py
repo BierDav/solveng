@@ -11,8 +11,14 @@ Outcomes per case:
   wrong     a stored/displayed value is wrong            <- bug
   crash     a typst error that is not a solveng panic   <- bug
 """
-import argparse, json, math, os, random, subprocess, sys, tempfile, collections
+import argparse, json, math, os, random, re, subprocess, sys, tempfile, collections
 from concurrent.futures import ThreadPoolExecutor
+
+# solveng stores a spelled Greek letter, alone or before an index, as the letter: tau is τ
+GREEK = {"tau": "τ", "rho": "ρ", "omega": "ω", "phi": "φ", "alpha": "α", "beta": "β", "lambda": "λ", "mu": "μ", "theta": "θ"}
+def stored(n):
+    m = re.match(r"([A-Za-z]+)((?:_|\d).*)?$", n)
+    return GREEK.get(m.group(1), m.group(1)) + (m.group(2) or "") if m else n
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LIB = os.path.join(os.path.dirname(HERE), "src", "graph.typ")  # internals (_st, _fmt, …) live in src/
@@ -43,7 +49,7 @@ def close(a, b, rel=1e-6, abs_=1e-12):
 # ---------- units: name -> (factor, dims m kg s A K; the library adds mol cd) ----------
 UNITS = {
     "m": (1, (1, 0, 0, 0, 0)), "g": (1e-3, (0, 1, 0, 0, 0)), "s": (1, (0, 0, 1, 0, 0)), "A": (1, (0, 0, 0, 1, 0)),
-    "V": (1, (2, 1, -3, -1, 0)), "Ω": (1, (2, 1, -3, -2, 0)), "Ohm": (1, (2, 1, -3, -2, 0)), "W": (1, (2, 1, -3, 0, 0)),
+    "V": (1, (2, 1, -3, -1, 0)), "Ω": (1, (2, 1, -3, -2, 0)), "W": (1, (2, 1, -3, 0, 0)),
     "J": (1, (2, 1, -2, 0, 0)), "C": (1, (0, 0, 1, 1, 0)), "F": (1, (-2, -1, 4, 2, 0)), "H": (1, (2, 1, -2, -2, 0)),
     "Hz": (1, (0, 0, -1, 0, 0)), "N": (1, (1, 1, -2, 0, 0)), "Pa": (1, (-1, 1, -2, 0, 0)), "h": (3600, (0, 0, 1, 0, 0)),
     "min": (60, (0, 0, 1, 0, 0)), "Ah": (3600, (0, 0, 1, 1, 0)), "Wh": (3600, (2, 1, -2, 0, 0)), "eV": (1.602176634e-19, (2, 1, -2, 0, 0)),
@@ -240,10 +246,11 @@ def case_units(r):
     tu, tf, _ = rand_unit(r, UNITS[dims[x]][1])
     target = f', unit: "{tu}"' if r.random() < 0.5 else ""
     doc = (f'#def({", ".join(giv)})\n#solve("{eq}"{target}, unknown: "{x}")\n'
-           f'#context [#metadata((v: _st.get().at("{x}", default: (v: none)).v, d: _st.get().at("{x}", default: (d: none)).d)) <r>]')
+           f'#context [#metadata((v: _st.get().at("{stored(x)}", default: (v: none)).v, d: _st.get().at("{stored(x)}", default: (d: none)).d)) <r>]')
     def check(out):
         if out["v"] is None: return "miss", f"{x} = {vals[x]}"
-        if list(out["d"]) != list(UNITS[dims[x]][1]) + [0, 0]: return "wrong", f"dims {out['d']} for {x}"
+        # mol, cd and the slots for base units of your own (units: (ü: auto)) are 0
+        if list(out["d"]) != (list(UNITS[dims[x]][1]) + [0] * 10)[:len(out["d"])]: return "wrong", f"dims {out['d']} for {x}"
         if not close(out["v"], vals[x], 1e-6, 1e-300): return "wrong", f"{x} = {out['v']}, want {vals[x]}"
         return "ok", ""
     return doc, None, check
@@ -293,18 +300,18 @@ def case_display(r):
     sub = case_solve1(r, depth=2) if r.random() < .5 else (case_poly(r) if r.random() < .5 else case_system(r))
     if sub is None: return None
     body = sub[0].rsplit("\n", 1)[0]
-    g = r.choice(['"3450/2 mAh"', '$frac(2, 4)"A"$', '"0.000123 kOhm"', '"-12345678 V"', '"7.20 uF"'])
+    g = r.choice(['"3450/2 mAh"', '$frac(2, 4)"A"$', '"0.000123 kΩ"', '"-12345678 V"', '"7.20 uF"'])
     doc = f'#solve-config({opts})\n#def({g.replace(g[0], g[0] + 'z = ', 1)})\n{body}\n#defined()\n#solve("z", inline: true, steps: "value")\n#context [#metadata(1) <r>]'
     return doc, None, lambda out: ("ok", "")
 
 
 # ---------- fixed hostile inputs: (document, expected outcome, check of the stored value or None) ----------
-V = lambda n: f'#context [#metadata(_st.get().at("{n}", default: (v: none)).v) <r>]'
+V = lambda n: f'#context [#metadata(_st.get().at("{stored(n)}", default: (v: none)).v) <r>]'
 EDGE = [
     ('#def("a = ")', "graceful", None), ('#def("a =  V")', "graceful", None), ('#def("a = abc")', "graceful", None),
     ('#def("a = 1..2 V")', "graceful", None), ('#def("a = 1e999 V")', "graceful", None), ('#def("a = --5 V")', "graceful", None),
     ('#def("a = −5 V")' + V("a"), "ok", -5), ('#def("a = 5 %") #solve("b = a * 200")' + V("b"), "ok", 10),
-    ('#def("Q_0 = 1 C", "R_min = 2 Ohm") #solve("Q_0 R_min = y")' + V("y"), "ok", 2),
+    ('#def("Q_0 = 1 C", "R_min = 2 Ω") #solve("Q_0 R_min = y")' + V("y"), "ok", 2),
     ('#def("e = 2") #solve("y = e^2")' + V("y"), "ok", 4), ('#def("pi = 3") #solve("y = pi")' + V("y"), "ok", 3),
     ('#solve("y == 2")', "graceful", None), ('#solve("")', "graceful", None), ('#solve("= 5")', "graceful", None),
     ('#solve("x^1000 = 2")' + V("x"), "ok", 2 ** (1 / 1000)), ('#solve("exp(x) = -1")', "ok", None), ('#solve("sin(x) = 2")', "ok", None),
@@ -320,7 +327,7 @@ EDGE = [
     ('#def("a = 3 V") #solve-block(inherit: true)[#solve("b = 2 a")]' + V("b"), "ok", None),
     ('#solve("x^2 = 4", root: 3)', "graceful", None), ('#solve("x^2 = 4", root: x => x > 100)', "graceful", None),
     ('#solve("x^2 = 4", guess: -1)' + V("x"), "ok", -2), ('#solve("abs(x - 3) = 2", root: 1)' + V("x"), "ok", 1),
-    ('#solve($y = 2$)' + V("y"), "ok", 2), ('#def("R = 2 kOhm", "I = 3 mA") #solve($U = R dot I$)' + V("U"), "ok", 6),
+    ('#solve($y = 2$)' + V("y"), "ok", 2), ('#def("R = 2 kΩ", "I = 3 mA") #solve($U = R dot I$)' + V("U"), "ok", 6),
     ('#solve($x + y = 3$, $x - y = 1$)' + V("x"), "ok", 2), ('#solve($w = root(3, 8) times 2$)' + V("w"), "ok", 4),
     ('#def("a = 2 m^2", "b = 3 m²") #solve("c = a + b")' + V("c"), "ok", 5), ('#def("v = 3 m/s/s") #solve("v")', "ok", None),
     ('#def("m = 2 kg") #solve("F = m * [9.81 m/s^2]")' + V("F"), "ok", 19.62),
@@ -332,12 +339,12 @@ EDGE = [
     ('#solve-config(layout: "column", steps: "formula")[#solve("x^3 - x = 0")] #solve("p q = 6", "p + q = 5", steps: "result")', "ok", None),
     ('#show: solve-config.with(digits: 2, separator: ",")\n#solve("y = 1/3")', "ok", None),
     ('#def("f(x) = x^2 + 1") #def("y = f(3)")' + V("y"), "ok", 10),
-    ('#def("g(a, b) = a b + b", "R = 2 kOhm") #def("z = g(2, R) / R")' + V("z"), "ok", 3),
+    ('#def("g(a, b) = a b + b", "R = 2 kΩ") #def("z = g(2, R) / R")' + V("z"), "ok", 3),
     ('#def("f(x) = 2 x") #def("f(y) = 3 = 9")', "graceful", None), ('#def("f(x) = x") #def("y = f(1, 2)")', "graceful", None),
     ('#def("f(2 x) = x")', "graceful", None), ('#def("sin(x) = 2")' + V("x"), "ok", None), ('#def("f(x) = x") #def("y = f(")', "graceful", None),
     ('#def("f(x) = x^2") #solve("f(x) = 9", root: 2)' + V("x"), "ok", 3),
     ('#def("h(s) = s/2") #def("t = 40 h") #def("w = h(t)")' + V("w"), "ok", 72000),
-    ('#def("R = 1 kOhm", "I = 2 mA", "U = R I")' + V("U"), "ok", 2), ('#def("U = R I")', "graceful", None),
+    ('#def("R = 1 k\\"\\"Omega", "I = 2 mA", "U = R I")' + V("U"), "ok", 2), ('#def("U = R I")', "graceful", None),
     ('#def("x + y = 3", "x - y = 1")' + V("y"), "ok", 1), ('#def()', "graceful", None), ('#def("a = 1", output: "yes")', "graceful", None),
     ('#def("a = 1 V", output: true, steps: "value") #def("b = 2 V", output: true, inline: true) #solve("c = 2 a", steps: "value", inline: true) #solve("d = 2 a", layout: "column", steps: "formula") #def("c = 3 V", listed: false)', "ok", None),
     ('#solve-config(integration: "full")[#solve-block[`a = 2 V` and\n```\nb = 2 a -> mV // c\nf(x) = x + 1\nc = f(1)\n\np + q = 3; p - q = 1\nd -> V\n```\n]]', "graceful", None),
@@ -365,7 +372,7 @@ EDGE = [
     ('#show: solve-block\n$ t = frac(3450 / 2 "mAh", 30 "mA") = 57","5 "h" $' + V("t"), "ok", 207000),
     ('#show: solve-block\n$R = 7.2 "k"Omega = 7200 Omega$ $x = 0,5 dot R$' + V("x"), "ok", 3600),
     ('#show: solve-block\n$a = 2 "m"/"s"^2$ $h = 2$ $y = 3 h$ $Q = I t => t = Q/I$' + V("a") + V("y"), "ok", None),
-    ('#graph("y = 1/x", xrange: (-1, 1), ymark: 2)', "ok", None), ('#graph("y = x^2", "y = 2x + 3")', "ok", None), ('#graph("sin(t)")', "ok", None), ('#graph("exp(a) - 3", xrange: (0, 2), yrange: (-3, 5), mark: ("roots", 1.5), xmark: "crossings")', "ok", None), ('#graph("sqrt(u) - 1", colors: red)', "ok", None), ('#graph("x", colors: [red])', "ok", None), ('#graph("x", width: 100%, height: 50%)', "ok", None), ('#graph("x", width: 6cm, height: 120pt)', "ok", None), ('#graph("x", width: -1)', "graceful", None), ('#graph("y = 2", x: "x", xrange: (0, 1), mark: ())', "ok", None),
+    ('#graph("y(x) = 1/x", xrange: (-1, 1), ymark: 2)', "ok", None), ('#graph("y(x) = x^2", "y(x) = 2x + 3")', "ok", None), ('#graph("sin(t)")', "ok", None), ('#graph("exp(a) - 3", xrange: (0, 2), yrange: (-3, 5), mark: ("roots", 1.5), xmark: "crossings")', "ok", None), ('#graph("sqrt(u) - 1", colors: red)', "ok", None), ('#graph("x", colors: [red])', "ok", None), ('#graph("x", width: 100%, height: 50%)', "ok", None), ('#graph("x", width: 6cm, height: 120pt)', "ok", None), ('#graph("x", width: -1)', "graceful", None), ('#graph("y() = 2", xrange: (0, 1), mark: ())', "graceful", None), ('#graph("P(..) = U^2/R")', "graceful", None), ('#graph("cos(w) = w")', "graceful", None), ('#graph("w = cos(w)")', "graceful", None), ('#graph("cos(w)", "w")', "ok", None), ('#graph("U = 2 x")', "graceful", None), ('#graph("U(..) = 1 A")', "ok", None), ('#graph("U(x: A) = x * [2 Ω]")', "ok", None), ('#def("f(x) = x + k")', "graceful", None),
 ]
 def case_edge(r, _i=[0]):
     i = _i[0]; _i[0] += 1

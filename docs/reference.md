@@ -43,15 +43,19 @@ as a system. `def` shows nothing (except problems) unless `output: true`; `solve
 is the same with the output on.
 
 ```typ
-#def("R = 7.2 kOhm", "I = 415 uA")     // values: a number with a unit
+#def("R = 7.2 kΩ", "I = 415 uA")       // values: a number with a unit
 #def($Q_0 = 3450 "mAh"$)                // math works too
 #def("U = R I")                          // computed from defined values
 #def("f(x) = x^2 + 1")                   // a function, usable as f(3)
+#def("P(I: mA) = I^2 * [50 Ω]")          // a parameter with a unit: P(20) is P(20 mA)
+#def("g(x, ..) = x * m")                 // .. takes the undefined rest: g(x, m)
+#def("I := 0.004 A", unit: "mA")          // := gives a defined name a new value; shown in mA: 4 mA
+#def("I := U as A")                       // a cast: U's number as amperes
 #def("Q_0/2 = I t", unit: "h")           // an equation: t is solved for
 #def("x + y = 3", "x - y = 1")           // a system
 ```
 
-Inside an equation `[5 V]` is a value and `@R` inlines the formula of `R`.
+Inside an equation `[5 V]` is a value and `@R` inlines the formula of `R`. A function uses only its parameters and defined variables: `f(x) = x + n` with an undefined `n` is an error, `f(x, ..)` takes the undefined rest as further parameters in order, and `f()` takes nothing – `solve-config(implicit-parameters: …)` changes that: `"empty"` makes `f()` short for `f(..)`, `"allow"` lets every function take the undefined rest. A parameter may have a unit (`I: mA`, in math `$P(I: "mA") = …$`): a plain number passed to it gets that unit, a value must have its dimension (checked in other functions' bodies too), and a graph over that parameter has its unit. A variable takes no type: its unit is its value's (`x/2 = 3 A` makes x 6 A); `unit:` (or `-> mA` in code) shows it in another. `1` is the type of a plain number (`f(n: 1)`), `any` takes every unit (`q(x: A, y: any) = x y`). A parameter without a type takes the one of what it's passed to as it is (`f(y_2: A, ..) = q(x_2, y_2)` makes `x_2` an A, through any number of functions), checked like a written one. Values convert between units of one dimension: `3 cm` passed to an `m` is 0.03 m. A function whose parameters all have a type has one too, A² for `W(x: V) = f(x as A, x as A)`, shown with it and used for its graph's axis; it follows from the body, so to change what a function returns, cast its expression. `:=` assigns (`≔` in math, typed `:=`): it defines a name or gives a defined one a new value, the last assignment winning, and redefines a function. `=` states what's true: it determines what isn't known yet (`I = 30 mA` defines I), is checked against what is (`I = 20 mA` after it is an error), and with a known function on the left it's an equation (`U(o) = 20` finds o). `solve` takes only statements. A function may compare, `U(x, y) := x = y` (also `<`, `>`, `≤`, `≥`, `≠`): it's 1 where that holds and 0 where not; so is a statement assigned to a variable, `V := 2 A = 2000 mA` is 1. Values of different units are never equal: `2 A = 2 V` is 0, `2 A ≠ 2 V` is 1. A chain `R = 7.2 kΩ = 7200 Ω` is one statement: all its steps must be equal, the last gives R its value, shown in the unit that fits it best (7.2 kΩ). `L := R = 7.2 kΩ = 7200 Ω -> R` stores what a statement tells R in L (`->` names what's solved for when the statement has that name, else it's the unit to show). A cast bypasses these checks: `U as A` takes the number of `U` in SI units as a value in `A` – with `U = 5 V`, `U as A` is 5 A, `U as mA` 5 mA, `U as 1` the plain number 5. It casts the term before it with its power (`2 U as A` is 2 · (U as A), `U^2 as V` casts U²; `(R I) as A` the product), to one unit word, `[a unit]`, `(a unit)` or in math units: `$I = U "as" "mA"$`, `$q = x "as" ("A" * "as")/"V"$`. Units of casts and types are simplified and shown with a dot between them: `"A""as"` is A·as, `mm mm/m` µm. After a number `as` is the unit, attosecond (`3 as`), and `U as as` casts to it. Casts and types show as chips that set them apart from the maths; `show-casts` and `show-types` show them as plain maths instead (`"plain"`) or hide them (`"no"`) wherever solveng shows them, in the equations as written too.
 
 | parameter | type | default | |
 |---|---|---|---|
@@ -157,7 +161,7 @@ Returns content.
 Lists the definitions made so far, in order.
 
 ```typ
-#def("R = 7.2 kOhm", "U = 5 V", "I = U/R", "f(x) = x^2")
+#def("R = 7.2 kΩ", "U = 5 V", "I = U/R", "f(x) = x^2")
 #defined()                                          // everything, in columns side by side
 #defined(included: "given")                         // only plain values (also "computed", "function")
 #defined(excluded: ("U", "function"))               // names and kinds
@@ -188,26 +192,27 @@ Returns content.
 
 Plots an equation with `simple-plot`: ranges, nice ticks, axis labels and units are picked automatically.
 
-Every positional string or math is a curve: `y = …` gives one curve (named `y` in the
-legend) and marks the stored point with guide lines; other equations draw both sides
-and mark the intersections. `xrange:` / `yrange:` list values that must be visible;
+Every positional string or math is a curve: an expression (`"cos(w)"`), or a function of
+what it's plotted against, named in the legend and on the axis: `"U(x: A) = x * [2 Ω]"`, with
+the parameter's unit for the x axis, or `"P(..) = U^2/R"`, where `..` takes the one variable
+that isn't defined (with its unit from the range or the marks). Like every function, a curve
+may use only its parameters and defined variables. All curves share x. Where two cross is marked:
+`#graph("cos(w)", "w")` shows the solution of cos(w) = w. `xrange:` / `yrange:` list values that must be visible;
 without them the x range is picked around the marks, else around the interesting part
 (roots, extrema, poles, intersections). Marked values are always visible too.
 
 ```typ
-#def("R = 50 Ω", "P0 = 2 W")
-#solve("P0 = U^2/R")
-#graph("P = U^2/R", x: "U")                                // 0…2·U, the solved point marked
-#graph("P = U^2/R", x: "R", xrange: ("10 Ω", "1 kΩ"))
-#graph("cos(w) = w")                                       // range picked, intersection marked
-#graph("y = x^2", "y = 2x + 3", xrange: (-3, 5))           // several curves
-#graph("P = U^2/R", x: "R", xrange: (0, "2 R"), mark: ("R", "extrema"))
-#graph("P = U^2/R", x: "R", ymark: "P0")                  // where P reaches P0
+#def("R = 50 Ω", "P0 = 2 W", "U0 = 10 V")
+#graph("P(U: V) = U^2/R", ymark: "P0")                    // where P reaches P0
+#graph("P(..) = U0^2/R_L", xrange: ("10 Ω", "1 kΩ"))       // R_L, in Ω from the range
+#graph("cos(w)", "w")                                      // range picked, crossing marked
+#graph("y(x) = x^2", "y(x) = 2x + 3", xrange: (-3, 5))     // several curves
+#graph("P(R_L: Ω) = U0^2/R_L", xrange: (0, "2 R"), mark: ("R", "extrema"))
 ```
 
 Uses `@preview/simple-plot:1.1.0`. Ticks use the document's decimal separator, axis labels read `U / V`; curves of the same unit share one graph, with a legend.
 
-**Ranges:** values and expressions in `xrange` / `yrange` must have the axis unit (`$f(20) Omega$` and `"f(20) Ω"` are fine) – `xrange: ("10 Ω", "f(20)")` with a unitless `f(20)` is an error, since it isn't clear what was meant. Without a range: if x is defined, 0…2·x with the solved point marked; else around the marks; else around what's interesting – roots, extrema, poles, edges of the domain (√, ln) and, above all, where curves cross – rounded to nice ticks, starting at 0 when everything interesting is positive. With `ymark`, the y range is around the marked values (steep curves leave the picture). If x has no unit yet, it follows from the curve and the units of the y values (`P = U0^2/R2` with `ymark: "2 W"`: R₂ in Ω).
+**Ranges:** values and expressions in `xrange` / `yrange` must have the axis unit (`$f(20) Omega$` and `"f(20) Ω"` are fine) – `xrange: ("10 Ω", "f(20)")` with a unitless `f(20)` is an error, since it isn't clear what was meant. Without a range: around the marks; else around what's interesting – roots, extrema, poles, edges of the domain (√, ln) and, above all, where curves cross – rounded to nice ticks, starting at 0 when everything interesting is positive. With `ymark`, the y range is around the marked values (steep curves leave the picture). **Units** follow from what's plotted: y's from the curves (shown in the SI unit with a fitting prefix; `preferred-units` picks others), x's from the curve's parameter (`U(I: mA) = …`) or a function x is passed to whose parameter has one (`#def("q(I: mA) = I R")`, then `#graph("U(I) = q(I)")` is over I in mA), else from the units in `xrange` and the marks, else from the curve and the units of the y values (`P(..) = U0^2/R2` with `ymark: "2 W"`: R₂ in Ω).
 
 **Marks** are always visible – the ranges grow to show them. Combine them in an array, `(auto, "R1")`; `mark: ()` marks nothing.
 
@@ -216,12 +221,9 @@ Uses `@preview/simple-plot:1.1.0`. Ticks use the document's decimal separator, a
 | parameter | type | default | |
 |---|---|---|---|
 | `..args` | str, content, any |  | The curves (equations or expressions) and options passed on to simple-plot's `plot` (e.g. `show-grid: false`); other positional ones are added as series. |
-| `x` | auto, str | `auto` | The x variable. `auto`: the only variable that isn't defined. |
-| `xrange` | auto, array, str, content, int, float | `auto` | x values that must be visible: numbers in `xunit` (`(1, 2)`), values (`("10 Ω", "1 kΩ")`) or expressions of defined variables (`(0, "2 R")`, math works too). Two or more give the range from the smallest to the largest; a single one widens the picked range. `auto`: 0…2·x if x is defined, else around the marked x values, else picked from the curves. |
-| `yrange` | auto, array, str, content, int, float | `auto` | y values that must be visible, like `xrange` (numbers in `yunit`). Two or more give the exact y range. `auto`: fitted to the curves. |
-| `xunit` | auto, str, content | `auto` | Unit of the x axis. `auto`: from the range or the variable. |
-| `yunit` | auto, str, content | `auto` | Unit of the y axis. `auto`: SI unit with a fitting prefix. |
-| `mark` | auto, none, array, str, content, int, float | `auto` | What to mark, with both coordinates written on the axes: x values like `xrange` (`"R"`, `2`, `"5 V"`; a point with guide lines on every curve, the range grows to show it), `"crossings"`, `"roots"`, `"extrema"` (searched within the range) and `auto`: the solved point or where the two sides cross. An array combines them: `(auto, "R1")`. `()` or `none`: no marks. |
+| `xrange` | auto, array, str, content, int, float | `auto` | x values that must be visible: numbers in the x axis's unit (`(1, 2)`), values (`("10 Ω", "1 kΩ")`) or expressions of defined variables (`(0, "2 R")`, math works too). Two or more give the range from the smallest to the largest; a single one widens the picked range. `auto`: around the marked x values, else picked from the curves. |
+| `yrange` | auto, array, str, content, int, float | `auto` | y values that must be visible, like `xrange` (numbers in the y axis's SI unit). Two or more give the exact y range. `auto`: fitted to the curves. |
+| `mark` | auto, none, array, str, content, int, float | `auto` | What to mark, with both coordinates written on the axes: x values like `xrange` (`"R"`, `2`, `"5 V"`; a point with guide lines on every curve, the range grows to show it), `"crossings"`, `"roots"`, `"extrema"` (searched within the range) and `auto`: where two curves cross. An array combines them: `(auto, "R1")`. `()` or `none`: no marks. |
 | `xmark` | none, array, str, content, int, float | `()` | Like `mark`, but only the x value is written on the axis. |
 | `ymark` | none, array, str, content, int, float | `()` | y values to mark, like `yrange`: every point where a curve reaches one, with guide lines; the value is written on the y axis. |
 | `samples` | int | `400` | Number of sample points. |
@@ -312,6 +314,15 @@ Typst only allows `#set` for its built-in elements, not for functions of package
 #show: setup
 ```
 
+**Calculating without a solve-block.** Outside a `solve-block`, `integration` other than `"none"` makes the content a calculating scope of its own, whose definitions stay: `#solve-config(integration: "full")[…]` calculates its brackets, `#show: solve-config.with(integration: "math")` the rest of the document. Without content (`#solve-config(integration: "full")`) it only sets the option for the solve-blocks that follow.
+
+```typ
+#solve-config(integration: "full")[
+  $Delta_R = 5 "cm"$
+  #solve($Delta_R$)
+]
+```
+
 ### Numbers
 
 | option | type | default | |
@@ -333,7 +344,7 @@ Typst only allows `#set` for its built-in elements, not for functions of package
 |---|---|---|---|
 | `prefixes` | auto, str, none, array | `"all"` | Prefixes picked for results: `"all"` (default: a f p n µ m k M G T; times from a minute on in min or h, not ks), `none` (base unit only) or an array like `("m", "k")` (`"u"` = µ). |
 | `show-si` | auto, bool | `false` | `defined` also shows the SI value (`Q₀ = 3450 mAh = 12420 C`). |
-| `units` | auto, dictionary | `(:)` | Your own units, defined by a value in known units: `(bar: "100 kPa", rpm: "1/min")`; `none` removes one, `(T: none)`. Adds to the units set before. Only here, not per call. |
+| `units` | auto, dictionary | `(:)` | Your own units, defined by a value in known units: `(bar: "100 kPa", rpm: "1/min", dozen: 12)`; `auto` makes a base unit of its own, a dimension no other unit has (`(ü: auto)`, then `mü`, `ü/s`); `none` removes one, `(T: none)`. Adds to the units set before. Only here, not per call. |
 | `preferred-units` | auto, str, array | `()` | Units for results of their dimension, `("bar", "kWh")`, before the unit of the inputs and the SI unit. |
 | `strict` | auto, bool | `false` | Unit names can't be variable names, and units in math must be quoted (`$5 "V"$`), see [Units and variables](#units-and-variables). |
 
@@ -365,12 +376,39 @@ Typst only allows `#set` for its built-in elements, not for functions of package
 
 | option | type | default | |
 |---|---|---|---|
-| `integration` | auto, str | `"math"` | What a `solve-block` calculates besides code tagged `solveng`: `"math"` (default: math equations) · `"code"`: code without a language · `"full"`: both · `"none"`: only tagged code. Only here, not per call. |
+| `integration` | auto, str | `"math"` | What a `solve-block` calculates besides code tagged `solveng`: `"math"` (default: math equations) · `"code"`: code without a language · `"full"`: both · `"none"`: only tagged code. Only here, not per call. Given with content outside a solve-block, the content is calculated as in one. |
+
+### Casts (u as a) and types (f(x
+
+| option | type | default | |
+|---|---|---|---|
+| `show-casts` | auto, str | `"chip"` | How casts (`U as A`) are shown in the steps and results and in the equations as written: `"chip"` (default): as an amber chip, since a cast isn't maths · `"plain"`: as written, U as A · `"no"`: left out (`$I = U "as" A$` shows as I = U). |
+| `show-types` | auto, str | `"chip"` | How types (`f(I: mA)`) are shown in the steps and in the equations as written: `"chip"` (default): as a blue chip · `"plain"`: as written, f(I: mA) · `"no"`: left out (`$f(I: "mA") = 2 I$` shows as f(I) = 2 I). |
+
+### How they look
+
+| option | type | default | |
+|---|---|---|---|
+
+### Function drawing them, and units
+
+| option | type | default | |
+|---|---|---|---|
+| `words` | auto, dictionary | `(cast: "as", any: "any")` | The words shown for casts and any-unit types, for documents in other languages: `(cast: "als", any: "beliebig")`. What you type stays `as` and `any`. |
+| `chips` | auto, dictionary, function | `auto` | The colours of the chips per kind, `(cast: (fill: …, mark: …, ink: …), type: (…))` (`mark` is the colour of `as` and `:`, `ink` the unit's), or a function `(kind, mark, unit) => content` drawing them, with `kind` `"cast"` or `"type"` and `mark` and `unit` as content. |
+| `unit-style` | auto, function | `auto` | A function given every shown unit as content, `u => text(fill: blue, u)`. |
+| `unit-separator` | auto, content, str, symbol | `auto` | What goes between units, a thin dot by default (A·as): `sym.times`, `h(0.2em)`. |
+
+### Functions
+
+| option | type | default | |
+|---|---|---|---|
+| `implicit-parameters` | auto, str | `"no"` | What a function takes of what its body leaves undefined, besides `f(x, ..)`, which always takes it: `"no"` (default): nothing, `f()` takes nothing and `f(x) = x + k` with an undefined `k` is an error · `"empty"`: empty parentheses take it all, `f() = x^2 + k` is `f(x, k)` · `"allow"`: every function takes it after its listed parameters, `f(x) = x + k` is `f(x, k)`. Only here, not per call. |
 
 ## Writing values
 
 ```typ
-#def("R = 4.7 kOhm")                // strings: name = number + unit ("I = 30mA" works without the space too)
+#def("R = 4.7 kΩ")                  // strings: name = number + unit ("I = 30mA" works without the space too)
 #def($R_1 = 4.7 "k"Omega$)          // math content
 #def($I = frac(2, 4) "A"$, "Q0 = 3450/2 mAh", "U = (1+2)*1,5 V", "A = 2^3 m^2")  // arithmetic in the number
 #def("R2 = 2 R", "Z = [5 V] / I")   // [5 V] is a value inside an equation
@@ -379,9 +417,9 @@ Typst only allows `#set` for its built-in elements, not for functions of package
 ```
 
 - **Units:** SI base units (m kg s A K mol cd) and V A Ω W J C F H S Hz N Pa T Wb, min h Ah Wh As Ws eV l %, ‰, °, rad, °C (as a temperature *difference*), all SI prefixes; your own with the option `units`. Powers as `m^2`, `m²`, `s^-1`; quotients as `m/s^2`; products with spaces `kg m`.
-- **Typeable spellings:** `Ohm`/`ohm`/`Omega` → Ω, `u` → µ, `degC` → °C, `deg` → °. They are printed with the proper symbols (`"20 uA"` → 20 µA).
+- **Typeable spellings:** `Omega` → Ω, with a prefix glued as in math: `k""Omega` → kΩ (`kOmega` is not a unit, like `DeltaT` is not ΔT); `u` → µ, `degC` → °C, `deg` → °. They are printed with the proper symbols (`"20 uA"` → 20 µA).
 - **Decimal comma:** `"7,2 V"` works; the output separator follows the document language (option `separator`).
-- **Names:** `Q0`→Q₀, `R_min`→R_min, `rho`→ρ, `DeltaT`→ΔT, `tol`→tol (upright). In math equations `Q_0` is a different variable than `Q0`.
+- **Names:** `Q0`→Q₀, `R_min`→R_min, `rho`→ρ, `tol`→tol (upright). In math equations `Q_0` is a different variable than `Q0`. Typst reads a bare word in math as its own variable, so names of more than one letter are quoted there: `$"tews" = 23$`, `$"x"_"in"$` (x_in); subscripts may be grouped, `$R_(a b)$` is R_ab. A Greek letter spelled out alone or before an index is the letter, as in math: `Delta_R` is `$Delta_R$` (Δ_R), `alpha2` is α2; `DeltaT` and `Deltas` stay names of their own, set as written; `Delta""T` is ΔT. Empty strings glue names as math needs them to: `$Delta""r_R$` is Δr_R, which code writes `Δr_R` or `Delta""r_R` (in a string `"Delta\\"\\"r_R"`).
 - **Operators:** `+ - * / ^ · ×`, implicit multiplication (`2 pi f C`), `sqrt exp ln log sin cos tan asin acos atan abs`, constants `pi e` (unless you define a variable with that name), your own functions.
 
 ## Units and variables
@@ -390,6 +428,7 @@ Many engineering symbols are also units: `A` (area, ampere), `V` (volume, volt),
 
 - **Strings:** a unit is read only where a value is written – right after a number (`"I = 30 mA"`) or in brackets (`[5 V]`, `[A]` for one ampere). Every other name in an equation is a variable.
 - **Math:** quoted text is a unit (`$30 "mA"$`, `$3 "h"$` – set upright, as units should be); a bare letter is a variable if one with that name is defined (`$3 h$` with `h` defined is 3 times h, in italics), else a unit after a number (`$5 V$`).
+- **Units of several letters** need no quotes in math when solveng is imported with `*`, which brings their names: `$30 mA$`, `$R: kΩ = 4.7 kΩ$`. Not `min` and `deg` (Typst's own) and units you define with `units`; those stay quoted. The cast `"as"` is always quoted.
 - **Unclear is an error:** a value whose unit is also a defined variable (`"t = 3 h"` with `h` defined, `"f = 1/T"` with `T` defined) is refused, with a hint how to write either meaning: `[3 h]` for hours, `3*h` or `1/(T)` for the variable.
 
 ```typ

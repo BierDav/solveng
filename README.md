@@ -85,14 +85,13 @@ Your own units: `#solve-config(units: (bar: "100 kPa", rpm: "1/min", T: none))` 
 
 ```typ
 #import "@preview/solveng:0.2.0": *
-#def("R = 50 Ω", "P0 = 2 W")
-#solve("P0 = U^2/R")
-#graph("P = U^2/R", x: "U")                     // range 0…2·U, the solved point marked
-#graph("cos(w) = w")                            // both sides as curves, the crossing marked
-#graph("P = U^2/R", x: "R", xrange: ("10 Ω", "1 kΩ"), width: 10cm)
+#def("R = 50 Ω", "P0 = 2 W", "U0 = 10 V")
+#graph("P(U: V) = U^2/R", ymark: "P0")         // a function of U: where P reaches P0
+#graph("cos(w)", "w")                           // two curves, the crossing marked
+#graph("P(..) = U0^2/R_L", xrange: ("10 Ω", "1 kΩ"), width: 10cm)   // .. takes R_L
 ```
 
-![A graph with the solved point marked](docs/graph.png)
+![A graph with where P reaches P0 marked](docs/graph.png)
 
 Ranges, ticks, axis labels and units are picked automatically; marks, ranges and sizes can be set, see the [reference](https://github.com/BierDav/solveng/blob/v0.2.0/docs/reference.md#graph).
 

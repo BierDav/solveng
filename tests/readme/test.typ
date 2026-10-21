@@ -35,10 +35,9 @@
 
 // Plots
 #solve-block[
-  #def("R = 50 Ω", "P0 = 2 W")
-  #solve("P0 = U^2/R")
-  #graph("P = U^2/R", x: "U")
-  #graph("P = U^2/R", x: "R", xrange: ("10 Ω", "1 kΩ"), width: 10cm)
+  #def("R = 50 Ω", "P0 = 2 W", "U0 = 10 V")
+  #graph("P(U: V) = U^2/R", ymark: "P0")
+  #graph("P(..) = U0^2/R_L", xrange: ("10 Ω", "1 kΩ"), width: 10cm)
 ]
 
 // Options

@@ -14,21 +14,47 @@
 #import "numeric.typ": *
 
 // ---------- display ----------
-#let _GR = "alpha|beta|gamma|Gamma|delta|Delta|epsilon|zeta|eta|theta|Theta|iota|kappa|lambda|Lambda|mu|nu|xi|Xi|pi|Pi|rho|sigma|Sigma|tau|upsilon|phi|Phi|chi|psi|Psi|omega|Omega"
 #let _name(n) = {
   let g(b) = if b.match(regex("^(" + _GR + ")$")) != none or b.match(regex("^\\p{L}$")) != none { eval(b, mode: "math") } else if b.clusters().len() == 1 { math.italic(b) } else { math.upright(b) }
-  if n.starts-with("Delta") and n.len() > 5 { return $Delta #_name(n.slice(5).trim("_", at: start))$ }
+  // a Greek letter glued to more, as math writes Delta""r_R
+  let c = n.clusters()
+  if c.len() > 1 and c.first() in _GRC and c.at(1).match(regex("\\p{L}")) != none { return $#eval(c.first(), mode: "math") #_name(c.slice(1).join())$ }
   let m = n.match(regex("^(" + _GR + "|\\p{L})(\\d+)$"))
   let (b, s) = if n.contains("_") { let p = n.split("_"); (p.first(), p.slice(1).join("_")) } else if m != none { m.captures } else { (n, "") }
   if s == "" { g(b) } else { math.attach(g(b), br: math.upright(s)) }
+}
+// casts and types aren't maths: small filled chips that stand out from it, amber for a cast, blue for a type; the
+// mark (as, :) tinted lighter than the unit, so the two can't be confused
+#let _CHIPS = (
+  cast: (fill: rgb("#fde7a8"), mark: rgb("#c2780a"), ink: rgb("#713f12")),
+  type: (fill: rgb("#cdeafb"), mark: rgb("#2b8ac4"), ink: rgb("#0c4a6e")),
+)
+#let _chip(kind, mark, u, cf) = {
+  let ch = cf.at("chips", default: auto)
+  if type(ch) == function { return ch(kind, mark, u) }
+  let c = _CHIPS.at(kind) + if type(ch) == dictionary { ch.at(kind, default: (:)) } else { (:) }
+  box(fill: c.fill, radius: 0.3em, inset: (x: 0.28em, y: 0.16em), baseline: 0.1em, text(size: 0.7em, fill: c.ink, $#text(fill: c.mark, mark) thin #u$))
+}
+// a cast or type after what it's on, as the option (show-casts, show-types) says: none, plain maths or a chip
+#let _mark(kind, u, cf) = {
+  let how = cf.at(if kind == "as" { "show-casts" } else { "show-types" }, default: "chip")
+  let unit = _ushow(u, U: cf.at("#U", default: _U), cf: cf)
+  let mark = if kind == "as" { math.upright(cf.at("words", default: (:)).at("cast", default: "as")) } else { math.class("normal", sym.ratio) }
+  if how == "chip" { h(0.15em) + _chip(if kind == "as" { "cast" } else { "type" }, mark, unit, cf) }
+  else if how == "plain" { $med #mark med #unit$.body }
 }
 #let _dp(e, s, cf) = { // -> (content, precedence)
   let P(x, p) = { let (c, q) = _dp(x, s, cf); if q < p { $(#c)$ } else { c } }
   let (k, ..a) = e
   if k == "tuple" { return (a.map(t => _dp(t, s, cf).at(0)).join($, $), 0) }
+  if k == "cmp" {
+    let op = (("<=", sym.lt.eq), ("≤", sym.lt.eq), (">=", sym.gt.eq), ("≥", sym.gt.eq), ("!=", sym.eq.not), ("≠", sym.eq.not)).find(p => p.at(0) == a.first())
+    return ($#_dp(a.at(1), s, cf).at(0) #math.class("relation", if op == none { a.first() } else { op.at(1) }) #_dp(a.at(2), s, cf).at(0)$, 0)
+  }
   if k == "n" { (_nc(.._fmt(a.first(), cf + (digits: 6, trailing-zeros: false)), cf), if a.first() < 0 { 2 } else { 9 }) }
   else if k == "q" { (_qc(a.first(), cf), if a.first().u != "" { 3 } else { 9 }) }
   else if k == "c" { (if a.first() == "e" { $e$ } else { $pi$ }, 9) }
+  else if k == "as" { if cf.at("show-casts", default: "chip") != "no" { ($#P(a.first(), 5) #_mark("as", a.at(1).u, cf)$, 2) } else { _dp(a.first(), s, cf) } }
   else if k == "v" { if s != none and a.first() in s { s.at(a.first()) } else { (_name(a.first()), 9) } }
   else if k == "+" { (a.enumerate().map(((i, t)) => if t.at(0) == "-" { $- #P(t.at(1), 2)$ } else if i == 0 { P(t, 1) } else { $+ #P(t, 1)$ }).join(), 1) }
   else if k == "-" { ($-#P(a.first(), 3)$, 2) }
@@ -61,8 +87,11 @@
 div.solveng-error { border-left: 3px solid #b3261e; padding: 0.4em 0.7em; margin: 0.6em 0; }"
 #let _css() = context if not _css-done.get() { html.elem("style", _CSS); _css-done.update(true) }
 // math block or inline; in HTML a spaced, scrollable block
+// solveng's own equations carry a mark, so its rules never read them, even before its state settles
+#let _OWN = metadata("solveng-own")
+#let _own(eq) = eq.body.has("children") and eq.body.children.any(c => c == _OWN)
 #let _eqn(body, cf) = {
-  let e = math.equation(block: cf.block, body)
+  let e = math.equation(block: cf.block, _OWN + body)
   if cf.block and _target() == "html" { _css(); html.elem("div", attrs: (class: "solveng"), e) } else { e }
 }
 // problems are shown where they happen (solve-config(errors: "panic") stops instead)

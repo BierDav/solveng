@@ -10,8 +10,9 @@ use serde_json::{Value, json};
 use solveng_ide::{self as ide, Context, ContextFile, ItemKind, Location, Report};
 
 /// Semantic token types, indexed by `solveng_ide::TokenKind`; units read as enum members in most themes.
-const TOKEN_TYPES: [&str; 10] =
-    ["keyword", "string", "comment", "number", "function", "type", "variable", "decorator", "operator", "enumMember"];
+// Function parameters, and what a graph plots against.
+const TOKEN_TYPES: [&str; 11] =
+    ["keyword", "string", "comment", "number", "function", "type", "variable", "decorator", "operator", "enumMember", "parameter"];
 
 struct Server {
     /// Open documents by URI.
@@ -64,6 +65,7 @@ fn capabilities() -> Value {
         "hoverProvider": true,
         "definitionProvider": true,
         "referencesProvider": true,
+        "renameProvider": { "prepareProvider": true },
         "codeActionProvider": { "codeActionKinds": ["refactor.rewrite"] },
         "semanticTokensProvider": { "legend": { "tokenTypes": TOKEN_TYPES, "tokenModifiers": [] }, "full": true },
     })
@@ -238,11 +240,12 @@ impl Server {
                                 ItemKind::CONSTANT => 21,
                                 ItemKind::PARAMETER => 10,
                                 ItemKind::VALUE => 20,
+                                ItemKind::KEYWORD => 14,
                                 _ => 6,
                             },
                             "detail": item.detail,
                             "sortText": format!("{i:05}"),
-                            "filterText": item.insert.replace("$0", ""),
+                            "filterText": item.filter.clone().unwrap_or_else(|| item.insert.replace("$0", "")),
                             "insertTextFormat": if snippet { 2 } else { 1 },
                             "textEdit": { "range": range(&starts, c.from, at), "newText": new_text },
                         });
@@ -270,6 +273,22 @@ impl Server {
                         found.retain(|l| *l != d);
                     }
                 json!(found.iter().filter_map(|l| self.location(&uri, &text, l)).collect::<Vec<_>>())
+            }
+            "textDocument/prepareRename" => match ide::rename_target(&text, &context, offset(&text, &p["position"])) {
+                Some(t) => json!({ "range": range(&starts, t.start, t.end), "placeholder": t.name }),
+                None => Value::Null,
+            },
+            "textDocument/rename" => {
+                let name = p["newName"].as_str().unwrap_or_default();
+                let mut changes = serde_json::Map::new();
+                for e in ide::rename(&text, &context, offset(&text, &p["position"]), name) {
+                    let at = Location { path: e.path.clone(), start: e.start, end: e.end };
+                    let Some(l) = self.location(&uri, &text, &at) else { continue };
+                    let file = l["uri"].as_str().unwrap_or_default().to_string();
+                    let list = changes.entry(file).or_insert_with(|| json!([]));
+                    list.as_array_mut().unwrap().push(json!({ "range": l["range"], "newText": e.text }));
+                }
+                if changes.is_empty() { Value::Null } else { json!({ "changes": changes }) }
             }
             "textDocument/codeAction" => {
                 let at = offset(&text, &p["range"]["start"]);

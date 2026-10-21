@@ -2,6 +2,11 @@
 
 use solveng_ide::*;
 
+/// A completion's name: variables are labelled with their unit (`V: A`).
+fn name(label: &str) -> &str {
+    label.split(": ").next().unwrap_or(label)
+}
+
 
 fn ctx(text: &str) -> Context {
     Context::new(text)
@@ -44,11 +49,11 @@ fn highlights_values_units_and_variables() {
         ]
     );
     assert_eq!(
-        tokens_of("g = 9.81 m/s^2; x = 3 kOhm"),
+        tokens_of("g = 9.81 m/s^2; x = 3 k\"\"Omega"),
         vec![
             t("g", TokenKind::VARIABLE), t("=", TokenKind::OPERATOR), t("9.81", TokenKind::NUMBER), t("m", TokenKind::UNIT),
             t("s", TokenKind::UNIT), t("2", TokenKind::UNIT), t(";", TokenKind::OPERATOR), t("x", TokenKind::VARIABLE),
-            t("=", TokenKind::OPERATOR), t("3", TokenKind::NUMBER), t("kOhm", TokenKind::UNIT),
+            t("=", TokenKind::OPERATOR), t("3", TokenKind::NUMBER), t("k\"\"Omega", TokenKind::UNIT),
         ]
     );
 }
@@ -73,7 +78,8 @@ fn highlights_brackets_functions_and_inlining() {
 #[test]
 fn knows_units_with_prefixes_and_spellings() {
     assert!(is_unit("mAh"));
-    assert!(is_unit("kOhm"));
+    // A prefix goes with a spelled Greek letter glued, as in math.
+    assert!(is_unit("k\"\"Omega") && is_unit("kΩ") && !is_unit("kOmega") && !is_unit("kOhm"));
     assert!(is_unit("uA"));
     assert!(is_unit("degC"));
     assert!(!is_unit("R"));
@@ -100,22 +106,22 @@ fn reads_the_integration() {
 
 #[test]
 fn completes_definitions_from_the_whole_document() {
-    let doc = "#show: solve-block\n#def(\"R = 7.2 kOhm\", \"f(x) = x^2 + 1\")\nThe load draws $I = 30 \"mA\"$ and $Q_0/2 = I t$.\n```solveng\nP = [5 V] I\nU = |\n```";
+    let doc = "#show: solve-block\n#def(\"R = 7.2 kΩ\", \"f(x) = x^2 + 1\")\nThe load draws $I = 30 \"mA\"$ and $Q_0/2 = I t$.\n```solveng\nP = [5 V] I\nU = |\n```";
     let c = complete_at(doc).unwrap();
-    let get = |l: &str| c.items.iter().find(|i| i.label == l).unwrap();
+    let get = |l: &str| c.items.iter().find(|i| name(&i.label) == l).unwrap();
     assert_eq!(get("I").detail, "= 30 mA");
-    assert_eq!(get("R").detail, "= 7.2 kOhm");
+    assert_eq!(get("R").detail, "= 7.2 kΩ");
     assert_eq!(get("f(x)").insert, "f($0)");
     assert_eq!(get("sqrt").kind, ItemKind::FUNCTION);
-    assert!(c.items.iter().any(|i| i.label == "P"));
+    assert!(c.items.iter().any(|i| name(&i.label) == "P"));
     // Equations that aren't definitions define nothing by name.
-    assert!(!c.items.iter().any(|i| i.label == "Q_0"));
+    assert!(!c.items.iter().any(|i| name(&i.label) == "Q_0"));
 }
 
 #[test]
 fn completes_units_where_a_value_is_written() {
     let units = labels("```solveng\nI = 30 m|\n```");
-    assert!(units.contains(&"mA".into()) && units.contains(&"kOhm".into()) && units.contains(&"h".into()));
+    assert!(units.contains(&"mA".into()) && units.contains(&"kΩ".into()) && units.contains(&"h".into()));
     assert!(labels("```solveng\nP = [5 |] I\n```").contains(&"A".into()));
     assert!(labels("```solveng\nP = U I -> |\n```").contains(&"mW".into()));
     assert!(labels("```solveng\ng = 9.81 m/|\n```").contains(&"s".into()));
@@ -151,7 +157,7 @@ fn completes_in_math() {
     assert!(units.items.iter().any(|i| i.label == "mA"));
     let names = complete_at("#show: solve-block\n$t_\"half\" = 3 \"h\"$ $x = t|$").unwrap();
     assert!(!names.exclusive);
-    assert_eq!(names.items.iter().find(|i| i.label == "t_half").unwrap().insert, "t_\"half\"");
+    assert_eq!(names.items.iter().find(|i| name(&i.label) == "t_half").unwrap().insert, "t_\"half\"");
     // Without a solve-block math is Typst's.
     assert!(complete_at("$x = 3 \"m|\"$").is_none());
 }
@@ -187,7 +193,9 @@ fn concealed(code: &str) -> String {
 
 #[test]
 fn conceals_names_units_and_operators() {
-    assert_eq!(concealed("DeltaT = Q0 * rho -> kOhm").replace('→', "->"), "ΔT = Q₀ · ρ -> kΩ");
+    assert_eq!(concealed("Delta_T = Q0 * rho -> k\"\"Omega").replace('→', "->").replace('\0', ""), "Δ_T = Q₀ · ρ -> kΩ");
+    // A word starting like a letter is a name of its own; glued, each part shows as it renders.
+    assert_eq!(concealed("Deltas = DeltaT + Delta\"\"s + Delta\"\"Omega_R").replace('\0', ""), "Deltas = DeltaT + Δs + ΔΩ_R");
     assert_eq!(concealed("g = 9.81 m/s^2 -> uA // a * b"), "g = 9.81 m/s² → µA // a * b");
     assert_eq!(concealed("y = sqrt(pi x) <= alpha1"), "y = √(π x) ≤ α₁");
     let doc = "```solveng\nx = 2 Omega\n```";
@@ -215,8 +223,8 @@ const IMP: &str = "#import \"@preview/solveng:0.2.0\": *\n";
 #[test]
 fn converts_def_to_math_and_back() {
     let i = IMP;
-    assert_eq!(convert(&format!("{i}#d|ef(\"R = 7.2 kOhm\", \"t_half = Q_0/(2 I)\")")), vec![format!("{i}$R = 7.2 \"kΩ\"$ $t_\"half\" = Q_0/(2 I)$")]);
-    assert_eq!(convert(&format!("{i}$R = |7.2 \"k\"Omega$")), vec![format!("{i}#def(\"R = 7.2 kOhm\")")]);
+    assert_eq!(convert(&format!("{i}#d|ef(\"R = 7.2 kΩ\", \"t_half = Q_0/(2 I)\")")), vec![format!("{i}$R = 7.2 \"kΩ\"$ $t_\"half\" = Q_0/(2 I)$")]);
+    assert_eq!(convert(&format!("{i}$R = |7.2 \"k\"Omega$")), vec![format!("{i}#def(\"R = 7.2 kΩ\")")]);
     assert_eq!(convert(&format!("{i}$I = frac(3450 \"mAh\", 30 \"h\") dot 2|$")), vec![format!("{i}#def(\"I = (3450 mAh)/(30 h) * 2\")")]);
     assert_eq!(convert(&format!("{i}$x| = A \"A\"$")), vec![format!("{i}#def(\"x = A [A]\")")]);
     // Options and names math can't write stay calls.
@@ -254,7 +262,7 @@ fn reads_the_files_around() {
     assert_eq!(integration("#solve-config(integration: \"code\")", &main), Integration::CODE);
     let chapter = "text `P = U |`";
     let c = complete(&chapter.replace('|', ""), &main, chapter.find('|').unwrap() as u32).unwrap();
-    assert_eq!(c.items.iter().find(|i| i.label == "U").unwrap().detail, "= 5 V");
+    assert_eq!(c.items.iter().find(|i| name(&i.label) == "U").unwrap().detail, "= 5 V");
     assert!(complete("`p = 3 `", &main, 7).unwrap().items.iter().any(|i| i.label == "bar"));
     assert!(!math_tokens("$x = 1$", &main).is_empty());
 }
@@ -283,4 +291,18 @@ fn trusts_the_compilers_report() {
     // The same through a parsed report.
     let c = Context::new("").with_report(&Report::parse(&report), "ch/1.typ", false);
     assert_eq!(integration("", &c), Integration::FULL);
+}
+
+#[test]
+fn conceals_the_strings_of_calls() {
+    let doc = "#graph(\"alpha3 = cos(x)\", xrange: \"2 uA\")\n#def(\"Delta_R = 2 * x\")";
+    let c = conceals(doc, &ctx(""));
+    let shown: Vec<(String, char)> = c
+        .iter()
+        .map(|x| (String::from_utf16(&units16(doc)[x.start as usize..(x.start + x.length) as usize]).unwrap(), char::from_u32(x.character).unwrap()))
+        .collect();
+    assert_eq!(shown, [("alpha".into(), 'α'), ("3".into(), '₃'), ("u".into(), 'µ'), ("Delta".into(), 'Δ'), ("*".into(), '·')]);
+    // Each string shows as typed while the caret is in it, quotes included.
+    let first = &c[0];
+    assert_eq!((first.element_start, first.element_end), (7, 24));
 }
