@@ -41,7 +41,8 @@
 /// - **Typeable spellings:** `Omega` → Ω, with a prefix glued as in math: `k""Omega` → kΩ (`kOmega` is not a unit, like `DeltaT` is not ΔT); `u` → µ, `degC` → °C, `deg` → °. They are printed with the proper symbols (`[20 uA]` → 20 µA). In math, units are names (`$4.7 kΩ$`, `$20 µA$`), see [Units and variables](#units-and-variables).
 /// - **Decimal comma:** `7,2 V` works; the output separator follows the document language (option `separator`).
 /// - **Names:** the acute accent `´` and the backtick (`` ` ``) are literal name characters (`$x´ := 3$`), with no escaping needed. Digits continue a name: `t2` differs from `t_2` and keeps its digits on the baseline. Complete Latin letter runs normalize to Greek: `Delta2tau` → Δ2τ, while `Deltatau` stays unchanged. `""` joins name fragments: `Delta""tau` → Δτ and `t""2` → t2. Quotes only carry a name through Typst: `$"Delta2tau"$` names Δ2τ, and `$"Delta\"\"tau"$` names Δτ. Explicit subscripts may be grouped: `$R_(a b)$` names R_ab. Operators and whitespace end a name; a leading number remains a coefficient (`2t2` is 2 times t2).
-/// - **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. `#let rect = math.op("rect")` makes the spelling available in math. Linear combinations simplify and can be solved; definite integrals split affine arguments at their boundaries. Distributional derivatives stay symbolic.
+/// - **Sums:** `sum_(k=0)^10 k^2` or `sum(k^2, k, 0, 10)` sums over inclusive integer bounds. The index is local and case-sensitive. Parenthesize a summand containing addition. Small finite sums simplify exactly; infinite sums stay symbolic after `->` and are evaluated numerically for `=` and graphs. For example, `$s_2(t) := sum_(k=0)^infinity sigma(t-k+3/4)$` defines a function usable as `#graph("s_2(t)")` once `sigma` is defined. Piecewise linear signal sums are counted directly between their corners. Other numerical sums use at most 100000 terms and a shrinking-tail convergence estimate; slow or nonconvergent series report an error. Bounds and the index are unitless, while summands may carry units.
+/// - **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. The standard names are always available and exported by solveng. Define a function such as `$Lambda(t) := tri(t)$` to use another name. Linear combinations simplify and can be solved; definite integrals split affine arguments at their boundaries. Distributional derivatives stay symbolic.
 /// - **Operators:** `+ - * / ^ · ×`, implicit multiplication (`2 pi f C`), `sqrt exp ln log sin cos tan asin acos atan abs`, constants `pi e` (unless you define a variable with that name), your own functions.
 ///
 /// ## Units and variables
@@ -141,22 +142,7 @@
 #let _align-point = $&$.body.func()
 // math content -> the equation as text for the engine: letters as they are, quoted text "…" (names of several
 // letters, units, as), solveng's unit words ⦃mA⦄, keywords ⦅solve(x)⦆; or an error for what isn't a formula
-#let _operator-binding(c) = {
-  if type(c) != content or c.func() != math.op { return none }
-  let parts = if c.text.has("children") { c.text.children } else { (c.text,) }
-  let alias = parts.find(p => p.func() == metadata and p.has("label") and p.label == <solveng-operator>)
-  if alias == none { none } else { (name: alias.value, function: _plain(c.text).trim()) }
-}
-#let _operator-bindings(c) = {
-  if type(c) == array { return c.map(_operator-bindings).flatten() }
-  if type(c) != content { return () }
-  let op = _operator-binding(c)
-  if op != none { return (op,) }
-  c.fields().values().map(_operator-bindings).flatten()
-}
-#let _operator-names(c) = _operator-bindings(c).map(op => op.name)
-
-#let _src(c, names: false) = {
+#let _src(c) = {
   if c == math.dif { return "dif" }
   if type(c) == str { return c }
   if type(c) in (int, float) { return str(c) }
@@ -164,7 +150,7 @@
   if type(c) != content { return _err("not a formula") }
   let f = c.func()
   if f == math.vec {
-    let parts = c.children.map(x => _src(x, names: names))
+    let parts = c.children.map(x => _src(x))
     let error = parts.find(_E)
     return if error != none { error } else { "vec(" + parts.join(", ") + ")" }
   }
@@ -174,13 +160,13 @@
       let parts = if row.has("children") { row.children } else { (row,) }
       let at = range(parts.len()).filter(i => parts.at(i).func() == _align-point)
       if at.len() > 1 { return _err("cases: one & separates a value from its condition") }
-      let value = _src(if at.len() == 0 { row } else { parts.slice(0, at.first()).join() }, names: names)
+      let value = _src(if at.len() == 0 { row } else { parts.slice(0, at.first()).join() })
       if _E(value) { return value }
       let condition = if at.len() == 0 { () } else { parts.slice(at.first() + 1).filter(p => p.func() != _space and p.func() != h) }
       if condition.len() > 0 and condition.first().func() == text and condition.first().text.trim() in ("für", "if", "for", "wenn", "falls") { condition = condition.slice(1) }
       if condition.len() == 1 and condition.first().func() == text and condition.first().text.trim() in ("otherwise", "else", "sonst", "andernfalls") { condition = () }
       if condition.len() == 0 and i != c.children.len() - 1 { return _err("cases: only the last branch can omit its condition") }
-      let test = if condition.len() == 0 { "1" } else { _src(condition.join(), names: names) }
+      let test = if condition.len() == 0 { "1" } else { _src(condition.join()) }
       if _E(test) { return test }
       branches.push(value + ", " + test)
     }
@@ -189,7 +175,7 @@
   if c.has("label") and c.label == <solveng-unit> { return "⦃" + _plain(c) + "⦄" }
   if f == metadata {
     if c.has("label") and c.label == <solveng-key> {
-      let args = c.value.args.map(a => { let s = _src(a, names: names); if _E(s) { "?" } else { s.replace("\"", "").trim() } })
+      let args = c.value.args.map(a => { let s = _src(a); if _E(s) { "?" } else { s.replace("\"", "").trim() } })
       return "⦅" + c.value.key + (if args.len() > 0 { "(" + args.join(",") + ")" } else { "" }) + "⦆"
     }
     return ""
@@ -205,7 +191,7 @@
     let out = ""
     let prev = ""
     for x in c.children {
-      let s = _src(x, names: names)
+      let s = _src(x)
       if _E(s) { return s }
       if s == "" { continue }
       // m glued to Ω is milliohm, apart it's metre times ohm
@@ -224,24 +210,24 @@
     return out
   }
   if f == math.frac {
-    let (a, b) = (_src(c.num, names: names), _src(c.denom, names: names))
+    let (a, b) = (_src(c.num), _src(c.denom))
     return if _E(a) { a } else if _E(b) { b } else if a.trim() == "dif" { "dif / (" + b.replace("ⅆ", "dif") + ")" } else { "frac(" + a + ", " + b + ")" }
   }
   if f == math.attach {
-    let base = _src(c.base, names: names)
+    let base = _src(c.base)
     if _E(base) { return base }
-    if base == "∫" and c.has("b") and c.b != none and c.has("t") and c.t != none {
-      return "integral_(" + _src(c.b, names: names) + ")^(" + _src(c.t, names: names) + ")"
+    if (base == "∫" or base == "∑") and c.has("b") and c.b != none and c.has("t") and c.t != none {
+      return (if base == "∑" { "sum_(" } else { "integral_(" }) + _src(c.b) + ")^(" + _src(c.t) + ")"
     }
     let out = base
     // subscripts are part of a name (R_"load", "x"_("in" Delta))
     if c.has("b") and c.b != none {
-      let sub = _src(c.b, names: names)
+      let sub = _src(c.b)
       if _E(sub) { return sub }
       out = base.trim("\"") + "_" + sub.replace("\"", "").replace(regex("\\s"), "")
     }
     if c.has("t") and c.t != none {
-      let t = _src(c.t, names: names)
+      let t = _src(c.t)
       if _E(t) { return t }
       out += "^(" + t + ")"
     }
@@ -250,21 +236,19 @@
   }
   if f == math.class and _plain(c.body) == "d" { return "dif" }
   if f == math.op {
-    let op = _operator-binding(c)
-    if names and op != none { return repr(op.name) }
     let name = _plain(c.text).trim()
     return if name == "d" { "dif" } else { name }
   }
   if f == math.root {
-    let r = _src(c.radicand, names: names)
+    let r = _src(c.radicand)
     if _E(r) { return r }
-    if c.has("index") and c.index != none { let i = _src(c.index, names: names); return if _E(i) { i } else { "(" + r + ")^(1/(" + i + "))" } }
+    if c.has("index") and c.index != none { let i = _src(c.index); return if _E(i) { i } else { "(" + r + ")^(1/(" + i + "))" } }
     return "sqrt(" + r + ")"
   }
-  if f == math.lr { return _src(c.body, names: names) }
+  if f == math.lr { return _src(c.body) }
   if f == raw { return if c.text == "frac" { "⦅frac⦆" } else { _err("not a formula") } }
   // styling (upright, class, …) is read through
-  if c.has("body") { return _src(c.body, names: names) }
+  if c.has("body") { return _src(c.body) }
 
   if c.has("text") and type(c.text) == str { return c.text }
   _err("not a formula")
@@ -282,9 +266,8 @@
 // as units after a number upright: 5 V
 #let _restyle(c, letters, cf) = {
   if type(c) != content { return c }
+  if c == math.dif { return c }
   let f = c.func()
-  let op = _operator-binding(c)
-  if op != none { return math.op(_m(_call(_p.name, repr(op.name)), cf), limits: c.limits) }
   if f == text and not (c.has("label") and c.label == <solveng-unit>) {
     let normalized = _call(_p.name, c.text)
     if normalized != none { return _m(normalized, cf) }
@@ -301,6 +284,13 @@
     let (out, ch, i) = ((), c.children, 0)
     while i < ch.len() {
       let x = ch.at(i)
+      // A differential is an operator, even though _src spells it as `dif`.
+      // Preserve it before the name scanner can turn it into a literal name.
+      if x == math.dif {
+        out.push(x)
+        i += 1
+        continue
+      }
       let mark = word(x)
       let before = out.rev().find(y => not space(y))
       let number = before != none and word(before) != none and word(before).match(regex("\\d$")) != none
@@ -338,7 +328,6 @@
       let (end, normalized, source) = (none, none, "")
       let k = i
       while k < ch.len() and not space(ch.at(k)) {
-        if _operator-binding(ch.at(k)) != none { break }
         let s = _src(ch.at(k))
         if _E(s) { break }
         source += s
@@ -388,8 +377,8 @@
   s + (env: r.env, last: r.out)
 }
 // one line: calculated in the state, shown with view(out) (in context)
-#let _calc(src, mode, cf, view, operators: ()) = {
-  let req = (src: src, mode: mode, cfg: _req-cfg(cf), operators: operators)
+#let _calc(src, mode, cf, view) = {
+  let req = (src: src, mode: mode, cfg: _req-cfg(cf))
   _st.update(s => _run(s, req))
   context view(_st.get().at("last"))
 }

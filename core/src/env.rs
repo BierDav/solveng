@@ -25,12 +25,6 @@ pub enum Kind {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Operator {
-    pub name: String,
-    pub function: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Var {
     /// The value, symbolic: names defined when it was defined are put in, others are free.
     pub expr: Expr,
@@ -87,8 +81,8 @@ impl Env {
         self.order.retain(|e| e.name != name);
         known
     }
-    /// Takes over what `other` defined, in its order, over what was here: what a worksheet call calculated on its
-    /// own (`inherit: false`) comes back.
+    /// Takes over what `other` defined, in its order, over what was here. Used when a worksheet
+    /// exports its final definitions to the enclosing scope; absent names do not delete outer definitions.
     pub fn merge(&mut self, other: &Env) {
         for e in &other.order {
             if let Some(v) = other.vars.get(&e.name) {
@@ -143,6 +137,11 @@ impl Env {
                     Expr::Call(n.clone(), args)
                 }
             }
+            Expr::InverseLaplace(body, var, by) => {
+                let mut local = keep.clone();
+                local.insert(var.clone());
+                Expr::InverseLaplace(Box::new(self.bind_(body, &local, path, units)?), var.clone(), Box::new(self.bind_(by, keep, path, units)?))
+            }
             Expr::Subs(body, var, by) => {
                 let mut local = keep.clone();
                 local.insert(var.clone());
@@ -155,6 +154,11 @@ impl Env {
                 local.insert(var.clone());
                 let body = self.bind_(body, &local, path, units)?;
                 body.diff(var)
+            }
+            Expr::Sum(body, var, lo, hi) => {
+                let mut local = keep.clone();
+                local.insert(var.clone());
+                crate::calculus::sum(self.bind_(body, &local, path, units)?, var.clone(), self.bind_(lo, keep, path, units)?, self.bind_(hi, keep, path, units)?)
             }
             Expr::Integral(body, var, lo, hi) => {
                 let mut local = keep.clone();
@@ -257,10 +261,6 @@ impl<'a> Lower<'a> {
                 None => return Err(format!("no stored formula for '{n}' (@{n} puts in how {n} was computed)")),
             },
             Ast::Call(n, args) => self.call(n, args)?,
-            Ast::Op(op, args) => match self.call(&op.function, args)? {
-                Expr::F(f, a) => Expr::Op(op.name.clone(), f, a),
-                e => e,
-            },
         })
     }
 
@@ -302,7 +302,24 @@ impl<'a> Lower<'a> {
             let Expr::Vector(v) = v else { return Err("at needs a vector".into()); };
             return usize::try_from(i).ok().and_then(|i| v.get(i)).cloned().ok_or_else(|| format!("index {i} is outside a vector with {} components", v.len()));
         }
-        if n == "diff" || n == "integrate" {
+        if n == "laplace" || n == "invlaplace" {
+            if !(1..=3).contains(&args.len()) { return Err(format!("{n} takes an expression and up to two variable names")); }
+            let inverse = n == "invlaplace";
+            let variable = |i: usize, default: &str| -> Result<String, String> {
+                match args.get(i) {
+                    None => Ok(default.into()),
+                    Some(Ast::Name(n)) => Ok(n.clone()),
+                    _ => Err(format!("{n}: transform variables must be names")),
+                }
+            };
+            let input = variable(1, if inverse { "s" } else { "t" })?;
+            let output = variable(2, if inverse { "t" } else { "s" })?;
+            let added = self.params.insert(input.clone());
+            let body = self.expr(&args[0]);
+            if added { self.params.remove(&input); }
+            return crate::transforms::transform(&body?, &input, &output, inverse);
+        }
+        if n == "diff" || n == "integrate" || n == "sum" {
             let count = if n == "diff" { 2 } else { 4 };
             if args.len() != count { return Err(format!("{n} takes {count} arguments")); }
             let Ast::Name(var) = &args[1] else { return Err("the calculus variable must be a name".into()); };
@@ -313,7 +330,7 @@ impl<'a> Lower<'a> {
             if n == "diff" { return Ok(body.diff(var)); }
             let lo = self.raw(&args[2])?;
             let hi = self.raw(&args[3])?;
-            return Ok(crate::calculus::integral(body, var.clone(), lo, hi));
+            return Ok(if n == "sum" { crate::calculus::sum(body, var.clone(), lo, hi) } else { crate::calculus::integral(body, var.clone(), lo, hi) });
         }
         if n == "sqrt" || Func::of(n).is_some() {
             if args.len() != 1 {

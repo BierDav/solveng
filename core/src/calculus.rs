@@ -51,7 +51,7 @@ fn primitive(e: &Expr, x: &str) -> Option<Expr> {
             if slope.has(x) || slope.is_zero() { return None; }
             Some(div(e.clone(), mul(vec![slope, func(Func::Ln, (**a).clone())])))
         }
-        Expr::F(f, a) | Expr::Op(_, f, a) => {
+        Expr::F(f, a) => {
             let slope = a.diff(x);
             if slope.has(x) || slope.is_zero() { return None; }
             let a = (**a).clone();
@@ -114,13 +114,24 @@ pub fn quadrature(f: &impl Fn(f64) -> Option<f64>, lo: f64, hi: f64) -> Result<f
 pub fn signal_points(body: &Expr, var: &str, vars: &dyn Fn(&str) -> Option<f64>) -> Vec<f64> {
     let mut points = Vec::new();
     fn collect(e: &Expr, var: &str, vars: &dyn Fn(&str) -> Option<f64>, points: &mut Vec<f64>) {
-        if let Expr::F(f, argument) | Expr::Op(_, f, argument) = e {
+        if let Expr::F(f, argument) = e {
             let levels: &[f64] = match f { Func::Rect => &[-0.5, 0.5], Func::Tri => &[-1.0, 0.0, 1.0], Func::Sgn => &[0.0], _ => &[] };
             if !levels.is_empty() {
                 let slope = argument.diff(var);
                 if !slope.has(var) {
                     if let (Some(a), Some(b)) = (crate::eval::eval_f(&slope, vars), crate::eval::eval_f(argument, &|n| if n == var { Some(0.0) } else { vars(n) })) {
                         if a != 0.0 { points.extend(levels.iter().map(|level| (level - b) / a).filter(|point| point.is_finite())); }
+                    }
+                }
+            }
+        }
+        if let Expr::Cmp(values, _) = e {
+            for pair in values.windows(2) {
+                let argument = sub(pair[0].clone(), pair[1].clone());
+                let slope = argument.diff(var);
+                if !slope.has(var) {
+                    if let (Some(a), Some(b)) = (crate::eval::eval_f(&slope, vars), crate::eval::eval_f(&argument, &|n| if n == var { Some(0.0) } else { vars(n) })) {
+                        if a != 0.0 && (-b / a).is_finite() { points.push(-b / a); }
                     }
                 }
             }
@@ -139,4 +150,109 @@ pub fn piecewise_quadrature(f: &impl Fn(f64) -> Option<f64>, lo: f64, hi: f64, p
     bounds.extend(points.iter().copied().filter(|point| *point > lo && *point < hi));
     bounds.push(hi);
     bounds.windows(2).try_fold(0.0, |sum, bound| quadrature(f, bound[0], bound[1]).map(|value| sum + value))
+}
+
+/// Expand small finite sums exactly; keep larger and infinite sums scoped.
+pub fn sum(body: Expr, var: String, lo: Expr, hi: Expr) -> Expr {
+    let bounds = lo.as_num().and_then(Num::as_int).zip(hi.as_num().and_then(Num::as_int));
+    if let Some((l, h)) = bounds {
+        if h < l { return int(0); }
+        if h.checked_sub(l).is_some_and(|n| n < 256) {
+            return simp(&add((l..=h).map(|k| body.subst(&var, &int(k.into()))).collect()));
+        }
+    }
+    Expr::Sum(Box::new(body), var, Box::new(lo), Box::new(hi))
+}
+
+/// These expressions are constant between their affine signal/condition corners.
+pub fn piecewise_constant(e: &Expr, var: &str) -> bool {
+    piecewise_degree(e, var) == Some(0)
+}
+
+/// Linear pieces can be summed as arithmetic progressions between signal corners.
+pub fn piecewise_affine(e: &Expr, var: &str) -> bool {
+    piecewise_degree(e, var).is_some()
+}
+
+fn piecewise_degree(e: &Expr, var: &str) -> Option<u8> {
+    if !e.has(var) { return Some(0); }
+    let affine = |a: &Expr| {
+        let slope = a.diff(var);
+        !slope.has(var) && !slope.contains(&|e| matches!(e, Expr::Derivative(..)))
+    };
+    match e {
+        Expr::Sym(n) if n == var => Some(1),
+        Expr::Cases(branches) => branches.iter().try_fold(0, |degree, (v, c)| {
+            if piecewise_degree(c, var)? != 0 { return None; }
+            Some(degree.max(piecewise_degree(v, var)?))
+        }),
+        Expr::Cmp(v, _) => v.windows(2).all(|p| affine(&sub(p[0].clone(), p[1].clone()))).then_some(0),
+        Expr::F(Func::Rect | Func::Sgn, a) => affine(a).then_some(0),
+        Expr::F(Func::Tri, a) => affine(a).then_some(1),
+        Expr::Add(v) => v.iter().try_fold(0, |degree, a| Some(degree.max(piecewise_degree(a, var)?))),
+        Expr::Mul(v) => v.iter().try_fold(0, |degree, a| {
+            let next = degree + piecewise_degree(a, var)?;
+            (next <= 1).then_some(next)
+        }),
+        _ => None,
+    }
+}
+
+/// Bounded numerical series evaluation, using compensated accumulation and a
+/// small absolute tail over consecutive blocks as a convergence estimate.
+pub fn series(f: &impl Fn(f64) -> Option<f64>, lo: f64, hi: f64, points: &[f64], affine: bool) -> Result<f64, String> {
+    let integer = |x: f64| x.is_finite() && x.fract() == 0.0 && x.abs() < 9_007_199_254_740_992.0;
+    if !integer(lo) || !(integer(hi) || hi == f64::INFINITY) {
+        return Err("sum bounds must be unitless integers (the upper bound may be infinity)".into());
+    }
+    if hi < lo { return Ok(0.0); }
+    // Isolate boundary values, then sum each linear interval using its first
+    // and last integer values. Work depends on corners, not the index range.
+    if affine {
+        let mut cuts = vec![lo];
+        for point in points {
+            for k in [point.floor(), point.floor() + 1.0] {
+                if k > lo && k <= hi { cuts.push(k); }
+            }
+        }
+        if hi.is_finite() { cuts.push(hi + 1.0); }
+        cuts.sort_by(f64::total_cmp);
+        cuts.dedup();
+        let mut total = 0.0;
+        for interval in cuts.windows(2) {
+            let first = f(interval[0]).filter(|v| v.is_finite()).ok_or("a sum term is undefined")?;
+            let last = f(interval[1] - 1.0).filter(|v| v.is_finite()).ok_or("a sum term is undefined")?;
+            total += (interval[1] - interval[0]) * (first * 0.5 + last * 0.5);
+        }
+        if hi == f64::INFINITY {
+            let start = *cuts.last().unwrap();
+            if f(start) != Some(0.0) || f(start + 1.0) != Some(0.0) {
+                return Err("sum did not converge: its tail is a nonzero affine function".into());
+            }
+        }
+        return total.is_finite().then_some(total).ok_or_else(|| "sum overflow".into());
+    }
+    let last_corner = points.last().copied().unwrap_or(f64::NEG_INFINITY);
+    let (mut total, mut correction, mut tail, mut stable, mut previous_tail) = (0.0_f64, 0.0, 0.0, 0, f64::INFINITY);
+    for offset in 0..100_000 {
+        let k = lo + offset as f64;
+        if k > hi { return Ok(total); }
+        let term = f(k).filter(|v| v.is_finite()).ok_or("a sum term is undefined")?;
+        let adjusted = term - correction;
+        let next = total + adjusted;
+        correction = (next - total) - adjusted;
+        total = next;
+        if !total.is_finite() { return Err("sum overflow".into()); }
+        tail += term.abs();
+        if offset % 32 == 31 {
+            if hi == f64::INFINITY && k > last_corner && (tail == 0.0 || tail < previous_tail * 0.99) && tail <= 1e-12 * total.abs().max(1.0) {
+                stable += 1;
+                if stable == 4 { return Ok(total); }
+            } else { stable = 0; }
+            previous_tail = tail;
+            tail = 0.0;
+        }
+        if k == hi { return Ok(total); }
+    }
+    Err("sum did not converge within 100000 terms".into())
 }

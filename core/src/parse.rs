@@ -94,8 +94,8 @@ pub fn lex(s: &str, mode: Mode) -> Result<Vec<Tok>, String> {
             let name = solveng_names::scan(&cs, i)?.ok_or("expected a variable name")?;
             i = name.end;
             let n = name.value;
-            if let Some(index) = n.strip_prefix("integral_").filter(|s| !s.is_empty()) {
-                out.push(Tok::Name("integral_".into()));
+            if let Some(index) = n.strip_prefix("integral_").or_else(|| n.strip_prefix("sum_")).filter(|s| !s.is_empty()) {
+                out.push(Tok::Name(if n.starts_with("sum_") { "sum_" } else { "integral_" }.into()));
                 out.extend(lex(index, mode)?);
             } else if quoted || n == "as" { out.push(Tok::Quoted(n)); }
             else { out.push(Tok::Name(n)); }
@@ -283,7 +283,6 @@ pub enum Ast {
     Div(Box<Ast>, Box<Ast>),
     Pow(Box<Ast>, Box<Ast>),
     Call(String, Vec<Ast>),
-    Op(crate::env::Operator, Vec<Ast>),
     Abs(Box<Ast>),
     /// a = b < c: a chain of comparisons, 1 where all hold.
     Cmp(Box<Ast>, Vec<(Rel, Ast)>),
@@ -330,6 +329,7 @@ pub struct Clause {
     pub unit: Option<UnitExpr>,
     pub solve: Option<Vec<String>>,
     pub simplify: bool,
+    pub transform: Option<(String, Vec<String>)>,
     pub frac: bool,
     pub digits: Option<u32>,
     pub sci: bool,
@@ -346,18 +346,17 @@ pub struct Line {
 
 const BUILTIN_FNS: &[&str] = &[
     "sqrt", "exp", "ln", "log", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "abs", "arcsin",
-    "arccos", "arctan", "cot", "sec", "csc", "diff", "integrate", "vec", "at", "rect", "tri", "sgn", "cases",
+    "arccos", "arctan", "cot", "sec", "csc", "diff", "integrate", "laplace", "invlaplace", "sum", "vec", "at", "rect", "tri", "sgn", "floor", "factorial", "cases",
 ];
 pub fn is_builtin(n: &str) -> bool {
     BUILTIN_FNS.contains(&n)
 }
-const KEYWORDS: &[&str] = &["solve", "simplify", "digits", "sci", "eng", "frac"];
+const KEYWORDS: &[&str] = &["solve", "simplify", "laplace", "invlaplace", "digits", "sci", "eng", "frac"];
 
 /// What the parser needs to know about the document so far.
 pub struct Ctx<'a> {
     pub units: &'a Units,
     pub mode: Mode,
-    pub operators: &'a [crate::env::Operator],
     /// Names of user functions (and the one being defined).
     pub is_fn: &'a dyn Fn(&str) -> bool,
     /// Names of defined variables.
@@ -709,11 +708,6 @@ impl<'a, 'b> P<'a, 'b> {
                 Ok(Ast::Unit(u))
             }
             Tok::Quoted(q) => {
-                if self.op() == Some("(")
-                    && let Some(op) = self.c.operators.iter().find(|op| greek(&op.name) == greek(&q)).cloned() {
-                        self.i += 1;
-                        return Ok(Ast::Op(op, self.args(&q)?));
-                    }
                 if q == "as" {
                     return Err("a value before 'as' to cast".into());
                 }
@@ -756,6 +750,22 @@ impl<'a, 'b> P<'a, 'b> {
             self.i += 1;
             self.expect(")", "after the differential")?;
             return Ok(Ast::Call("diff".into(), vec![self.sum()?, Ast::Name(var)]));
+        }
+        if n == "sum_" {
+            self.expect("(", "around the sum index and lower bound")?;
+            let Some(Tok::Name(var) | Tok::Quoted(var)) = self.peek().cloned() else { return Err("a sum index must be a name".into()); };
+            self.i += 1;
+            self.expect("=", "after the sum index")?;
+            let lo = self.sum()?;
+            self.expect(")", "after the lower sum bound")?;
+            self.expect("^", "before the upper sum bound")?;
+            // A bare upper-bound name ends before a parenthesized summand.
+            let hi = match self.peek().cloned() {
+                Some(Tok::Name(n) | Tok::Quoted(n)) => { self.i += 1; Ast::Name(n) }
+                _ => self.atom()?,
+            };
+            let body = self.term()?;
+            return Ok(Ast::Call("sum".into(), vec![body, Ast::Name(var), lo, hi]));
         }
         if n == "integral_" {
             let lo = self.atom()?;
@@ -812,7 +822,7 @@ impl<'a, 'b> P<'a, 'b> {
         if np.is_empty() {
             return Ok(Ast::Unit(u.u));
         }
-        let sub = Ctx { operators: &[], units: self.c.units, mode: Mode::Code, is_fn: &|_| false, is_var: &|_| false, strict: false };
+        let sub = Ctx { units: self.c.units, mode: Mode::Code, is_fn: &|_| false, is_var: &|_| false, strict: false };
         let toks = lex(np, Mode::Code)?;
         let mut p = P { t: toks, i: 0, c: &sub, letters: vec![], defining: vec![], abs_depth: 0, in_exp: 0 };
         let n = p.sum()?;
@@ -949,6 +959,13 @@ fn clause(t: &[Tok], c: &Ctx) -> Result<Option<Clause>, String> {
                     return Err("solve: what to solve for, solve(x) or solve(x, y)".into());
                 }
                 cl.solve = Some(args);
+            }
+            "laplace" | "invlaplace" => {
+                if args.len() > 2 || args.iter().any(|n| solveng_names::scan(&n.chars().collect::<Vec<_>>(), 0).ok().flatten().is_none_or(|v| v.end != n.chars().count())) {
+                    return Err(format!("{name} takes up to two variable names"));
+                }
+                if cl.transform.is_some() { return Err("one transform per result".into()); }
+                cl.transform = Some((name, args));
             }
             "digits" => {
                 let d: u32 = args.first().and_then(|a| a.parse().ok()).filter(|d| (1..=15).contains(d)).ok_or_else(|| format!("digits: 1…15, got {}", args.join(", ")))?;
@@ -1096,6 +1113,11 @@ pub fn parse_line(src: &str, c: &Ctx) -> Result<Line, String> {
         stmts.push(s);
         letters.extend(l);
     }
+    if let Some((kind, clause)) = &trail {
+        if clause.transform.is_some() && (*kind != Trail::Sym || clause.solve.is_some()) {
+            return Err("laplace and invlaplace require -> and cannot be combined with solve".into());
+        }
+    }
     Ok(Line { stmts, trail, unit_letters: letters })
 }
 
@@ -1162,12 +1184,12 @@ mod tests {
 
     fn line(s: &str, mode: Mode) -> Line {
         let u = Units::default();
-        let c = Ctx { operators: &[], units: &u, mode, is_fn: &|n| n == "f" || n == "q", is_var: &|n| n == "h", strict: false };
+        let c = Ctx { units: &u, mode, is_fn: &|n| n == "f" || n == "q", is_var: &|n| n == "h", strict: false };
         parse_line(s, &c).unwrap()
     }
     fn err(s: &str, mode: Mode) -> String {
         let u = Units::default();
-        let c = Ctx { operators: &[], units: &u, mode, is_fn: &|_| false, is_var: &|n| n == "h", strict: false };
+        let c = Ctx { units: &u, mode, is_fn: &|_| false, is_var: &|n| n == "h", strict: false };
         parse_line(s, &c).unwrap_err()
     }
 

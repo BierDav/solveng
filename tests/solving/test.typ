@@ -64,7 +64,7 @@
   #def("s(y: V) := q(y)") #fails("q takes x in A, got V")
   #def("U_c(x, y) := x = y", "a_c := U_c(2, 2)", "b_c := U_c(2, 3)") #expect("a_c", 1) #expect("b_c", 0)
   #def("L_c(x: A, y: A) := x < y", "c_c := L_c(1, 2)", "g_c := L_c(2, [1 A])") #expect("c_c", 1) #expect("g_c", 0)
-  #def("k_r(x) := k_r(x) + 1") #fails("k_r isn't defined")
+  #def("k_r(x) := k_r(x) + 1") #fails("functions can't call themselves")
 ]
 
 // casts: e as u is e's number in SI units as a value in u; after a number as is the unit, attosecond

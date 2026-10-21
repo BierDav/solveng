@@ -207,7 +207,7 @@ pub fn regions(document: &str, context: &Context) -> Vec<Region> {
     out
 }
 
-/// Units neither solveng nor the document knows, in `-> unit`, `[5 V]`, `unit: "…"` and quoted math units.
+/// Source inspections: unknown units, redefinitions, and worksheet scope surprises.
 pub fn diagnostics(document: &str, context: &Context) -> Vec<Problem> {
     let a = Analysis::new(document, context);
     let mut out = Vec::new();
@@ -316,11 +316,12 @@ pub fn diagnostics(document: &str, context: &Context) -> Vec<Problem> {
             severity: "warning",
         });
     }
+    out.extend(crate::scope::export_warnings(&a.doc));
     out
 }
 
 /// A function's docs as its hover: the summary and every parameter, with its types, default and description.
-fn function_docs(f: &crate::params::Function) -> String {
+pub(crate) fn function_docs(f: &crate::params::Function) -> String {
     let mut out = format!("`{}` (solveng)\n\n{}", f.name, f.doc);
     let params: Vec<String> = f.positional.iter().chain(&f.named).map(|p| {
         let name = if p.variadic { format!("..{}", p.name) } else { p.name.clone() };
@@ -339,7 +340,6 @@ fn function_docs(f: &crate::params::Function) -> String {
 /// parameter of solveng's functions with its docs.
 pub fn hover(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     let a = Analysis::new(document, context);
-    if let Some(result) = crate::operators::hover(&a, offset) { return Some(result); }
     let at = a.doc.from16(offset as usize);
     let c = &a.doc.c;
     let part = |ch: char| is_letter_or_digit(ch) || "_°%‰µΩ".contains(ch);
@@ -398,6 +398,7 @@ pub fn hover(document: &str, context: &Context, offset: u32) -> Option<Hover> {
         && let Some(d) = units::describe(&word, &a.units) {
             return hover(d);
         }
+    if let Some(name) = crate::navigate::local_at(&a, at) { return hover(format!("`{name}` local sum index (unitless integer)")); }
     if let Some((name, owner)) = crate::navigate::parameter_at(&a, at) {
         let Some((function, written)) = owner else { return hover(format!("`{word}` what the graph plots against, its x axis")) };
         // Its type as compiled (inferred ones too), else as written.
@@ -413,8 +414,9 @@ pub fn hover(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     if let Some(d) = defined(&a, &word) {
         return hover(d);
     }
-    if FUNCTIONS.contains(&word.as_str()) {
-        return hover(format!("`{word}()` built-in function"));
+    let builtin = if word == "sum_" { "sum" } else { word.as_str() };
+    if FUNCTIONS.contains(&builtin) {
+        return hover(crate::params::builtin(builtin).map(function_docs).unwrap_or_else(|| format!("`{word}()` built-in function")));
     }
     if let Some((_, d)) = CONSTANTS.iter().find(|(n, _)| *n == word) {
         return hover(format!("`{word}` {d}"));

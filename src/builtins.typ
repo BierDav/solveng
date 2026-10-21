@@ -1,0 +1,305 @@
+/// ## Built-in operations
+///
+/// Built-in operations are always available in worksheet math, calculation strings and graphs.
+/// Import solveng with `*` to bring its additional math names into scope. These exported names
+/// are math content: write `$tri(t)$` or `#worksheet("tri(0) =")`, rather than `#tri(0)`.
+/// Use a worksheet function such as `$Lambda(t) := tri(t)$` for another name.
+///
+/// The following operations use Typst's existing math names or syntax:
+///
+/// | operation | behavior |
+/// |---|---|
+/// | `sqrt(x)` | Real square root; x must be nonnegative. Units are square-rooted too: `sqrt([9 m^2])` is 3 m. |
+/// | `abs(x)` | Absolute value, preserving x's unit. |
+/// | `exp(x)`, `ln(x)`, `log(x)` | Exponential, natural logarithm and base-10 logarithm. Arguments are unitless; logarithms require x > 0. |
+/// | `sin(x)`, `cos(x)`, `tan(x)` | Trigonometric functions of a unitless angle in radians. |
+/// | `arcsin(x)`, `arccos(x)`, `arctan(x)` | Inverse trigonometric functions; also spelled `asin`, `acos`, `atan`, documented below. |
+/// | `sinh(x)`, `cosh(x)`, `tanh(x)` | Hyperbolic functions of a unitless argument. |
+/// | `vec(a, b, …)` | Column vector. Use `at(vector, index)` to select a component, starting at 0. |
+/// | `cases(value, condition, …, default)` | First matching branch; conditions are unitless, and only the selected value is evaluated. The final default is optional. In math use `cases(0 & t < 0, 1 & "otherwise")`. |
+/// | `laplace(expression, variable, result-variable)`, `invlaplace(expression, variable, result-variable)` | Symbolic unilateral transforms, also used after `->`. Defaults: t → s and s → t. See their entries below for supported forms. |
+/// | `sum(expression, index, lower, upper)` | Sum over inclusive integer bounds; the index is local and unitless. In math use `sum_(k=0)^10 k^2`. Small finite sums simplify exactly; infinite sums stay symbolic with `->` and are evaluated for `=` and graphs. |
+///
+/// For sums, the upper bound may be `infinity`. Piecewise linear signal sums are counted
+/// directly between their corners; other numerical sums use a shrinking-tail convergence
+/// estimate with a limit of 100000 terms. Nonconvergent or slower-converging series report an error.
+///
+/// ```typ
+/// #import "@preview/solveng:1.0.0": *
+/// #show: worksheet
+/// $a := sqrt(9 m^2) =$
+/// $b := sum_(k=0)^3 k^2 =$
+/// $c := cases(0 & b < 0, b & "otherwise") =$
+/// ```
+
+/// Rectangular pulse: `rect(x)` is 1 for |x| < ½, ½ at x = ±½, and 0 otherwise.
+///
+/// The argument and result are unitless. Shift and scale the argument to place a pulse:
+/// `$p(t) := rect((t-2)/4)$` has width 4 and is centered at 2.
+/// `$rect(1/2) =$` gives ½. Integrals split at the pulse boundaries; derivatives stay symbolic.
+///
+/// - x (expression): Unitless position relative to the pulse center.
+/// -> unitless value
+#let rect = math.op("rect")
+
+/// Triangular pulse: `tri(x)` is max(1 − |x|, 0), with height 1 at 0 and support from −1 to 1.
+///
+/// The argument and result are unitless. `$p(t) := tri((t-2)/4)$` is centered at 2 and
+/// reaches zero at −2 and 6. `$tri(1/4) =$` gives ¾. Integrals split at its corners;
+/// the first derivative is piecewise constant and undefined at the three corners.
+///
+/// - x (expression): Unitless position relative to the pulse center.
+/// -> unitless value
+#let tri = math.op("tri")
+
+/// Greatest integer less than or equal to x: `floor(x)`.
+///
+/// The argument and result are unitless. Used for finite time-delay sums.
+/// Its derivative stays symbolic.
+///
+/// - x (number): Unitless real value.
+/// -> integer
+#let floor = math.op("floor")
+
+/// Factorial of a nonnegative integer: `factorial(k)`.
+///
+/// Zero factorial is 1. Values through 33! are exact; larger values can be
+/// evaluated numerically through 170!. Its derivative stays symbolic.
+///
+/// - k (integer): Nonnegative unitless integer.
+/// -> number
+#let factorial = math.op("factorial")
+
+/// Sign function: `sgn(x)` is −1 for x < 0, 0 for x = 0, and 1 for x > 0.
+///
+/// The argument and result are unitless. `$sgn(-3) =$` gives −1.
+/// Its distributional derivative stays symbolic.
+///
+/// - x (expression): Unitless value whose sign to take.
+/// -> unitless value
+#let sgn = math.op("sgn")
+
+/// Symbolically differentiates an expression with respect to a name: `diff(expression, variable)`.
+///
+/// `$diff(x^3, x) ->$` gives 3x². The variable is local to the operation, so an existing
+/// worksheet value for it does not replace it while differentiating. Unsupported piecewise
+/// or distributional derivatives stay symbolic and cannot be evaluated numerically.
+///
+/// - expression (expression): Expression to differentiate.
+/// - variable (name): Differentiation variable, written as a name rather than a value.
+/// -> expression
+#let diff = math.op("diff")
+
+/// Definite integral: `integrate(expression, variable, lower, upper)`.
+///
+/// `$integrate(x^2, x, 0, 3) =$` gives 9. The variable is local to the operation.
+/// Bounds must have matching units; the result has the integrand's unit times the
+/// variable's unit. Either bound may be infinite. Recognized antiderivatives simplify
+/// exactly; remaining integrals stay symbolic with `->` and use adaptive quadrature for
+/// `=` or graphs. Affine signal arguments are split at their corners so narrow pulses
+/// are not skipped. Undefined integrands or failure to converge report an error.
+///
+/// - expression (expression): Integrand.
+/// - variable (name): Integration variable, written as a name rather than a value.
+/// - lower (expression): Lower bound, including `-infinity`.
+/// - upper (expression): Upper bound, including `infinity`.
+/// -> expression or value
+#let integrate = math.op("integrate")
+
+/// Selects a vector component with a zero-based index: `at(vector, index)`.
+///
+/// `$at(vec(3, 5), 0) =$` gives 3. The index must be a nonnegative integer smaller
+/// than the number of components. This also selects a solution from a function that
+/// returns several solutions as a vector. The selected component keeps its unit.
+///
+/// - vector (expression): A vector, including the result of a function returning a vector.
+/// - index (int): Component number, starting at 0.
+/// -> expression or value
+#let at = math.op("at")
+
+/// Inverse sine, also spelled `arcsin`: `asin(x)` returns an angle in radians from −π/2 to π/2.
+///
+/// The argument is unitless and must lie in [−1, 1]; the result is unitless.
+/// `$asin(1) =$` gives π/2.
+///
+/// - x (expression): Unitless sine value in [−1, 1].
+/// -> unitless angle in radians
+#let asin = math.op("asin")
+
+/// Inverse cosine, also spelled `arccos`: `acos(x)` returns an angle in radians from 0 to π.
+///
+/// The argument is unitless and must lie in [−1, 1]; the result is unitless.
+/// `$acos(1) =$` gives 0.
+///
+/// - x (expression): Unitless cosine value in [−1, 1].
+/// -> unitless angle in radians
+#let acos = math.op("acos")
+
+/// Inverse tangent, also spelled `arctan`: `atan(x)` returns an angle in radians between −π/2 and π/2.
+///
+/// The argument and result are unitless. `$atan(1) =$` gives π/4.
+///
+/// - x (expression): Unitless tangent value.
+/// -> unitless angle in radians
+#let atan = math.op("atan")
+
+// Native operation documentation is also read by the IDE. Each @builtin marker
+// names the operation documented by the preceding /// comment.
+
+/// Real square root: `sqrt(x)` returns the nonnegative square root of x.
+///
+/// x must be nonnegative. Units are square-rooted too: `sqrt([9 m^2])` is 3 m.
+/// - x (expression): Nonnegative value, optionally with units.
+// @builtin sqrt
+
+/// Absolute value: `abs(x)` removes the sign and preserves x's unit.
+///
+/// `abs([-3 V])` is 3 V.
+/// - x (expression): Value whose magnitude to take.
+// @builtin abs
+
+/// Exponential: `exp(x)` is e raised to the power x.
+///
+/// The argument and result are unitless. `exp(0)` is 1.
+/// - x (expression): Unitless exponent.
+// @builtin exp
+
+/// Natural logarithm: `ln(x)` is the inverse of `exp(x)`.
+///
+/// The argument must be positive and unitless. `ln(e)` is 1.
+/// - x (expression): Positive unitless value.
+// @builtin ln
+
+/// Base-10 logarithm: `log(x)` is the exponent giving x as a power of 10.
+///
+/// The argument must be positive and unitless. `log(100)` is 2.
+/// - x (expression): Positive unitless value.
+// @builtin log
+
+/// Sine of a unitless angle in radians: `sin(x)`.
+///
+/// `sin(pi/2)` is 1. The result is unitless and lies in [−1, 1].
+/// - x (expression): Unitless angle in radians.
+// @builtin sin
+
+/// Cosine of a unitless angle in radians: `cos(x)`.
+///
+/// `cos(0)` is 1. The result is unitless and lies in [−1, 1].
+/// - x (expression): Unitless angle in radians.
+// @builtin cos
+
+/// Tangent of a unitless angle in radians: `tan(x) = sin(x)/cos(x)`.
+///
+/// `tan(0)` is 0. The function has poles at π/2 + kπ; the result is unitless.
+/// - x (expression): Unitless angle in radians, away from a pole.
+// @builtin tan
+
+/// Hyperbolic sine: `sinh(x) = (exp(x) - exp(-x))/2`.
+///
+/// The argument and result are unitless. `sinh(0)` is 0.
+/// - x (expression): Unitless value.
+// @builtin sinh
+
+/// Hyperbolic cosine: `cosh(x) = (exp(x) + exp(-x))/2`.
+///
+/// The argument and result are unitless. `cosh(0)` is 1.
+/// - x (expression): Unitless value.
+// @builtin cosh
+
+/// Hyperbolic tangent: `tanh(x) = sinh(x)/cosh(x)`.
+///
+/// The argument and result are unitless. `tanh(0)` is 0.
+/// - x (expression): Unitless value.
+// @builtin tanh
+
+/// Column vector: `vec(a, b, …)` keeps the components in the written order.
+///
+/// Components can carry units. Use `at(vector, index)` to select a component,
+/// starting at 0: `at(vec(3, 5), 1)` is 5.
+/// - ..components (expression): Vector components, in order.
+// @builtin vec
+
+/// Piecewise expression: `cases(value, condition, …, default)` selects the first matching branch.
+///
+/// Conditions must be unitless; nonzero means true. Only the selected value is evaluated.
+/// The final default is optional; without a matching branch the value is undefined.
+/// In math use `cases(0 & t < 0, 1 & "otherwise")`.
+/// - ..branches (expression): Alternating values and conditions, optionally followed by a default value.
+// @builtin cases
+
+/// Inclusive integer sum: `sum(expression, index, lower, upper)`.
+///
+/// The index is local and unitless. Bounds are unitless integers; the upper bound may be
+/// `infinity`. In math use `sum_(k=0)^10 k^2`. Small finite sums simplify exactly;
+/// infinite sums stay symbolic with `->` and are evaluated for `=` and graphs.
+/// Piecewise linear signals are counted directly between their corners. Other numerical
+/// sums use a shrinking-tail convergence estimate and report an error after 100000 terms.
+/// - expression (expression): Summand; it may carry units.
+/// - index (name): Local summation index, written as a name.
+/// - lower (expression): Inclusive lower integer bound.
+/// - upper (expression): Inclusive upper integer bound, or `infinity`.
+// @builtin sum
+
+/// Unilateral Laplace transform: `laplace(expression, variable, result-variable)`.
+///
+/// The variables default to t and s. Use `$t^2 -> laplace$`,
+/// `$exp(-x) -> laplace(x, p)$`, or `$laplace(t^2) ->$`.
+/// The input variable is local, so a worksheet value for it is ignored.
+/// Supports constants, polynomials through degree 33, affine exponentials,
+/// sine, cosine, hyperbolic sine and cosine, linear combinations, exponential
+/// shifts and multiplication by powers of the input variable (up to 20).
+/// Also supports `rect(a*t)`, `tri(a*t)` and `sgn(a*t)` for nonzero a,
+/// and shifted affine signal arguments with known real numeric coefficients.
+/// These are unilateral transforms: only the signal at t >= 0 contributes.
+/// For example, `laplace(rect(t))` is (1 − exp(−s/2))/s and
+/// `laplace(tri(2*t))` is 1/s − 2(1 − exp(−s/2))/s².
+/// Define `$Lambda(t) := tri(t)$` before using Λ as the triangular signal.
+/// Parameters are formal constants; results apply in the half-plane of convergence.
+/// The result variable must differ from the input and must not occur in the input
+/// expression. Unsupported transforms report an error; no numerical transform is used.
+///
+/// - expression (expression): Function to transform.
+/// - variable (name): Input variable, t by default.
+/// - result-variable (name): Output variable, s by default.
+/// -> expression
+#let laplace = math.op("laplace")
+
+/// Inverse unilateral Laplace transform: `invlaplace(expression, variable, result-variable)`.
+///
+/// The variables default to s and t. Use `$1/(s+1) -> invlaplace$`,
+/// `$1/(p+1) -> invlaplace(p, x)$`, or `$invlaplace(1/s^2) ->$`.
+/// Proper rational functions are inverted symbolically using repeated poles,
+/// quadratic factors and exact partial fractions where available. The general
+/// numerical evaluator uses a state-space matrix exponential, including complex
+/// poles and repeated irreducible factors; it does not require numerical roots.
+///
+/// Rational delay expressions `N(s,q)/D(s,q)`, with `q = exp(-d*s)`, are handled
+/// by formal power-series division and causal shifts. Delays must be commensurate
+/// rational numbers. Products, powers, `e^x` and hyperbolic functions are normalized
+/// before inversion. The constant delay coefficient D_0(s) must be nonzero;
+/// each numerator coefficient must have lower degree in s than D_0, and no
+/// denominator coefficient may have higher degree. Polynomial parts requiring
+/// Dirac distributions remain unsupported.
+///
+/// Separable delay denominators use generating-function partial fractions to
+/// produce exact finite sums when their delay poles can be determined exactly.
+/// Other supported inverses remain written as `invlaplace(...)` and can be
+/// evaluated or graphed. Numerical evaluation uses at most 256 delay intervals
+/// and a state dimension of 128; exceeding these limits reports an error.
+///
+/// For a system taking `rect(t)` to `tri(2*t)`, shift both signals to preserve
+/// their negative-time parts under the unilateral transform:
+/// `$x(t) := rect(t-1/2)$`, `$y(t) := tri(2*(t-1/2))$`,
+/// `$H(s) := laplace(y(t), t, s)/laplace(x(t), t, s) ->$`, then
+/// `$g_2(t) := invlaplace(H(s)/s, s, t) ->$` gives the step response.
+/// It is a periodic triangular wave: 0 at integer times and 1 at half-integers.
+/// Results describe the causal function for t >= 0.
+/// The input variable is local. The output name must be distinct and absent from
+/// the input expression. Unsupported forms report an error.
+/// Arrow transforms cannot be combined with `solve` or a second transform keyword.
+///
+/// - expression (expression): Expression in the transform domain.
+/// - variable (name): Input variable, s by default.
+/// - result-variable (name): Output variable, t by default.
+/// -> expression
+#let invlaplace = math.op("invlaplace")

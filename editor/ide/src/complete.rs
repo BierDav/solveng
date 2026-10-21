@@ -13,8 +13,8 @@ use crate::tokens::CONSTANTS;
 use crate::units::{self, Custom};
 use crate::{Analysis, Completions, Context, Item, ItemKind, TAG};
 
-pub(crate) const FUNCTIONS: &[&str] = &["sqrt", "exp", "ln", "log", "sin", "cos", "tan", "asin", "acos", "atan", "abs", "diff", "integrate", "vec", "at", "rect", "tri", "sgn", "cases"];
-const NATIVE_FUNCTIONS: &[&str] = &["sqrt", "exp", "ln", "log", "sin", "cos", "tan", "abs", "cases"];
+pub(crate) const FUNCTIONS: &[&str] = solveng_names::OPERATIONS;
+const NATIVE_FUNCTIONS: &[&str] = solveng_names::OPERATIONS;
 /// Fence languages Typewright highlights, offered after ```` ``` ````.
 const TAGS: &[&str] =
     &["sql", "bash", "javascript", "typescript", "kotlin", "java", "python", "csharp", "markdown", "typst", "typc", "mermaid"];
@@ -400,8 +400,15 @@ fn clause_items(a: &Analysis, names: bool, math: bool) -> Vec<Item> {
     items
 }
 
+fn local_items(a: &Analysis, seen: &mut HashSet<String>, at: usize, math: bool) -> Vec<Item> {
+    crate::navigate::local_names(a, at).into_iter().filter(|name| seen.insert(name.clone())).map(|name| {
+        let insert = if math { math_name(&name) } else { solveng_names::code(&name) };
+        variable_item(&name, "local sum index (unitless integer)", &insert)
+    }).collect()
+}
+
 /// What solveng code completes at a word: names, solveng's functions and constants, or units after a value.
-fn code_items(a: &Analysis, line: &str) -> Vec<Item> {
+fn code_items(a: &Analysis, line: &str, at: usize) -> Vec<Item> {
     // Comments complete nothing.
     if line.contains("//") {
         return Vec::new();
@@ -410,10 +417,13 @@ fn code_items(a: &Analysis, line: &str) -> Vec<Item> {
         return clause_items(a, names, false);
     }
     if unit_context(line, &a.units) {
-        return keyword_items(line, false).into_iter().chain(units::unit_items(&a.units)).collect();
+        let mut items: Vec<Item> = keyword_items(line, false).into_iter().chain(units::unit_items(&a.units)).collect();
+        if !declared_unit(line) { items.extend(local_items(a, &mut HashSet::new(), at, false)); }
+        return items;
     }
     let mut seen = HashSet::new();
-    let mut items = definition_items(a, &mut seen, false, true);
+    let mut items = local_items(a, &mut seen, at, false);
+    items.extend(definition_items(a, &mut seen, false, true));
     items.extend(keyword_items(line, false));
     for f in FUNCTIONS {
         if seen.insert(f.to_string()) {
@@ -421,20 +431,18 @@ fn code_items(a: &Analysis, line: &str) -> Vec<Item> {
                 "at" => "at(${1:vector}, ${2:0})$0".into(),
                 "vec" => "vec(${1:first}, ${2:second})$0".into(),
                 "cases" => "cases(${1:0}, ${2:t < 0}, ${3:1})$0".into(),
+                "laplace" => "laplace(${1:expression}, ${2:t}, ${3:s})$0".into(),
+                "invlaplace" => "invlaplace(${1:expression}, ${2:s}, ${3:t})$0".into(),
                 "diff" => "diff(${1:expression}, ${2:x})$0".into(),
+                "sum" => "sum(${1:expression}, ${2:k}, ${3:0}, ${4:10})$0".into(),
                 "integrate" => "integrate(${1:expression}, ${2:x}, ${3:0}, ${4:1})$0".into(),
                 _ => format!("{f}($0)"),
             };
-            let detail = match *f {
-                "at" => "at(vector, index): select a component, starting at 0",
-                "vec" => "vec(a, b, …): a column vector",
-                "cases" => "cases(value, condition, …, default): first matching branch",
-                "rect" => "rect(x): 1 for |x| < ½, ½ at ±½, otherwise 0",
-                "tri" => "tri(x): max(1 − |x|, 0)",
-                "sgn" => "sgn(x): −1, 0 or 1 according to the sign of x",
-                _ => "built-in",
-            };
-            items.push(Item::new(f, ItemKind::FUNCTION, detail, &insert));
+            let docs = crate::params::builtin(f);
+            let detail = docs.map_or("built-in", |f| f.doc.split("\n\n").next().unwrap_or(&f.doc));
+            let mut item = Item::new(f, ItemKind::FUNCTION, detail, &insert);
+            item.documentation = docs.map(crate::highlight::function_docs);
+            items.push(item);
         }
     }
     for (c, d) in CONSTANTS {
@@ -508,10 +516,10 @@ pub fn complete(document: &str, context: &Context, offset: u32) -> Option<Comple
         if !prefix.is_empty() { item.filter = Some(prefix.clone()); }
         if math {
             let standard = NATIVE_FUNCTIONS.contains(&canonical.as_str());
-            let base = if item.typst { label.to_string() }
-                else if item.kind == ItemKind::FUNCTION && standard { canonical.clone() }
+            let base = if item.kind == ItemKind::FUNCTION && standard { canonical.clone() }
                 else { math_name(&canonical) };
-            let suffix = item.insert.find('(').map(|at| item.insert[at..].to_string()).unwrap_or_default();
+            let suffix = if canonical == "sum" && item.insert.starts_with("sum_(") { item.insert[3..].to_string() }
+                else { item.insert.find('(').map(|at| item.insert[at..].to_string()).unwrap_or_default() };
             item.insert = if item.kind == ItemKind::FUNCTION { base + &suffix } else { base };
         } else if string.is_some() {
             item.insert = item.insert.replace('\\', "\\\\").replace('"', "\\\"");
@@ -573,7 +581,7 @@ fn complete_at(document: &str, context: &Context, offset: u32) -> Option<Complet
     }
     let line_start = e.body_start.max(last_index_of_char(&a.doc.c, '\n', from).map_or(0, |i| i + 1));
     let line = a.doc.sub(line_start, from);
-    done(from, code_items(&a, &line), true)
+    done(from, code_items(&a, &line, at), true)
 }
 
 /// Whether the document imports all of solveng (`#import "@preview/solveng:…": *`), which brings the names of
@@ -610,19 +618,23 @@ fn complete_math(a: &Analysis, e: &Element, from: usize) -> Option<Completions> 
         if a.doc.c.get(from) == Some(&'"') {
             return Some(Completions { to: None, from: a.doc.to16(from), items, exclusive: true });
         }
-        items.extend(definition_items(a, &mut HashSet::new(), true, true));
+        let mut seen = HashSet::new();
+        items.extend(local_items(a, &mut seen, from, true));
+        items.extend(definition_items(a, &mut seen, true, true));
         return Some(Completions { to: None, from: a.doc.to16(from), items, exclusive: false });
     }
     if before_.ends_with('_') {
         return None;
     }
-    let mut items = code_items(a, "");
+    let mut items = code_items(a, "", from);
     items.retain(|i| !FUNCTIONS.iter().any(|f| i.label == *f || i.label.starts_with(&format!("{f}("))) || NATIVE_FUNCTIONS.iter().any(|f| i.label == *f || i.label.starts_with(&format!("{f}("))));
+    if let Some(item) = items.iter_mut().find(|item| item.label == "sum") {
+        item.insert = "sum_(${1:k}=0)^(${2:10}) (${3:expression})$0".into();
+    }
     if let Some(item) = items.iter_mut().find(|item| item.label == "cases") {
         item.insert = "cases(${1:0} & ${2:t < 0}, ${3:1} & \"otherwise\")$0".into();
         item.detail = "cases(value & condition, …): first matching branch".into();
     }
-    items.extend(crate::operators::completions(a, from));
     items.extend(keyword_items(&before_, true));
     if items.is_empty() { None } else { Some(Completions { to: None, from: a.doc.to16(from), items, exclusive: false }) }
 }
@@ -634,13 +646,13 @@ fn string_completions(a: &Analysis, call: &Call, t: &crate::calls::Text, at: usi
     let items = match t.role {
         Role::Code => {
             let line_start = t.start.max(last_index_of_char(c, '\n', from).map_or(0, |i| i + 1));
-            code_items(a, &a.doc.sub(line_start, from))
+            code_items(a, &a.doc.sub(line_start, from), at)
         }
         Role::Unit => units::unit_items(&a.units),
         Role::Name => definition_items(a, &mut HashSet::new(), false, false),
         Role::Mark => {
             let mut items: Vec<Item> = MARKS.iter().map(|(m, d)| Item::new(m, ItemKind::VALUE, d, m)).collect();
-            items.extend(code_items(a, &a.doc.sub(t.start, from)));
+            items.extend(code_items(a, &a.doc.sub(t.start, from), at));
             items
         }
         Role::Choice => {

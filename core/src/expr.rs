@@ -100,6 +100,8 @@ pub enum Func {
     Rect,
     Tri,
     Sgn,
+    Floor,
+    Factorial,
 }
 
 impl Func {
@@ -121,6 +123,8 @@ impl Func {
             "rect" => Func::Rect,
             "tri" => Func::Tri,
             "sgn" => Func::Sgn,
+            "floor" => Func::Floor,
+            "factorial" => Func::Factorial,
             _ => return None,
         })
     }
@@ -142,6 +146,8 @@ impl Func {
             Func::Rect => "rect",
             Func::Tri => "tri",
             Func::Sgn => "sgn",
+            Func::Floor => "floor",
+            Func::Factorial => "factorial",
         }
     }
     pub fn inverse(self) -> Option<Func> {
@@ -176,6 +182,8 @@ impl Func {
             Func::Rect => if x.abs() < 0.5 { 1.0 } else if x.abs() == 0.5 { 0.5 } else { 0.0 },
             Func::Tri => (1.0 - x.abs()).max(0.0),
             Func::Sgn => if x == 0.0 { 0.0 } else { x.signum() },
+            Func::Floor => x.floor(),
+            Func::Factorial if (0.0..=170.0).contains(&x) && x.fract() == 0.0 => (1..=x as u32).fold(1.0, |a, b| a * b as f64),
             _ => return None,
         };
         (r.is_finite()).then_some(r)
@@ -193,8 +201,6 @@ pub enum Expr {
     Mul(Vec<Expr>),
     Pow(Box<Expr>, Box<Expr>),
     F(Func, Box<Expr>),
-    /// A Typst operator binding keeps its name through substitution.
-    Op(String, Func, Box<Expr>),
     /// Ordered value/condition pairs; only the first matching value is evaluated.
     Cases(Vec<(Expr, Expr)>),
     /// An unspecified function, resolved when its definition becomes available.
@@ -203,10 +209,13 @@ pub enum Expr {
     Cmp(Vec<Expr>, Vec<Rel>),
     /// e as u: e's SI number as a value in u (factor, dims, unit).
     Cast(Box<Expr>, Num, Dim, UnitExpr),
+    Sum(Box<Expr>, String, Box<Expr>, Box<Expr>),
     Integral(Box<Expr>, String, Box<Expr>, Box<Expr>),
     Derivative(Box<Expr>, String),
     /// Substitute after a formal derivative has been resolved, preserving its variable.
     Subs(Box<Expr>, String, Box<Expr>),
+    /// An algorithmically evaluable causal inverse, with a bound transform variable.
+    InverseLaplace(Box<Expr>, String, Box<Expr>),
 }
 
 pub fn c(v: Num) -> Expr {
@@ -269,9 +278,9 @@ impl Expr {
         match self {
             Expr::Cases(v) => v.iter().flat_map(|(value, condition)| [value, condition]).collect(),
             Expr::Vector(v) | Expr::Add(v) | Expr::Mul(v) | Expr::Cmp(v, _) | Expr::Call(_, v) => v.iter().collect(),
-            Expr::Pow(a, b) | Expr::Subs(a, _, b) => vec![a, b],
-            Expr::Integral(body, _, lo, hi) => vec![body, lo, hi],
-            Expr::F(_, a) | Expr::Op(_, _, a) | Expr::Cast(a, ..) | Expr::Derivative(a, _) => vec![a],
+            Expr::Pow(a, b) | Expr::Subs(a, _, b) | Expr::InverseLaplace(a, _, b) => vec![a, b],
+            Expr::Integral(body, _, lo, hi) | Expr::Sum(body, _, lo, hi) => vec![body, lo, hi],
+            Expr::F(_, a) | Expr::Cast(a, ..) | Expr::Derivative(a, _) => vec![a],
             _ => vec![],
         }
     }
@@ -285,10 +294,11 @@ impl Expr {
             Expr::Cmp(v, r) => Expr::Cmp(v.iter().map(&mut *f).collect(), r.clone()),
             Expr::Pow(a, b) => pow(f(a), f(b)),
             Expr::F(g, a) => func(*g, f(a)),
-            Expr::Op(n, g, a) => Expr::Op(n.clone(), *g, Box::new(f(a))),
             Expr::Derivative(a, x) => Expr::Derivative(Box::new(f(a)), x.clone()),
             Expr::Subs(a, x, by) => Expr::Subs(Box::new(f(a)), x.clone(), Box::new(f(by))),
+            Expr::InverseLaplace(a, x, by) => Expr::InverseLaplace(Box::new(f(a)), x.clone(), Box::new(f(by))),
             Expr::Cast(a, k, d, u) => Expr::Cast(Box::new(f(a)), *k, *d, u.clone()),
+            Expr::Sum(a, v, lo, hi) => Expr::Sum(Box::new(f(a)), v.clone(), Box::new(f(lo)), Box::new(f(hi))),
             Expr::Integral(a, v, lo, hi) => Expr::Integral(Box::new(f(a)), v.clone(), Box::new(f(lo)), Box::new(f(hi))),
             e => e.clone(),
         }
@@ -300,13 +310,13 @@ impl Expr {
         out
     }
     fn syms_into(&self, out: &mut Vec<String>) {
-        if let Expr::Subs(body, var, by) = self {
+        if let Expr::Subs(body, var, by) | Expr::InverseLaplace(body, var, by) = self {
             for n in body.syms().into_iter().filter(|n| n != var).chain(by.syms()) {
                 if !out.contains(&n) { out.push(n); }
             }
             return;
         }
-        if let Expr::Integral(body, var, lo, hi) = self {
+        if let Expr::Integral(body, var, lo, hi) | Expr::Sum(body, var, lo, hi) = self {
             for n in body.syms().into_iter().filter(|n| n != var).chain(lo.syms()).chain(hi.syms()) {
                 if !out.contains(&n) { out.push(n); }
             }
@@ -323,20 +333,25 @@ impl Expr {
     }
     pub fn has(&self, x: &str) -> bool {
         match self {
-            Expr::Integral(..) | Expr::Subs(..) => self.syms().iter().any(|n| n == x),
+            Expr::Sum(..) | Expr::Integral(..) | Expr::Subs(..) | Expr::InverseLaplace(..) => self.syms().iter().any(|n| n == x),
             Expr::Sym(n) => n == x,
             _ => self.children().iter().any(|c| c.has(x)),
         }
     }
     pub fn subst(&self, x: &str, by: &Expr) -> Expr {
         match self {
-            Expr::Integral(..) | Expr::Derivative(..) | Expr::Subs(..) => self.subst_all(&BTreeMap::from([(x.to_string(), by.clone())])),
+            Expr::Sum(..) | Expr::Integral(..) | Expr::Derivative(..) | Expr::Subs(..) | Expr::InverseLaplace(..) => self.subst_all(&BTreeMap::from([(x.to_string(), by.clone())])),
             Expr::Sym(n) if n == x => by.clone(),
             _ => self.map(&mut |c| c.subst(x, by)),
         }
     }
     pub fn subst_all(&self, m: &BTreeMap<String, Expr>) -> Expr {
         match self {
+            Expr::Sum(a, v, lo, hi) => {
+                let scope = Expr::Integral(a.clone(), v.clone(), lo.clone(), hi.clone()).subst_all(m);
+                let Expr::Integral(a, v, lo, hi) = scope else { unreachable!() };
+                Expr::Sum(a, v, lo, hi)
+            }
             Expr::Integral(a, v, lo, hi) => {
                 let mut local = m.clone();
                 local.remove(v);
@@ -363,6 +378,11 @@ impl Expr {
                 let scope = Expr::Integral(Box::new(self.clone()), var.clone(), Box::new(int(0)), Box::new(int(0))).subst_all(&local);
                 let Expr::Integral(body, var, _, _) = scope else { unreachable!() };
                 Expr::Subs(body, var, Box::new(by))
+            }
+            Expr::InverseLaplace(body, var, by) => {
+                let scope = Expr::Integral(body.clone(), var.clone(), Box::new(int(0)), by.clone()).subst_all(m);
+                let Expr::Integral(body, var, _, by) = scope else { unreachable!() };
+                Expr::InverseLaplace(body, var, by)
             }
             Expr::Subs(body, var, by) => {
                 // The same capture-avoiding scope as an integral, with `by` outside it.
@@ -415,8 +435,8 @@ impl Expr {
                     mul(vec![self.clone(), add(vec![mul(vec![b.d(x), func(Func::Ln, (**a).clone())]), mul(vec![(**b).clone(), a.d(x), pow((**a).clone(), int(-1))])])])
                 }
             }
-            Expr::Call(..) | Expr::Cases(..) | Expr::Derivative(..) | Expr::Subs(..) => return Expr::Derivative(Box::new(self.clone()), x.into()),
-            Expr::F(f, a) | Expr::Op(_, f, a) => {
+            Expr::Call(..) | Expr::Cases(..) | Expr::Derivative(..) | Expr::Subs(..) | Expr::InverseLaplace(..) => return Expr::Derivative(Box::new(self.clone()), x.into()),
+            Expr::F(f, a) => {
                 let a0 = (**a).clone();
                 let inner = match f {
                     Func::Exp => func(Func::Exp, a0),
@@ -431,12 +451,27 @@ impl Expr {
                     Func::Sinh => func(Func::Cosh, a0),
                     Func::Cosh => func(Func::Sinh, a0),
                     Func::Tanh => pow(func(Func::Cosh, a0), int(-2)),
-                    Func::Rect | Func::Tri | Func::Sgn => return Expr::Derivative(Box::new(self.clone()), x.into()),
+                    Func::Tri => {
+                        // The pulse is continuous, so its first derivative has no impulses.
+                        // Strict intervals leave its three corners undefined, unless a
+                        // stationary inner function smooths the corner (tri is Lipschitz).
+                        let below = |n| Expr::Cmp(vec![a0.clone(), int(n)], vec![Rel::Lt]);
+                        let between = |lo, hi| Expr::Cmp(vec![int(lo), a0.clone(), int(hi)], vec![Rel::Lt, Rel::Lt]);
+                        Expr::Cases(vec![
+                            (int(0), Expr::Cmp(vec![a.d(x), int(0)], vec![Rel::Eq])),
+                            (int(0), below(-1)),
+                            (int(1), between(-1, 0)),
+                            (int(-1), between(0, 1)),
+                            (int(0), Expr::Cmp(vec![a0.clone(), int(1)], vec![Rel::Gt])),
+                        ])
+                    }
+                    Func::Rect | Func::Sgn | Func::Floor | Func::Factorial => return Expr::Derivative(Box::new(self.clone()), x.into()),
                     Func::Abs => mul(vec![a0.clone(), pow(func(Func::Abs, a0), int(-1))]),
                 };
                 mul(vec![inner, a.d(x)])
             }
             Expr::Cast(a, k, d, u) => Expr::Cast(Box::new(a.d(x)), *k, *d, u.clone()),
+            Expr::Sum(..) => Expr::Derivative(Box::new(self.clone()), x.into()),
             Expr::Integral(a, v, lo, hi) => {
                 let boundary = sub(mul(vec![a.subst(v, hi), hi.d(x)]), mul(vec![a.subst(v, lo), lo.d(x)]));
                 if v == x || !a.has(x) { boundary } else { add(vec![boundary, Expr::Integral(Box::new(a.d(x)), v.clone(), lo.clone(), hi.clone())]) }
@@ -455,7 +490,7 @@ fn kind_rank(e: &Expr) -> u8 {
         Expr::Sym(_) => 2,
         Expr::Pow(b, _) if matches!(**b, Expr::Sym(_)) => 2,
         Expr::Pow(..) => 3,
-        Expr::F(..) | Expr::Op(..) => 4,
+        Expr::F(..) => 4,
         Expr::Add(_) => 5,
         _ => 6,
     }
@@ -596,16 +631,14 @@ pub fn simp(e: &Expr) -> Expr {
         }
         Expr::Call(n, v) => Expr::Call(n.clone(), v.iter().map(simp).collect()),
         Expr::Derivative(a, x) => Expr::Derivative(Box::new(simp(a)), x.clone()),
+        Expr::InverseLaplace(a, x, by) => Expr::InverseLaplace(Box::new(simp(a)), x.clone(), Box::new(simp(by))),
+        Expr::Sum(a, v, lo, hi) => crate::calculus::sum(simp(a), v.clone(), simp(lo), simp(hi)),
         Expr::Integral(a, v, lo, hi) => crate::calculus::integral(simp(a), v.clone(), simp(lo), simp(hi)),
         Expr::Vector(v) => Expr::Vector(v.iter().map(simp).collect()),
         Expr::Add(v) => simp_add(v.iter().map(simp).collect()),
         Expr::Mul(v) => simp_mul(v.iter().map(simp).collect()),
         Expr::Pow(a, b) => simp_pow(simp(a), simp(b)),
         Expr::F(f, a) => simp_f(*f, simp(a)),
-        Expr::Op(n, f, a) => match simp_f(*f, simp(a)) {
-            Expr::F(f, a) => Expr::Op(n.clone(), f, a),
-            e => e,
-        },
         Expr::Cmp(v, r) => simp_cmp(v.iter().map(simp).collect(), r.clone()),
         Expr::Cast(a, k, d, u) => {
             let a = simp(a);
@@ -775,7 +808,7 @@ fn simp_pow(b: Expr, x: Expr) -> Expr {
 
 fn simp_f(f: Func, a: Expr) -> Expr {
     // inverse pairs: exp(ln x) = x, ln(exp x) = x
-    if let Expr::F(g, inner) | Expr::Op(_, g, inner) = &a {
+    if let Expr::F(g, inner) = &a {
         if (f == Func::Exp && *g == Func::Ln) || (f == Func::Ln && *g == Func::Exp) {
             return (**inner).clone();
         }
@@ -814,6 +847,8 @@ fn simp_f(f: Func, a: Expr) -> Expr {
             (Func::Rect, x) => return exact(if x.abs().cmp(Num::R(Rat::new(1, 2).unwrap())) == Ordering::Less { Num::ONE } else if x.abs().cmp(Num::R(Rat::new(1, 2).unwrap())) == Ordering::Equal { Num::R(Rat::new(1, 2).unwrap()) } else { Num::ZERO }),
             (Func::Tri, x) => return exact(if x.abs().cmp(Num::ONE) == Ordering::Less { Num::ONE.sub(x.abs()) } else { Num::ZERO }),
             (Func::Sgn, x) => return exact(if x.is_zero() { Num::ZERO } else if x.is_neg() { Num::int(-1) } else { Num::ONE }),
+            (Func::Floor, Num::R(r)) => return int(r.numer().div_euclid(r.denom())),
+            (Func::Factorial, x) if x.as_int().is_some_and(|k| (0..=33).contains(&k)) => return int((1..=x.as_int().unwrap() as i128).product()),
             (_, Num::F(x)) => {
                 if let Some(y) = f.eval(x) {
                     return exact(Num::F(y));

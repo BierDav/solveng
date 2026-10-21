@@ -162,8 +162,6 @@ const USER_WORKSHEET: &str = r#"#import "@solveng/solveng:1.0.0": *
 //units: (über: auto, üm: "10^3 über"),
 //)
 
-#let tri = math.op("tri")
-
 #worksheet(evaluate: true)[
   $ "pytagoras"(a, b, c) := a^2 + b^2 = c^2 $
   $ "circle"(x, r) := "pytagoras"(x,b,r) -> solve(b) $
@@ -193,38 +191,6 @@ fn user_worksheet_highlights_and_resolves_names() {
         assert!(tokens.iter().any(|t| t.start == offset(at) && t.length == 2 && t.kind == TokenKind::VARIABLE), "{accent}: {tokens:?}");
         assert!(rename_target(&document, &ctx, offset(at + 1)).is_some(), "{accent}");
     }
-}
-
-#[test]
-fn math_operators_link_graph_calls_to_the_typst_binding() {
-    for name in ["tri", "rect", "custom"] {
-        let document = format!("#let {name} = math.op(\"{name}\")\n#worksheet(evaluate: true)[\n  #graph($ {name}(2x) $)\n  $ {name}(x) $\n]");
-        let ctx = Context::default();
-        let at = document.find(&format!("{name}(2x)")).unwrap() as u32;
-        let target = definition(&document, &ctx, at).unwrap();
-        assert_eq!((target.start, target.end), (5, 5 + name.len() as u32));
-        assert_eq!(usages(&document, &ctx, at).len(), 3, "{name}");
-        assert_eq!(rename_target(&document, &ctx, at).unwrap().name, name);
-        let edits = rename(&document, &ctx, at, "pulse");
-        assert_eq!(edits.len(), 3, "{name}");
-        assert!(edits.iter().any(|e| e.start == 5 && e.text == "pulse"));
-        assert!(edits.iter().any(|e| e.start == at && e.text == "pulse"));
-        assert!(edits.iter().all(|e| e.text == "pulse"));
-        assert!(rename(&document, &ctx, at, "😅2tau").is_empty());
-        assert!(rename(&document, &ctx, at, "2x").is_empty());
-    }
-}
-
-#[test]
-fn math_operator_bindings_follow_lexical_scope_and_shadowing() {
-    let document = "#let tri = math.op(\"tri\")\n#worksheet[\n#graph($ tri(x) $)\n#let tri = math.op(\"triangle\")\n#graph($ tri(2x) $)\n]\n#worksheet[ #graph($ tri(3x) $) ]\n#let tri = 3\n#graph($ tri(4x) $)";
-    let ctx = Context::default();
-    let at = |s| document.find(s).unwrap() as u32;
-    assert_eq!(definition(document, &ctx, at("tri(x)")).unwrap().start, 5);
-    assert_eq!(definition(document, &ctx, at("tri(2x)")).unwrap().start, at("tri = math.op(\"triangle"));
-    assert_eq!(definition(document, &ctx, at("tri(3x)")).unwrap().start, 5);
-    assert!(definition(document, &ctx, at("tri(4x)")).is_none());
-    assert_eq!(usages(document, &ctx, 5).len(), 3);
 }
 
 #[test]

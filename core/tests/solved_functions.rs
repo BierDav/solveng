@@ -94,7 +94,7 @@ fn vectors_survive_reports_serialization_graphs_and_domain_checks() {
         assert!(!out.errors.is_empty(), "{src}: {out:?}");
     }
     let plot = graph::graph(&env, &GraphReq {
-        cfg: Cfg::default(), curves: vec![Src { src: "circle(x, 5)".into(), mode: Mode::Code, label: None, operators: vec![] }],
+        cfg: Cfg::default(), curves: vec![Src { src: "circle(x, 5)".into(), mode: Mode::Code, label: None }],
         xrange: vec![XV::Num(-5.0), XV::Num(5.0)], yrange: vec![], marks: vec![], ymark: vec![], samples: 100,
     }).unwrap();
     assert!(plot.series.iter().any(|s| s.points.iter().any(|(_, y)| *y < -4.9)));

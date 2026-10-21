@@ -165,7 +165,7 @@ fn isolate(mut l: Expr, mut r: Expr, x: &str) -> Option<Expr> {
                     l = *k;
                 }
             }
-            Expr::F(f, a) | Expr::Op(_, f, a) => {
+            Expr::F(f, a) => {
                 r = match f {
                     Func::Log => expr::pow(int(10), r),
                     Func::Abs | Func::Cosh => return None,
@@ -573,7 +573,7 @@ fn lin(e: &Expr, xs: &[String], known: &dyn Fn(&str) -> Option<Dim>, cons: &mut 
                 bl.map(|b| scale(&b, p))
             }
         }
-        Expr::F(f, a) | Expr::Op(_, f, a) => {
+        Expr::F(f, a) => {
             let l = lin(a, xs, known, cons)?;
             if *f == Func::Abs {
                 l
@@ -605,6 +605,16 @@ fn lin(e: &Expr, xs: &[String], known: &dyn Fn(&str) -> Option<Dim>, cons: &mut 
         Expr::Derivative(body, var) => {
             let d = crate::eval::dim_of(body, known)?;
             match (d, known(var)) { (Some(a), Some(b)) => Some(k(a.mul(&b.powi(-1)))), _ => None }
+        }
+        Expr::InverseLaplace(..) => {
+            crate::eval::dim_of(e, known)?;
+            Some(k(Dim::ONE))
+        }
+        Expr::Sum(body, var, lo, hi) => {
+            for bound in [lo, hi] {
+                if let Some(d) = lin(bound, xs, known, cons)? { cons.push(d); }
+            }
+            lin(body, xs, &|n| if n == var { Some(Dim::ONE) } else { known(n) }, cons)?
         }
         Expr::Integral(body, var, lo, hi) => {
             let l = lin(lo, xs, known, cons)?;

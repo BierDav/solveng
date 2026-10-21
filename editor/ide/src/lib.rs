@@ -14,8 +14,8 @@ mod conceal;
 mod convert;
 mod elements;
 mod highlight;
+mod locals;
 mod navigate;
-mod operators;
 pub mod params;
 mod report;
 mod scope;
@@ -33,7 +33,6 @@ use serde::Serialize;
 pub use complete::complete;
 pub use conceal::{conceals, conceals_of, resolved_name};
 pub use convert::{conversions, from_math, to_math};
-pub use operators::{operator_edits, operator_declaration, OperatorEdit};
 pub use navigate::{definition, rename, rename_target, usages};
 pub use highlight::{diagnostics, document_tokens, hover, math_tokens, math_tokens_of, pretty, regions, tokens, tokens_with_units};
 pub use report::{Report, ReportElement, ReportValue};
@@ -95,8 +94,6 @@ pub struct Token {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Item {
     pub label: String,
-    #[serde(skip)]
-    pub(crate) typst: bool,
     /// An [`ItemKind`].
     pub kind: u8,
     /// What it is: `= 30 mA`, `milliampere`, `f(x) = x^2 + 1`.
@@ -113,7 +110,7 @@ pub struct Item {
 
 impl Item {
     pub(crate) fn new(label: &str, kind: u8, detail: &str, insert: &str) -> Item {
-        Item { label: label.into(), typst: false, kind, detail: detail.into(), insert: insert.into(), documentation: None, filter: None }
+        Item { label: label.into(), kind, detail: detail.into(), insert: insert.into(), documentation: None, filter: None }
     }
 }
 
@@ -148,7 +145,7 @@ pub struct Conceal {
     pub element_end: u32,
 }
 
-/// A problem solveng would report, found while typing: an unknown unit.
+/// A source inspection found while typing: unknown units, redefinitions or scope surprises.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Problem {
     pub start: u32,

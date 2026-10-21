@@ -53,9 +53,53 @@ Separate equations with `\` in math (`#worksheet($t := 1 \ g := 2$)`) and string
 
 Calculus uses the same notation in both modes: `integral_(0)^(1) x^2 dif x ->` gives 1/3, and `dif / (dif t) f(t) ->` differentiates a defined function. `diff(expression, variable)` and `integrate(expression, variable, lower, upper)` are equivalent calls. Elementary antiderivatives stay exact; other definite integrals use adaptive numerical quadrature, including infinite bounds. Unsupported symbolic integrals stay as integrals; nonconvergent numerical integrals report an error.
 
+Sums use inclusive integer bounds: `sum_(k=0)^10 k^2` or `sum(k^2, k, 0, 10)`. The index is local and case-sensitive; parenthesize summands containing addition. Infinite sums stay symbolic with `->` and use numerical convergence checks with `=` or in graphs. Define `$s_2(t) := sum_(k=0)^infinity sigma(t-k+3/4)$`, then use `#graph("s_2(t)")` once `sigma` is defined. Piecewise linear signal sums are counted directly between their corners. Other numerical sums stop after at most 100000 terms; slow or nonconvergent series report an error.
+
+For example, a sum of steps defined with `cases` can be plotted directly:
+
+```typ
+#import "@preview/solveng:1.0.0": *
+#show: worksheet
+$sigma(t) := cases(
+  0 & "for" t < 0,
+  1 & "for" t >= 0
+)$
+$g_2(t) := sum_(k=0)^infinity sigma(t-k+3/4)$
+#graph("g_2(t)")
+```
+
 The acute accent `´` and the backtick (`` ` ``) are literal name characters: `$x´ := 3$` needs no escaping and defines a different variable from `x`. Variable names include digits: `t2`, `t""2`, and `"t2"` are the same name, distinct from `t_2`. Complete Latin letter runs normalize to Greek, so `Delta2tau` and `"Delta2tau"` both name Δ2τ; `Deltatau` stays unchanged. Empty strings join fragments: `Delta""tau` names Δτ, carried through Typst as `$"Delta\"\"tau"$`. Quotes provide no literal-name escape. Completion accepts partial spellings, symbols, joins, and quoted carriers, and inserts the normalized name with quotes only where Typst needs them.
 
-Signal functions `rect`, `tri`, and `sgn` work in strings and math operators (`#let rect = math.op("rect")`, likewise for the others). `rect(x)` is 1 inside ±½, ½ at its endpoints, and 0 outside; `tri(x)` is max(1 − |x|, 0); `sgn(0)` is 0. Linear combinations simplify and solve normally; numerical integrals split shifted/scaled signals at their corners. Distributional derivatives remain symbolic.
+Use `$t^2 -> laplace$` for 2/s³ and `$1/(s+1) -> invlaplace$` for exp(−t). The defaults are t → s and s → t; `laplace(x, p)` and `invlaplace(p, x)` after the arrow choose other variables. Callable forms such as `$F(p) := laplace(exp(-t), t, p)$` also work. Common polynomial, exponential, trigonometric, and rational transforms are supported; unsupported forms report an error. See [Laplace transforms](docs/reference.md#laplace) for the supported rules.
+
+See [Built-in operations](docs/reference.md#built-in-operations) for syntax, domains, units, and examples.
+
+Signal functions `rect`, `tri`, and `sgn` are available directly in strings and math after importing solveng. `rect(x)` is 1 inside ±½, ½ at its endpoints, and 0 outside; `tri(x)` is max(1 − |x|, 0); `sgn(0)` is 0. Linear combinations simplify and solve normally; numerical integrals split shifted/scaled signals at their corners. Distributional derivatives remain symbolic.
+
+Use a worksheet function to give an operation another name:
+
+```typ
+#import "@preview/solveng:1.0.0": *
+#show: worksheet
+$Lambda(t) := tri(t)$
+$g_2(t) := sum_(k=0)^infinity Lambda(t-k+1/2) ->$
+#graph("g_2(t)", xrange: (-2, 3))
+```
+
+Standard operation names are always available. Define an ordinary worksheet function such as `$Lambda(t) := tri(t)$` to use another name; `Λ` and `Lambda` name the same function in math and code strings.
+
+`inherit` and `export` control worksheet scope independently: `inherit` reads definitions from the parent; `export` passes the final definitions back. Both default to `auto`: true for expression calls and false for content blocks.
+
+```typ
+#import "@preview/solveng:1.0.0": *
+#show: worksheet
+$U := 12 V$
+#worksheet(inherit: true, export: true)[
+  $R := 100 Ω$
+  $I := U/R = mA$
+]
+$I = mA$
+```
 
 ## Units and variables
 
@@ -126,7 +170,7 @@ solveng's engine is written in Rust and runs as a WebAssembly plugin (`src/solve
 
 ## Editors
 
-`solveng-lsp` (in [`editor/`](editor)) is a language server for solveng that runs next to tinymist and answers only where solveng reads the document: ```` ```solveng ```` code blocks, math in a `worksheet`, the strings of `worksheet`, `graph` and `lambdify`, and the options of solveng's calls. It completes defined names, functions, units (also your own from `worksheet-config(units: …)`), keywords after `=` and `->`, and option values like `steps: "value"`; highlights calculations (the evaluating `=` bold); shows values and units on hover; converts a code line ⇄ math as a code action; goes to a name's definition and finds its usages as the compile sees them (in its `worksheet`, up to a redefinition or `clear`, through `#include`d files when `main` is set); and warns about unknown units. Settings, imports and includes of local files count; set `main` to the file you compile so its `worksheet` counts in the files it includes.
+`solveng-lsp` (in [`editor/`](editor)) is a language server for solveng that runs next to tinymist and answers only where solveng reads the document: ```` ```solveng ```` code blocks, math in a `worksheet`, the strings of `worksheet`, `graph` and `lambdify`, and the options of solveng's calls. It completes defined names, functions, units (also your own from `worksheet-config(units: …)`), keywords after `=` and `->`, and option values like `steps: "value"`; highlights calculations (the evaluating `=` bold); shows values and units on hover; converts a code line ⇄ math as a code action; goes to a name's definition and finds its usages as the compile sees them (in its `worksheet`, up to a redefinition or `clear`, through `#include`d files when `main` is set); and warns about unknown units. Sum indices have local scopes for rename, definition, references, completion, and hover; nested sums can reuse an index without changing outer variables. Settings, imports and includes of local files count; set `main` to the file you compile so its `worksheet` counts in the files it includes.
 
 ```sh
 cargo install --git https://github.com/BierDav/solveng solveng-lsp

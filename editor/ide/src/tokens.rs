@@ -6,7 +6,7 @@ use crate::text::{is_digit, is_letter, is_letter_or_digit, starts_with, sub};
 /// A token in characters: start, length, kind.
 pub(crate) type Tok = (usize, usize, u8);
 
-pub(crate) const CONSTANTS: &[(&str, &str)] = &[("pi", "π ≈ 3,14159"), ("e", "Euler's number ≈ 2,71828")];
+pub(crate) const CONSTANTS: &[(&str, &str)] = &[("pi", "π ≈ 3,14159"), ("e", "Euler's number ≈ 2,71828"), ("infinity", "∞ · infinite upper bound")];
 const UNIT_CHARS: &str = "°%‰µΩ";
 const SUPERSCRIPTS: &str = "²³⁻¹";
 
@@ -250,7 +250,7 @@ fn tokens_of(code: &[char], unit: &dyn Fn(&str) -> bool, values: bool) -> Vec<To
                 i = j;
                 continue;
             }
-            let kind = if word == "dif" || word.starts_with("integral_") {
+            let kind = if word == "dif" || word.starts_with("integral_") || word.starts_with("sum_") {
                 K::OPERATOR
             } else if call {
                 K::FUNCTION
@@ -300,7 +300,7 @@ fn quoted_name(math: &[char], start: usize, end: usize, unit: &dyn Fn(&str) -> b
 }
 
 /// Words math writes for operators.
-const MATH_OPERATORS: &[&str] = &["dot", "times", "div", "approx", "plus", "minus", "eq", "lt", "gt", "arrow", "dif", "integral"];
+const MATH_OPERATORS: &[&str] = &["dot", "times", "div", "approx", "plus", "minus", "eq", "lt", "gt", "arrow", "dif", "integral", "sum"];
 
 /// Tokens of one equation's body, coloured like solveng code: numbers, quoted units, variables, functions.
 pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok> {
@@ -378,6 +378,22 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok
             }
             i = end;
         } else if c == '_' && math.get(i + 1) == Some(&'(') {
+            // A sum's lower attachment contains an index declaration and a bound,
+            // rather than a subscript that belongs to a variable name.
+            let prefix = sub(math, 0, i);
+            if prefix.trim_end().strip_suffix("sum").is_some_and(|before| before.chars().last().is_none_or(|c| !solveng_names::is_continue(c))) {
+                let mut depth = 1;
+                let mut end = i + 2;
+                while end < n {
+                    if math[end] == '(' { depth += 1; }
+                    if math[end] == ')' { depth -= 1; }
+                    if depth == 0 { break; }
+                    end += 1;
+                }
+                for (s, l, k) in math_tokens(&math[i + 2..end], unit) { emit(i + 2 + s, i + 2 + s + l, k); }
+                i = (end + 1).min(n);
+                continue;
+            }
             // A subscript in parentheses belongs to the name: x_("in" Delta).
             let close = (i + 2..n).find(|&j| math[j] == ')' || math[j] == '(').filter(|&j| math[j] == ')');
             let Some(close) = close else {
@@ -459,7 +475,7 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok
             } else if word.chars().count() > 1 && crate::is_unit(&word) {
                 // solveng's names of units: 4 mA, x "as" kΩ
                 K::UNIT
-            } else if word == "pi" || word == "π" || word == "e" {
+            } else if CONSTANTS.iter().any(|(name, _)| crate::resolved_name(name) == word) {
                 K::KEYWORD
             } else {
                 K::VARIABLE

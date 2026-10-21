@@ -1,6 +1,5 @@
 #import "/lib.typ": *
 #import "/tests/util.typ": expect, passes, fails, result
-#let at = math.op("at")
 #set page(width: 18cm, height: auto)
 #show: worksheet
 $b := 99$

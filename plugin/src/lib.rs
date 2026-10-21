@@ -2,7 +2,7 @@
 //! The worksheet's definitions travel as opaque bytes the Typst side keeps in its state.
 
 use ciborium::Value;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 use solveng_core::api::{self, Arg, ClearReq, DefinedReq, Lam, LamReq, LineReq, UnitReq};
 use solveng_core::env::Env;
@@ -30,16 +30,9 @@ fn to_value<T: Serialize>(v: &T) -> Result<Value, String> {
 /// (env, request) → (env: new env, out: what to show).
 #[wasm_func]
 pub fn line(env: &[u8], req: &[u8]) -> Result<Vec<u8>, String> {
-    #[derive(Deserialize)]
-    struct Request {
-        #[serde(flatten)]
-        line: LineReq,
-        #[serde(default)]
-        operators: Vec<solveng_core::env::Operator>,
-    }
     let mut e = env_of(env)?;
-    let r: Request = de(req, "request")?;
-    let out = api::line_with_operators(&mut e, &r.line, &r.operators);
+    let r: LineReq = de(req, "request")?;
+    let out = api::line(&mut e, &r);
     // the state only changes when something was defined
     let env = if out.defined.is_empty() { env.to_vec() } else { en(&e)? };
     en(&Value::Map(vec![(Value::Text("env".into()), Value::Bytes(env)), (Value::Text("out".into()), to_value(&out)?)]))

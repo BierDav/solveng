@@ -40,6 +40,53 @@ fn signal_integrals_and_derivatives_keep_their_meaning() {
 }
 
 #[test]
+fn triangular_derivatives_plot_without_assigning_values_at_corners() {
+    use solveng_core::{expr::{Func, func, sym}, eval::eval_f, graph::{self, GraphReq, Src, XV}};
+    for mode in [Mode::Math, Mode::Code] {
+        let env = Env::default();
+        for source in ["dif / (dif t) tri(t)", "diff(tri(t), t)"] {
+            let plot = graph::graph(&env, &GraphReq {
+                cfg: Cfg::default(), curves: vec![Src { src: source.into(), mode, label: None }],
+                xrange: vec![XV::Num(-2.0), XV::Num(2.0)], yrange: vec![],
+                marks: vec![], ymark: vec![], samples: 80,
+            }).unwrap();
+            assert!(plot.series.len() >= 4);
+            for series in &plot.series {
+                for &(t, y) in &series.points {
+                    assert!(![-1.0, 0.0, 1.0].contains(&t));
+                    let expected = if t.abs() > 1.0 { 0.0 } else if t < 0.0 { 1.0 } else { -1.0 };
+                    assert_eq!(y, expected);
+                }
+                for pair in series.points.windows(2) { assert_eq!(pair[0].1, pair[1].1); }
+            }
+        }
+        // Check shifted, reversed and nonlinear arguments against numerical slopes away from corners.
+        for body in ["tri(2*t-1)", "tri(-3*t)", "tri(t^2)"] {
+            let mut local = Env::default();
+            run(&mut local, &format!("p(t) := {body}"), mode);
+            let pulse = &local.funs["p"].body;
+            let derivative = pulse.diff("t");
+            for t in [-1.5_f64, -0.7, -0.2, 0.2, 0.7, 1.5] {
+                let at = |e: &solveng_core::expr::Expr, t: f64| eval_f(e, &|n| (n == "t").then_some(t)).unwrap();
+                let slope = (at(pulse, t + 1e-6) - at(pulse, t - 1e-6)) / 2e-6;
+                assert!((at(&derivative, t) - slope).abs() < 1e-8, "{body} at {t}");
+            }
+        }
+    }
+    let derivative = func(Func::Tri, sym("t")).diff("t");
+    for corner in [-1.0, 0.0, 1.0] {
+        assert!(eval_f(&derivative, &|_| Some(corner)).is_none());
+    }
+    let smooth = func(Func::Tri, solveng_core::expr::pow(sym("t"), solveng_core::expr::int(2))).diff("t");
+    assert_eq!(eval_f(&smooth, &|_| Some(0.0)), Some(0.0));
+    // Jumps and higher distributional derivatives must continue to stay symbolic.
+    assert!(matches!(derivative.diff("t"), solveng_core::expr::Expr::Derivative(..)));
+    for f in [Func::Rect, Func::Sgn] {
+        assert!(matches!(func(f, sym("t")).diff("t"), solveng_core::expr::Expr::Derivative(..)));
+    }
+}
+
+#[test]
 fn shifted_and_narrow_pulses_integrate_over_infinite_bounds() {
     let mut env = Env::default();
     for (expression, expected) in [

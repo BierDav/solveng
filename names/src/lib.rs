@@ -1,6 +1,12 @@
 use unicode_general_category::{get_general_category, GeneralCategory as Category};
 use unicode_normalization::UnicodeNormalization;
 
+/// Built-in operation names for editor completion.
+pub const OPERATIONS: &[&str] = &[
+    "sqrt", "exp", "ln", "log", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "abs",
+    "arcsin", "arccos", "arctan", "diff", "integrate", "laplace", "invlaplace", "sum", "vec", "at", "rect", "tri", "sgn", "floor", "factorial", "cases",
+];
+
 pub const GREEK: &[(&str, char)] = &[
     ("alpha", 'α'), ("beta", 'β'), ("gamma", 'γ'), ("Gamma", 'Γ'), ("delta", 'δ'), ("Delta", 'Δ'), ("epsilon", 'ε'),
     ("zeta", 'ζ'), ("eta", 'η'), ("theta", 'θ'), ("Theta", 'Θ'), ("iota", 'ι'), ("kappa", 'κ'), ("lambda", 'λ'),

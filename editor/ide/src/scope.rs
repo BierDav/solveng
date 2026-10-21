@@ -1,5 +1,5 @@
 //! Which definition a name means, as the compile sees it: the document flattened in compile order from the main
-//! file (`#include` inlines a file), `worksheet` scopes, `inherit`, `clear-at`, `clear` and redefinitions.
+//! file (`#include` inlines a file), `worksheet` scopes, `inherit`, `export`, `clear-at`, `clear` and redefinitions.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -15,7 +15,7 @@ use crate::text::Doc;
 #[derive(Clone, Debug)]
 enum Mark {
     /// A `worksheet` starts; `clear_at` is `heading` (None) or `heading.where(level: n)`.
-    Start { inherit: bool, clear_at: Option<Option<usize>> },
+    Start { inherit: bool, export: bool, clear_at: Option<Option<usize>> },
     End,
     /// `#clear(all: true)`.
     Reset,
@@ -43,18 +43,19 @@ fn named(args: &LinkedNode, name: &str) -> Option<String> {
     named_args(args).find(|(n, _)| n == name).map(|(_, v)| v)
 }
 
-/// `inherit` and `clear-at` of a `worksheet` call's arguments, for its content (`inherit: auto` means no there).
-fn options(args: Option<LinkedNode>) -> (bool, Option<Option<usize>>) {
-    let (mut inherit, mut reset) = (false, None);
+/// Scope options for worksheet content (`auto` means false for inherit and export).
+fn options(args: Option<LinkedNode>) -> (bool, bool, Option<Option<usize>>) {
+    let (mut inherit, mut export, mut reset) = (false, false, None);
     for (name, value) in args.iter().flat_map(named_args) {
         match name.as_str() {
             "inherit" => inherit = value == "true",
+            "export" => export = value == "true",
             "clear-at" if value == "heading" => reset = Some(None),
             "clear-at" => reset = LEVEL.captures(&value).and_then(|m| m[1].parse().ok()).map(Some),
             _ => {}
         }
     }
-    (inherit, reset)
+    (inherit, export, reset)
 }
 
 /// The key of a name `clear` takes: `"x"`, `"f()"`, `$Q_0$`; None for other arguments.
@@ -68,7 +69,17 @@ fn clear_key(arg: &LinkedNode) -> Option<String> {
     (!name.is_empty()).then(|| crate::conceal::resolved_name(name))
 }
 
+/// A content block whose only emitted content is one expression collapses to
+/// that expression in Typst. Spaces are meaningful content; comments are not.
+fn expression_block(body: &LinkedNode) -> bool {
+    if !body.children().any(|c| c.kind() == SyntaxKind::RightBracket) { return false; }
+    let Some(markup) = body.children().find(|c| c.kind() == SyntaxKind::Markup) else { return false; };
+    let mut children = markup.children().filter(|c| !matches!(c.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment));
+    matches!(children.next().map(|c| c.kind()), Some(SyntaxKind::Equation | SyntaxKind::Raw)) && children.next().is_none()
+}
+
 struct Reader<'a> {
+    warnings: Vec<crate::Problem>,
     doc: &'a Doc,
     out: Vec<(usize, Mark)>,
 }
@@ -87,12 +98,25 @@ impl Reader<'_> {
                     Some("worksheet") => {
                         let body = args.as_ref().and_then(|a| a.children().find(|c| c.kind() == SyntaxKind::ContentBlock));
                         if let Some(body) = body {
-                            let (inherit, reset) = options(args);
-                            self.out.push((self.at(body.offset() + 1), Mark::Start { inherit, clear_at: reset }));
+                            let expression = expression_block(&body);
+                            let (inherit, export, reset) = if expression {
+                                let inherit = args.as_ref().and_then(|a| named(a, "inherit"));
+                                let export = args.as_ref().and_then(|a| named(a, "export"));
+                                if export.as_deref().is_none_or(|value| value == "auto") {
+                                    self.warnings.push(crate::Problem {
+                                        start: self.doc.to16(self.at(body.offset())),
+                                        end: self.doc.to16(self.at(body.offset() + body.len())),
+                                        message: "this worksheet block contains only one expression, so Typst treats it as an expression argument: export: auto will export any definitions to the parent scope – set export: false to keep them local, or export: true to make this explicit".into(),
+                                        severity: "warning",
+                                    });
+                                }
+                                (inherit.as_deref() != Some("false"), export.as_deref() != Some("false"), None)
+                            } else { options(args) };
+                            self.out.push((self.at(body.offset() + 1), Mark::Start { inherit, export, clear_at: reset }));
                             self.out.push((self.at(body.offset() + body.len()).saturating_sub(1), Mark::End));
-                        } else if let Some(args) = args.as_ref().filter(|a| named(a, "inherit").as_deref() == Some("false")) {
-                            // Equations see the definitions around them, unless `inherit: false`: then they're on their own.
-                            self.out.push((self.at(args.offset()), Mark::Start { inherit: false, clear_at: None }));
+                        } else if let Some(args) = args.as_ref().filter(|a| ["inherit", "export"].iter().any(|key| named(a, key).as_deref() == Some("false"))) {
+                            // Expression calls inherit and export by default; either direction can be disabled.
+                            self.out.push((self.at(args.offset()), Mark::Start { inherit: named(args, "inherit").as_deref() != Some("false"), export: named(args, "export").as_deref() != Some("false"), clear_at: None }));
                             self.out.push((self.at(args.offset() + args.len()), Mark::End));
                         }
                     }
@@ -144,19 +168,27 @@ impl Reader<'_> {
             }
             _ => return,
         };
-        let (inherit, reset) = options(args);
+        let (inherit, export, reset) = options(args);
         // The markup around it; in a content block that ends before its `]`.
         let end = node.parent().map_or(self.doc.s.len(), |p| p.offset() + p.len());
-        self.out.push((self.at(node.offset() + node.len()), Mark::Start { inherit, clear_at: reset }));
+        self.out.push((self.at(node.offset() + node.len()), Mark::Start { inherit, export, clear_at: reset }));
         self.out.push((self.at(end), Mark::End));
     }
 }
 
 fn structure(doc: &Doc) -> Vec<(usize, Mark)> {
     let root = typst_syntax::parse(&doc.s);
-    let mut reader = Reader { doc, out: Vec::new() };
+    let mut reader = Reader { doc, out: Vec::new(), warnings: Vec::new() };
     reader.visit(&LinkedNode::new(&root));
     reader.out
+}
+
+/// Scope surprises that can be determined from the source without compiling it.
+pub(crate) fn export_warnings(doc: &Doc) -> Vec<crate::Problem> {
+    let root = typst_syntax::parse(&doc.s);
+    let mut reader = Reader { doc, out: Vec::new(), warnings: Vec::new() };
+    reader.visit(&LinkedNode::new(&root));
+    reader.warnings
 }
 
 /// One file of the flattened document: its path relative to the root (empty for the document without one), its
@@ -173,6 +205,8 @@ pub(crate) struct File<'a> {
     pub graphs: Vec<(Vec<(usize, usize)>, Vec<(usize, usize)>)>,
     /// Functions defined where `definitions` doesn't look, like graph curves: name start, name end, end.
     pub functions: Vec<(usize, usize, usize)>,
+    /// Sum index declarations and the summands they bind.
+    pub locals: Vec<crate::locals::Local>,
 }
 
 /// A name in the flattened document: in `file` (an index into the files), and the definition it means (an index
@@ -248,6 +282,7 @@ struct Frame {
     outer: HashMap<String, usize>,
     start: HashMap<String, usize>,
     reset: Option<Option<usize>>,
+    export: bool,
 }
 
 struct Run<'f, 'a> {
@@ -277,14 +312,15 @@ impl Run<'_, '_> {
         let file = &self.files[index];
         for (_, _, event) in events {
             match event {
-                Event::Mark(Mark::Start { inherit, clear_at: reset }) => {
+                Event::Mark(Mark::Start { inherit, export, clear_at: reset }) => {
                     let start = if inherit { self.visible.clone() } else { HashMap::new() };
                     let outer = std::mem::replace(&mut self.visible, start.clone());
-                    self.stack.push(Frame { outer, start, reset });
+                    self.stack.push(Frame { outer, start, reset, export });
                 }
                 Event::Mark(Mark::End) => {
                     if let Some(frame) = self.stack.pop() {
-                        self.visible = frame.outer;
+                        let inner = std::mem::replace(&mut self.visible, frame.outer);
+                        if frame.export { self.visible.extend(inner); }
                     }
                 }
                 Event::Mark(Mark::Reset) => self.restart(),
@@ -358,7 +394,9 @@ pub(crate) fn occurrences(files: &[File], document: usize, main: Option<usize>, 
             (out, statements, replaced)
         }
     };
-    let mut params = parameters(files, &mut out, &implicit);
+    let locals = local_indices(files, &mut out);
+    let mut params = parameters(files, &mut out, &implicit, &locals);
+    params.locals = locals;
     params.statements = statements;
     params.replaced = replaced;
     (out, params)
@@ -369,6 +407,8 @@ pub(crate) fn occurrences(files: &[File], document: usize, main: Option<usize>, 
 #[derive(Default)]
 pub(crate) struct Params {
     pub uses: Vec<usize>,
+    /// Occurrences bound by sum indices, kept out of inferred function parameters.
+    pub locals: Vec<usize>,
     /// Per use, the function it belongs to: an index into `signatures` and `names`.
     pub owners: Vec<usize>,
     pub signatures: Vec<(usize, usize, Vec<String>)>,
@@ -380,9 +420,28 @@ pub(crate) struct Params {
     pub replaced: Vec<((usize, usize), (usize, usize))>,
 }
 
+/// Resolve outer sum binders first, then let nested binders shadow their bodies.
+fn local_indices(files: &[File], out: &mut [Occurrence]) -> Vec<usize> {
+    let mut uses = Vec::new();
+    for (index, file) in files.iter().enumerate() {
+        let mut locals: Vec<_> = file.locals.iter().collect();
+        locals.sort_by_key(|l| std::cmp::Reverse(l.body.1 - l.body.0));
+        for local in locals {
+            let Some(id) = out.iter().position(|o| o.file == index && (o.start, o.end) == local.declaration) else { continue };
+            for (i, o) in out.iter_mut().enumerate() {
+                if o.file == index && o.key == local.key && (i == id || (local.body.0 <= o.start && o.end <= local.body.1)) {
+                    o.definition = Some(id);
+                    if !uses.contains(&i) { uses.push(i); }
+                }
+            }
+        }
+    }
+    uses
+}
+
 /// A function's parameters are its own: `x` in `f(x) = x^2` means the parameter, not a variable `x`; with `..` the
 /// body's other undefined names are parameters too.
-fn parameters(files: &[File], out: &mut [Occurrence], implicit: &str) -> Params {
+fn parameters(files: &[File], out: &mut [Occurrence], implicit: &str, locals: &[usize]) -> Params {
     let mut params = Params::default();
     for (index, file) in files.iter().enumerate() {
         let c = &file.doc.c;
@@ -423,7 +482,7 @@ fn parameters(files: &[File], out: &mut [Occurrence], implicit: &str) -> Params 
             }
             let mut inferred: Vec<(String, usize)> = Vec::new();
             for i in 0..out.len() {
-                if !in_body(&out[i]) {
+                if locals.contains(&i) || !in_body(&out[i]) {
                     continue;
                 }
                 let key = out[i].key.clone();

@@ -46,6 +46,11 @@ $ dif / (dif t) F(t) -> $
 #result("e^(t)")
 #graph($ t \ g := 2 $)
 
+$tau := 1$
+#graph($ integral_(-infinity)^t sigma(tau) dif tau $, xrange: (-1, 1), mark: ())
+#clear("tau")
+#graph($ integral_(-infinity)^t sigma(tau) dif tau $, xrange: (-1, 1), mark: ())
+
 #clear("sigma", "f")
 $f(t) := integral_(-infinity)^t sigma(tau) dif tau$
 #passes()

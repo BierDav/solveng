@@ -18,9 +18,9 @@
     return groups.map(g => _math-def(math.equation(g.join(), block: it.block), quiet: quiet)).join()
   }
   let cf = _cf.get() + (block: it.block)
-  let src = _src(it.body, names: true)
+  let src = _src(it.body)
   if _E(src) or src.trim() == "" { return it }
-  _calc(src, "math", cf, operators: _operator-bindings(it.body), out => {
+  _calc(src, "math", cf, out => {
     let errs = out.errors.map(e => _errc(e, cf, wide: it.block)).join()
     if out.prose { return _with-body(it, _restyle(it.body, (), cf)) + errs }
     if quiet { return errs }
@@ -92,7 +92,7 @@
 
 /// Calculates the math you write, like a Mathcad worksheet.
 ///
-/// `#show: worksheet` calculates the rest of the document, `#worksheet[…]` its content (whose definitions are dropped at its end), and `#worksheet($…$)` single equations, also outside a worksheet.
+/// `#show: worksheet` calculates the rest of the document, `#worksheet[…]` its content (whose definitions stay local unless `export: true`), and `#worksheet($…$)` single equations, also outside a worksheet.
 ///
 /// ```typ
 /// #show: worksheet
@@ -107,7 +107,7 @@
 /// - `=` at the end shows the value, with a bold =: `$t =$` → t **=** 115 h, `$t := Q_0/I =$` defines and shows it. What follows it is the unit and keywords: `$t = 1 h$`, `$t = min, digits(2)$`.
 /// - `->` at the end shows the symbolic result, the known values put in, exactly: `$f := (x^2 - 1)/(x - 1) -> simplify$`. With `solve(x)` it solves an equation for x (and defines it when the solution is a value): `$Q_0/2 = I t -> solve(t)$`, `$x^2 - 4 = 0 -> solve(x)$`, `$x + y = 3, x - y = 1 -> solve(x, y)$`, `$R <= U/I -> solve(R)$`.
 ///
-/// Keywords: `solve(x, …)`, `simplify`, `frac` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
+/// Keywords: `solve(x, …)`, `laplace`, `invlaplace` (optional input and output names), `simplify`, `frac` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
 ///
 /// **Units** are names: `$30 mA$`, `$4.7 kΩ$`, `$9.81 m/s^2$`, and `unit("bar")` for units without one (your own, from `worksheet-config(units: …)`). A single letter is a unit only right after a number: `$5 V$`, `$3 h$`, and `$t = 1 h$` shows t in hours. Anywhere else it's a variable, also alone after `=`: `$t = h$` compares t with a variable h, and `$3 dot h$` is 3 times h.
 ///
@@ -147,9 +147,31 @@
 /// ]
 /// ````
 ///
+/// **Scopes.** `inherit` brings the parent's definitions into the worksheet; `export` passes
+/// the worksheet's final definitions back when it ends. Both default to `auto`: true for
+/// expressions (including strings and code-block arguments), false for content blocks.
+/// A block containing only one equation or raw code block is the same content value as a direct
+/// expression argument in Typst; set `export: false` explicitly to keep that case local.
+/// Neither option is inherited by nested worksheets. Exported variables, functions and solved
+/// values replace existing names in the parent. Only definitions still present at the end
+/// are exported: `clear`, `clear-at` and `clear(all: true)` do not delete parent definitions.
+/// Configuration and units set inside the block stay scoped as before.
+///
+/// ```typ
+/// #show: worksheet
+/// $U := 12 V$
+/// #worksheet(inherit: true, export: true)[
+///   $R := 100 Ω$
+///   $I := U/R = mA$
+/// ]
+/// $I = mA$ // 120 mA, exported from the block
+/// #worksheet($U := 5 V$, export: false) // local to this call
+/// $U =$ // still 12 V
+/// ```
+///
 /// **Editors.** Each equation and code block the worksheet sees leaves a `metadata` labelled `<solveng>` with its `location()`, whether it was calculated and whether math is evaluated there; at the end (and before each match of `clear-at`) one lists everything defined, with values, and the units. Editors like Typewright read them after compiling: `query(<solveng>)`.
 ///
-/// **Starting over.** `clear-at` clears every definition at each match; `#clear(all: true)` inside a worksheet does the same once: back to how it started (with `inherit: true` the outer definitions stay), and `#clear("x", "f")` forgets only those names. After a `#worksheet[…]` the outer definitions come back.
+/// **Starting over.** `clear-at` clears every definition at each match; `#clear(all: true)` inside a worksheet does the same once: back to how it started (with `inherit: true` the outer definitions stay), and `#clear("x", "f")` forgets only those names. After a `#worksheet[…]` the outer definitions come back; with `export: true`, its final definitions are merged over them.
 ///
 /// ```typ
 /// #show: worksheet.with(clear-at: heading)                    // every heading
@@ -158,7 +180,8 @@
 /// ```
 ///
 /// - ..body (content, str): The content, or equations to calculate: math, strings (code lines) and code blocks.
-/// - inherit (auto, bool): See the definitions made before the worksheet (also after each match of `clear-at`). `auto` (default): yes for equations, no for content. `inherit: false` with equations calculates them on their own; what they define still counts afterwards, as what a `graph` defines does.
+/// - inherit (auto, bool): See the definitions made before the worksheet (also after each match of `clear-at`). `auto` (default): yes for equations, no for content. `inherit: false` with equations calculates them on their own; what they define still counts afterwards unless `export: false`, as what a `graph` defines does.
+/// - export (auto, bool): Pass the final definitions and solved values to the enclosing scope. `auto` (default): yes for expressions, strings and code-block arguments; no for content blocks. Independent of `inherit`. Exported names replace existing names; clearing a name inside does not remove it from the parent.
 /// - clear-at (none, function, selector): Clear every definition at each match, e.g. `heading` (every heading) or `heading.where(level: 1)`: the definitions made since are forgotten, like `#clear(all: true)`.
 /// - hidden (bool): Calculate without showing what is calculated (only problems are shown): the equations, or the math and code blocks of the content. Not inherited by nested worksheets.
 /// - evaluate (bool): Calculate the math in the content; `false`: only its code blocks and `#worksheet(…)` calls are. Not inherited by nested worksheets, and not for equations, which are always calculated.
@@ -166,7 +189,7 @@
 /// -> content
 #let worksheet(
   ..body,
-  inherit: auto, clear-at: none, hidden: false, evaluate: true,
+  inherit: auto, export: auto, clear-at: none, hidden: false, evaluate: true,
   digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto, max-denominator: auto, fractions: auto,
   prefixes: auto, show-si: auto, preferred-units: auto, strict: auto, steps: auto, layout: auto, implies: auto, approximate: auto, block: auto, max-solutions: auto,
   defined-style: auto, errors: auto, show-casts: auto, show-types: auto,
@@ -174,7 +197,7 @@
   let pos = body.pos()
   if body.named().len() > 0 {
     let k = body.named().keys().first()
-    return _err-now("unknown argument '" + k + "' for worksheet (arguments: inherit, clear-at, hidden, evaluate and the options " + _DEF.keys().filter(k => k not in ("units", "inline-steps")).join(", ") + ")")
+    return _err-now("unknown argument '" + k + "' for worksheet (arguments: inherit, export, clear-at, hidden, evaluate and the options " + _DEF.keys().filter(k => k not in ("units", "inline-steps")).join(", ") + ")")
   }
   let lc = _check(_given((
     digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions,
@@ -185,17 +208,22 @@
   if type(hidden) != bool { return _err-now("hidden: true or false, got " + _tn(hidden)) }
   if type(evaluate) != bool { return _err-now("evaluate: true or false, got " + _tn(evaluate)) }
   if inherit != auto and type(inherit) != bool { return _err-now("inherit: auto, true or false, got " + _tn(inherit)) }
+  if export != auto and type(export) != bool { return _err-now("export: auto, true or false, got " + _tn(export)) }
   let eqs = pos.len() > 0 and pos.all(x => type(x) == str or (type(x) == content and x.func() in (math.equation, raw)))
+  let exports = if export == auto { eqs } else { export }
+  let finish(d) = {
+    let outer = d.at("^")
+    if exports { outer + (env: _p.merge(_env(outer), _env(d))) + if "last" in d { (last: d.last) } else { (:) } } else { outer }
+  }
   let out = if eqs {
     if clear-at != none { return _err-now("clear-at is for a worksheet's content, #worksheet[…]") }
     if not evaluate { return _err-now("evaluate: false is for a worksheet's content, #worksheet(evaluate: false)[…]; equations passed to worksheet are always calculated") }
     let code(s, block) = _call(_p.statements, s, "code").map(l => _line(l, block, quiet: hidden)).filter(l => l != none).join()
     let shown = pos.map(x => if type(x) == str { code(x, true) } else if x.func() == raw { code(x.text, x.block) } else { _math-def(x, quiet: hidden) }).join()
-    if inherit != false { shown } else {
-      _st.update(d => (:) + ("^": d))
+    if inherit != false and exports { shown } else {
+      _st.update(d => { let inner = if inherit != false { d } else { (:) }; inner.insert("^", d); inner })
       shown
-      // what they defined comes back, over the definitions around
-      _st.update(d => { let o = d.at("^"); o + (env: _p.merge(_env(o), _env(d))) + if "last" in d { (last: d.last) } else { (:) } })
+      _st.update(finish)
     }
   } else {
     let b = pos.at(0, default: [])
@@ -207,7 +235,7 @@
     _rules(b, clear-at, hidden)
     _block-note
     _cf.update(c => c + ("#blocks": _blocks(c) - 1, "#evaluate": c.at("#evaluate").slice(1)))
-    _st.update(d => d.at("^"))
+    _st.update(finish)
   }
   if lc.len() == 0 { out } else {
     _cf.update(c => c + lc + ("^": c))

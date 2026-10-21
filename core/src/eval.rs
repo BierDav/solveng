@@ -131,7 +131,7 @@ pub fn eval_d(e: &Expr) -> Result<(f64, Dim), String> {
             };
             (v, d)
         }
-        Expr::F(f, a) | Expr::Op(_, f, a) => {
+        Expr::F(f, a) => {
             let (v, d) = eval_d(a)?;
             if *f == Func::Abs {
                 return Ok((v.abs(), d));
@@ -158,6 +158,23 @@ pub fn eval_d(e: &Expr) -> Result<(f64, Dim), String> {
             (if ok { 1.0 } else { 0.0 }, Dim::ONE)
         }
         Expr::Subs(..) | Expr::Derivative(..) => return Err("this derivative needs piecewise or distributional calculus; it is kept symbolic".into()),
+        Expr::InverseLaplace(body, var, by) => {
+            let (t, dimension) = eval_d(by)?;
+            if !dimension.is_one() { return Err("inverse Laplace evaluation time must be unitless".into()); }
+            dim_of(e, &|_| None)?;
+            (crate::inverse_laplace::evaluate(body, var, t, &|_| None)?, Dim::ONE)
+        }
+        Expr::Sum(body, var, lo, hi) => {
+            let bound = |e: &Expr| -> Result<f64, String> {
+                let (v, d) = if let Expr::C(v) = e { (v.v.f(), v.d) } else { eval_d(e)? };
+                if !d.is_one() { return Err("sum bounds must be unitless".into()); }
+                Ok(v)
+            };
+            let d = dim_of(body, &|n| if n == var { Some(Dim::ONE) } else { None })?.ok_or("unknown summand dimension")?;
+            let points = crate::calculus::signal_points(body, var, &|_| None);
+            let v = crate::calculus::series(&|k| eval_d(&body.subst(var, &crate::expr::c(Num::F(k)))).ok().filter(|(_, sd)| *sd == d).map(|(v, _)| v), bound(lo)?, bound(hi)?, &points, crate::calculus::piecewise_affine(body, var))?;
+            (v, d)
+        }
         Expr::Integral(body, var, lo, hi) => {
             let bound = |e: &Expr| if let Expr::C(v) = e { Ok((v.v.f(), v.d)) } else { eval_d(e) };
             let (l, ld) = bound(lo)?;
@@ -224,13 +241,19 @@ pub fn eval_f(e: &Expr, vars: &dyn Fn(&str) -> Option<f64>) -> Option<f64> {
                 b.powf(x)
             }
         }
-        Expr::F(f, a) | Expr::Op(_, f, a) => f.eval(eval_f(a, vars)?)?,
+        Expr::F(f, a) => f.eval(eval_f(a, vars)?)?,
         Expr::Cmp(v, rs) => {
             let vals: Vec<f64> = v.iter().map(|x| eval_f(x, vars)).collect::<Option<_>>()?;
             let ok = rs.iter().enumerate().all(|(i, r)| r.holds(vals[i].total_cmp(&vals[i + 1]), close(vals[i], vals[i + 1])));
             if ok { 1.0 } else { 0.0 }
         }
         Expr::Call(..) | Expr::Subs(..) | Expr::Derivative(..) => return None,
+        Expr::InverseLaplace(body, var, by) => crate::inverse_laplace::evaluate(body, var, eval_f(by, vars)?, vars).ok()?,
+        Expr::Sum(body, var, lo, hi) => {
+            let bound = |e: &Expr| if let Expr::C(v) = e { Some(v.v.f()) } else { eval_f(e, vars) };
+            let points = crate::calculus::signal_points(body, var, vars);
+            crate::calculus::series(&|k| eval_f(body, &|n| if n == var { Some(k) } else { vars(n) }), bound(lo)?, bound(hi)?, &points, crate::calculus::piecewise_affine(body, var)).ok()?
+        }
         Expr::Integral(body, var, lo, hi) => {
             let bound = |e: &Expr| if let Expr::C(v) = e { Some(v.v.f()) } else { eval_f(e, vars) };
             let points = crate::calculus::signal_points(body, var, vars);
@@ -316,7 +339,7 @@ pub fn dim_of(e: &Expr, sd: &dyn Fn(&str) -> Option<Dim>) -> Result<Option<Dim>,
                 }
             }
         }
-        Expr::F(f, a) | Expr::Op(_, f, a) => {
+        Expr::F(f, a) => {
             let d = dim_of(a, sd)?;
             if *f == Func::Abs {
                 d
@@ -343,6 +366,20 @@ pub fn dim_of(e: &Expr, sd: &dyn Fn(&str) -> Option<Dim>) -> Result<Option<Dim>,
             (Some(a), Some(b)) => Some(a.mul(&b.powi(-1))),
             _ => None,
         },
+        Expr::InverseLaplace(body, var, by) => {
+            let body_dim = dim_of(body, &|n| if n == var { Some(Dim::ONE) } else { sd(n) })?;
+            let time_dim = dim_of(by, sd)?;
+            if [body_dim, time_dim].into_iter().flatten().any(|d| !d.is_one()) {
+                return Err("inverse Laplace coefficients and time must be unitless".into());
+            }
+            Some(Dim::ONE)
+        }
+        Expr::Sum(body, var, lo, hi) => {
+            for bound in [lo, hi] {
+                if dim_of(bound, sd)?.is_some_and(|d| !d.is_one()) { return Err("sum bounds must be unitless".into()); }
+            }
+            dim_of(body, &|n| if n == var { Some(Dim::ONE) } else { sd(n) })?
+        }
         Expr::Integral(body, var, lo, hi) => {
             let ld = dim_of(lo, sd)?;
             let hd = dim_of(hi, sd)?;

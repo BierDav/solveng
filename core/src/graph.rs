@@ -22,8 +22,6 @@ pub struct Src {
     pub mode: Mode,
     #[serde(default)]
     pub label: Option<String>,
-    #[serde(default)]
-    pub operators: Vec<String>,
 }
 
 /// A value for a range or a mark: a plain number (in the axis unit) or an expression.
@@ -163,7 +161,7 @@ fn read(env: &Env, req: &GraphReq, units: &Units) -> Result<Read, String> {
     let mut xunit_typed: Option<UnitExpr> = None;
     let mut defines = vec![];
     for c in &req.curves {
-        let ctx = Ctx { operators: &[], units, mode: c.mode, is_fn: &is_fn, is_var: &is_var, strict: cfg.strict };
+        let ctx = Ctx { units, mode: c.mode, is_fn: &is_fn, is_var: &is_var, strict: cfg.strict };
         let cv = match parse::parse_curve(&c.src, &ctx) {
             Ok(cv) => cv,
             Err(e) if e.starts_with("NAMED:") => {
@@ -202,7 +200,8 @@ fn read(env: &Env, req: &GraphReq, units: &Units) -> Result<Read, String> {
         let mut names = vec![];
         crate::sheet::ast_names(&cv.body, &mut names);
         for n in names {
-            if !free.contains(&n) && !is_var(&n) && !is_fn(&n) && !matches!(n.as_str(), "π" | "pi" | "e") {
+            if !free.contains(&n) && !is_var(&n) && !is_fn(&n)
+                && lo.expr(&parse::Ast::Name(n.clone()))?.syms().contains(&n) {
                 free.push(n);
             }
         }
@@ -239,7 +238,7 @@ fn read(env: &Env, req: &GraphReq, units: &Units) -> Result<Read, String> {
             _ => None,
         };
         let display = c.label.as_ref().map(|label| parse::parse_curve(label, &ctx)).transpose()?;
-        let label = r.ast_ops(display.as_ref().map_or(&cv.body, |cv| &cv.body), &|_| None, &c.operators).0;
+        let label = r.ast(display.as_ref().map_or(&cv.body, |cv| &cv.body), &|_| None).0;
         if cv.defines {
             defines.push(c.clone());
         }
@@ -470,6 +469,17 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
     let mut all: Vec<f64> = ys.iter().flatten().filter_map(|y| *y).collect();
     all.sort_by(|a, b| a.total_cmp(b));
     if all.is_empty() {
+        let mut missing = BTreeSet::new();
+        for curve in &curves {
+            let mut pending = vec![&curve.e];
+            while let Some(e) = pending.pop() {
+                if let Expr::Call(n, _) = e { missing.insert(n.clone()); }
+                pending.extend(e.children());
+            }
+        }
+        if let Some(n) = missing.first() {
+            return Err(format!("function '{n}' isn't defined – define it with := before plotting, for example {n}({x}) := …"));
+        }
         return Err(format!("'{eq}' can't be evaluated in this range"));
     }
     let (mut lo, mut hi) = (all[0], *all.last().unwrap());
@@ -516,8 +526,14 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         if y1 < 0.0 && y1 > 0.5 * y0 {
             y1 = 0.0;
         }
-        if y0 == y1 {
-            (y0, y1) = (y0 - 1.0, y1 + 1.0);
+        // Flat curves can differ by a few ulps after numerical evaluation.
+        // Give them a useful range before choosing a tick step: a sub-ulp
+        // step at this magnitude cannot advance a floating-point tick loop.
+        let scale = y0.abs().max(y1.abs()).max(1.0);
+        if y1 - y0 <= 32.0 * f64::EPSILON * scale {
+            let center = y0 * 0.5 + y1 * 0.5;
+            let half = scale.max(2.0) * 0.5;
+            (y0, y1) = (center - half, center + half);
         }
         let pad = (y1 - y0) * 0.08;
         (if y0 == 0.0 { 0.0 } else { y0 - pad }, if y1 == 0.0 { 0.0 } else { y1 + pad })
@@ -543,7 +559,9 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
             if !(skip0 && v.abs() < st * 1e-9) {
                 ps.push((v * 1e12).round() / 1e12);
             }
-            v += st;
+            let next = v + st;
+            if next <= v { break; }
+            v = next;
         }
         let ls = ps.iter().map(|p| num_markup(&fixed10(*p), None, cfg)).collect();
         (ps, ls)
@@ -922,23 +940,56 @@ mod tests {
     use crate::api::{LineReq, line};
 
     #[test]
-    fn operator_labels_are_independent_of_calculation_names() {
-        let mut req = GraphReq {
+    fn graph_axes_respect_constants_and_calculus_scope() {
+        for mode in [Mode::Code, Mode::Math] {
+            let req = |src: &str| GraphReq {
+                cfg: Cfg::default(), curves: vec![Src { src: src.into(), mode, label: None }],
+                xrange: vec![XV::Num(-1.0), XV::Num(1.0)], yrange: vec![],
+                marks: vec![], ymark: vec![], samples: 20,
+            };
+            let units = Units::build(&Cfg::default().units).unwrap();
+            let mut env = Env::default();
+            for src in [
+                "integral_(-infinity)^t sigma(tau) dif tau",
+                "integrate(exp(-u^2), u, -infinity, t)",
+                "integrate(exp(-u^2), u, t, infinity)",
+                "integrate(exp(-u^2), u, -∞, t)",
+                "integrate(1, u, 0, t)",
+                "integrate(1, t, 0, t)",
+                "integrate(integrate(1, u, 0, u), u, 0, t)",
+                "sum(t, k, 0, 2)",
+                "sum(0, k, 0, t)",
+                "sum(integrate(t, u, 0, 1), k, 0, 2)",
+                "t + pi + e",
+            ] {
+                assert_eq!(read(&env, &req(src), &units).unwrap().x, "t", "{src}");
+            }
+            let error = read(&env, &req("integrate(1, u, 0, t) + u"), &units).err().unwrap();
+            assert!(error.contains("'t', 'u' vary"), "{error}");
+            for src in ["tau := 1", "sigma(u) := e^u"] {
+                let out = line(&mut env, &LineReq { src: src.into(), mode, cfg: Cfg::default(), listed: true });
+                assert!(out.errors.is_empty(), "{:?}", out.errors);
+            }
+            let plot = graph(&env, &req("integral_(-infinity)^t sigma(tau) dif tau")).unwrap();
+            let points: Vec<_> = plot.series.iter().flat_map(|s| &s.points).collect();
+            assert!(points.len() >= 20);
+            assert!(points.iter().all(|(t, y)| (y - t.exp()).abs() < 1e-8));
+        }
+    }
+
+    #[test]
+    fn ticks_terminate_for_explicit_ranges_one_ulp_wide() {
+        let plot = graph(&Env::default(), &GraphReq {
             cfg: Cfg::default(), curves: vec![Src {
-                src: "tri(2x)".into(), mode: Mode::Code, label: Some("Λ(2x)".into()), operators: vec!["Λ".into(), "dreieick".into(), "sqrt".into()],
+                src: "x".into(), mode: Mode::Code, label: None,
             }],
-            xrange: vec![XV::Num(-1.0), XV::Num(1.0)], yrange: vec![], marks: vec![], ymark: vec![], samples: 101,
-        };
-        let first = graph(&Env::default(), &req).unwrap();
-        assert!(first.series.iter().filter_map(|s| s.label.as_ref()).all(|s| s.contains("Λ") && !s.contains("tri")));
-        assert!(first.ylabel.contains("Λ"), "{}", first.ylabel);
-        req.curves[0].label = Some("dreieick(2x)".into());
-        let second = graph(&Env::default(), &req).unwrap();
-        assert_eq!(first.series[0].points, second.series[0].points);
-        assert!(second.ylabel.contains("dreieick"), "{}", second.ylabel);
-        req.curves[0].label = Some("sqrt(2x)".into());
-        let third = graph(&Env::default(), &req).unwrap();
-        assert!(third.ylabel.contains("upright(\"sqrt\")"), "{}", third.ylabel);
+            xrange: vec![XV::Num(1.0), XV::Num(1.0 + f64::EPSILON)],
+            yrange: vec![XV::Num(1.0), XV::Num(1.0 + f64::EPSILON)],
+            marks: vec![], ymark: vec![], samples: 40,
+        }).unwrap();
+        assert!(!plot.series.is_empty());
+        assert!((1..=20).contains(&plot.xticks.len()));
+        assert!((1..=20).contains(&plot.yticks.len()));
     }
 
     #[test]
@@ -950,11 +1001,11 @@ mod tests {
         }
         let req = |curves: Vec<&str>, ymark: Vec<&str>| GraphReq {
             cfg: Cfg::default(),
-            curves: curves.into_iter().map(|c| Src { src: c.into(), mode: Mode::Code, label: None, operators: vec![] }).collect(),
+            curves: curves.into_iter().map(|c| Src { src: c.into(), mode: Mode::Code, label: None }).collect(),
             xrange: vec![],
             yrange: vec![],
             marks: vec![(Mark::Key("auto".into()), true)],
-            ymark: ymark.into_iter().map(|c| XV::Src(Src { src: c.into(), mode: Mode::Code, label: None, operators: vec![] })).collect(),
+            ymark: ymark.into_iter().map(|c| XV::Src(Src { src: c.into(), mode: Mode::Code, label: None })).collect(),
             samples: 100,
         };
         let g = graph(&env, &req(vec!["P(U: V) = U^2/R"], vec!["P0"])).unwrap();
@@ -973,7 +1024,7 @@ mod tests {
         let mut env = Env::default();
         let run = |env: &mut Env, s: &str| line(env, &LineReq { src: s.into(), mode: Mode::Code, cfg: Cfg::default(), listed: true });
         assert!(run(&mut env, "X(x) := x^2 + 1").errors.is_empty());
-        let req = |c: &str| GraphReq { cfg: Cfg::default(), curves: vec![Src { src: c.into(), mode: Mode::Code, label: None, operators: vec![] }], xrange: vec![], yrange: vec![], marks: vec![], ymark: vec![], samples: 50 };
+        let req = |c: &str| GraphReq { cfg: Cfg::default(), curves: vec![Src { src: c.into(), mode: Mode::Code, label: None }], xrange: vec![], yrange: vec![], marks: vec![], ymark: vec![], samples: 50 };
         // y := X(x): plotted over x, and as a line it defines y with x left free
         graph(&env, &req("y := X(x)")).unwrap();
         assert_eq!(defines(&env, &req("y := X(x)")).unwrap().len(), 1);

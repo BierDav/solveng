@@ -87,14 +87,13 @@ pub struct Sheet<'a> {
     pub cfg: Cfg,
     pub mode: Mode,
     pub listed: bool,
-    pub operators: Vec<crate::env::Operator>,
     out: Out,
 }
 
 impl<'a> Sheet<'a> {
     pub fn new(env: &'a mut Env, cfg: &Cfg, mode: Mode, listed: bool) -> Result<Sheet<'a>, String> {
         let units = Units::build(&cfg.units)?;
-        Ok(Sheet { env, units, cfg: cfg.clone(), mode, listed, operators: vec![], out: Out::default() })
+        Ok(Sheet { env, units, cfg: cfg.clone(), mode, listed, out: Out::default() })
     }
 
     /// Calculates a line.
@@ -104,7 +103,7 @@ impl<'a> Sheet<'a> {
             let env = &*self.env;
             let is_fn = |n: &str| env.funs.contains_key(n);
             let is_var = |n: &str| env.vars.contains_key(n);
-            let ctx = Ctx { operators: &self.operators, units: &self.units, mode: self.mode, is_fn: &is_fn, is_var: &is_var, strict: self.cfg.strict };
+            let ctx = Ctx { units: &self.units, mode: self.mode, is_fn: &is_fn, is_var: &is_var, strict: self.cfg.strict };
             parse::parse_line(src, &ctx)
         };
         let line = match line {
@@ -190,6 +189,18 @@ impl<'a> Sheet<'a> {
 
     /// One statement; stages for code.
     fn stmt(&mut self, s: &Stmt, trail: Option<Trail>, clause: &Clause, cfg: &Cfg) -> Result<Vec<Stage>, String> {
+        if let Some((operation, variables)) = &clause.transform {
+            if trail.is_some() {
+                let wrap = |body: &Ast| Ast::Call(operation.clone(), std::iter::once(body.clone()).chain(variables.iter().cloned().map(Ast::Name)).collect());
+                let transformed = match s {
+                    Stmt::Def { head, rhs, src } => Stmt::Def { head: head.clone(), rhs: wrap(rhs), src: src.clone() },
+                    Stmt::Expr(body) => Stmt::Expr(wrap(body)),
+                };
+                let mut local = clause.clone();
+                local.transform = None;
+                return self.stmt(&transformed, trail, &local, cfg);
+            }
+        }
         match s {
             Stmt::Def { head: Head::Fn { name, params, rest }, rhs, src } => {
                 if trail == Some(Trail::Eval) {
@@ -1040,7 +1051,6 @@ fn subst_ast(a: &Ast, m: &BTreeMap<String, Ast>) -> Ast {
         Ast::Div(x, y) => Ast::Div(s(x), s(y)),
         Ast::Pow(x, y) => Ast::Pow(s(x), s(y)),
         Ast::Call(n, args) => Ast::Call(n.clone(), args.iter().map(|x| subst_ast(x, m)).collect()),
-        Ast::Op(op, args) => Ast::Op(op.clone(), args.iter().map(|x| subst_ast(x, m)).collect()),
         Ast::Cmp(f, rest) => Ast::Cmp(s(f), rest.iter().map(|(r, x)| (*r, subst_ast(x, m))).collect()),
         _ => a.clone(),
     }
@@ -1069,7 +1079,18 @@ pub(crate) fn ast_names(a: &Ast, out: &mut Vec<String>) {
             ast_names(x, out);
             ast_names(y, out);
         }
-        Ast::Call(_, args) | Ast::Op(_, args) => args.iter().for_each(|x| ast_names(x, out)),
+        Ast::Call(n, args) if matches!(n.as_str(), "integrate" | "sum") && args.len() == 4 => {
+            // The integration variable or sum index is local to the body, not the bounds.
+            let mut body = vec![];
+            ast_names(&args[0], &mut body);
+            for n in body {
+                if !matches!(&args[1], Ast::Name(var) if *var == n) && !out.contains(&n) {
+                    out.push(n);
+                }
+            }
+            for bound in &args[2..] { ast_names(bound, out); }
+        }
+        Ast::Call(_, args) => args.iter().for_each(|x| ast_names(x, out)),
         Ast::Cmp(f, rest) => {
             ast_names(f, out);
             rest.iter().for_each(|r| ast_names(&r.1, out));
@@ -1103,7 +1124,6 @@ pub fn ast_text(a: &Ast) -> String {
             Ast::Div(x, y) => (format!("{}/{}", p(x, 3), p(y, 4)), 3),
             Ast::Pow(x, y) => (format!("{}^{}", p(x, 9), p(y, 9)), 5),
             Ast::Call(n, args) => (format!("{n}({})", args.iter().map(|x| t(x).0).collect::<Vec<_>>().join(", ")), 9),
-            Ast::Op(op, args) => (format!("{}({})", op.name, args.iter().map(|x| t(x).0).collect::<Vec<_>>().join(", ")), 9),
             Ast::Abs(x) => (format!("|{}|", t(x).0), 9),
             Ast::Cmp(f, rest) => {
                 let mut s = p(f, 1);

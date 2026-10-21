@@ -90,13 +90,13 @@
   if type(colors) != array or colors.len() == 0 or colors.any(c => type(c) not in (color, gradient)) { return fail("colors: a color or an array of colors like (gray, blue, rgb(\"#f98eff\"))") }
 
   // what the engine reads: math as written for it, strings as code
-  let src(q) = if type(q) == content and q.func() == math.equation { let m = _src(q.body); (src: if _E(m) { "?" } else { m }, mode: "math", label: _src(q.body, names: true), operators: _operator-names(q.body)) } else { (src: _plain(q), mode: "code", label: none, operators: ()) }
+  let src(q) = if type(q) == content and q.func() == math.equation { let m = _src(q.body); (src: if _E(m) { "?" } else { m }, mode: "math", label: _src(q.body)) } else { (src: _plain(q), mode: "code", label: none) }
   let v(a) = if type(a) in (int, float) { float(a) } else { src(a) }
   let mk(m) = if m == auto { "auto" } else if type(m) == str and m in KW { m } else { v(m) }
   let req = (
     cfg: _req-cfg(cf), curves: eqs.map(src).map(q => {
       let labels = if q.label == none or _E(q.label) { () } else { _call(_p.statements, q.label, q.mode) }
-      _call(_p.statements, q.src, q.mode).enumerate().map(((i, s)) => (src: s, mode: q.mode, label: labels.at(i, default: none), operators: q.operators))
+      _call(_p.statements, q.src, q.mode).enumerate().map(((i, s)) => (src: s, mode: q.mode, label: labels.at(i, default: none)))
     }).flatten(), xrange: rng.map(v), yrange: yrng.map(v),
     marks: ms(mark).map(m => (mk(m), true)) + ms(xmark).map(m => (mk(m), false)), ymark: ymk.map(v), samples: samples,
   )

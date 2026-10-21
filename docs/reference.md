@@ -15,7 +15,21 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 - [`graph`](#graph)
 - [`lambdify`](#lambdify)
 - [`clear`](#clear)
+- [`rect`](#rect)
+- [`tri`](#tri)
+- [`sgn`](#sgn)
+- [`floor`](#floor)
+- [`factorial`](#factorial)
+- [`diff`](#diff)
+- [`integrate`](#integrate)
+- [`laplace`](#laplace)
+- [`invlaplace`](#invlaplace)
+- [`at`](#at)
+- [`asin`](#asin)
+- [`acos`](#acos)
+- [`atan`](#atan)
 - [Options](#options)
+- [Built-in operations](#built-in-operations)
 - [Calculating like Mathcad](#calculating-like-mathcad)
 - [Writing values](#writing-values)
 - [Units and variables](#units-and-variables)
@@ -40,13 +54,26 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 | [`graph`](#graph) | Plots an equation with `simple-plot`: ranges, nice ticks, axis labels and units are picked automatically. |
 | [`lambdify`](#lambdify) | Turns an expression into a plain Typst function of numbers, for value tables, other plotting packages (lilaq, cetz-plot, simple-plot) or your own calculations. |
 | [`clear`](#clear) | Forgets definitions: the names given, or with `all: true` every one made so far. |
+| [`rect`](#rect) | Rectangular pulse: `rect(x)` is 1 for \|x\| < ½, ½ at x = ±½, and 0 otherwise. |
+| [`tri`](#tri) | Triangular pulse: `tri(x)` is max(1 − \|x\|, 0), with height 1 at 0 and support from −1 to 1. |
+| [`sgn`](#sgn) | Sign function: `sgn(x)` is −1 for x < 0, 0 for x = 0, and 1 for x > 0. |
+| [`floor`](#floor) | Greatest integer less than or equal to x: `floor(x)`. |
+| [`factorial`](#factorial) | Factorial of a nonnegative integer: `factorial(k)`. |
+| [`diff`](#diff) | Symbolically differentiates an expression with respect to a name: `diff(expression, variable)`. |
+| [`integrate`](#integrate) | Definite integral: `integrate(expression, variable, lower, upper)`. |
+| [`laplace`](#laplace) | Unilateral Laplace transform: `laplace(expression, variable, result-variable)`. |
+| [`invlaplace`](#invlaplace) | Inverse unilateral Laplace transform: `invlaplace(expression, variable, result-variable)`. |
+| [`at`](#at) | Selects a vector component with a zero-based index: `at(vector, index)`. |
+| [`asin`](#asin) | Inverse sine, also spelled `arcsin`: `asin(x)` returns an angle in radians from −π/2 to π/2. |
+| [`acos`](#acos) | Inverse cosine, also spelled `arccos`: `acos(x)` returns an angle in radians from 0 to π. |
+| [`atan`](#atan) | Inverse tangent, also spelled `arctan`: `atan(x)` returns an angle in radians between −π/2 and π/2. |
 | [`worksheet-config`](#options) | Sets options for number formatting, units and output. |
 
 ## `worksheet`
 
 Calculates the math you write, like a Mathcad worksheet.
 
-`#show: worksheet` calculates the rest of the document, `#worksheet[…]` its content (whose definitions are dropped at its end), and `#worksheet($…$)` single equations, also outside a worksheet.
+`#show: worksheet` calculates the rest of the document, `#worksheet[…]` its content (whose definitions stay local unless `export: true`), and `#worksheet($…$)` single equations, also outside a worksheet.
 
 ```typ
 #show: worksheet
@@ -61,7 +88,7 @@ so it lasts $t := Q_0 / I = 1 h$.
 - `=` at the end shows the value, with a bold =: `$t =$` → t **=** 115 h, `$t := Q_0/I =$` defines and shows it. What follows it is the unit and keywords: `$t = 1 h$`, `$t = min, digits(2)$`.
 - `->` at the end shows the symbolic result, the known values put in, exactly: `$f := (x^2 - 1)/(x - 1) -> simplify$`. With `solve(x)` it solves an equation for x (and defines it when the solution is a value): `$Q_0/2 = I t -> solve(t)$`, `$x^2 - 4 = 0 -> solve(x)$`, `$x + y = 3, x - y = 1 -> solve(x, y)$`, `$R <= U/I -> solve(R)$`.
 
-Keywords: `solve(x, …)`, `simplify`, `frac` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
+Keywords: `solve(x, …)`, `laplace`, `invlaplace` (optional input and output names), `simplify`, `frac` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
 
 **Units** are names: `$30 mA$`, `$4.7 kΩ$`, `$9.81 m/s^2$`, and `unit("bar")` for units without one (your own, from `worksheet-config(units: …)`). A single letter is a unit only right after a number: `$5 V$`, `$3 h$`, and `$t = 1 h$` shows t in hours. Anywhere else it's a variable, also alone after `=`: `$t = h$` compares t with a variable h, and `$3 dot h$` is 3 times h.
 
@@ -101,9 +128,31 @@ Keywords: `solve(x, …)`, `simplify`, `frac` (exact fractions), `digits(n)` (de
 ]
 ````
 
+**Scopes.** `inherit` brings the parent's definitions into the worksheet; `export` passes
+the worksheet's final definitions back when it ends. Both default to `auto`: true for
+expressions (including strings and code-block arguments), false for content blocks.
+A block containing only one equation or raw code block is the same content value as a direct
+expression argument in Typst; set `export: false` explicitly to keep that case local.
+Neither option is inherited by nested worksheets. Exported variables, functions and solved
+values replace existing names in the parent. Only definitions still present at the end
+are exported: `clear`, `clear-at` and `clear(all: true)` do not delete parent definitions.
+Configuration and units set inside the block stay scoped as before.
+
+```typ
+#show: worksheet
+$U := 12 V$
+#worksheet(inherit: true, export: true)[
+  $R := 100 Ω$
+  $I := U/R = mA$
+]
+$I = mA$ // 120 mA, exported from the block
+#worksheet($U := 5 V$, export: false) // local to this call
+$U =$ // still 12 V
+```
+
 **Editors.** Each equation and code block the worksheet sees leaves a `metadata` labelled `<solveng>` with its `location()`, whether it was calculated and whether math is evaluated there; at the end (and before each match of `clear-at`) one lists everything defined, with values, and the units. Editors like Typewright read them after compiling: `query(<solveng>)`.
 
-**Starting over.** `clear-at` clears every definition at each match; `#clear(all: true)` inside a worksheet does the same once: back to how it started (with `inherit: true` the outer definitions stay), and `#clear("x", "f")` forgets only those names. After a `#worksheet[…]` the outer definitions come back.
+**Starting over.** `clear-at` clears every definition at each match; `#clear(all: true)` inside a worksheet does the same once: back to how it started (with `inherit: true` the outer definitions stay), and `#clear("x", "f")` forgets only those names. After a `#worksheet[…]` the outer definitions come back; with `export: true`, its final definitions are merged over them.
 
 ```typ
 #show: worksheet.with(clear-at: heading)                    // every heading
@@ -114,7 +163,8 @@ Keywords: `solve(x, …)`, `simplify`, `frac` (exact fractions), `digits(n)` (de
 | parameter | type | default | |
 |---|---|---|---|
 | `..body` | content, str |  | The content, or equations to calculate: math, strings (code lines) and code blocks. |
-| `inherit` | auto, bool | `auto` | See the definitions made before the worksheet (also after each match of `clear-at`). `auto` (default): yes for equations, no for content. `inherit: false` with equations calculates them on their own; what they define still counts afterwards, as what a `graph` defines does. |
+| `inherit` | auto, bool | `auto` | See the definitions made before the worksheet (also after each match of `clear-at`). `auto` (default): yes for equations, no for content. `inherit: false` with equations calculates them on their own; what they define still counts afterwards unless `export: false`, as what a `graph` defines does. |
+| `export` | auto, bool | `auto` | Pass the final definitions and solved values to the enclosing scope. `auto` (default): yes for expressions, strings and code-block arguments; no for content blocks. Independent of `inherit`. Exported names replace existing names; clearing a name inside does not remove it from the parent. |
 | `clear-at` | none, function, selector | `none` | Clear every definition at each match, e.g. `heading` (every heading) or `heading.where(level: 1)`: the definitions made since are forgotten, like `#clear(all: true)`. |
 | `hidden` | bool | `false` | Calculate without showing what is calculated (only problems are shown): the equations, or the math and code blocks of the content. Not inherited by nested worksheets. |
 | `evaluate` | bool | `true` | Calculate the math in the content; `false`: only its code blocks and `#worksheet(…)` calls are. Not inherited by nested worksheets, and not for equations, which are always calculated. |
@@ -206,7 +256,7 @@ what it's plotted against, named in the legend and on the axis: `"U(x: A) = x * 
 the parameter's unit for the x axis, or `"P(..) = U^2/R"`, where `..` takes the one variable
 that isn't defined (with its unit from the range or the marks). Like every function, a curve
 may use only its parameters and defined variables. With `:=` the curve also defines what it names, as the same equation in a worksheet does: `#graph($y := X(x)$)` plots y over x and defines y as X(x), with x left free; `#graph($y := 2 y$)` plots and defines twice that; `#graph($y(t) := X(t)$)` defines the function y. All curves share x. Where two cross is marked:
-`#graph("cos(w) \\ w")` shows the solution of cos(w) = w. `xrange:` / `yrange:` list values that must be visible;
+`#graph("cos(w) \\ w", mark: auto)` shows the solution of cos(w) = w. `xrange:` / `yrange:` list values that must be visible;
 without them the x range is picked around the marks, else around the interesting part
 (roots, extrema, poles, intersections). Marked values are always visible too.
 
@@ -214,7 +264,7 @@ without them the x range is picked around the marks, else around the interesting
 #worksheet("R := 50 Ω", "P0 := 2 W", "U0 := 10 V", hidden: true)
 #graph("P(U: V) = U^2/R", ymark: "P0")                    // where P reaches P0
 #graph("P(..) = U0^2/R_L", xrange: ("10 Ω", "1 kΩ"))       // R_L, in Ω from the range
-#graph("cos(w) \\ w")                                      // range picked, crossing marked
+#graph("cos(w) \\ w", mark: auto)                          // range picked, crossing marked
 #graph("y(x) = x^2 \\ y(x) = 2x + 3", xrange: (-3, 5))     // several curves
 #graph("P(R_L: Ω) = U0^2/R_L", xrange: (0, "2 R"), mark: ("R", "extrema"))
 ```
@@ -223,7 +273,7 @@ Uses `@preview/simple-plot:1.1.0`. Ticks use the document's decimal separator, a
 
 **Ranges:** values and expressions in `xrange` / `yrange` must have the axis unit (`$f(20) Omega$` and `"f(20) Ω"` are fine) – `xrange: ("10 Ω", "f(20)")` with a unitless `f(20)` is an error, since it isn't clear what was meant. Without a range: around the marks; else around what's interesting – roots, extrema, poles, edges of the domain (√, ln) and, above all, where curves cross – rounded to nice ticks, starting at 0 when everything interesting is positive. With `ymark`, the y range is around the marked values (steep curves leave the picture). **Units** follow from what's plotted: y's from the curves (shown in the SI unit with a fitting prefix; `preferred-units` picks others), x's from the curve's parameter (`U(I: mA) = …`) or a function x is passed to whose parameter has one (`$q(I: mA) := I R$`, then `#graph("U(I) = q(I)")` is over I in mA), else from the units in `xrange` and the marks, else from the curve and the units of the y values (`P(..) = U0^2/R2` with `ymark: "2 W"`: R₂ in Ω).
 
-**Marks** are always visible – the ranges grow to show them. Combine them in an array, `(auto, "R1")`; `mark: ()` marks nothing.
+**Marks** default to none. Requested marks are always visible – the ranges grow to show them. Combine them in an array, `(auto, "R1")`.
 
 **Size:** `width` / `height` are the whole graph, labels included; `auto` makes the plot area 8 × 5 cm. Any other named argument goes straight to simple-plot's `plot` (e.g. `show-grid: false`), other positional ones (series from simple-plot) are added as they are. For full control, plot with simple-plot directly.
 
@@ -233,7 +283,7 @@ Uses `@preview/simple-plot:1.1.0`. Ticks use the document's decimal separator, a
 | `..args` | any |  | Named options passed on to simple-plot's `plot` (e.g. `show-grid: false`). |
 | `xrange` | auto, array, str, content, int, float | `auto` | x values that must be visible: numbers in the x axis's unit (`(1, 2)`), values (`("10 Ω", "1 kΩ")`) or expressions of defined variables (`(0, "2 R")`, math works too). Two or more give the range from the smallest to the largest; a single one widens the picked range. `auto`: around the marked x values, else picked from the curves. |
 | `yrange` | auto, array, str, content, int, float | `auto` | y values that must be visible, like `xrange` (numbers in the y axis's SI unit). Two or more give the exact y range. `auto`: fitted to the curves. |
-| `mark` | auto, none, array, str, content, int, float | `auto` | What to mark, with both coordinates written on the axes: x values like `xrange` (`"R"`, `2`, `"5 V"`; a point with guide lines on every curve, the range grows to show it), `"crossings"`, `"roots"`, `"extrema"` (searched within the range) and `auto`: where two curves cross. An array combines them: `(auto, "R1")`. `()` or `none`: no marks. |
+| `mark` | none, auto, array, str, content, int, float | `none` | What to mark, with both coordinates written on the axes: x values like `xrange` (`"R"`, `2`, `"5 V"`; a point with guide lines on every curve, the range grows to show it), `"crossings"`, `"roots"`, `"extrema"` (searched within the range) and `auto`: where two curves cross. An array combines them: `(auto, "R1")`. `()` or `none` (default): no marks. |
 | `xmark` | none, array, str, content, int, float | `()` | Like `mark`, but only the x value is written on the axis. |
 | `ymark` | none, array, str, content, int, float | `()` | y values to mark, like `yrange`: every point where a curve reaches one, with guide lines; the value is written on the y axis. |
 | `samples` | int | `400` | Number of sample points. |
@@ -296,6 +346,233 @@ $U := 12 V$
 | `all` | bool | `false` | Forget every definition instead. |
 
 Returns content.
+
+## `rect`
+
+Rectangular pulse: `rect(x)` is 1 for |x| < ½, ½ at x = ±½, and 0 otherwise.
+
+The argument and result are unitless. Shift and scale the argument to place a pulse:
+`$p(t) := rect((t-2)/4)$` has width 4 and is centered at 2.
+`$rect(1/2) =$` gives ½. Integrals split at the pulse boundaries; derivatives stay symbolic.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | expression |  | Unitless position relative to the pulse center. |
+
+Returns unitless value.
+
+## `tri`
+
+Triangular pulse: `tri(x)` is max(1 − |x|, 0), with height 1 at 0 and support from −1 to 1.
+
+The argument and result are unitless. `$p(t) := tri((t-2)/4)$` is centered at 2 and
+reaches zero at −2 and 6. `$tri(1/4) =$` gives ¾. Integrals split at its corners;
+the first derivative is piecewise constant and undefined at the three corners.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | expression |  | Unitless position relative to the pulse center. |
+
+Returns unitless value.
+
+## `sgn`
+
+Sign function: `sgn(x)` is −1 for x < 0, 0 for x = 0, and 1 for x > 0.
+
+The argument and result are unitless. `$sgn(-3) =$` gives −1.
+Its distributional derivative stays symbolic.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | expression |  | Unitless value whose sign to take. |
+
+Returns unitless value.
+
+## `floor`
+
+Greatest integer less than or equal to x: `floor(x)`.
+
+The argument and result are unitless. Used for finite time-delay sums.
+Its derivative stays symbolic.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | number |  | Unitless real value. |
+
+Returns integer.
+
+## `factorial`
+
+Factorial of a nonnegative integer: `factorial(k)`.
+
+Zero factorial is 1. Values through 33! are exact; larger values can be
+evaluated numerically through 170!. Its derivative stays symbolic.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `k` | integer |  | Nonnegative unitless integer. |
+
+Returns number.
+
+## `diff`
+
+Symbolically differentiates an expression with respect to a name: `diff(expression, variable)`.
+
+`$diff(x^3, x) ->$` gives 3x². The variable is local to the operation, so an existing
+worksheet value for it does not replace it while differentiating. Unsupported piecewise
+or distributional derivatives stay symbolic and cannot be evaluated numerically.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `expression` | expression |  | Expression to differentiate. |
+| `variable` | name |  | Differentiation variable, written as a name rather than a value. |
+
+Returns expression.
+
+## `integrate`
+
+Definite integral: `integrate(expression, variable, lower, upper)`.
+
+`$integrate(x^2, x, 0, 3) =$` gives 9. The variable is local to the operation.
+Bounds must have matching units; the result has the integrand's unit times the
+variable's unit. Either bound may be infinite. Recognized antiderivatives simplify
+exactly; remaining integrals stay symbolic with `->` and use adaptive quadrature for
+`=` or graphs. Affine signal arguments are split at their corners so narrow pulses
+are not skipped. Undefined integrands or failure to converge report an error.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `expression` | expression |  | Integrand. |
+| `variable` | name |  | Integration variable, written as a name rather than a value. |
+| `lower` | expression |  | Lower bound, including `-infinity`. |
+| `upper` | expression |  | Upper bound, including `infinity`. |
+
+Returns expression or value.
+
+## `laplace`
+
+Unilateral Laplace transform: `laplace(expression, variable, result-variable)`.
+
+The variables default to t and s. Use `$t^2 -> laplace$`,
+`$exp(-x) -> laplace(x, p)$`, or `$laplace(t^2) ->$`.
+The input variable is local, so a worksheet value for it is ignored.
+Supports constants, polynomials through degree 33, affine exponentials,
+sine, cosine, hyperbolic sine and cosine, linear combinations, exponential
+shifts and multiplication by powers of the input variable (up to 20).
+Also supports `rect(a*t)`, `tri(a*t)` and `sgn(a*t)` for nonzero a,
+and shifted affine signal arguments with known real numeric coefficients.
+These are unilateral transforms: only the signal at t >= 0 contributes.
+For example, `laplace(rect(t))` is (1 − exp(−s/2))/s and
+`laplace(tri(2*t))` is 1/s − 2(1 − exp(−s/2))/s².
+Define `$Lambda(t) := tri(t)$` before using Λ as the triangular signal.
+Parameters are formal constants; results apply in the half-plane of convergence.
+The result variable must differ from the input and must not occur in the input
+expression. Unsupported transforms report an error; no numerical transform is used.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `expression` | expression |  | Function to transform. |
+| `variable` | name |  | Input variable, t by default. |
+| `result-variable` | name |  | Output variable, s by default. |
+
+Returns expression.
+
+## `invlaplace`
+
+Inverse unilateral Laplace transform: `invlaplace(expression, variable, result-variable)`.
+
+The variables default to s and t. Use `$1/(s+1) -> invlaplace$`,
+`$1/(p+1) -> invlaplace(p, x)$`, or `$invlaplace(1/s^2) ->$`.
+Proper rational functions are inverted symbolically using repeated poles,
+quadratic factors and exact partial fractions where available. The general
+numerical evaluator uses a state-space matrix exponential, including complex
+poles and repeated irreducible factors; it does not require numerical roots.
+
+Rational delay expressions `N(s,q)/D(s,q)`, with `q = exp(-d*s)`, are handled
+by formal power-series division and causal shifts. Delays must be commensurate
+rational numbers. Products, powers, `e^x` and hyperbolic functions are normalized
+before inversion. The constant delay coefficient D_0(s) must be nonzero;
+each numerator coefficient must have lower degree in s than D_0, and no
+denominator coefficient may have higher degree. Polynomial parts requiring
+Dirac distributions remain unsupported.
+
+Separable delay denominators use generating-function partial fractions to
+produce exact finite sums when their delay poles can be determined exactly.
+Other supported inverses remain written as `invlaplace(...)` and can be
+evaluated or graphed. Numerical evaluation uses at most 256 delay intervals
+and a state dimension of 128; exceeding these limits reports an error.
+
+For a system taking `rect(t)` to `tri(2*t)`, shift both signals to preserve
+their negative-time parts under the unilateral transform:
+`$x(t) := rect(t-1/2)$`, `$y(t) := tri(2*(t-1/2))$`,
+`$H(s) := laplace(y(t), t, s)/laplace(x(t), t, s) ->$`, then
+`$g_2(t) := invlaplace(H(s)/s, s, t) ->$` gives the step response.
+It is a periodic triangular wave: 0 at integer times and 1 at half-integers.
+Results describe the causal function for t >= 0.
+The input variable is local. The output name must be distinct and absent from
+the input expression. Unsupported forms report an error.
+Arrow transforms cannot be combined with `solve` or a second transform keyword.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `expression` | expression |  | Expression in the transform domain. |
+| `variable` | name |  | Input variable, s by default. |
+| `result-variable` | name |  | Output variable, t by default. |
+
+Returns expression.
+
+## `at`
+
+Selects a vector component with a zero-based index: `at(vector, index)`.
+
+`$at(vec(3, 5), 0) =$` gives 3. The index must be a nonnegative integer smaller
+than the number of components. This also selects a solution from a function that
+returns several solutions as a vector. The selected component keeps its unit.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `vector` | expression |  | A vector, including the result of a function returning a vector. |
+| `index` | int |  | Component number, starting at 0. |
+
+Returns expression or value.
+
+## `asin`
+
+Inverse sine, also spelled `arcsin`: `asin(x)` returns an angle in radians from −π/2 to π/2.
+
+The argument is unitless and must lie in [−1, 1]; the result is unitless.
+`$asin(1) =$` gives π/2.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | expression |  | Unitless sine value in [−1, 1]. |
+
+Returns unitless angle in radians.
+
+## `acos`
+
+Inverse cosine, also spelled `arccos`: `acos(x)` returns an angle in radians from 0 to π.
+
+The argument is unitless and must lie in [−1, 1]; the result is unitless.
+`$acos(1) =$` gives 0.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | expression |  | Unitless cosine value in [−1, 1]. |
+
+Returns unitless angle in radians.
+
+## `atan`
+
+Inverse tangent, also spelled `arctan`: `atan(x)` returns an angle in radians between −π/2 and π/2.
+
+The argument and result are unitless. `$atan(1) =$` gives π/4.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | expression |  | Unitless tangent value. |
+
+Returns unitless angle in radians.
 
 ## Options
 
@@ -405,6 +682,40 @@ To reuse your defaults in many documents, keep a small file of your own:
 | `unit-style` | auto, function | `auto` | A function given every shown unit as content, `u => text(fill: blue, u)`. |
 | `unit-separator` | auto, content, str, symbol | `auto` | What goes between units, a thin dot by default (A·as): `sym.times`, `h(0.2em)`. |
 
+## Built-in operations
+
+Built-in operations are always available in worksheet math, calculation strings and graphs.
+Import solveng with `*` to bring its additional math names into scope. These exported names
+are math content: write `$tri(t)$` or `#worksheet("tri(0) =")`, rather than `#tri(0)`.
+Use a worksheet function such as `$Lambda(t) := tri(t)$` for another name.
+
+The following operations use Typst's existing math names or syntax:
+
+| operation | behavior |
+|---|---|
+| `sqrt(x)` | Real square root; x must be nonnegative. Units are square-rooted too: `sqrt([9 m^2])` is 3 m. |
+| `abs(x)` | Absolute value, preserving x's unit. |
+| `exp(x)`, `ln(x)`, `log(x)` | Exponential, natural logarithm and base-10 logarithm. Arguments are unitless; logarithms require x > 0. |
+| `sin(x)`, `cos(x)`, `tan(x)` | Trigonometric functions of a unitless angle in radians. |
+| `arcsin(x)`, `arccos(x)`, `arctan(x)` | Inverse trigonometric functions; also spelled `asin`, `acos`, `atan`, documented below. |
+| `sinh(x)`, `cosh(x)`, `tanh(x)` | Hyperbolic functions of a unitless argument. |
+| `vec(a, b, …)` | Column vector. Use `at(vector, index)` to select a component, starting at 0. |
+| `cases(value, condition, …, default)` | First matching branch; conditions are unitless, and only the selected value is evaluated. The final default is optional. In math use `cases(0 & t < 0, 1 & "otherwise")`. |
+| `laplace(expression, variable, result-variable)`, `invlaplace(expression, variable, result-variable)` | Symbolic unilateral transforms, also used after `->`. Defaults: t → s and s → t. See their entries below for supported forms. |
+| `sum(expression, index, lower, upper)` | Sum over inclusive integer bounds; the index is local and unitless. In math use `sum_(k=0)^10 k^2`. Small finite sums simplify exactly; infinite sums stay symbolic with `->` and are evaluated for `=` and graphs. |
+
+For sums, the upper bound may be `infinity`. Piecewise linear signal sums are counted
+directly between their corners; other numerical sums use a shrinking-tail convergence
+estimate with a limit of 100000 terms. Nonconvergent or slower-converging series report an error.
+
+```typ
+#import "@preview/solveng:1.0.0": *
+#show: worksheet
+$a := sqrt(9 m^2) =$
+$b := sum_(k=0)^3 k^2 =$
+$c := cases(0 & b < 0, b & "otherwise") =$
+```
+
 ## Calculating like Mathcad
 
 Three operators, and `=` keeps its meaning from maths:
@@ -445,7 +756,8 @@ Q := @U2 [2 s]                       // @U2 inlines its formula: Q = R [1 mA] [2
 - **Typeable spellings:** `Omega` → Ω, with a prefix glued as in math: `k""Omega` → kΩ (`kOmega` is not a unit, like `DeltaT` is not ΔT); `u` → µ, `degC` → °C, `deg` → °. They are printed with the proper symbols (`[20 uA]` → 20 µA). In math, units are names (`$4.7 kΩ$`, `$20 µA$`), see [Units and variables](#units-and-variables).
 - **Decimal comma:** `7,2 V` works; the output separator follows the document language (option `separator`).
 - **Names:** the acute accent `´` and the backtick (`` ` ``) are literal name characters (`$x´ := 3$`), with no escaping needed. Digits continue a name: `t2` differs from `t_2` and keeps its digits on the baseline. Complete Latin letter runs normalize to Greek: `Delta2tau` → Δ2τ, while `Deltatau` stays unchanged. `""` joins name fragments: `Delta""tau` → Δτ and `t""2` → t2. Quotes only carry a name through Typst: `$"Delta2tau"$` names Δ2τ, and `$"Delta\"\"tau"$` names Δτ. Explicit subscripts may be grouped: `$R_(a b)$` names R_ab. Operators and whitespace end a name; a leading number remains a coefficient (`2t2` is 2 times t2).
-- **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. `#let rect = math.op("rect")` makes the spelling available in math. Linear combinations simplify and can be solved; definite integrals split affine arguments at their boundaries. Distributional derivatives stay symbolic.
+- **Sums:** `sum_(k=0)^10 k^2` or `sum(k^2, k, 0, 10)` sums over inclusive integer bounds. The index is local and case-sensitive. Parenthesize a summand containing addition. Small finite sums simplify exactly; infinite sums stay symbolic after `->` and are evaluated numerically for `=` and graphs. For example, `$s_2(t) := sum_(k=0)^infinity sigma(t-k+3/4)$` defines a function usable as `#graph("s_2(t)")` once `sigma` is defined. Piecewise linear signal sums are counted directly between their corners. Other numerical sums use at most 100000 terms and a shrinking-tail convergence estimate; slow or nonconvergent series report an error. Bounds and the index are unitless, while summands may carry units.
+- **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. The standard names are always available and exported by solveng. Define a function such as `$Lambda(t) := tri(t)$` to use another name. Linear combinations simplify and can be solved; definite integrals split affine arguments at their boundaries. Distributional derivatives stay symbolic.
 - **Operators:** `+ - * / ^ · ×`, implicit multiplication (`2 pi f C`), `sqrt exp ln log sin cos tan asin acos atan abs`, constants `pi e` (unless you define a variable with that name), your own functions.
 
 ## Units and variables

@@ -132,6 +132,17 @@ fn names(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Eleme
     out
 }
 
+fn locals(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Element) -> bool) -> Vec<crate::locals::Local> {
+    let mut out = Vec::new();
+    for e in elements.iter().filter(|e| active(e)) {
+        out.extend(crate::locals::read(&doc.c[e.body_start..e.body_end], e.body_start, false, !e.math));
+    }
+    for text in calls.iter().flat_map(|c| &c.texts).filter(|t| matches!(t.role, Role::Code | Role::Mark)) {
+        out.extend(crate::locals::read(&doc.c[text.start..text.end], text.start, true, true));
+    }
+    out
+}
+
 fn maths(elements: &[Element]) -> Vec<(usize, usize)> {
     elements.iter().filter(|e| e.math).map(|e| (e.body_start, e.body_end)).collect()
 }
@@ -204,7 +215,7 @@ fn graphed(files: &[File], out: &mut [Occurrence]) -> Vec<usize> {
 /// graph plots against (see [`graphed`]).
 pub(crate) fn parameter_ranges(a: &Analysis) -> Vec<(usize, usize)> {
     let (_, occurrences, graphed, params) = resolved_all(a);
-    graphed.into_iter().chain(params.uses).map(|i| &occurrences[i]).filter(|o| o.file == 0).map(|o| (o.start, o.end)).collect()
+    graphed.into_iter().chain(params.uses).chain(params.locals).map(|i| &occurrences[i]).filter(|o| o.file == 0).map(|o| (o.start, o.end)).collect()
 }
 
 /// Starts of the document's definitions with `=` of a name their scope already has, which state something about
@@ -225,11 +236,29 @@ pub(crate) fn replaced(a: &Analysis) -> Vec<(usize, usize)> {
 pub(crate) fn parameter_at(a: &Analysis, at: usize) -> Option<(String, Option<(String, Vec<String>)>)> {
     let (_, occurrences, graphed, params) = resolved_all(a);
     let hit = |i: usize| { let o = &occurrences[i]; o.file == 0 && o.start <= at && at <= o.end };
+    if params.locals.iter().any(|&i| hit(i)) { return None; }
     if let Some((k, _)) = params.uses.iter().enumerate().find(|(_, i)| hit(**i)) {
         let f = params.owners[k];
         return Some((occurrences[params.uses[k]].key.clone(), Some((params.names[f].clone(), params.signatures[f].2.clone()))));
     }
     graphed.into_iter().find(|&i| hit(i)).map(|i| (occurrences[i].key.clone(), None))
+}
+
+/// A sum index at a declaration or use, before global variable hovers.
+pub(crate) fn local_at(a: &Analysis, at: usize) -> Option<String> {
+    let (_, occurrences, _, params) = resolved_all(a);
+    params.locals.iter().map(|&i| &occurrences[i]).find(|o| o.file == 0 && o.start <= at && at < o.end).map(|o| o.key.clone())
+}
+
+/// Locals visible for completion, with inner binders first.
+pub(crate) fn local_names(a: &Analysis, at: usize) -> Vec<String> {
+    let mut locals = locals(&a.doc, &a.elements, &a.calls, &|e| a.active(e));
+    locals.sort_by_key(|l| l.body.1 - l.body.0);
+    let mut names = Vec::new();
+    for local in locals {
+        if local.body.0 <= at && at <= local.body.1 && !names.contains(&local.key) { names.push(local.key); }
+    }
+    names
 }
 
 /// Functions' parameters resolved (`..` replaced by what it takes), by the file's path (None for the document) and
@@ -263,6 +292,7 @@ fn resolved_all<'a>(a: &'a Analysis) -> (Vec<File<'a>>, Vec<Occurrence>, Vec<usi
         strings: strings(&a.calls),
         graphs: graphs(&a.doc, &a.calls),
         functions: curve_functions(&a.doc, &a.calls),
+        locals: locals(&a.doc, &a.elements, &a.calls, &|e| a.active(e)),
     }];
     for part in a.around() {
         let Some(path) = &part.path else { continue };
@@ -278,11 +308,8 @@ fn resolved_all<'a>(a: &'a Analysis) -> (Vec<File<'a>>, Vec<Occurrence>, Vec<usi
             strings: strings(&part.calls),
             graphs: graphs(&part.doc, &part.calls),
             functions: curve_functions(&part.doc, &part.calls),
+            locals: locals(&part.doc, &part.elements, &part.calls, &|e| part.active(e)),
         });
-    }
-    for file in &mut files {
-        let typst = crate::operator_edits(&file.doc.s);
-        file.names.retain(|(_, start, end)| !typst.iter().any(|e| e.start == file.doc.to16(*start) && e.end == file.doc.to16(*end)));
     }
     let main = a.context.main.as_ref().and_then(|m| files.iter().position(|f| f.path == *m));
     let implicit = crate::implicit_parameters(&a.doc.s).or_else(|| crate::implicit_parameters(&a.context.text)).unwrap_or_else(|| "no".into());
@@ -309,7 +336,6 @@ fn location(files: &[File], o: &Occurrence) -> Location {
 /// just the name. On one of the document's own units (`ü` of `units: (ü: auto)`), its key in `units: (…)`.
 pub fn definition(document: &str, context: &Context, offset: u32) -> Option<Location> {
     let a = Analysis::new(document, context);
-    if let Some(result) = crate::operators::definition(&a, offset) { return Some(result); }
     let (files, occurrences) = resolved(&a);
     let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::definition(&a, offset) };
     Some(location(&files, &occurrences[occurrences[i].definition?]))
@@ -321,7 +347,6 @@ pub fn definition(document: &str, context: &Context, offset: u32) -> Option<Loca
 /// On one of the document's own units, its keys and every use, prefixed ones (`mü`) and other units' values included.
 pub fn usages(document: &str, context: &Context, offset: u32) -> Vec<Location> {
     let a = Analysis::new(document, context);
-    if let Some(result) = crate::operators::usages(&a, offset) { return result; }
     let (files, occurrences) = resolved(&a);
     let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::usages(&a, offset).unwrap_or_default() };
     let Some(id) = occurrences[i].definition else { return Vec::new() };
@@ -331,7 +356,6 @@ pub fn usages(document: &str, context: &Context, offset: u32) -> Vec<Location> {
 /// The solveng name at `offset` that [`rename`] renames, as it's written there: its range and text.
 pub fn rename_target(document: &str, context: &Context, offset: u32) -> Option<RenameTarget> {
     let a = Analysis::new(document, context);
-    if let Some(result) = crate::operators::rename_target(&a, offset) { return Some(result); }
     let (files, occurrences) = resolved(&a);
     let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::rename_target(&a, offset) };
     let o = &occurrences[i];
@@ -345,7 +369,6 @@ pub fn rename_target(document: &str, context: &Context, offset: u32) -> Option<R
 /// with longer names quoted (`"tews"`, `t_"half"`). Empty if there's nothing to rename or the input is empty.
 pub fn rename(document: &str, context: &Context, offset: u32, name: &str) -> Vec<Edit> {
     let a = Analysis::new(document, context);
-    if let Some(result) = crate::operators::rename(&a, offset, name) { return result; }
     let (files, occurrences) = resolved(&a);
     let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::rename(&a, offset, name).unwrap_or_default() };
     let Some(id) = occurrences[i].definition else { return Vec::new() };

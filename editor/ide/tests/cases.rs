@@ -1,4 +1,4 @@
-use solveng_ide::{Context, complete, definition, operator_declaration};
+use solveng_ide::{Context, complete, definition};
 
 fn offset(text: &str, needle: &str) -> u32 {
     text[..text.find(needle).unwrap()].encode_utf16().count() as u32
@@ -24,5 +24,4 @@ fn cases_complete_with_the_syntax_for_the_current_mode() {
         assert!(item.insert.starts_with("cases("), "{}", item.insert);
         assert_eq!(item.insert.contains('&'), math, "{}", item.insert);
     }
-    assert!(operator_declaration("cases").is_none());
 }

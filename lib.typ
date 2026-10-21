@@ -16,3 +16,6 @@
 #import "src/lambdify.typ": lambdify
 // units as names, unquoted in math: $4 mA$, and unit("…") for any other
 #import "src/unit-words.typ": *
+
+// Non-native math operation names are available without local declarations.
+#import "src/builtins.typ": *

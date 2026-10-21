@@ -67,7 +67,7 @@ fn graphs_split_at_case_boundaries_without_diagonal_segments() {
     let mut env = Env::default();
     run(&mut env, "sigma(t) := cases(0, t < 0, 1, t >= 0)", Mode::Code);
     let plot = graph::graph(&env, &GraphReq {
-        cfg: Cfg::default(), curves: vec![Src { src: "σ(x)".into(), mode: Mode::Math, label: None, operators: vec![] }],
+        cfg: Cfg::default(), curves: vec![Src { src: "σ(x)".into(), mode: Mode::Math, label: None }],
         xrange: vec![XV::Num(-1.0), XV::Num(1.0)], yrange: vec![], marks: vec![], ymark: vec![], samples: 100,
     }).unwrap();
     assert_eq!(plot.series.len(), 2);
@@ -83,7 +83,7 @@ fn graph_sampling_does_not_skip_narrow_case_intervals() {
     let mut env = Env::default();
     run(&mut env, "f(t) := cases(1, 0.123456 < t < 0.123457, 0)", Mode::Code);
     let plot = graph::graph(&env, &GraphReq {
-        cfg: Cfg::default(), curves: vec![Src { src: "f(x)".into(), mode: Mode::Code, label: None, operators: vec![] }],
+        cfg: Cfg::default(), curves: vec![Src { src: "f(x)".into(), mode: Mode::Code, label: None }],
         xrange: vec![XV::Num(-1.0), XV::Num(1.0)], yrange: vec![], marks: vec![], ymark: vec![], samples: 20,
     }).unwrap();
     assert!(plot.series.iter().any(|series| series.points.iter().all(|(_, y)| *y == 1.0)));

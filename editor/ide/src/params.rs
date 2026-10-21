@@ -208,6 +208,47 @@ fn read() -> Vec<Function> {
     functions
 }
 
+/// Calculation operations are math content, not Typst function calls. Keep their
+/// docs separate from `functions()` so call discovery does not interpret them as
+/// package functions or their string arguments as worksheet code.
+fn read_builtins() -> Vec<Function> {
+    let mut found = Vec::new();
+    let mut comments = Vec::new();
+    for line in include_str!("../../../src/builtins.typ").lines() {
+        if line.starts_with("///") {
+            comments.push(line);
+            continue;
+        }
+        let name = line.strip_prefix("#let ").and_then(|s| s.split_once(" = ").map(|(name, _)| name))
+            .or_else(|| line.strip_prefix("// @builtin "));
+        if let Some(name) = name {
+            let d = docs(&comments);
+            let positional = comments.iter().filter_map(|line| {
+                let rest = line.trim_start_matches("///").trim().strip_prefix("- ")?;
+                let (head, _) = rest.split_once("):")?;
+                let (name, _) = head.split_once(" (")?;
+                let key = name.trim_start_matches("..");
+                let (types, doc) = d.params.get(key)?;
+                Some(Param {
+                    name: key.into(), types: types.clone(), doc: doc.clone(), default: String::new(),
+                    values: Vec::new(), variadic: name.starts_with(".."),
+                })
+            }).collect();
+            found.push(Function { name: name.into(), doc: comments.iter().map(|s| s.trim_start_matches("///").trim()).take_while(|s| !s.starts_with("- ") && !s.starts_with("-> ")).collect::<Vec<_>>().join("\n").trim().into(), positional, named: Vec::new() });
+        }
+        comments.clear();
+    }
+    found
+}
+
+static BUILTINS: LazyLock<Vec<Function>> = LazyLock::new(read_builtins);
+
+/// Documentation of a calculation operation, including its alternative spellings.
+pub(crate) fn builtin(name: &str) -> Option<&'static Function> {
+    let name = match name { "arcsin" => "asin", "arccos" => "acos", "arctan" => "atan", name => name };
+    BUILTINS.iter().find(|f| f.name == name)
+}
+
 static FUNCTIONS: LazyLock<Vec<Function>> = LazyLock::new(read);
 
 /// The package's public functions with their parameters.

@@ -8,7 +8,7 @@ use crate::units::{UnitExpr, Units};
 
 /// Precedences: what binds how tightly, for parentheses.
 fn function(name: &str) -> String {
-    if matches!(name, "rect" | "tri" | "sgn") { format!("op({})", format::q(name)) }
+    if matches!(name, "rect" | "tri" | "sgn" | "floor" | "factorial") { format!("op({})", format::q(name)) }
     else { name.into() }
 }
 
@@ -120,7 +120,6 @@ impl R<'_> {
                 Func::Exp => (format!("e^({})", self.expr(a).0), P_POW),
                 _ => (format!("{}({})", function(f.name()), self.expr(a).0), P_ATOM),
             },
-            Expr::Op(n, _, a) => (format!("{}({})", name(n), self.expr(a).0), P_ATOM),
             Expr::Cmp(v, rs) => {
                 let mut s = wrap(self.expr(&v[0]), P_SUM);
                 for (r, x) in rs.iter().zip(&v[1..]) {
@@ -128,8 +127,10 @@ impl R<'_> {
                 }
                 (s, P_REL)
             }
+            Expr::InverseLaplace(a, x, by) => (format!("op(\"invlaplace\")({}, {}, {})", self.expr(a).0, name(x), self.expr(by).0), P_ATOM),
             Expr::Subs(a, x, by) => (format!("lr(({})) limits(|)_({} = {})", self.expr(a).0, name(x), self.expr(by).0), P_PROD),
             Expr::Derivative(a, x) => (format!("frac(dif, dif {}) lr(({}))", name(x), self.expr(a).0), P_PROD),
+            Expr::Sum(a, v, lo, hi) => (format!("sum_({} = {})^({}) ({})", name(v), self.expr(lo).0, self.expr(hi).0, self.expr(a).0), P_PROD),
             Expr::Integral(a, v, lo, hi) => (format!("integral_({})^({}) {} dif {}", self.expr(lo).0, self.expr(hi).0, self.expr(a).0, name(v)), P_PROD),
             Expr::Cast(a, _, _, u) => (format!("{}{}", wrap(self.expr(a), P_POW), self.cast_mark(u, "cast")), P_PROD),
         }
@@ -210,27 +211,23 @@ impl R<'_> {
 
     /// A formula as written; names with a value from `sub` are put in.
     pub fn ast(&self, a: &Ast, sub: &dyn Fn(&str) -> Option<(String, u8)>) -> (String, u8) {
-        self.ast_ops(a, sub, &[])
-    }
-
-    pub fn ast_ops(&self, a: &Ast, sub: &dyn Fn(&str) -> Option<(String, u8)>, operators: &[String]) -> (String, u8) {
         match a {
             Ast::Num(raw, v) => {
                 let (m, _) = number(*v, Some(raw), self.cfg);
                 (m, if v.is_neg() { P_NEG } else { P_ATOM })
             }
             Ast::Qty(n, u) => {
-                let (m, _) = self.ast_ops(n, sub, operators);
+                let (m, _) = self.ast(n, sub);
                 (format!("{} thin {}", wrap((m, P_ATOM), P_POW), unit(u, self.units, self.cfg)), P_PROD)
             }
             Ast::Unit(u) => (unit(u, self.units, self.cfg), P_ATOM),
             Ast::Name(n) => sub(n).unwrap_or_else(|| (name(n), P_ATOM)),
             Ast::Inline(n) => (name(n), P_ATOM),
-            Ast::Neg(x) => (format!("-{}", wrap(self.ast_ops(x, sub, operators), P_PROD)), P_NEG),
+            Ast::Neg(x) => (format!("-{}", wrap(self.ast(x, sub), P_PROD)), P_NEG),
             Ast::Add(ts) => {
                 let mut s = String::new();
                 for (i, (n, t)) in ts.iter().enumerate() {
-                    let m = wrap(self.ast_ops(t, sub, operators), if *n { P_PROD } else { P_NEG });
+                    let m = wrap(self.ast(t, sub), if *n { P_PROD } else { P_NEG });
                     if i == 0 {
                         s += &if *n { format!("-{m}") } else { m };
                     } else {
@@ -245,7 +242,7 @@ impl R<'_> {
                 let mut prev = 0u8;
                 for (i, (op, f)) in fs.iter().enumerate() {
                     let substituted = matches!(f, Ast::Name(n) if sub(n).is_some());
-                    let (m, p) = self.ast_ops(f, sub, operators);
+                    let (m, p) = self.ast(f, sub);
                     let kind = if substituted || matches!(f, Ast::Qty(..)) { 2 } else if matches!(f, Ast::Num(..)) { 1 } else { 0 };
                     if i > 0 {
                         s += match op {
@@ -261,19 +258,17 @@ impl R<'_> {
                 }
                 (s, P_PROD)
             }
-            Ast::Div(x, y) => (format!("frac({}, {})", self.ast_ops(x, sub, operators).0, self.ast_ops(y, sub, operators).0), P_FRAC),
-            Ast::Pow(x, y) => (format!("{}^({})", wrap(self.ast_ops(x, sub, operators), P_ATOM), self.ast_ops(y, sub, operators).0), P_POW),
+            Ast::Div(x, y) => (format!("frac({}, {})", self.ast(x, sub).0, self.ast(y, sub).0), P_FRAC),
+            Ast::Pow(x, y) => (format!("{}^({})", wrap(self.ast(x, sub), P_ATOM), self.ast(y, sub).0), P_POW),
             Ast::Call(n, args) => {
                 if n == "cases" {
-                    return (cases(args.chunks(2).map(|pair| (self.ast_ops(&pair[0], sub, operators).0,
-                        pair.get(1).map(|a| self.ast_ops(a, sub, operators).0).unwrap_or_else(|| "\"1\"".into()))).collect()), P_ATOM);
+                    return (cases(args.chunks(2).map(|pair| (self.ast(&pair[0], sub).0,
+                        pair.get(1).map(|a| self.ast(a, sub).0).unwrap_or_else(|| "\"1\"".into()))).collect()), P_ATOM);
                 }
-                let a: Vec<String> = args.iter().map(|x| self.ast_ops(x, sub, operators).0).collect();
-                if operators.iter().any(|op| solveng_names::normalize(op) == *n) {
-                    return (format!("{}({})", name(n), a.join(", ")), P_ATOM);
-                }
+                let a: Vec<String> = args.iter().map(|x| self.ast(x, sub).0).collect();
                 match n.as_str() {
                     "diff" if a.len() == 2 => (format!("frac(dif, dif {}) lr(({}))", a[1], a[0]), P_PROD),
+                    "sum" if a.len() == 4 => (format!("sum_({} = {})^({}) ({})", a[1], a[2], a[3], a[0]), P_PROD),
                     "integrate" if a.len() == 4 => (format!("integral_({})^({}) {} dif {}", a[2], a[3], a[0], a[1]), P_PROD),
                     "sqrt" => (format!("sqrt({})", a.join(", ")), P_ATOM),
                     "abs" => (format!("abs({})", a.join(", ")), P_ATOM),
@@ -282,16 +277,15 @@ impl R<'_> {
                     n => (format!("{}({})", name(n), a.join(", ")), P_ATOM),
                 }
             }
-            Ast::Op(op, args) => (format!("{}({})", name(&op.name), args.iter().map(|a| self.ast_ops(a, sub, operators).0).collect::<Vec<_>>().join(", ")), P_ATOM),
-            Ast::Abs(x) => (format!("abs({})", self.ast_ops(x, sub, operators).0), P_ATOM),
+            Ast::Abs(x) => (format!("abs({})", self.ast(x, sub).0), P_ATOM),
             Ast::Cmp(first, rest) => {
-                let mut s = wrap(self.ast_ops(first, sub, operators), P_SUM);
+                let mut s = wrap(self.ast(first, sub), P_SUM);
                 for (r, x) in rest {
-                    s += &format!(" {} {}", rel(*r), wrap(self.ast_ops(x, sub, operators), P_SUM));
+                    s += &format!(" {} {}", rel(*r), wrap(self.ast(x, sub), P_SUM));
                 }
                 (s, P_REL)
             }
-            Ast::Cast(x, u) => (format!("{}{}", wrap(self.ast_ops(x, sub, operators), P_POW), self.cast_mark(u, "cast")), P_PROD),
+            Ast::Cast(x, u) => (format!("{}{}", wrap(self.ast(x, sub), P_POW), self.cast_mark(u, "cast")), P_PROD),
         }
     }
 }
