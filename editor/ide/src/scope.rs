@@ -1,5 +1,5 @@
 //! Which definition a name means, as the compile sees it: the document flattened in compile order from the main
-//! file (`#include` inlines a file), `solve-block` scopes, `inherit`, resets and redefinitions.
+//! file (`#include` inlines a file), `worksheet` scopes, `inherit`, resets and redefinitions.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -14,7 +14,7 @@ use crate::text::Doc;
 /// Structure of a file that decides what's visible, at character positions.
 #[derive(Clone, Debug)]
 enum Mark {
-    /// A `solve-block` starts; `reset` is `heading` (None) or `heading.where(level: n)`.
+    /// A `worksheet` starts; `reset` is `heading` (None) or `heading.where(level: n)`.
     Start { inherit: bool, reset: Option<Option<usize>> },
     End,
     /// `#reset`.
@@ -27,7 +27,7 @@ enum Mark {
 
 static LEVEL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^heading\s*\.\s*where\s*\(\s*level\s*:\s*(\d+)\s*\)$").unwrap());
 
-/// `inherit` and `reset` of a `solve-block` call's arguments.
+/// `inherit` and `reset` of a `worksheet` call's arguments.
 fn options(args: Option<LinkedNode>) -> (bool, Option<Option<usize>>) {
     let (mut inherit, mut reset) = (false, None);
     for named in args.iter().flat_map(|a| a.children()).filter(|c| c.kind() == SyntaxKind::Named) {
@@ -60,7 +60,7 @@ impl Reader<'_> {
                 let name = node.children().next().and_then(|c| callee(c.get()));
                 let args = node.children().find(|c| c.kind() == SyntaxKind::Args);
                 match name.as_deref() {
-                    Some("solve-block") => {
+                    Some("worksheet") => {
                         let body = args.as_ref().and_then(|a| a.children().find(|c| c.kind() == SyntaxKind::ContentBlock));
                         if let Some(body) = body {
                             let (inherit, reset) = options(args);
@@ -93,7 +93,7 @@ impl Reader<'_> {
         }
     }
 
-    /// `#show: solve-block` (or `.with(…)`) runs to the end of the content around it.
+    /// `#show: worksheet` (or `.with(…)`) runs to the end of the content around it.
     fn show(&mut self, node: &LinkedNode) {
         let parts: Vec<LinkedNode> = node.children().filter(|c| !c.kind().is_trivia()).collect();
         let Some(colon) = parts.iter().position(|c| c.kind() == SyntaxKind::Colon) else { return };
@@ -103,8 +103,8 @@ impl Reader<'_> {
         }
         let Some(transform) = parts.get(colon + 1) else { return };
         let args = match transform.kind() {
-            SyntaxKind::Ident if transform.get().leaf_text() == "solve-block" => None,
-            SyntaxKind::FuncCall if transform.children().next().and_then(|c| callee(c.get())).as_deref() == Some("solve-block") => {
+            SyntaxKind::Ident if transform.get().leaf_text() == "worksheet" => None,
+            SyntaxKind::FuncCall if transform.children().next().and_then(|c| callee(c.get())).as_deref() == Some("worksheet") => {
                 transform.children().find(|c| c.kind() == SyntaxKind::Args)
             }
             _ => return,
@@ -293,7 +293,7 @@ impl Run<'_, '_> {
 
 /// Every name of the flattened document with the definition it means: from `main` (an index into `files`) when
 /// it reaches `document`, else the document alone.
-/// `implicit`: what `solve-config(implicit-parameters: …)` says, `"empty"` makes `f()` take what `f(..)` does,
+/// `implicit`: what `worksheet-config(implicit-parameters: …)` says, `"empty"` makes `f()` take what `f(..)` does,
 /// `"allow"` every function.
 pub(crate) fn occurrences(files: &[File], document: usize, main: Option<usize>, implicit: String) -> (Vec<Occurrence>, Params) {
     let run = |start: usize| {

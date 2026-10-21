@@ -42,12 +42,24 @@ fn t(word: &str, kind: u8) -> String {
 #[test]
 fn highlights_values_units_and_variables() {
     assert_eq!(
-        tokens_of("t = Q0 / (2 I) -> h // half"),
+        tokens_of("t := Q0 / (2 I) = [h] // half"),
         vec![
-            t("t", TokenKind::VARIABLE), t("=", TokenKind::OPERATOR), t("Q0", TokenKind::VARIABLE), t("2", TokenKind::NUMBER),
-            t("I", TokenKind::VARIABLE), t("->", TokenKind::OPERATOR), t("h", TokenKind::UNIT), t("// half", TokenKind::COMMENT),
+            t("t", TokenKind::VARIABLE), t(":=", TokenKind::OPERATOR), t("Q0", TokenKind::VARIABLE), t("2", TokenKind::NUMBER),
+            t("I", TokenKind::VARIABLE), t("=", TokenKind::EVALUATE), t("h", TokenKind::UNIT), t("// half", TokenKind::COMMENT),
         ]
     );
+    // the clause: keywords, a unit, the names solve takes
+    assert_eq!(
+        tokens_of("x^2 = 4 -> solve(x), digits(3)"),
+        vec![
+            t("x", TokenKind::VARIABLE), t("2", TokenKind::NUMBER), t("=", TokenKind::OPERATOR), t("4", TokenKind::NUMBER),
+            t("->", TokenKind::EVALUATE), t("solve", TokenKind::KEYWORD), t("x", TokenKind::VARIABLE), t("digits", TokenKind::KEYWORD),
+            t("3", TokenKind::NUMBER),
+        ]
+    );
+    // = followed by a value is a step, not a result
+    assert_eq!(tokens_of("V := 2 A = 2000 mA")[4], t("=", TokenKind::OPERATOR));
+    assert_eq!(tokens_of("Q0/I = mA, sci")[2], t("=", TokenKind::EVALUATE));
     assert_eq!(
         tokens_of("g = 9.81 m/s^2; x = 3 k\"\"Omega"),
         vec![
@@ -88,25 +100,24 @@ fn knows_units_with_prefixes_and_spellings() {
 
 #[test]
 fn finds_bodies_of_solveng_code() {
-    assert_eq!(body("```solveng x = 1```", Integration::NONE), Some((10, 16)));
-    assert_eq!(body("```py x = 1```", Integration::CODE), None);
+    assert_eq!(body("```solveng\nx := 1\n```", Integration::NONE), Some((10, 18)));
+    // inline code, other languages and code without one are never solveng
+    assert_eq!(body("```solveng x := 1```", Integration::MATH), None);
+    assert_eq!(body("```py\nx = 1\n```", Integration::MATH), None);
     assert_eq!(body("`x = 1`", Integration::MATH), None);
-    assert_eq!(body("`x = 1`", Integration::CODE), Some((1, 6)));
-    assert_eq!(body("```\nx = 1\n```", Integration::FULL), Some((3, 10)));
+    assert_eq!(body("```\nx = 1\n```", Integration::MATH), None);
 }
 
 #[test]
 fn reads_the_integration() {
     assert_eq!(integration("$x = 1$", &ctx("")), Integration::NONE);
-    assert_eq!(integration("#show: solve-block", &ctx("")), Integration::MATH);
-    assert_eq!(integration("#show: solve-config.with(integration: \"full\")\n#show: solve-block", &ctx("")), Integration::FULL);
-    assert_eq!(integration("#solve-config(integration: \"code\")\n#solve-block[]", &ctx("")), Integration::CODE);
-    assert_eq!(integration("#solve-config(integration: \"none\")\n#solve-block[]", &ctx("")), Integration::NONE);
+    assert_eq!(integration("#show: worksheet", &ctx("")), Integration::MATH);
+    assert_eq!(integration("#worksheet-config(integration: \"none\")\n#worksheet[]", &ctx("")), Integration::NONE);
 }
 
 #[test]
 fn completes_definitions_from_the_whole_document() {
-    let doc = "#show: solve-block\n#def(\"R = 7.2 kΩ\", \"f(x) = x^2 + 1\")\nThe load draws $I = 30 \"mA\"$ and $Q_0/2 = I t$.\n```solveng\nP = [5 V] I\nU = |\n```";
+    let doc = "#show: worksheet\n#worksheet(\"R := 7.2 kΩ\", \"f(x) := x^2 + 1\")\nThe load draws $I := 30 mA$ and $Q_0/2 = I t$.\n```solveng\nP := [5 V] I\nU := |\n```";
     let c = complete_at(doc).unwrap();
     let get = |l: &str| c.items.iter().find(|i| name(&i.label) == l).unwrap();
     assert_eq!(get("I").detail, "= 30 mA");
@@ -115,30 +126,40 @@ fn completes_definitions_from_the_whole_document() {
     assert_eq!(get("sqrt").kind, ItemKind::FUNCTION);
     assert!(c.items.iter().any(|i| name(&i.label) == "P"));
     // Equations that aren't definitions define nothing by name.
-    assert!(!c.items.iter().any(|i| name(&i.label) == "Q_0"));
+    assert!(!c.items.iter().any(|i| name(&i.label) == "Q_0") && !c.items.iter().any(|i| name(&i.label) == "t"));
 }
 
 #[test]
 fn completes_units_where_a_value_is_written() {
-    let units = labels("```solveng\nI = 30 m|\n```");
+    let units = labels("```solveng\nI := 30 m|\n```");
     assert!(units.contains(&"mA".into()) && units.contains(&"kΩ".into()) && units.contains(&"h".into()));
-    assert!(labels("```solveng\nP = [5 |] I\n```").contains(&"A".into()));
-    assert!(labels("```solveng\nP = U I -> |\n```").contains(&"mW".into()));
-    assert!(labels("```solveng\ng = 9.81 m/|\n```").contains(&"s".into()));
-    assert!(labels("#solve-config(units: (bar: \"100 kPa\"))\n```solveng\np = 3 |\n```").contains(&"bar".into()));
-    assert!(!labels("```solveng\nU = 2 I |\n```").contains(&"mA".into()));
+    assert!(labels("```solveng\nP := [5 |] I\n```").contains(&"A".into()));
+    assert!(labels("```solveng\ng := 9.81 m/|\n```").contains(&"s".into()));
+    assert!(labels("#worksheet-config(units: (bar: \"100 kPa\"))\n```solveng\np := 3 |\n```").contains(&"bar".into()));
+    assert!(!labels("```solveng\nU := 2 I |\n```").contains(&"mA".into()));
     // The word being typed is replaced.
-    assert_eq!(complete_at("```solveng\nI = 30 mA|\n```").unwrap().from, "```solveng\nI = 30 ".len() as u32);
+    assert_eq!(complete_at("```solveng\nI := 30 mA|\n```").unwrap().from, "```solveng\nI := 30 ".len() as u32);
+}
+
+#[test]
+fn completes_clauses() {
+    let after = labels("```solveng\nP := U I = |\n```");
+    assert!(after.contains(&"mW".into()) && after.contains(&"digits".into()) && after.contains(&"solve".into()));
+    assert!(labels("```solveng\nt = h, d|\n```").contains(&"digits".into()));
+    // inside solve(…) the names
+    let doc = "```solveng\nI := 2 A\nx^2 = 4 -> solve(|)\n```";
+    assert!(labels(doc).iter().any(|l| name(l) == "I") && !labels(doc).contains(&"mA".into()));
+    let c = complete_at("#show: worksheet\n$t := 3 h$ $t = |$").unwrap();
+    assert!(c.exclusive && c.items.iter().any(|i| i.label == "min") && c.items.iter().any(|i| i.insert == "digits($0)"));
 }
 
 #[test]
 fn only_in_solveng_code() {
     assert!(complete_at("```py\nx = |\n```").is_none());
     assert!(complete_at("text `x = |`").is_none());
-    assert!(complete_at("#show: solve-config.with(integration: \"code\")\n#show: solve-block\ntext `x = |`").is_some());
-    assert!(complete_at("#show: solve-block\ntext `x = |`").is_none());
-    assert!(complete_at("inline ```solveng = |```").is_some());
-    assert_eq!(complete_at("```solveng\nx = 1 // a |\n```").unwrap().items.len(), 0);
+    assert!(complete_at("#show: worksheet\ntext `x = |`").is_none());
+    assert!(complete_at("inline ```solveng = |```").is_none());
+    assert_eq!(complete_at("```solveng\nx := 1 // a |\n```").unwrap().items.len(), 0);
 }
 
 #[test]
@@ -152,29 +173,33 @@ fn completes_language_tags() {
 
 #[test]
 fn completes_in_math() {
-    let units = complete_at("#show: solve-block\n$t_\"half\" = 3 \"h\"$ and $I = 30 \"m|\"$").unwrap();
+    let units = complete_at("#show: worksheet\n$t_\"half\" := 3 h$ and $I := 30 \"m|\"$").unwrap();
     assert!(units.exclusive);
     assert!(units.items.iter().any(|i| i.label == "mA"));
-    let names = complete_at("#show: solve-block\n$t_\"half\" = 3 \"h\"$ $x = t|$").unwrap();
+    let names = complete_at("#show: worksheet\n$t_\"half\" := 3 h$ $x := t|$").unwrap();
     assert!(!names.exclusive);
     assert_eq!(names.items.iter().find(|i| name(&i.label) == "t_half").unwrap().insert, "t_\"half\"");
-    // Without a solve-block math is Typst's.
+    // Without a worksheet math is Typst's.
     assert!(complete_at("$x = 3 \"m|\"$").is_none());
 }
 
 #[test]
 fn colors_math_like_code() {
-    let doc = "#show: solve-block\n$I = 30 \"mA\" dot R_\"load\" + sqrt(x)$";
+    let doc = "#show: worksheet\n$I := 30 mA dot R_\"load\" + sqrt(x) = A$";
     let found: Vec<String> = math_tokens(doc, &ctx("")).iter().map(|x| format!("{}:{}", slice(doc, x.start, x.length), x.kind)).collect();
     assert_eq!(
         found,
         vec![
-            t("I", TokenKind::VARIABLE), t("=", TokenKind::OPERATOR), t("30", TokenKind::NUMBER), t("\"mA\"", TokenKind::UNIT),
+            t("I", TokenKind::VARIABLE), t(":=", TokenKind::OPERATOR), t("30", TokenKind::NUMBER), t("mA", TokenKind::UNIT),
             t("dot", TokenKind::OPERATOR), t("R", TokenKind::VARIABLE), t("\"load\"", TokenKind::VARIABLE), t("sqrt", TokenKind::FUNCTION),
-            t("x", TokenKind::VARIABLE),
+            t("x", TokenKind::VARIABLE), t("=", TokenKind::EVALUATE), t("A", TokenKind::UNIT),
         ]
     );
-    assert!(math_tokens("#show: solve-config.with(integration: \"code\")\n#show: solve-block\n$x = 1$", &ctx("")).is_empty());
+    // solveng's names of units are units anywhere in math, unit("…") too
+    let doc = "#show: worksheet\n$x := U \"as\" kΩ + unit(\"bar\")$";
+    let found: Vec<String> = math_tokens(doc, &ctx("")).iter().map(|x| format!("{}:{}", slice(doc, x.start, x.length), x.kind)).collect();
+    assert!(found.contains(&t("kΩ", TokenKind::UNIT)) && found.contains(&t("\"bar\"", TokenKind::UNIT)));
+    assert!(math_tokens("#show: worksheet-config.with(integration: \"none\")\n#show: worksheet\n$x = 1$", &ctx("")).is_empty());
 }
 
 fn concealed(code: &str) -> String {
@@ -218,36 +243,22 @@ fn convert(doc: &str) -> Vec<String> {
         .collect()
 }
 
-const IMP: &str = "#import \"@preview/solveng:0.2.0\": *\n";
+const WS: &str = "#import \"@preview/solveng:0.2.0\": *\n#show: worksheet\n";
 
 #[test]
-fn converts_def_to_math_and_back() {
-    let i = IMP;
-    assert_eq!(convert(&format!("{i}#d|ef(\"R = 7.2 kΩ\", \"t_half = Q_0/(2 I)\")")), vec![format!("{i}$R = 7.2 \"kΩ\"$ $t_\"half\" = Q_0/(2 I)$")]);
-    assert_eq!(convert(&format!("{i}$R = |7.2 \"k\"Omega$")), vec![format!("{i}#def(\"R = 7.2 kΩ\")")]);
-    assert_eq!(convert(&format!("{i}$I = frac(3450 \"mAh\", 30 \"h\") dot 2|$")), vec![format!("{i}#def(\"I = (3450 mAh)/(30 h) * 2\")")]);
-    assert_eq!(convert(&format!("{i}$x| = A \"A\"$")), vec![format!("{i}#def(\"x = A [A]\")")]);
-    // Options and names math can't write stay calls.
-    assert!(convert(&format!("{i}#def(\"tol = 3\")|")).is_empty());
-    assert!(convert(&format!("{i}#def(\"x = 3\", output: true)|")).is_empty());
+fn converts_math_to_code_and_back() {
+    let i = WS;
+    assert_eq!(convert(&format!("{i}$R := |7.2 kΩ$")), vec![format!("{i}```solveng\nR := 7.2 kΩ\n```")]);
+    assert_eq!(convert(&format!("{i}$t := Q_0/I = h, digits(2)|$")), vec![format!("{i}```solveng\nt := Q_0/I = [h], digits(2)\n```")]);
+    assert_eq!(convert(&format!("{i}$I := frac(3450 mAh, 30 h) dot 2|$")), vec![format!("{i}```solveng\nI := (3450 mAh)/(30 h) * 2\n```")]);
+    assert_eq!(convert(&format!("{i}$x| := A unit(\"A\")$")), vec![format!("{i}```solveng\nx := A [A]\n```")]);
+    assert_eq!(convert(&format!("{i}$x + y = 3, x - y = 1 -> solve(x, y)|$")), vec![format!("{i}```solveng\nx + y = 3; x - y = 1 -> solve(x, y)\n```")]);
     assert!(convert(&format!("{i}$a => b|$")).is_empty());
-}
-
-#[test]
-fn converts_solve_to_code_and_back() {
-    let i = IMP;
-    assert_eq!(convert(&format!("{i}#sol|ve(\"R = U/I\", unit: \"mA\")")), vec![format!("{i}```solveng\nR = U/I -> mA\n```")]);
     assert_eq!(
-        convert(&format!("{i}a #solve(\"Q0/I\", unit: \"h\", inline: true, steps: \"value\")| b")),
-        vec![format!("{i}a ```solveng = Q0/I -> h``` b")]
+        convert(&format!("{i}```solveng\nR := U/I = [mA] // load\n|x^2 = 4 -> solve(x)\n```")),
+        vec![format!("{i}$R := U/I = mA$ // load\n\n$x^2 = 4 -> solve(x)$")]
     );
-    assert_eq!(convert(&format!("{i}#solve(\"x + y = 3\", \"x - y = 1\")|")), vec![format!("{i}```solveng\nx + y = 3; x - y = 1\n```")]);
-    assert!(convert(&format!("{i}#solve(\"R = U/I\", digits: 2)|")).is_empty());
-    assert_eq!(
-        convert(&format!("{i}```solveng\nR = U/I -> mA // load\n|x + y = 3; x - y = 1\n```")),
-        vec![format!("{i}#solve(\"R = U/I\", unit: \"mA\") // load\n#solve(\"x + y = 3\", \"x - y = 1\")")]
-    );
-    assert_eq!(convert(&format!("{i}a ```solveng = t| -> h``` b")), vec![format!("{i}a #solve(\"t\", unit: \"h\", inline: true, steps: \"value\") b")]);
+    assert_eq!(convert(&format!("{i}```solveng\nx| := A [A]; p := 3 [bar]\n```")), vec![format!("{i}$x := A unit(\"A\"), p := 3 unit(\"bar\")$")]);
 }
 
 #[test]
@@ -257,13 +268,13 @@ fn reads_the_files_around() {
         vec!["defaults.typ", "ch/1.typ"]
     );
     // A chapter of a main file that sets everything up.
-    let main = ctx("#show: solve-config.with(integration: \"full\")\n#show: solve-block\n#solve-config(units: (bar: \"100 kPa\"))\n$U = 5 \"V\"$");
-    assert_eq!(integration("text", &main), Integration::FULL);
-    assert_eq!(integration("#solve-config(integration: \"code\")", &main), Integration::CODE);
-    let chapter = "text `P = U |`";
+    let main = ctx("#show: worksheet\n#worksheet-config(units: (bar: \"100 kPa\"))\n$U := 5 V$");
+    assert_eq!(integration("text", &main), Integration::MATH);
+    assert_eq!(integration("#worksheet-config(integration: \"none\")", &main), Integration::NONE);
+    let chapter = "```solveng\nP := U |\n```";
     let c = complete(&chapter.replace('|', ""), &main, chapter.find('|').unwrap() as u32).unwrap();
     assert_eq!(c.items.iter().find(|i| name(&i.label) == "U").unwrap().detail, "= 5 V");
-    assert!(complete("`p = 3 `", &main, 7).unwrap().items.iter().any(|i| i.label == "bar"));
+    assert!(complete("```solveng\np := 3 \n```", &main, 18).unwrap().items.iter().any(|i| i.label == "bar"));
     assert!(!math_tokens("$x = 1$", &main).is_empty());
 }
 
@@ -275,27 +286,27 @@ fn trusts_the_compilers_report() {
     let report = format!(
         r#"{{"blocks":1,"elements":[{},{},{}],"defined":[],"units":[]}}"#,
         element("main.typ", "math"),
-        element("ch/1.typ", "code"),
+        element("ch/1.typ", "none"),
         element("ch/1.typ", "math")
     );
     assert_eq!(compiled_integration(&report, "main.typ", true), Integration::MATH as i32);
-    assert_eq!(compiled_integration(&report, "ch/1.typ", false), Integration::FULL as i32);
+    assert_eq!(compiled_integration(&report, "ch/1.typ", false), Integration::MATH as i32);
     assert_eq!(compiled_integration(&report, "other.typ", false), -1);
     assert_eq!(compiled_integration(r#"{"blocks":1,"elements":[]}"#, "main.typ", true), Integration::NONE as i32);
     // Without reports (an older solveng) the settings decide.
     assert_eq!(compiled_integration(r#"{"blocks":0,"elements":[]}"#, "main.typ", true), -1);
-    let context = ctx(&with_compiled("#show: solve-block", Integration::CODE as i32));
-    assert_eq!(integration("text $x = 1$", &context), Integration::CODE);
+    let context = ctx(&with_compiled("#show: worksheet", Integration::NONE as i32));
+    assert_eq!(integration("text $x = 1$", &context), Integration::NONE);
     assert!(math_tokens("$x = 1$", &context).is_empty());
     assert_eq!(with_compiled("ctx", -1), "ctx");
     // The same through a parsed report.
     let c = Context::new("").with_report(&Report::parse(&report), "ch/1.typ", false);
-    assert_eq!(integration("", &c), Integration::FULL);
+    assert_eq!(integration("", &c), Integration::MATH);
 }
 
 #[test]
 fn conceals_the_strings_of_calls() {
-    let doc = "#graph(\"alpha3 = cos(x)\", xrange: \"2 uA\")\n#def(\"Delta_R = 2 * x\")";
+    let doc = "#graph(\"alpha3 = cos(x)\", xrange: \"2 uA\")\n#worksheet(\"Delta_R := 2 * x\")";
     let c = conceals(doc, &ctx(""));
     let shown: Vec<(String, char)> = c
         .iter()
@@ -306,3 +317,4 @@ fn conceals_the_strings_of_calls() {
     let first = &c[0];
     assert_eq!((first.element_start, first.element_end), (7, 24));
 }
+

@@ -1,4 +1,4 @@
-//! What the compiler saw: solveng's `solve-block`s leave `<solveng>` metadata, which editors query after
+//! What the compiler saw: solveng's `worksheet`s leave `<solveng>` metadata, which editors query after
 //! compiling (`query(<solveng>)`). Typewright's typst bridge collects it into a [`Report`].
 
 use serde::{Deserialize, Serialize};
@@ -8,13 +8,13 @@ use crate::Integration;
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Report {
-    /// How many `solve-block`s (and resets in them) reported; none means solveng didn't run or predates reports.
+    /// How many `worksheet`s (and resets in them) reported; none means solveng didn't run or predates reports.
     pub blocks: usize,
-    /// Equations and raw elements a `solve-block` saw.
+    /// Equations and raw elements a `worksheet` saw.
     pub elements: Vec<ReportElement>,
     /// Everything the blocks defined, with the values the compiler computed.
     pub defined: Vec<ReportValue>,
-    /// The units `solve-config(units: …)` set.
+    /// The units `worksheet-config(units: …)` set.
     pub units: Vec<ReportValue>,
 }
 
@@ -31,7 +31,7 @@ pub struct ReportElement {
     pub kind: String,
     /// Whether it was calculated.
     pub active: bool,
-    /// `solve-config(integration: …)` there.
+    /// `worksheet-config(integration: …)` there.
     pub integration: String,
 }
 
@@ -51,9 +51,9 @@ impl Report {
         serde_json::from_str(json).unwrap_or_default()
     }
 
-    /// What the `solve-block`s calculate in the file at `path`, or None when the report can't tell, as with a
+    /// What the `worksheet`s calculate in the file at `path`, or None when the report can't tell, as with a
     /// solveng that predates reports or a file the compile may not have reached. `main` is the compiled file, which
-    /// the compile did reach: without reported elements nothing in it is in a `solve-block`.
+    /// the compile did reach: without reported elements nothing in it is in a `worksheet`.
     pub fn integration(&self, path: &str, main: bool) -> Option<u8> {
         if self.blocks == 0 {
             return None;
@@ -69,8 +69,6 @@ impl Report {
 /// The flags of an `integration` setting.
 pub(crate) fn flags(setting: &str) -> u8 {
     match setting {
-        "full" => Integration::FULL,
-        "code" => Integration::CODE,
         "none" => Integration::NONE,
         _ => Integration::MATH,
     }

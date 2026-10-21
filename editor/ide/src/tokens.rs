@@ -22,9 +22,78 @@ pub(crate) fn formula_tokens(code: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<
     tokens_of(code, unit, false)
 }
 
+/// The tokens of a clause, `start..end` after its marker: keywords, the names `solve` takes, units.
+fn clause_tokens(text: &[char], start: usize, end: usize, unit: &dyn Fn(&str) -> bool) -> Vec<Tok> {
+    let mut out = Vec::new();
+    let (mut i, mut solve, mut in_solve) = (start, false, false);
+    while i < end {
+        let c = text[i];
+        if c == '"' {
+            let close = (i + 1..end).find(|&j| text[j] == '"').map_or(end, |j| j + 1);
+            out.push((i, close - i, K::UNIT));
+            i = close;
+        } else if is_letter(c) || "°%‰µΩ".contains(c) {
+            let mut j = i + 1;
+            while j < end && (is_letter_or_digit(text[j]) || "_°%‰µΩ".contains(text[j])) {
+                j += 1;
+            }
+            let word = sub(text, i, j);
+            let call = text[j..end].iter().find(|ch| !ch.is_whitespace()) == Some(&'(');
+            let kind = if crate::clause::is_keyword(&word) {
+                solve = word == "solve";
+                K::KEYWORD
+            } else if in_solve {
+                K::VARIABLE
+            } else if word == "unit" && call {
+                K::KEYWORD
+            } else if word == "dot" {
+                K::OPERATOR
+            } else if crate::is_unit(&word) || unit(&word) {
+                K::UNIT
+            } else {
+                K::VARIABLE
+            };
+            out.push((i, j - i, kind));
+            i = j;
+        } else if is_digit(c) {
+            let mut j = i;
+            while j < end && is_digit(text[j]) {
+                j += 1;
+            }
+            let exponent = text[start..i].iter().rev().find(|ch| !"(-− ".contains(**ch)) == Some(&'^');
+            out.push((i, j - i, if exponent { K::UNIT } else { K::NUMBER }));
+            i = j;
+        } else {
+            if c == '(' && solve {
+                in_solve = true;
+            } else if c == ')' {
+                (solve, in_solve) = (false, false);
+            }
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Markers (see [`crate::clause::marker`]) of each line of code, comments left out: (start, end, clause end).
+fn line_markers(code: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<(usize, usize, usize)> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    while start <= code.len() {
+        let end = (start..code.len()).find(|&j| code[j] == '\n').unwrap_or(code.len());
+        let text_end = (start..end).find(|&j| starts_with(code, j, "//")).unwrap_or(end);
+        if let Some((s, e, _)) = crate::clause::marker(&code[start..text_end], unit) {
+            out.push((start + s, start + e, text_end));
+        }
+        start = end + 1;
+    }
+    out
+}
+
 /// `values`: a number may be followed by its unit, as in definitions.
 fn tokens_of(code: &[char], unit: &dyn Fn(&str) -> bool, values: bool) -> Vec<Tok> {
     let mut out = Vec::new();
+    let markers = if values { line_markers(code, unit) } else { Vec::new() };
     let mut emit = |start: usize, end: usize, kind: u8| {
         if end > start {
             out.push((start, end - start, kind));
@@ -43,7 +112,14 @@ fn tokens_of(code: &[char], unit: &dyn Fn(&str) -> bool, values: bool) -> Vec<To
     let mut typed = false;
     while i < n {
         let c = code[i];
-        if c == '\n' || c == ';' {
+        if let Some(&(s, e, end)) = markers.iter().find(|m| m.0 == i) {
+            // the = or -> showing a result, then its clause
+            emit(s, e, K::EVALUATE);
+            for (ts, tl, k) in clause_tokens(code, e, end, unit) {
+                emit(ts, ts + tl, k);
+            }
+            i = end;
+        } else if c == '\n' || c == ';' {
             if c == ';' {
                 emit(i, i + 1, K::OPERATOR);
             }
@@ -57,24 +133,6 @@ fn tokens_of(code: &[char], unit: &dyn Fn(&str) -> bool, values: bool) -> Vec<To
             i = end;
         } else if starts_with(code, i, "->") {
             emit(i, i + 2, K::OPERATOR);
-            // L := R = 7.2 kΩ -> R: after an assigned statement, a name of it is what's solved for, not a unit
-            let line_start = (0..i).rev().find(|&j| code[j] == '\n').map_or(0, |j| j + 1);
-            let line: String = code[line_start..i].iter().collect();
-            let mut s0 = i + 2;
-            while s0 < n && code[s0] == ' ' {
-                s0 += 1;
-            }
-            let mut e0 = s0;
-            while e0 < n && name_part(code[e0]) {
-                e0 += 1;
-            }
-            let target = sub(code, s0, e0);
-            let mentioned = |t: &str| line.split(|c: char| !(c.is_alphanumeric() || c == '_')).any(|w| w == t);
-            if e0 > s0 && line.contains(":=") && mentioned(&target) && (e0..n).take_while(|&j| code[j] != '\n').all(|j| code[j].is_whitespace()) {
-                emit(s0, e0, K::VARIABLE);
-                i = e0;
-                continue;
-            }
             after_arrow = true;
             unit_mode = true;
             i += 2;
@@ -246,11 +304,19 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok
     let n = math.len();
     let mut i = 0;
     let (mut unit_mode, mut subscript) = (false, false);
+    let marker = crate::clause::marker(math, unit);
     while i < n {
         let c = math[i];
         let sub_ = subscript;
         subscript = false;
-        if c == '\\' {
+        if let Some((s, e, _)) = marker.filter(|m| m.0 == i) {
+            // the = or -> showing a result, then its clause
+            emit(s, e, K::EVALUATE);
+            for (ts, tl, k) in clause_tokens(math, e, n, unit) {
+                emit(ts, ts + tl, k);
+            }
+            i = n;
+        } else if c == '\\' {
             i += 2;
         } else if c == '#' {
             // Embedded code is Typst's.
@@ -285,8 +351,10 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok
                 i = end;
                 continue;
             }
-            // Quoted text is a unit, except in a subscript (R_"load") and a name no unit spells ("tews", "x"_"in").
-            let name = sub_ || quoted_name(math, i, end, unit);
+            // Quoted text is a unit, except in a subscript (R_"load") and a name no unit spells ("tews", "x"_"in");
+            // unit("bar") always is
+            let named = sub(math, 0, i).trim_end().ends_with("unit(");
+            let name = !named && (sub_ || quoted_name(math, i, end, unit));
             emit(i, end, if name { K::VARIABLE } else { K::UNIT });
             if !name {
                 unit_mode = true;
@@ -359,11 +427,17 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok
             let base = word.split('.').next().unwrap_or("");
             let kind = if sub_ {
                 K::VARIABLE
+            } else if call && word == "unit" {
+                // solveng's unit("…"), no function of the document's
+                K::KEYWORD
             } else if call {
                 K::FUNCTION
             } else if MATH_OPERATORS.contains(&base) {
                 K::OPERATOR
             } else if unit_mode && (crate::is_unit(&word) || unit(&word)) {
+                K::UNIT
+            } else if word.chars().count() > 1 && crate::is_unit(&word) {
+                // solveng's names of units: 4 mA, x "as" kΩ
                 K::UNIT
             } else if word == "pi" || word == "e" {
                 K::KEYWORD

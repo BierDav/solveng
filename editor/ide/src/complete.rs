@@ -35,7 +35,7 @@ pub(crate) struct Definition {
     pub statement_end: usize,
     /// The unit a variable is declared with: `A` in `V: A = …`.
     pub unit: Option<String>,
-    /// Written with `:=`, which assigns; `=` only defines what isn't defined yet.
+    /// Written with `:=`, which assigns; a name solved for (`-> solve(x)`) is defined without.
     pub assign: bool,
 }
 
@@ -57,23 +57,27 @@ static MATH_FUNCTION: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(r"^(\p{{L}}[\p{{L}}\p{{N}}]*)\s*\(\s*(?:{p}(?:\s*,\s*{p})*)?\s*\)$")).unwrap()
 });
 
-/// `I = 30 mA` or `f(x) = x^2` → a definition; anything else (`Q0/2 = I t`, `= x`) → None.
+/// `I := 30 mA` or `f(x) := x^2` → a definition; anything else (`Q0/2 = I t`, `x =`) → None.
 pub(crate) fn definition(line: &str) -> Option<Definition> {
     let m = NAME_AT_START.captures(line)?;
     let (name, params, relation, rest) = (&m[1], m.get(2).map_or("", |p| p.as_str()), &m[4], &m[5]);
     let unit = m.get(3).map(|u| u.as_str().trim().trim_matches(|c| c == '"' || c == '[' || c == ']').trim().to_string()).filter(|u| !u.is_empty());
     let written = name.chars().count();
-    if relation == "=" && rest.starts_with('=') {
+    // only := defines; = states, which is checked
+    if relation != ":=" && relation != "≔" {
         return None;
     }
-    let assign = relation == ":=" || relation == "≔";
-    let relation = if assign { "=" } else { relation };
-    // a variable has one value: a worked chain R = 7.2 kΩ = 7200 Ω gives it its last step; a function keeps its body,
-    // an equation too (U(x, y) := x = y)
-    // (V := 2 A = 2 V assigns whether it holds: the whole statement)
-    let value = if params.is_empty() && !assign { before(rest, "->").rsplit('=').next().unwrap_or("").trim() } else { before(rest, "->").trim() };
-    let arrow = after(rest, "->", "").trim();
-    let detail = format!("{relation} {value}") + &if arrow.is_empty() { String::new() } else { format!(" → {arrow}") };
+    let assign = true;
+    // what's after the = or -> showing a result is its clause: a unit and keywords
+    let rc = chars(rest);
+    let rest = match crate::clause::marker(&rc, &|_| false) {
+        Some((s, _, _)) => crate::text::sub(&rc, 0, s),
+        None => rest.to_string(),
+    };
+    // a variable has one value: a chain V := 7.2 kΩ = 7200 Ω gives it its last step; a function keeps its body, an
+    // equation too (U(x, y) := x = y)
+    let value = if params.is_empty() { rest.rsplit('=').next().unwrap_or("").trim() } else { rest.trim() };
+    let detail = format!("= {value}");
     // Variables go by their stored name (Delta_R is Δ_R); functions keep theirs.
     let resolved = crate::resolved_name(name);
     let name = if params.is_empty() { resolved.as_str() } else { name };
@@ -84,15 +88,39 @@ pub(crate) fn definition(line: &str) -> Option<Definition> {
     })
 }
 
+/// The names a statement solves for (`x^2 = 4 -> solve(x)`): definitions at the names in the clause, which
+/// starts at `clause` in `doc`; `equation` is what's solved.
+fn solved_definitions(doc: &Doc, clause: usize, end: usize, equation: &str, found: &mut Vec<Definition>) {
+    let tail = doc.sub(clause, end);
+    let names = crate::clause::solved(&tail);
+    let mut from = 0;
+    for name in names {
+        let Some(at) = tail[from..].find(&name).map(|i| from + i) else { continue };
+        from = at + name.len();
+        let start = clause + tail[..at].chars().count();
+        let written = name.chars().count();
+        let detail = format!("from {}", equation.trim());
+        let key = crate::navigate::math_name_of(&chars(&name)).map_or_else(|| crate::resolved_name(&name), |n| n.0);
+        found.push(Definition { name: key, detail, function: false, start, end: start + written, written, statement_end: end, unit: None, assign: false });
+    }
+}
+
 /// The definitions of solveng code in `start..end` of `doc`, line by line and `;` by `;`, comments left out.
 fn code_definitions(doc: &Doc, start: usize, end: usize, found: &mut Vec<Definition>) {
     let c = &doc.c;
     let mut i = start;
     while i < end {
         let line_end = (i..end).find(|&j| c[j] == '\n').unwrap_or(end);
-        let line = doc.sub(i, line_end);
+        let text_end = i + before(&doc.sub(i, line_end), "//").chars().count();
+        // -> solve(x) defines x; the rest is what's solved
+        let marker = crate::clause::marker(&c[i..text_end], &|_| false).map(|(s, e, _)| (i + s, i + e));
+        let head_end = marker.map_or(text_end, |m| m.0);
+        if let Some((_, e)) = marker {
+            solved_definitions(doc, e, text_end, &doc.sub(i, head_end), found);
+        }
+        let line = doc.sub(i, head_end);
         let mut at = i;
-        for piece in before(&line, "//").split(';') {
+        for piece in line.split(';') {
             if let Some(mut d) = definition(piece) {
                 d.start = at + piece.chars().take_while(|ch| ch.is_whitespace()).count();
                 d.end = d.start + d.written;
@@ -106,7 +134,7 @@ fn code_definitions(doc: &Doc, start: usize, end: usize, found: &mut Vec<Definit
 }
 
 /// Names defined in a text, in order: math equations and solveng code that `active` says are calculated, and
-/// `def` / `solve` strings.
+/// `worksheet` strings.
 pub(crate) fn definitions(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Element) -> bool) -> Vec<Definition> {
     let mut found = Vec::new();
     for e in elements.iter().filter(|e| active(e)) {
@@ -114,8 +142,12 @@ pub(crate) fn definitions(doc: &Doc, elements: &[Element], calls: &[Call], activ
             code_definitions(doc, e.body_start, e.body_end, &mut found);
             continue;
         }
-        // Math writes Q_0, t_"half", "tews" and quotes units: Q_0 = 3450 "mAh".
-        let c = &doc.c[e.body_start..e.body_end];
+        // Math writes Q_0, t_"half", "tews" and units as names: Q_0 := 3450 mAh.
+        let marker = crate::clause::marker(&doc.c[e.body_start..e.body_end], &|_| false);
+        if let Some((s, m, _)) = marker {
+            solved_definitions(doc, e.body_start + m, e.body_end, &doc.sub(e.body_start, e.body_start + s), &mut found);
+        }
+        let c = &doc.c[e.body_start..marker.map_or(e.body_end, |m| e.body_start + m.0)];
         let relation = c.iter().position(|ch| "=<>≤≥≔".contains(*ch)).unwrap_or(c.len());
         // := assigns: the colon belongs to the relation
         let assign = c.get(relation) == Some(&'≔') || (relation > 0 && c.get(relation) == Some(&'=') && c[relation - 1] == ':');
@@ -158,7 +190,7 @@ pub(crate) fn definitions(doc: &Doc, elements: &[Element], calls: &[Call], activ
             found.push(d);
         }
     }
-    for call in calls.iter().filter(|c| c.function.name == "def" || c.function.name == "solve") {
+    for call in calls.iter().filter(|c| c.function.name == "worksheet") {
         for t in call.texts.iter().filter(|t| t.param.is_none() && t.role == Role::Code) {
             code_definitions(doc, t.start, t.end, &mut found);
         }
@@ -344,11 +376,35 @@ fn variable_item(name: &str, detail: &str, insert: &str) -> Item {
     item
 }
 
+/// In the clause after the `=` or `->` showing a result: its keywords and units, or names inside `solve(…)`;
+/// `math` spells them for equations.
+fn clause_items(a: &Analysis, names: bool, math: bool) -> Vec<Item> {
+    if names {
+        return definition_items(a, &mut HashSet::new(), math, false);
+    }
+    let mut items: Vec<Item> = crate::clause::KEYWORDS
+        .iter()
+        .map(|(k, d)| Item::new(k, ItemKind::KEYWORD, d, &if *k == "solve" || *k == "digits" { format!("{k}($0)") } else { k.to_string() }))
+        .collect();
+    items.extend(units::unit_items(&a.units).into_iter().map(|mut u| {
+        // math writes units of its own as unit("…")
+        if math && a.units.iter().any(|c| c.name == u.insert) {
+            u.filter.get_or_insert_with(|| u.insert.clone());
+            u.insert = format!("unit(\"{}\")", u.insert);
+        }
+        u
+    }));
+    items
+}
+
 /// What solveng code completes at a word: names, solveng's functions and constants, or units after a value.
 fn code_items(a: &Analysis, line: &str) -> Vec<Item> {
     // Comments complete nothing.
     if line.contains("//") {
         return Vec::new();
+    }
+    if let Some(names) = crate::clause::at_clause(line) {
+        return clause_items(a, names, false);
     }
     if unit_context(line, &a.units) {
         return keyword_items(line, false).into_iter().chain(units::unit_items(&a.units)).collect();
@@ -441,6 +497,9 @@ fn complete_math(a: &Analysis, e: &Element, from: usize) -> Option<Completions> 
             return None;
         }
         return Some(Completions { from: a.doc.to16(from), items: units::unit_items(&a.units), exclusive: true });
+    }
+    if let Some(names) = crate::clause::at_clause(&before_) {
+        return Some(Completions { from: a.doc.to16(from), items: clause_items(a, names, true), exclusive: !names });
     }
     // V: |, q(x: |: units only; quoted when longer than a letter, as math needs them, unless solveng's import brings
     // their names (built-in units only)

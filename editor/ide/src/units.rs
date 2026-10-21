@@ -77,7 +77,7 @@ static UNITS_ARG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"units\s*:\s*\(
 static UNIT_ENTRY: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"([\p{L}][\p{L}\p{N}_]*|"[^"]+")\s*:\s*("[^"]*"|none|auto|[\d.]+(?:e-?\d+)?)"#).unwrap());
 
-/// Units a text adds with `solve-config(units: (bar: "100 kPa", ü: auto, dozen: 12, …))`, later ones winning.
+/// Units a text adds with `worksheet-config(units: (bar: "100 kPa", ü: auto, dozen: 12, …))`, later ones winning.
 pub(crate) fn custom_units(text: &str, out: &mut Vec<Custom>) {
     for m in UNITS_ARG.find_iter(text) {
         let start = m.end();

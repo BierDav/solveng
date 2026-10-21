@@ -350,6 +350,15 @@
   }
   items
 }
+// "a, f(b, c), d" -> its parts at the top level
+#let _top-split(s) = {
+  let (parts, d, cur) = ((), 0, "")
+  for ch in s.clusters() {
+    if ch in ("(", "[") { d += 1 } else if ch in (")", "]") { d -= 1 }
+    if ch == "," and d == 0 { parts.push(cur); cur = "" } else { cur += ch }
+  }
+  parts + (cur,)
+}
 // an equation's children -> (head, marker, clause): at the last top-level ->, else at the last top-level =
 #let _split-eq(body) = {
   let cs = if body.has("children") { body.children } else { (body,) }
@@ -409,8 +418,10 @@
     let xs = c.solve
     return {
       context {
-        let e = _math-eq(rhs, _vars-of(_st.get()), cf)
-        if _E(e) { _errc(e.err, cf, wide: it.block) } else { _def((e,), c.unit, (unknown: if xs.len() == 1 { xs.first() } else { xs }), lc, none, true) }
+        // a system: equations separated by commas, x + y = 3, x - y = 1
+        let es = _top-split(rhs).map(x => _math-eq(x, _vars-of(_st.get()), cf))
+        let b = _first-err(es)
+        if b != none { _errc(b.err, cf, wide: it.block) } else { _def(es, c.unit, (unknown: if xs.len() == 1 { xs.first() } else { xs }), lc, none, true) }
       }
       _shown-with(it, hb, mark, (rs, cf) => rs.map(r => _result(r, cf + lc)).join($, quad$), quiet)
     }

@@ -1,4 +1,4 @@
-//! The document's own units (`solve-config(units: (ü: auto, mü: "10ü"))`): where they're defined and used, for go
+//! The document's own units (`worksheet-config(units: (ü: auto, mü: "10ü"))`): where they're defined and used, for go
 //! to definition, usages and rename.
 
 use std::sync::LazyLock;

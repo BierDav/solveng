@@ -3,7 +3,7 @@
 use crate::text::{index_of, index_of_char, is_letter_or_digit, starts_with, sub};
 
 /// A raw element (with its language `tag`, empty without one) or an equation (`math`), in characters:
-/// the whole element and its body.
+/// the whole element and its body. A raw `block` has three backticks or more and a line break, as Typst says.
 #[derive(Clone, Debug)]
 pub(crate) struct Element {
     pub start: usize,
@@ -12,6 +12,7 @@ pub(crate) struct Element {
     pub body_end: usize,
     pub tag: String,
     pub math: bool,
+    pub block: bool,
 }
 
 impl Element {
@@ -46,7 +47,7 @@ pub(crate) fn elements(text: &[char]) -> Vec<Element> {
                 j += 1;
             }
             let close = j.min(n);
-            out.push(Element { start: i, end: (close + 1).min(n), body_start: i + 1, body_end: close, tag: String::new(), math: true });
+            out.push(Element { start: i, end: (close + 1).min(n), body_start: i + 1, body_end: close, tag: String::new(), math: true, block: false });
             i = close + 1;
         } else if c == '`' {
             let mut ticks = 0;
@@ -83,7 +84,8 @@ pub(crate) fn elements(text: &[char]) -> Vec<Element> {
                 tag = sub(text, body_start, t);
                 body_start = t;
             }
-            out.push(Element { start: i, end, body_start, body_end, tag, math: false });
+            let block = ticks >= 3 && text[body_start..body_end].contains(&'\n');
+            out.push(Element { start: i, end, body_start, body_end, tag, math: false, block });
             i = end;
         } else {
             i += 1;

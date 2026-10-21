@@ -39,43 +39,38 @@ fn coloured(doc: &str, context: &Context, needle: &str) -> bool {
 
 #[test]
 fn decides_per_element_from_the_report() {
-    let doc = "$a = 1$\n#show: solve-block\n$b = 2$ `c = 3`\n#solve-config(integration: \"code\")\n$d = 4$ `e = 5`\n";
-    let compiled = report(doc, &[("$b = 2$", true, "math"), ("`c = 3`", false, "math"), ("$d = 4$", false, "code"), ("`e = 5`", true, "code")]);
+    let doc = "$a := 1$\n#show: worksheet\n$b := 2$\n#worksheet-config(integration: \"none\")\n$d := 4$\n";
+    let compiled = report(doc, &[("$b := 2$", true, "math"), ("$d := 4$", false, "none")]);
     let context = Context::new("").with_report(&compiled, "main.typ", true);
-    // Before the block, not calculated; then as the compiler saw each.
-    assert!(!coloured(doc, &context, "a = 1"));
-    assert!(coloured(doc, &context, "b = 2"));
-    assert!(!coloured(doc, &context, "c = 3"));
-    assert!(!coloured(doc, &context, "d = 4"));
-    assert!(coloured(doc, &context, "e = 5"));
+    // Before the worksheet, not calculated; then as the compiler saw each.
+    assert!(!coloured(doc, &context, "a := 1"));
+    assert!(coloured(doc, &context, "b := 2"));
+    assert!(!coloured(doc, &context, "d := 4"));
 
     // Written since the compile: like the matched element before it.
-    let edited = "$a = 1$\n#show: solve-block\n$b = 2$ $x = 9$ `c = 3`\n#solve-config(integration: \"code\")\n$d = 4$ `e = 5` $y = 8$ `z = 7`\n";
-    assert!(coloured(edited, &context, "x = 9"));
-    assert!(!coloured(edited, &context, "y = 8"));
-    assert!(coloured(edited, &context, "z = 7"));
-    // Moved elements still match by their text.
-    assert!(coloured(edited, &context, "e = 5"));
+    let edited = "$a := 1$\n#show: worksheet\n$b := 2$ $x := 9$\n#worksheet-config(integration: \"none\")\n$d := 4$ $y := 8$\n";
+    assert!(coloured(edited, &context, "x := 9"));
+    assert!(!coloured(edited, &context, "y := 8"));
 }
 
 #[test]
 fn files_without_reported_elements_keep_the_settings() {
-    let doc = "#show: solve-block\n$b = 2$\n";
-    let compiled = report("$q = 1$", &[("$q = 1$", true, "math")]);
-    // The main file was compiled: nothing of it is in a block.
-    assert!(!coloured(doc, &Context::new("").with_report(&compiled, "main2.typ", true), "b = 2"));
+    let doc = "#show: worksheet\n$b := 2$\n";
+    let compiled = report("$q := 1$", &[("$q := 1$", true, "math")]);
+    // The main file was compiled: nothing of it is in a worksheet.
+    assert!(!coloured(doc, &Context::new("").with_report(&compiled, "main2.typ", true), "b := 2"));
     // Another file falls back to its settings, as does a solveng without reports.
-    assert!(coloured(doc, &Context::new("").with_report(&compiled, "chapter.typ", false), "b = 2"));
-    assert!(coloured(doc, &Context::new("").with_report(&Report::default(), "main.typ", true), "b = 2"));
+    assert!(coloured(doc, &Context::new("").with_report(&compiled, "chapter.typ", false), "b := 2"));
+    assert!(coloured(doc, &Context::new("").with_report(&Report::default(), "main.typ", true), "b := 2"));
 }
 
 #[test]
 fn tagged_code_is_shown_but_defines_only_when_calculated() {
-    let doc = "```solveng\nk = 1\n```\n#show: solve-block\n$b = 2$\n$b + k$\n";
-    let compiled = report(doc, &[("$b = 2$", true, "math"), ("$b + k$", true, "math")]);
+    let doc = "```solveng\nk := 1\n```\n#show: worksheet\n$b := 2$\n$b + k =$\n";
+    let compiled = report(doc, &[("$b := 2$", true, "math"), ("$b + k =$", true, "math")]);
     let context = Context::new("").with_report(&compiled, "main.typ", true);
-    assert!(coloured(doc, &context, "k = 1"));
-    let at = u16_at(doc, "$b + k$") + 1;
+    assert!(coloured(doc, &context, "k := 1"));
+    let at = u16_at(doc, "$b + k =$") + 1;
     let items = complete(doc, &context, at).unwrap().items;
     assert!(items.iter().any(|i| i.label == "b"));
     assert!(!items.iter().any(|i| i.label == "k"));
@@ -96,13 +91,13 @@ fn used(doc: &str, context: &Context, offset: u32) -> Vec<u32> {
 }
 
 #[test]
-fn keeps_solve_blocks_apart() {
-    let doc = "#solve-block[$x = 1$ $y = x$]\n#solve-block[$x = 2$ $z = x$]\n";
+fn keeps_worksheets_apart() {
+    let doc = "#worksheet[$x := 1$ $y := x$]\n#worksheet[$x := 2$ $z := x$]\n";
     let c = Context::new("");
     assert_eq!(used(doc, &c, nth(doc, "x", 0)), [nth(doc, "x", 0), nth(doc, "x", 1)]);
     assert_eq!(definition(doc, &c, nth(doc, "x", 3)).unwrap().start, nth(doc, "x", 2));
     // Usages before the definition don't count.
-    let doc = "#show: solve-block\n$a = x$\n$x = 1$\n";
+    let doc = "#show: worksheet\n$a := x$\n$x := 1$\n";
     assert_eq!(used(doc, &c, nth(doc, "x", 1)), [nth(doc, "x", 1)]);
     assert_eq!(definition(doc, &c, nth(doc, "x", 0)), None);
 }
@@ -110,41 +105,44 @@ fn keeps_solve_blocks_apart() {
 #[test]
 fn resets_split_scopes() {
     let c = Context::new("");
-    let doc = "#show: solve-block.with(reset: heading)\n= One\n$x = 1$ $a = x$\n= Two\n$b = x$\n";
+    let doc = "#show: worksheet.with(reset: heading)\n= One\n$x := 1$ $a := x$\n= Two\n$b := x$\n";
     assert_eq!(definition(doc, &c, nth(doc, "x", 2)), None);
     assert_eq!(used(doc, &c, nth(doc, "x", 0)).len(), 2);
     // Only headings of the level.
-    let doc = "#show: solve-block.with(reset: heading.where(level: 1))\n= One\n$x = 1$\n== Sub\n$a = x$\n= Two\n$b = x$\n";
+    let doc = "#show: worksheet.with(reset: heading.where(level: 1))\n= One\n$x := 1$\n== Sub\n$a := x$\n= Two\n$b := x$\n";
     assert_eq!(definition(doc, &c, nth(doc, "x", 1)).unwrap().start, nth(doc, "x", 0));
     assert_eq!(definition(doc, &c, nth(doc, "x", 2)), None);
     // `#reset` starts over once.
-    let doc = "#show: solve-block\n$x = 1$\n#reset\n$b = x$\n";
+    let doc = "#show: worksheet\n$x := 1$\n#reset\n$b := x$\n";
     assert_eq!(definition(doc, &c, nth(doc, "x", 1)), None);
 }
 
 #[test]
 fn redefinitions_split_usages() {
     let c = Context::new("");
-    let doc = "#show: solve-block\n$x = 1$ $a = x$\n$x := 2$ $b = x$\n";
+    let doc = "#show: worksheet\n$x := 1$ $a := x$\n$x := 2$ $b := x$\n";
     assert_eq!(used(doc, &c, nth(doc, "x", 0)), [nth(doc, "x", 0), nth(doc, "x", 1)]);
     assert_eq!(definition(doc, &c, nth(doc, "x", 3)).unwrap().start, nth(doc, "x", 2));
-    // = on a defined name states something about it: a use of the definition
-    let doc = "#show: solve-block\n$x = 1$\n$x = 1$ $b = x$\n";
-    assert_eq!(definition(doc, &c, nth(doc, "x", 2)).unwrap().start, nth(doc, "x", 0));
+    // = states something about a name: a use of its definition, as is showing it
+    let doc = "#show: worksheet\n$x := 1$\n$x = 1$ $x =$\n";
     assert_eq!(definition(doc, &c, nth(doc, "x", 1)).unwrap().start, nth(doc, "x", 0));
+    assert_eq!(definition(doc, &c, nth(doc, "x", 2)).unwrap().start, nth(doc, "x", 0));
     // The right side still means the old value.
-    let doc = "```solveng\nx = 1\nx := x + 1\ny = x\n```\n";
+    let doc = "```solveng\nx := 1\nx := x + 1\ny := x\n```\n";
     assert_eq!(definition(doc, &c, nth(doc, "x", 2)).unwrap().start, nth(doc, "x", 0));
     assert_eq!(definition(doc, &c, nth(doc, "x", 3)).unwrap().start, nth(doc, "x", 1));
+    // what's solved for is defined in the clause
+    let doc = "#show: worksheet\n$x^2 = 4 -> solve(x)$ $y := x$\n";
+    assert_eq!(definition(doc, &c, nth(doc, "x", 2)).unwrap().start, nth(doc, "x", 1));
 }
 
 #[test]
 fn inherits_only_when_asked() {
     let c = Context::new("");
-    let doc = "#show: solve-block\n$x = 1$\n#solve-block(inherit: true)[$a = x$]\n#solve-block[$b = x$]\n#solve-block[$x = 9$]\n$c = x$\n";
+    let doc = "#show: worksheet\n$x := 1$\n#worksheet(inherit: true)[$a := x$]\n#worksheet[$b := x$]\n#worksheet[$x := 9$]\n$c := x$\n";
     assert_eq!(definition(doc, &c, nth(doc, "x", 1)).unwrap().start, nth(doc, "x", 0));
     assert_eq!(definition(doc, &c, nth(doc, "x", 2)), None);
-    // After a block the outer definitions come back.
+    // After a worksheet the outer definitions come back.
     assert_eq!(definition(doc, &c, nth(doc, "x", 4)).unwrap().start, nth(doc, "x", 0));
 }
 
@@ -158,8 +156,8 @@ fn chapter_context(main: &str) -> Context {
 
 #[test]
 fn follows_includes_in_compile_order() {
-    let chapter = "$I = U / 2 \"Ω\"$\n";
-    let main = "#show: solve-block\n$U = 5 \"V\"$\n#include \"chapters/one.typ\"\n$W = U$\n";
+    let chapter = "$I := U / 2 Ω$\n";
+    let main = "#show: worksheet\n$U := 5 V$\n#include \"chapters/one.typ\"\n$W := U$\n";
     let c = chapter_context(main);
     let def = definition(chapter, &c, nth(chapter, "U", 0)).unwrap();
     assert_eq!(def.path.as_deref(), Some("main.typ"));
@@ -170,12 +168,12 @@ fn follows_includes_in_compile_order() {
         (None, nth(chapter, "U", 0)),
         (Some("main.typ".to_string()), nth(main, "U", 1)),
     ]);
-    // Included before the block, or after it, the chapter doesn't see main's definitions.
-    let before = "#include \"chapters/one.typ\"\n#show: solve-block\n$U = 5 \"V\"$\n";
+    // Included before the worksheet, or after it, the chapter doesn't see main's definitions.
+    let before = "#include \"chapters/one.typ\"\n#show: worksheet\n$U := 5 V$\n";
     assert_eq!(definition(chapter, &chapter_context(before), nth(chapter, "U", 0)), None);
-    let outside = "#solve-block[\n$U = 5 \"V\"$\n]\n#include \"chapters/one.typ\"\n";
+    let outside = "#worksheet[\n$U := 5 V$\n]\n#include \"chapters/one.typ\"\n";
     assert_eq!(definition(chapter, &chapter_context(outside), nth(chapter, "U", 0)), None);
-    // Usages from main don't reach a chapter that isn't in the block either.
+    // Usages from main don't reach a chapter that isn't in the worksheet either.
     assert_eq!(usages(chapter, &chapter_context(outside), nth(chapter, "I", 0)).len(), 1);
     // Without a main file the document stands alone.
     let alone = Context::new("").with_files(vec![ContextFile { path: "main.typ".into(), text: main.into() }]);
@@ -184,14 +182,14 @@ fn follows_includes_in_compile_order() {
 
 #[test]
 fn ignores_units_and_prose() {
-    let doc = "#show: solve-block\n$V = 5 \"V\"$, $P = V dot 2 \"V\"$ and V in prose\n";
+    let doc = "#show: worksheet\n$V := 5 V$, $P := V dot 2 V = mV$ and V in prose\n";
     let found = used(doc, &Context::new(""), nth(doc, "V", 0));
     assert_eq!(found, [nth(doc, "V", 0), nth(doc, "V", 2)]);
 }
 
 #[test]
 fn finds_math_names_with_subscripts() {
-    let doc = "#show: solve-block\n$Q_0 = 3450 \"mAh\"$, $t_\"half\" = Q_0 / 2 \"A\"$\n```solveng\nx = t_half\n```\n";
+    let doc = "#show: worksheet\n$Q_0 := 3450 mAh$, $t_\"half\" := Q_0 / 2 A$\n```solveng\nx := t_half\n```\n";
     let found = usages(doc, &Context::new(""), u16_at(doc, "t_half"));
     assert_eq!(found.len(), 2);
     assert_eq!(text_at(doc, found[0].start, found[0].end), "t_\"half\"");
@@ -201,16 +199,16 @@ fn finds_math_names_with_subscripts() {
 
 #[test]
 fn warns_of_unknown_units_where_calculated() {
-    let doc = "$a = 3 \"zorp\"$\n#show: solve-block\n$b = 3 \"zorp\"$\n#solve(\"b -> blip\", unit: \"blop\")\n#solve-config(units: (zorp: \"2 m\"))\n";
-    let compiled = report(doc, &[("$b = 3 \"zorp\"$", true, "math")]);
+    let doc = "$a := 3 \"zorp\"$\n#show: worksheet\n$b := 3 \"zorp\"$\n#lambdify(\"b\", \"b\", unit: \"blop\")\n```solveng\nc := b = [blip]\n```\n#worksheet-config(units: (zorp: \"2 m\"))\n";
+    let compiled = report(doc, &[("$b := 3 \"zorp\"$", true, "math")]);
     let context = Context::new("").with_report(&compiled, "main.typ", true);
     let found = diagnostics(doc, &context);
     let words: Vec<String> = found.iter().map(|p| text_at(doc, p.start, p.end)).collect();
     assert_eq!(words, ["blip", "blop"]);
     assert!(found.iter().all(|p| p.severity == "warning"));
     // Without the custom unit, only the calculated equation warns.
-    let bare = doc.replace("#solve-config(units: (zorp: \"2 m\"))\n", "");
-    let compiled = report(&bare, &[("$b = 3 \"zorp\"$", true, "math")]);
+    let bare = doc.replace("#worksheet-config(units: (zorp: \"2 m\"))\n", "");
+    let compiled = report(&bare, &[("$b := 3 \"zorp\"$", true, "math")]);
     let found = diagnostics(&bare, &Context::new("").with_report(&compiled, "main.typ", true));
     assert_eq!(found.iter().filter(|p| text_at(&bare, p.start, p.end) == "zorp").count(), 1);
 }

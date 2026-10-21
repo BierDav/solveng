@@ -41,8 +41,6 @@ pub(crate) struct Named {
 #[derive(Clone, Debug)]
 pub(crate) struct Call {
     pub function: &'static Function,
-    pub start: usize,
-    pub end: usize,
     /// Just inside the parentheses.
     pub args_start: usize,
     pub args_end: usize,
@@ -56,10 +54,11 @@ pub(crate) struct Call {
     pub items: Vec<(usize, usize, bool)>,
 }
 
-/// The function a callee names: `def`, `solveng.def`, `solve-config.with`.
+/// The function a callee names: `worksheet`, `solveng.worksheet`, `worksheet-config.with`.
 pub(crate) fn callee(node: &SyntaxNode) -> Option<String> {
     match node.kind() {
-        SyntaxKind::Ident => Some(node.leaf_text().to_string()),
+        // in math too: unit("bar")
+        SyntaxKind::Ident | SyntaxKind::MathIdent => Some(node.leaf_text().to_string()),
         SyntaxKind::FieldAccess => {
             let children: Vec<_> = node.children().collect();
             let field = children.last()?;
@@ -72,7 +71,8 @@ pub(crate) fn callee(node: &SyntaxNode) -> Option<String> {
 fn role(function: &str, param: Option<&str>, index: usize) -> Option<Role> {
     let Some(param) = param else {
         return match function {
-            "def" | "solve" | "graph" => Some(Role::Code),
+            "worksheet" | "graph" => Some(Role::Code),
+            "unit" => Some(Role::Unit),
             "lambdify" => Some(if index == 0 { Role::Code } else { Role::Name }),
             _ => None,
         };
@@ -105,7 +105,7 @@ impl Reader<'_> {
     }
 
     fn visit(&mut self, node: &LinkedNode) {
-        if node.kind() == SyntaxKind::FuncCall {
+        if matches!(node.kind(), SyntaxKind::FuncCall | SyntaxKind::MathCall) {
             self.call(node);
         }
         for child in node.children() {
@@ -141,15 +141,12 @@ impl Reader<'_> {
     fn call(&mut self, node: &LinkedNode) {
         let Some(first) = node.children().next() else { return };
         let Some(function) = callee(first.get()).and_then(|n| params::function(&n)) else { return };
-        let Some(args) = node.children().find(|c| c.kind() == SyntaxKind::Args) else { return };
-        let (start, end) = self.chars(node);
+        let Some(args) = node.children().find(|c| matches!(c.kind(), SyntaxKind::Args | SyntaxKind::MathArgs)) else { return };
         let (open, close) = self.chars(&args);
         let closes = args.children().any(|c| c.kind() == SyntaxKind::RightParen);
         let paren = |c: &LinkedNode, text: &str| c.kind() == SyntaxKind::Error && c.get().leaf_text() == text;
         let mut call = Call {
             function,
-            start,
-            end,
             args_start: open + 1,
             args_end: if closes { close.saturating_sub(1).max(open + 1) } else { close },
             texts: Vec::new(),

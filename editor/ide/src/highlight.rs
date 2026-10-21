@@ -110,7 +110,7 @@ pub fn math_tokens_of(math: &str) -> Vec<Token> {
     local(math, math_toks(&chars(math), &|_| false))
 }
 
-/// Tokens of the equations solveng reads (with [`crate::Integration::MATH`], or passed to `def` and the like),
+/// Tokens of the equations solveng reads (with [`crate::Integration::MATH`], or passed to `worksheet`),
 /// over the whole document, coloured like solveng code: numbers, quoted units, variables, functions.
 pub fn math_tokens(document: &str, context: &Context) -> Vec<Token> {
     let a = Analysis::new(document, context);
@@ -133,7 +133,7 @@ fn unit_tokens(code: &[char], custom: &[Custom]) -> Vec<Tok> {
         .collect()
 }
 
-/// Tokens of what the strings of solveng's calls hold: equations in `#def("…")`, `#solve`, `#graph` and
+/// Tokens of what the strings of solveng's calls hold: code lines in `#worksheet("…")`, curves in `#graph` and
 /// `#lambdify`, units in `unit:`, names in `x:`, the values of options like `steps:`.
 fn call_tokens(a: &Analysis) -> Vec<Token> {
     let unit = |w: &str| a.is_custom_unit(w);
@@ -216,7 +216,7 @@ pub fn diagnostics(document: &str, context: &Context) -> Vec<Problem> {
             out.push(Problem {
                 start: a.doc.to16(base + s),
                 end: a.doc.to16(base + e),
-                message: format!("unknown unit '{word}' – define it with solve-config(units: ({word}: \"…\"))"),
+                message: format!("unknown unit '{word}' – define it with worksheet-config(units: ({word}: \"…\"))"),
                 severity: "warning",
             });
         }
@@ -234,9 +234,22 @@ pub fn diagnostics(document: &str, context: &Context) -> Vec<Problem> {
                 *at += p.chars().count() + 1;
                 Some((s, p))
             }) {
-                if let Some(arrow) = part.find("->") {
-                    let after = &part[arrow + 2..];
-                    report(i + k + part[..arrow + 2].chars().count(), after);
+                // the units of a clause, its keywords left out: t = [h], digits(2)
+                let pc: Vec<char> = part.chars().collect();
+                // (a bracketed unit is one whatever it says: [furlong])
+                let loose = |w: &str| a.is_custom_unit(w);
+                let bracketed: String = pc.iter().map(|ch| if *ch == '[' || *ch == ']' { ' ' } else { *ch }).collect();
+                let marked = crate::clause::marker(&pc, &loose).or_else(|| crate::clause::marker(&chars(&bracketed), &|_| true).filter(|_| part.contains('[')));
+                if let Some((_, e, _)) = marked {
+                    let mut at = e;
+                    for item in crate::clause::split_top(&crate::text::sub(&pc, e, pc.len())) {
+                        let word: String = item.trim().chars().take_while(|ch| ch.is_alphabetic()).collect();
+                        if !crate::clause::is_keyword(&word) {
+                            let open = item.find('[').map_or(0, |b| item[..b].chars().count() + 1);
+                            report(i + k + at + open, &item.replace(['[', ']'], " ")[item.find('[').map_or(0, |b| b + 1)..]);
+                        }
+                        at += item.chars().count() + 1;
+                    }
                 }
                 let pc: Vec<char> = part.chars().collect();
                 let mut j = 0;
@@ -321,7 +334,7 @@ pub fn hover(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     while e < c.len() && part(c[e]) {
         e += 1;
     }
-    // The functions themselves, by their whole identifier (solve-config, not solve), in code anywhere.
+    // The functions themselves, by their whole identifier (worksheet-config, not solve), in code anywhere.
     if let Some((start, end, name)) = identifier(&a.doc, at)
         && let Some(f) = crate::params::function(&name)
     {
@@ -348,6 +361,13 @@ pub fn hover(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     let (start, end) = (a.doc.to16(s) as u32, a.doc.to16(e) as u32);
     let tokens = document_tokens(document, context);
     let kind = tokens.iter().find(|t| t.start <= start && end <= t.start + t.length).map(|t| t.kind);
+    if kind == Some(K::KEYWORD)
+        && let Some((k, d)) = crate::clause::KEYWORDS.iter().find(|(k, _)| *k == word) {
+            return hover(format!("`{k}` keyword after `=` or `->`: {d}"));
+        }
+    if kind == Some(K::EVALUATE) || word.is_empty() {
+        return None;
+    }
     if word == "as" {
         if kind == Some(K::KEYWORD) {
             return hover("`as` cast: the number of what's before it, in SI units, as a value in the unit after it – with `U = 5 V`, `U as A` is 5 A, `U as mA` 5 mA, `U as 1` the plain number 5. It casts the term before it with its power: `2 U as A` is 2 · (U as A).".to_string());

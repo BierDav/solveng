@@ -158,7 +158,7 @@ fn conceals_in(code: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<(usize, usize,
                     out.push((start - 1, 2, SUPERSCRIPTS[digit(&word).unwrap()]));
                 }
             }
-            K::OPERATOR => match word.as_str() {
+            K::OPERATOR | K::EVALUATE => match word.as_str() {
                 "->" => out.push((start, 2, '→')),
                 "<=" => out.push((start, 2, '≤')),
                 ">=" => out.push((start, 2, '≥')),

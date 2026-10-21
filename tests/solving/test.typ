@@ -106,6 +106,7 @@
   $P_1 <= U I_1 -> solve(P_1)$ #expect("P_1", 12.5)
   $c := 1/3 -> frac$ #expect("c", 1/3)
   $V := 2 A = 2000 mA$ #expect("V", 2)
+  $a_s + b_s = 3, a_s - b_s = 1 -> solve(a_s, b_s)$ #expect("a_s", 2) #expect("b_s", 1)
 ]
 
 // parameters with a unit: plain numbers get it, values must have its dimension, graphs take x's unit from it

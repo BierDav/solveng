@@ -309,7 +309,7 @@ fn location(files: &[File], o: &Occurrence) -> Location {
 
 /// Where the solveng name at `offset` is defined, as the compile sees it: the latest definition before it that's
 /// visible there, reading the document in compile order from the main file (see [`Context::with_main`]), where
-/// `#include` inlines a file, a `solve-block` starts empty (or with the outer definitions with `inherit: true`)
+/// `#include` inlines a file, a `worksheet` starts empty (or with the outer definitions with `inherit: true`)
 /// and its definitions end with it, and `reset` starts over. On a definition, that definition. The range covers
 /// just the name. On one of the document's own units (`ü` of `units: (ü: auto)`), its key in `units: (…)`.
 pub fn definition(document: &str, context: &Context, offset: u32) -> Option<Location> {

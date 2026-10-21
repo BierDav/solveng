@@ -1,11 +1,14 @@
 //! Editor support for solveng (`@preview/solveng`), the calculation language of Typst documents: ```` ```solveng ````
-//! code, the strings of `#def`, `#solve`, `#graph` and `#lambdify`, and in a `solve-block` math or code without a
-//! language, as `solve-config(integration: …)` says.
+//! code blocks, math in a `worksheet` (as `worksheet-config(integration: …)` says) and equations passed to
+//! `#worksheet(…)`, and the strings of `#worksheet`, `#graph` and `#lambdify`. Like Mathcad, `:=` defines, a
+//! trailing `=` shows a value and `->` a symbolic result or a solution, each followed by a clause of a unit and
+//! keywords.
 //!
 //! Everything is a pure function of the document and a [`Context`] (the files around it, what the compiler
 //! reported). Offsets are UTF-16 code units, as editors and LSP count them.
 
 mod calls;
+mod clause;
 mod complete;
 mod conceal;
 mod convert;
@@ -59,15 +62,17 @@ impl TokenKind {
     /// A function's parameter, where it's defined and used (`x` in `f(x: A) = 2 x`, what `..` takes), and what a
     /// graph plots against. Editors without it show a variable.
     pub const PARAMETER: u8 = 10;
+    /// The `=` or `->` that shows a result (`$t := Q_0/I = h$`), set bold as Mathcad does. Editors without it show
+    /// an operator.
+    pub const EVALUATE: u8 = 11;
 }
 
-/// What a `solve-block` calculates besides tagged code, as `solve-config(integration: …)` sets it; bit flags.
+/// What a `worksheet` calculates besides ```` ```solveng ```` code blocks, as `worksheet-config(integration: …)`
+/// sets it; bit flags.
 pub struct Integration;
 impl Integration {
     pub const NONE: u8 = 0;
-    pub const CODE: u8 = 1;
     pub const MATH: u8 = 2;
-    pub const FULL: u8 = 3;
 }
 
 /// Kinds of [`Item`].
@@ -212,7 +217,7 @@ pub struct Context {
     pub integration: Option<u8>,
     /// Values the compiler computed, used as completion details.
     pub defined: Vec<ReportValue>,
-    /// Units `solve-config(units: …)` set, as the compiler saw them.
+    /// Units `worksheet-config(units: …)` set, as the compiler saw them.
     pub units: Vec<ReportValue>,
     /// The document's path, relative to the root, as given to [`Context::with_report`].
     pub path: String,
@@ -286,13 +291,13 @@ pub fn compiled_integration(report: &str, path: &str, main: bool) -> i32 {
 static REFERENCE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"#(?:import|include)\s+"([^"@][^"]*)""#).unwrap());
 static IMPLICIT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"implicit-parameters\s*:\s*"(no|empty|allow)""#).unwrap());
 
-/// What a text sets with `solve-config(implicit-parameters: …)`, the last one: `"empty"` makes `f()` take what
+/// What a text sets with `worksheet-config(implicit-parameters: …)`, the last one: `"empty"` makes `f()` take what
 /// `f(..)` does, `"allow"` every function; None without a setting.
 pub(crate) fn implicit_parameters(text: &str) -> Option<String> {
     IMPLICIT.captures_iter(text).last().map(|m| m[1].to_string())
 }
 
-static SETTING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"integration\s*:\s*"(full|code|math|none)""#).unwrap());
+static SETTING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"integration\s*:\s*"(math|none)""#).unwrap());
 
 /// Local files a document imports or includes (`#import "defaults.typ": *`, `#include "ch1.typ"`), as written;
 /// editors read them (and the compiled main file) into the [`Context`].
@@ -306,8 +311,8 @@ pub fn references(document: &str) -> Vec<String> {
     out
 }
 
-/// What the document's `solve-block` calculates besides tagged code: `"math"` unless `integration` says
-/// otherwise, nothing without a `solve-block` or an `integration` setting. The compiler's answer wins, then the document's own setting.
+/// What the document's `worksheet` calculates besides code blocks: `"math"` unless `integration` says otherwise,
+/// nothing without a `worksheet`. The compiler's answer wins, then the document's own setting.
 pub fn integration(document: &str, context: &Context) -> u8 {
     if let Some(i) = context.integration {
         return i;
@@ -315,22 +320,21 @@ pub fn integration(document: &str, context: &Context) -> u8 {
     fallback(document, &context.text)
 }
 
-/// What a text calculates by its settings: an `integration` setting (which calculates outside a `solve-block` too),
-/// else `"math"` in a `solve-block`, else nothing.
+/// What a text calculates by its settings: in a `worksheet`, math unless an `integration` setting says `"none"`;
+/// else nothing.
 fn fallback(text: &str, around: &str) -> u8 {
-    match SETTING.captures(text).or_else(|| SETTING.captures(around)) {
-        Some(m) => report::flags(&m[1]),
-        None if text.contains("solve-block") || around.contains("solve-block") => Integration::MATH,
-        None => Integration::NONE,
+    if !text.contains("worksheet") && !around.contains("worksheet") {
+        return Integration::NONE;
     }
+    SETTING.captures(text).or_else(|| SETTING.captures(around)).map_or(Integration::MATH, |m| report::flags(&m[1]))
 }
 
+/// Math as `integration` says; of raw elements only ```` ```solveng ```` code blocks, wherever they are.
 pub(crate) fn is_solveng(e: &Element, integration: u8) -> bool {
-    if e.math { integration & Integration::MATH != 0 } else { e.tag == TAG || (e.tag.is_empty() && integration & Integration::CODE != 0) }
+    if e.math { integration & Integration::MATH != 0 } else { e.tag == TAG && e.block }
 }
 
-/// The UTF-16 `(body_start, body_end)` of a raw element (```` `x` ````, ```` ```solveng x``` ````) that holds
-/// solveng code; code without a language counts with [`Integration::CODE`].
+/// The UTF-16 `(body_start, body_end)` of a raw element that holds solveng code: a ```` ```solveng ```` block.
 pub fn body(raw: &str, integration: u8) -> Option<(u32, u32)> {
     let doc = Doc::new(raw);
     let r = elements::elements(&doc.c).into_iter().next()?;
@@ -356,7 +360,7 @@ pub(crate) fn scan(doc: &Doc, calls: &[calls::Call]) -> Vec<Element> {
 /// Which elements solveng calculates. With the compiler's elements for the file (`reported`), an element whose
 /// source matches one (the nearest by position, each used once) takes its flag; one written since takes the
 /// `integration` of the matched element before it, and nothing before the first. Without them `fallback` decides.
-/// Equations passed to `def` and the like are calculated wherever they are.
+/// Equations passed to `worksheet` are calculated wherever they are.
 pub(crate) fn activity(doc: &Doc, elements: &[Element], calls: &[calls::Call], reported: &[&ReportElement], fallback: u8) -> Vec<bool> {
     let in_call = |e: &Element| e.math && calls.iter().any(|c| c.maths.iter().any(|m| m.0 == e.start));
     if reported.is_empty() {
@@ -451,10 +455,10 @@ impl<'a> Analysis<'a> {
         self.index(e).is_some_and(|i| self.calculated[i])
     }
 
-    /// Whether an element is solveng to the editor: calculated, or code tagged `solveng`, which is the language
-    /// wherever it is.
+    /// Whether an element is solveng to the editor: calculated, or a ```` ```solveng ```` block, which is the
+    /// language wherever it is.
     pub fn shown(&self, e: &Element) -> bool {
-        (!e.math && e.tag == TAG) || self.active(e)
+        (!e.math && e.tag == TAG && e.block) || self.active(e)
     }
 
     /// The files around, read when first needed: one by one when known, else their join.

@@ -13,12 +13,14 @@ use solveng_ide::{self as ide, Context, ContextFile, ItemKind, Location, Report}
 // Function parameters, and what a graph plots against.
 const TOKEN_TYPES: [&str; 11] =
     ["keyword", "string", "comment", "number", "function", "type", "variable", "decorator", "operator", "enumMember", "parameter"];
+/// The `=` or `->` showing a result is an operator with this modifier, for themes to set bold.
+const TOKEN_MODIFIERS: [&str; 1] = ["evaluate"];
 
 struct Server {
     /// Open documents by URI.
     open: HashMap<String, String>,
     root: Option<PathBuf>,
-    /// The file typst compiles, whose setup (`solve-block`, `solve-config`) counts for the files it includes.
+    /// The file typst compiles, whose setup (`worksheet`, `worksheet-config`) counts for the files it includes.
     main: Option<PathBuf>,
 }
 
@@ -67,7 +69,7 @@ fn capabilities() -> Value {
         "referencesProvider": true,
         "renameProvider": { "prepareProvider": true },
         "codeActionProvider": { "codeActionKinds": ["refactor.rewrite"] },
-        "semanticTokensProvider": { "legend": { "tokenTypes": TOKEN_TYPES, "tokenModifiers": [] }, "full": true },
+        "semanticTokensProvider": { "legend": { "tokenTypes": TOKEN_TYPES, "tokenModifiers": TOKEN_MODIFIERS }, "full": true },
     })
 }
 
@@ -172,7 +174,7 @@ impl Server {
     }
 
     /// The files around a document: the main file and what it and the document import or include, so a
-    /// `solve-block`, `integration`, units and definitions set up elsewhere count here too.
+    /// `worksheet`, `integration`, units and definitions set up elsewhere count here too.
     fn context(&self, uri: &str, text: &str) -> Context {
         let Some(file) = path_of(uri) else { return Context::default() };
         let root = self.root_for(&file);
@@ -313,12 +315,13 @@ impl Server {
                     // Tokens stop at the line's end.
                     let line_end = starts.get(l + 1).map_or(u32::MAX, |s| s - 1);
                     let length = t.length.min(line_end.saturating_sub(t.start));
-                    if length == 0 || usize::from(t.kind) >= TOKEN_TYPES.len() {
+                    let (kind, modifiers) = if t.kind == ide::TokenKind::EVALUATE { (ide::TokenKind::OPERATOR, 1) } else { (t.kind, 0) };
+                    if length == 0 || usize::from(kind) >= TOKEN_TYPES.len() {
                         continue;
                     }
                     let l = l as u32;
                     let delta_col = if l == line { c - col } else { c };
-                    data.extend([l - line, delta_col, length, u32::from(t.kind), 0]);
+                    data.extend([l - line, delta_col, length, u32::from(kind), modifiers]);
                     line = l;
                     col = c;
                 }
