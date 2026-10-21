@@ -4,7 +4,8 @@
 /// Lists the definitions made so far, in order.
 ///
 /// ```typ
-/// #def("R = 7.2 kΩ", "U = 5 V", "I = U/R", "f(x) = x^2")
+/// #show: worksheet
+/// $R := 7.2 kΩ$, $U := 5 V$, $I := U/R$, $f(x) := x^2$
 /// #defined()                                          // everything, in columns side by side
 /// #defined(included: "given")                         // only plain values (also "computed", "function")
 /// #defined(excluded: ("U", "function"))               // names and kinds
@@ -25,7 +26,7 @@
 /// - excluded (none, str, regex, function, array): What to leave out.
 /// - style (auto, str): `"grid"`, `"column"`, `"inline"` or `"list"`, see above. `auto`: the option `defined-style` (default `"grid"`).
 /// - show-si (auto, bool): Also show the SI value: `Q₀ = 3450 mAh = 12420 C`.
-/// - digits, separator, form, … (auto): Every option of `solve-config` (except `units`) works here too, for this call only.
+/// - digits, separator, form, … (auto): Every option of `worksheet-config` (except `units`) works here too, for this call only.
 /// -> content
 #let defined(
   included: "all", excluded: none, style: auto,

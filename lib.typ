@@ -1,17 +1,18 @@
-// solveng – unit-aware calculations that read like your notes.
+// solveng – unit-aware calculations that read like your notes, like a Mathcad worksheet.
 //
-//   #show: solve-block                  // math and code in the document are calculated:
-//   $I = 30 "mA"$, $Q_0 = 3450 "mAh"$    //   values …
-//   $t = Q_0 / I$                         //   … computed and solved equations
+//   #show: worksheet                    // the math in the document is calculated:
+//   $I := 30 mA$, $Q_0 := 3450 mAh$      //   := defines
+//   $t := Q_0 / I = h$                    //   a trailing = shows the value (bold), in hours
+//   $x^2 = 4 -> solve(x)$                 //   -> the symbolic result, or solves
 //   ```solveng
-//   P = [5 V] I -> mW                    // solveng code blocks show every step
+//   P := [5 V] I =                       // solveng code blocks show every step
 //   ```
-//   #solve("Q0/2 = I t", unit: "h")      // or as calls: def, solve, defined, graph, lambdify
 
-#import "src/api.typ": def, solve, solve-block, solve-config
-#import "src/core.typ": reset
+#import "src/api.typ": worksheet
+#import "src/core.typ": reset, worksheet-config
+#import "src/keywords.typ": solve, simplify, digits, sci, eng
 #import "src/defined.typ": defined
 #import "src/graph.typ": graph
 #import "src/lambdify.typ": lambdify
-// units of several letters, unquoted in math: $4 mA$
+// units as names, unquoted in math: $4 mA$, and unit("…") for any other
 #import "src/unit-words.typ": *

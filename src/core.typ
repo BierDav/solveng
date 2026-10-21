@@ -1,51 +1,42 @@
-// solve-config, reset and the solver behind def and solve.
+// worksheet-config, reset and the solver behind def and solve.
 #import "read.typ": *
 
 // ---------- public API ----------
 
 /// Sets options for number formatting, units and output.
 ///
-/// Without a body the options apply from here on; with a body only inside it. Every option defaults to `auto`, which keeps the current setting, so only what you pass changes. Every option except `units` can also be passed directly to `def`, `solve`, `defined` and `graph`, for that call only. Unknown options and values of the wrong type are shown as an error in the document.
+/// Without a body the options apply from here on; with a body only inside it. Every option defaults to `auto`, which keeps the current setting, so only what you pass changes. Most options can also be passed directly to `worksheet`, `defined` and `graph`, for that worksheet or call only. Unknown options and values of the wrong type are shown as an error in the document.
 ///
 /// ```typ
-/// #show: solve-config.with(digits: 3, form: "fraction")   // your defaults: at the top of the document
-/// #solve-config(layout: "column")                          // from here on, definitions are kept
-/// #solve-config(steps: "result")[ … ]                      // only inside the brackets
-/// #def("U = 5 V", "I = 30 mA")
-/// #solve("R = U/I", digits: 2)                             // only this call
+/// #show: worksheet-config.with(digits: 3, form: "fraction")   // your defaults: at the top of the document
+/// #worksheet-config(layout: "column")                          // from here on, definitions are kept
+/// #worksheet-config(steps: "result")[ … ]                      // only inside the brackets
+/// #show: worksheet
+/// $U := 5 V$, $I := 30 mA$
+/// #worksheet($R := U/I =$, digits: 2)                     // only these equations
 /// #let opts = (digits: 2, separator: ",")
-/// #solve("P = U I", ..opts)                                // options kept in a dictionary
+/// #worksheet($P := U I =$, ..opts)                          // options kept in a dictionary
 /// ```
 ///
 /// `form`:
 ///
 /// - `"auto"`: plain numbers as typed (`7.20 kΩ` keeps its zero), arithmetic evaluated (`3450/2 mAh` → 1725 mAh), results rounded to `digits`.
 /// - `"decimal"`: everything rounded to `digits`, including what you typed.
-/// - `"fraction"`: exact fractions, simplified (`$frac(2, 4)"A"$` → ½ A, `I/3` → ⅙ A); values that are no fraction with denominator ≤ `max-denominator` fall back to decimals.
+/// - `"fraction"`: exact fractions, simplified (`$frac(2, 4) A$` → ½ A, `I/3` → ⅙ A); values that are no fraction with denominator ≤ `max-denominator` fall back to decimals.
 /// - `"input"`: given values exactly as typed (`3450/2 mAh` stays a fraction).
 ///
-/// An explicit unit (`#solve(eq, unit: "mA")`) always wins, then `preferred-units`, then the non-SI unit of the inputs (h, mAh, bar), then the SI unit with a prefix.
+/// An explicit unit (`$I = mA$`) always wins, then `preferred-units`, then the non-SI unit of the inputs (h, mAh, bar), then the SI unit with a prefix.
 ///
-/// Typst only allows `#set` for its built-in elements, not for functions of packages, so `#set solve(steps: "result")` isn't possible (yet). Instead, `#let solve = solve.with(steps: "result")` changes your `solve` calls, `#show: solve-config.with(steps: "result")` everything, including code in a solve-block. To reuse your defaults in many documents, keep a small file of your own:
+/// To reuse your defaults in many documents, keep a small file of your own:
 ///
 /// ```typ
 /// // my-defaults.typ
 /// #import "@preview/solveng:0.2.0": *
-/// #let setup = solve-config.with(digits: 3, multiplication: "times", layout: "column")
-/// #let solve = solve.with(steps: "formula")
+/// #let setup(body) = worksheet-config(digits: 3, multiplication: "times", layout: "column", worksheet(body))
 ///
 /// // in a document
 /// #import "my-defaults.typ": *
 /// #show: setup
-/// ```
-///
-/// **Calculating without a solve-block.** Outside a `solve-block`, `integration` other than `"none"` makes the content a calculating scope of its own, whose definitions stay: `#solve-config(integration: "full")[…]` calculates its brackets, `#show: solve-config.with(integration: "math")` the rest of the document. Without content (`#solve-config(integration: "full")`) it only sets the option for the solve-blocks that follow.
-///
-/// ```typ
-/// #solve-config(integration: "full")[
-///   $Delta_R = 5 "cm"$
-///   #solve($Delta_R$)
-/// ]
 /// ```
 ///
 /// - ..body (content): Optional: the content the options apply to.
@@ -80,9 +71,9 @@
 /// - unit-style (auto, function): A function given every shown unit as content, `u => text(fill: blue, u)`.
 /// - unit-separator (auto, content, str, symbol): What goes between units, a thin dot by default (A·as): `sym.times`, `h(0.2em)`.
 /// - implicit-parameters (auto, str): What a function takes of what its body leaves undefined, besides `f(x, ..)`, which always takes it: `"no"` (default): nothing, `f()` takes nothing and `f(x) = x + k` with an undefined `k` is an error · `"empty"`: empty parentheses take it all, `f() = x^2 + k` is `f(x, k)` · `"allow"`: every function takes it after its listed parameters, `f(x) = x + k` is `f(x, k)`. Only here, not per call.
-/// - integration (auto, str): What a `solve-block` calculates besides code tagged `solveng`: `"math"` (default: math equations) · `"code"`: code without a language · `"full"`: both · `"none"`: only tagged code. Only here, not per call. Given with content outside a solve-block, the content is calculated as in one.
+/// - integration (auto, str): Whether a `worksheet` calculates the math in it: `"math"` (default) or `"none"`, then only ```` ```solveng ```` code blocks and `#worksheet(…)` calls are calculated. Only here, not per call.
 /// -> content
-#let solve-config(
+#let worksheet-config(
   ..body,
   digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto, max-denominator: auto, fractions: auto,
   prefixes: auto, show-si: auto, units: auto, preferred-units: auto, strict: auto,
@@ -92,8 +83,8 @@
 ) = {
   let b = body.pos().at(0, default: none)
   if body.named().len() > 0 { return _err-now("unknown option '" + body.named().keys().first() + "' (options: " + _DEF.keys().join(", ") + ")") + b }
-  if body.pos().len() > 1 { return _err-now("solve-config takes at most one body") + b }
-  if b != none and type(b) != content { return _err-now("solve-config: the body must be content, got " + _tn(b)) }
+  if body.pos().len() > 1 { return _err-now("worksheet-config takes at most one body") + b }
+  if b != none and type(b) != content { return _err-now("worksheet-config: the body must be content, got " + _tn(b)) }
   let n = _check(_given((
     digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions,
     prefixes: prefixes, show-si: show-si, units: units, preferred-units: preferred-units, strict: strict,
@@ -121,13 +112,14 @@
   }
 }
 #let _restart(d) = if "^0" in d { let z = d.at("^0"); z.insert("^0", z); z } else { (:) }
-/// Forgets every definition (values and functions) made so far. Inside a `solve-block`:
+/// Forgets every definition (values and functions) made so far. Inside a `worksheet`:
 /// back to how the block started (with `inherit: true` the outer definitions stay).
 ///
 /// ```typ
-/// #def("I = 30 mA")
+/// #show: worksheet
+/// $I := 30 mA$
 /// #reset
-/// #def("I = 1 A")
+/// $I := 1 A$
 /// ```
 #let reset = _st.update(_restart)
 #let _inabs(e, x) = if e.at(0) == "f" and e.at(1) == "abs" and _has(e, x) { true } else { e.slice(1).filter(t => type(t) == array).any(t => _inabs(t, x)) }
@@ -248,7 +240,7 @@
 }
 // strict: a name that is a unit can't be a variable
 #let _strict-name(n, cf) = if cf.strict and _known(n, _UT(cf)) {
-  _err("'" + n + "' is a unit and can't be a variable name (option strict) – pick another name like " + n + "_1, or remove the unit with solve-config(units: (" + n + ": none))")
+  _err("'" + n + "' is a unit and can't be a variable name (option strict) – pick another name like " + n + "_1, or remove the unit with worksheet-config(units: (" + n + ": none))")
 }
 
 // solve equations (strings) for their unknowns -> (new state, record for display) or an error
@@ -290,7 +282,7 @@
     else if u.len() == 0 and ps.len() == 1 and R.at(0) == "v" { (R.at(1),) } else { u }
   }
   if xs.len() != ps.len() {
-    return _err(str(ps.len()) + " equation" + (if ps.len() > 1 { "s" }) + " but " + str(xs.len()) + " unknown" + (if xs.len() != 1 { "s" }) + " (" + (if xs == () { "none" } else { xs.join(", ") }) + ") in " + eqs.map(e => "'" + e.trim() + "'").join(", ") + if xs.len() > ps.len() { " – define the missing values first, or pass unknown: …" + _uvar-hint(xs, U, eqs.join(" ")) } else { " – pass unknown: …" })
+    return _err(str(ps.len()) + " equation" + (if ps.len() > 1 { "s" }) + " but " + str(xs.len()) + " unknown" + (if xs.len() != 1 { "s" }) + " (" + (if xs == () { "none" } else { xs.join(", ") }) + ") in " + eqs.map(e => "'" + e.trim() + "'").join(", ") + if xs.len() > ps.len() { " – define the missing values first, or say what to solve for, -> solve(" + xs.first() + ")" + _uvar-hint(xs, U, eqs.join(" ")) } else { " – say what to solve for, -> solve(" + xs.first() + ")" })
   }
   for x in xs { let b = _strict-name(x, cf); if b != none { return b } }
   if type(un) == str and xs.len() > 1 { return _err("several unknowns – give units as unit: (name: \"…\")") }
@@ -308,7 +300,9 @@
     let (L, R) = ps.first()
     let cnt = all.filter(v => v == x).len()
     if cnt == 0 { return _err("'" + x + "' does not appear in '" + eq.trim() + "'") }
-    let simple = cnt == 1 and not _inabs(L, x) and not _inabs(R, x) and g == none and root == auto
+    // a polynomial of degree 2 or more has all its roots found (x^2 = 4: ±2), not only the one isolating gives
+    let deg = { let (a, b) = (_poly(L, x), _poly(R, x)); if a == none or b == none { 0 } else { calc.max(a.len(), b.len()) - 1 } }
+    let simple = cnt == 1 and deg < 2 and not _inabs(L, x) and not _inabs(R, x) and g == none and root == auto
     // isolating can fail numerically (e.g. sqrt of a negative) – then solve numerically instead
     let ex = if simple { let i = _iso(L, R, x); if i != none { _s(i) } }
     if ex != none and _nd(ex, env) == none { ex = none }
@@ -508,23 +502,6 @@
   context {
     let cf = _cf.get() + lc
     let U = _UT(cf)
-    // L := statement -> R: the statement (which tells R its value) and then L := R; R is what's solved for when the
-    // statement has it, else -> gives a unit as everywhere
-    let name = "^\\p{L}[\\p{L}\\p{N}_]*$"
-    let (eqs, un) = {
-      let (out, un2) = ((), un)
-      for e in eqs {
-        if type(e) != str or not e.contains(":=") { out.push(e); continue }
-        let (l, r) = (e.split(":=").first(), e.split(":=").slice(1).join(":="))
-        let (r, t) = if r.contains("->") { let q = r.split("->"); (q.first(), q.last().trim()) } else { (r, if type(un) == str { un.trim() }) }
-        let names = _tk(_glue(r)).map(_greek)
-        if t != none and t.match(regex(name)) != none and r.contains("=") and _greek(t) in names {
-          out += (r.trim(), l.trim() + " := " + t)
-          if t == un { un2 = none }
-        } else { out.push(e) }
-      }
-      (out, un2)
-    }
     _st.update(d => {
       let recs = ()
       let defs = d.at("!", default: ())
@@ -557,13 +534,13 @@
         // what isn't known and is checked against what is
         let raw = if type(s0) == dictionary { s0.math } else { s0 }
         let assign = type(raw) == str and (raw.contains(":=") or raw.contains("≔"))
-        // V := 2 A = 2 V: a statement assigned is whether it holds, 1 or 0 (values of different units are never equal)
+        // V := a < b: a comparison assigned is whether it holds, 1 or 0 (V := 2 A = 2000 mA is a chain of steps)
         let vm = if assign and type(s0) == str { s0.match(regex("^\\s*(\\p{L}[\\p{L}\\p{N}_]*)\\s*:=(.*)$")) }
-        let rels = if vm != none { vm.captures.at(1).replace("<=", "≤").replace(">=", "≥").replace("!=", "≠").matches(regex("[=≤≥<>≠]")) } else { () }
+        let rels = if vm != none { vm.captures.at(1).replace("<=", "≤").replace(">=", "≥").replace("!=", "≠").matches(regex("[≤≥<>≠]")) } else { () }
         if rels.len() > 0 {
           let (n, rhs) = (_greek(vm.captures.at(0)), vm.captures.at(1).replace("<=", "≤").replace(">=", "≥").replace("!=", "≠"))
           let known = _vars-of(d)
-          let sides = rhs.split(regex("[=≤≥<>≠]")).map(str.trim)
+          let sides = rhs.split(regex("[≤≥<>≠]")).map(str.trim)
           let val(x) = { let xb = x.trim("[", at: start).trim("]", at: end); if _isq(xb, U: U) { let q = _q(xb, U: U); if _E(q) { q } else { (q.v, q.d) } } else { let e = _parse(x, known, f: d.at("#fn", default: (:)), U: U); if _E(e) { e } else { _ev(e, known) } } }
           let vs = sides.map(val)
           let b = _first-err(vs)
@@ -717,6 +694,12 @@
             recs.push(fail(s, _err(miss.map(v => "'" + v + "'").join(", ") + " is neither a unit nor a defined variable")))
             continue
           }
+          // := takes what's known: P := U I with an undefined U
+          if assign and miss.len() > 0 {
+            let one = miss.len() == 1
+            recs.push(fail(s, _err(miss.map(v => "'" + v + "'").join(", ", last: " and ") + " in '" + l + " := " + r + "' " + (if one { "isn't" } else { "aren't" }) + " defined – define " + (if one { "it" } else { "them" }) + " first with :=, or solve for " + (if one { "it" } else { "them" }) + ": … -> solve(" + miss.join(", ") + ")")))
+            continue
+          }
           if _vars(e).all(v => v in _vars-of(d) and v != l) {
             let res = _solve-into(d, (s,), if type(un) == dictionary { un.at(l, default: none) } else { un }, opt + (unknown: l), cf)
             let res = if rel == none or _E(res) { res } else { bound(..res, s, rel, d0, fns0, s0) }
@@ -758,7 +741,8 @@
     let cf = _cf.get() + lc
     if cf.steps == auto { cf.steps = cf.inline-steps } // inline code / inline: true
     let st = _st.get()
-    let recs = st.at("..").filter(r => out or r.k == "error")
+    // out: none shows nothing, the caller shows the problems
+    let recs = st.at("..").filter(r => out == true or (out == false and r.k == "error"))
     let outs = recs.map(r => _show(r, _vars-of(st), cf))
     if not cf.block { outs.join(", ") } else { outs.join() }
   }

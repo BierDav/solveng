@@ -6,7 +6,7 @@
 /// Defined variables and functions are used with their current values. Needs `context`.
 ///
 /// ```typ
-/// #def("R = 50 Ω")
+/// #worksheet($R := 50 Ω$, hidden: true)
 /// #context {
 ///   let P = lambdify("U^2/R", "U", unit: "W", units: (U: "V"))
 ///   table(columns: 2, ..range(1, 6).map(u => ([#u V], [#P(u) W])).flatten())

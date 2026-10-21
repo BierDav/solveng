@@ -22,7 +22,7 @@ with tempfile.TemporaryDirectory() as tmp:
         # examples from doc comments leave the import out
         if IMPORT not in code: code = IMPORT + "\n" + code
         shows_error = "// error" in code
-        doc = code.replace(IMPORT, '#import "/lib.typ": *' + ("" if shows_error else '\n#show: solve-config.with(errors: "panic")'), 1)
+        doc = code.replace(IMPORT, '#import "/lib.typ": *' + ("" if shows_error else '\n#show: worksheet-config.with(errors: "panic")'), 1)
         src = os.path.join(ROOT, "tests", ".example.typ")
         open(src, "w").write("#set page(height: auto)\n" + doc)
         r = subprocess.run([TYPST, "compile", "--root", ROOT, src, os.path.join(tmp, "out.pdf")], capture_output=True, text=True)

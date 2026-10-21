@@ -116,7 +116,7 @@
 /// (roots, extrema, poles, intersections). Marked values are always visible too.
 ///
 /// ```typ
-/// #def("R = 50 Ω", "P0 = 2 W", "U0 = 10 V")
+/// #worksheet("R := 50 Ω", "P0 := 2 W", "U0 := 10 V", hidden: true)
 /// #graph("P(U: V) = U^2/R", ymark: "P0")                    // where P reaches P0
 /// #graph("P(..) = U0^2/R_L", xrange: ("10 Ω", "1 kΩ"))       // R_L, in Ω from the range
 /// #graph("cos(w)", "w")                                      // range picked, crossing marked
@@ -126,7 +126,7 @@
 ///
 /// Uses `@preview/simple-plot:1.1.0`. Ticks use the document's decimal separator, axis labels read `U / V`; curves of the same unit share one graph, with a legend.
 ///
-/// **Ranges:** values and expressions in `xrange` / `yrange` must have the axis unit (`$f(20) Omega$` and `"f(20) Ω"` are fine) – `xrange: ("10 Ω", "f(20)")` with a unitless `f(20)` is an error, since it isn't clear what was meant. Without a range: around the marks; else around what's interesting – roots, extrema, poles, edges of the domain (√, ln) and, above all, where curves cross – rounded to nice ticks, starting at 0 when everything interesting is positive. With `ymark`, the y range is around the marked values (steep curves leave the picture). **Units** follow from what's plotted: y's from the curves (shown in the SI unit with a fitting prefix; `preferred-units` picks others), x's from the curve's parameter (`U(I: mA) = …`) or a function x is passed to whose parameter has one (`#def("q(I: mA) = I R")`, then `#graph("U(I) = q(I)")` is over I in mA), else from the units in `xrange` and the marks, else from the curve and the units of the y values (`P(..) = U0^2/R2` with `ymark: "2 W"`: R₂ in Ω).
+/// **Ranges:** values and expressions in `xrange` / `yrange` must have the axis unit (`$f(20) Omega$` and `"f(20) Ω"` are fine) – `xrange: ("10 Ω", "f(20)")` with a unitless `f(20)` is an error, since it isn't clear what was meant. Without a range: around the marks; else around what's interesting – roots, extrema, poles, edges of the domain (√, ln) and, above all, where curves cross – rounded to nice ticks, starting at 0 when everything interesting is positive. With `ymark`, the y range is around the marked values (steep curves leave the picture). **Units** follow from what's plotted: y's from the curves (shown in the SI unit with a fitting prefix; `preferred-units` picks others), x's from the curve's parameter (`U(I: mA) = …`) or a function x is passed to whose parameter has one (`$q(I: mA) := I R$`, then `#graph("U(I) = q(I)")` is over I in mA), else from the units in `xrange` and the marks, else from the curve and the units of the y values (`P(..) = U0^2/R2` with `ymark: "2 W"`: R₂ in Ω).
 ///
 /// **Marks** are always visible – the ranges grow to show them. Combine them in an array, `(auto, "R1")`; `mark: ()` marks nothing.
 ///
@@ -142,7 +142,7 @@
 /// - width (auto, length, ratio, relative): Width of the whole graph, labels included: `12cm`, `300pt` or a share like `100%`. `auto`: a plot area of 8 cm.
 /// - height (auto, length, ratio, relative): Like `width`; `auto`: a plot area of 5 cm. A share is of the container's height, or of the width when the page grows with its content.
 /// - colors (array, color): Colors of the curves, e.g. `(gray, blue, rgb("#f98eff"))`.
-/// - digits, separator, form, … (auto): Every option of `solve-config` (except `units`) works here too, for this call only.
+/// - digits, separator, form, … (auto): Every option of `worksheet-config` (except `units`) works here too, for this call only.
 /// -> content
 #let graph(
   ..args, xrange: auto, yrange: auto, mark: auto, xmark: (), ymark: (), samples: 400,

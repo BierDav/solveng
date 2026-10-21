@@ -284,7 +284,7 @@
   let free = _vars(body).dedup().filter(v => v not in pl.names and v not in vars)
   if free.len() == 0 or pl.rest { return pl.names + free }
   let one = free.len() == 1
-  _err(free.map(v => "'" + v + "'").join(", ", last: " and ") + " in " + name + " " + (if one { "isn't" } else { "aren't" }) + " defined – define " + (if one { "it" } else { "them" }) + " first, or let " + name + " take " + (if one { "it" } else { "them" }) + ": " + name + "(" + (pl.names + free).join(", ") + ") or " + name + "(" + (pl.names + ("..",)).join(", ") + ")" + " (or set solve-config(implicit-parameters: " + (if pl.names.len() == 0 { "\"empty\"" } else { "\"allow\"" }) + "))")
+  _err(free.map(v => "'" + v + "'").join(", ", last: " and ") + " in " + name + " " + (if one { "isn't" } else { "aren't" }) + " defined – define " + (if one { "it" } else { "them" }) + " first, or let " + name + " take " + (if one { "it" } else { "them" }) + ": " + name + "(" + (pl.names + free).join(", ") + ") or " + name + "(" + (pl.names + ("..",)).join(", ") + ")" + " (or set worksheet-config(implicit-parameters: " + (if pl.names.len() == 0 { "\"empty\"" } else { "\"allow\"" }) + "))")
 }
 
 // ---------- simplify (just enough for nice output) ----------

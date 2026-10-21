@@ -11,8 +11,8 @@ import os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "docs", "reference.md")
-# public functions in the order they are documented; solve-config comes with the option tables
-FUNCTIONS = ["def", "solve", "solve-block", "defined", "graph", "lambdify", "reset", "solve-config"]
+# public functions in the order they are documented; worksheet-config comes with the option tables
+FUNCTIONS = ["worksheet", "unit", "solve", "simplify", "digits", "sci", "eng", "defined", "graph", "lambdify", "reset", "worksheet-config"]
 CHAPTERS = ["src/numbers.typ", "src/read.typ", "src/display.typ", "src/numeric.typ", "tests/util.typ"]
 PARAM = re.compile(r"^- ((?:\.\.)?[a-z][\w-]*(?:, [a-z][\w-]*)*(?:, …)?) \(([^)]*)\): (.*)$")
 
@@ -160,20 +160,20 @@ def generate():
     out = ["# solveng reference", "",
            "<!-- Generated from the doc comments in src/ by `python3 tests/reference.py` – edit those, not this file. -->", "",
            "Everything solveng does, for looking things up. For an introduction see the [README](../README.md).", ""]
-    titles = [f"`{f}`" for f in FUNCTIONS if f != "solve-config"] + ["Options"] + chapter_titles
+    titles = [f"`{f}`" for f in FUNCTIONS if f != "worksheet-config"] + ["Options"] + chapter_titles
     out += [f"- [{t}](#{anchor(t)})" for t in titles] + [""]
 
     out += ["## Functions", "", "| function | does |", "|---|---|"]
     for f in FUNCTIONS:
-        target = "options" if f == "solve-config" else anchor(f"`{f}`")
+        target = "options" if f == "worksheet-config" else anchor(f"`{f}`")
         out.append(f"| [`{f}`](#{target}) | {cell(first_sentence(split(fns[f][0])[0]))} |")
     out.append("")
 
     for f in FUNCTIONS:
         doc, sig = fns[f]
         desc, params, ret = split(doc)
-        if f == "solve-config":
-            out += ["## Options", "", f"`solve-config` – {desc}", ""]
+        if f == "worksheet-config":
+            out += ["## Options", "", f"`worksheet-config` – {desc}", ""]
             texts = {n: (t, d) for n, t, d in params}
             for group, kv in opt_groups:
                 out += [f"### {group}", "", "| option | type | default | |", "|---|---|---|---|"]

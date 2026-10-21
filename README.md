@@ -1,91 +1,73 @@
 # solveng
 
-Unit-aware engineering calculations that read like your notes. **Write the math as you normally would – solveng evaluates it.** Equations in the text define values, `solveng` code blocks are calculated line by line, and every result comes with the rearranged formula, the substituted numbers and a sensible unit.
+Unit-aware engineering calculations that read like your notes, like a Mathcad worksheet. **Write the math as you normally would – solveng evaluates it.** `:=` defines, a trailing `=` shows the value, `->` the symbolic result or a solution, and every value carries its unit.
 
 ````typ
 #import "@preview/solveng:0.2.0": *
-#show: solve-block
+#show: worksheet
 
 = Battery runtime
-The battery holds $Q_0 = 3450 "mAh"$ and the load draws $I = 30 "mA"$,
-so it lasts $t = Q_0 / I$ – that is ```solveng = t -> h```.
+The battery holds $Q_0 := 3450 mAh$ and the load draws $I := 30 mA$,
+so it lasts $t := Q_0 / I = h$.
 
-At half charge and a supply of $U = 5 "V"$:
+At half charge and a supply of $U := 5 V$:
 ```solveng
-t_half = Q_0 / (2 I) -> h
-P = U I
+t_half := Q_0 / (2 I) = [h]
+P := U I =
 ```
 ````
 
-![A document without a single #def: math defines values, a code block calculates](docs/document.png)
+![A worksheet: math defines and shows values, a code block calculates with every step](docs/document.png)
 
 That is the whole document – no function calls for the calculation:
 
-- **Math defines values.** Every `$… = …$` in the text is read: `$I = 30 "mA"$` is a value, `$t = Q_0 / I$` is computed, `$Q_0/2 = I t$` is solved for the unknown. The equation stays exactly as you wrote it.
-- **Code blocks calculate themselves.** Each line of a ```` ```solveng ```` block is solved and shown with all steps; `-> h` picks the unit, `;` separates a system, `//` is a comment.
-- **Inline code shows a result:** ```` ```solveng t = Q_0/I -> h``` ```` gives *t = 115 h*, ```` ```solveng = t -> h``` ```` just *115 h*.
+- **`:=` defines.** `$I := 30 mA$` is a value, `$P := U I$` is computed, `$f(x) := x^2 + 1$` is a function. Steps after it are checked: `$R := 7.2 kΩ = 7200 Ω$`.
+- **A trailing `=` shows the value**, with a bold =, as in Mathcad: `$t =$` → t **=** 115 h. After it come the unit and keywords: `$t = min, digits(2)$`.
+- **`->` shows the symbolic result** with the known values put in, exactly (`$c := 1/3 -> frac$`), **or solves**: `$Q_0/2 = I t -> solve(t)$`, `$x^2 + 2x - 3 = 0 -> solve(x)$`, `$R <= U/I -> solve(R)$`.
+- **Any other `=` states something:** it's checked when everything in it is known (`$U = R I$`), and left alone as prose when not (`$E = m c^2$`).
+- **Code blocks** ```` ```solveng ```` calculate each line the same way and show it with all its steps.
 
-## Write it in Typewright
+## The worksheet
 
-[Typewright](https://github.com/BierDav/typewright), a native Typst editor for macOS and the browser, knows solveng: code in ```` ```solveng ```` blocks is highlighted – values, units, variables, functions – and completion offers the variables and functions your document has defined, with their values, solveng's functions, and units with prefixes wherever a unit goes. Next to it, the live preview shows every result as you type.
+`#show: worksheet` calculates the whole document; `#worksheet[…]` only a part, whose definitions are dropped afterwards. `#worksheet($…$)` calculates single equations where it stands, also outside a worksheet, and `hidden: true` silently.
 
-![Typewright highlighting a solveng block and completing a variable, with the calculated document in the preview](docs/typewright.png)
-
-```sh
-brew install --cask bierdav/tap/typewright
-```
-
-or open [bierdav.github.io/typewright](https://bierdav.github.io/typewright/) in the browser.
-
-## Math and code in a solve-block
-
-`#show: solve-block` calculates the whole document; `#solve-block[…]` only a part, whose definitions are dropped afterwards.
-
-- **Math:** every equation with `=` is a definition. A number followed by units is a value (`$9.81 "m"/"s"^2$`, `$frac(3450 "mAh", 30 "mA")$`); in a worked chain `$R = 7.2 "k"Omega = 7200 Omega$` the first `=` defines and the rest are steps. Equations without `=`, derivations (`⇒`, `≈`) and aligned equations are left alone.
-- **Code:** each line of ```` ```solveng ```` is shown like `#solve(line)`. Code without a language stays a code sample.
-- **Integration:** `#show: solve-config.with(integration: "full")` also calculates code without a language, so `` `= t -> h` `` is enough inline; `"code"` calculates that code but not math, `"none"` only tagged code, `"math"` is the default. Being an option, it can be set once for all your documents.
-- **Exercises:** `#show: solve-block.with(reset: heading)` starts over at every heading.
-
-## Calls: def and solve
-
-The same calculations as function calls – for options per result, or outside a solve-block:
+- **Keywords** after `=` or `->`: `solve(x, …)`, `simplify`, `frac` (exact fractions), `digits(n)` (n significant digits), `sci` and `eng` (scientific and engineering notation), and a unit.
+- **Code:** each line of ```` ```solveng ```` is calculated like math and shown with its steps: `t := Q_0/I = [h]`, `Q_0/I =`, `x + y = 3; x - y = 1 -> solve(x, y)`; units in brackets, `;` separates a system, `//` is a comment. Inline code and code without a language stay code samples.
+- **Integration:** `#show: worksheet-config.with(integration: "none")` leaves math alone, only code blocks and `#worksheet(…)` calls are calculated; `"math"` is the default.
+- **Exercises:** `#show: worksheet.with(reset: heading)` starts over at every heading.
 
 ```typ
 #import "@preview/solveng:0.2.0": *
-#def("Q0 = 3450 mAh", "I = 30 mA", "U = 5 V")   // silent definitions
-#defined()                                       // Q₀ = 3450 mAh   I = 30 mA   U = 5 V
-#solve("Q0/2 = I t", unit: "h")                  // Q₀/2 = I t ⇒ t = Q₀/(2I) = 3450 mAh/(2·30 mA) = 57.5 h
-#solve("R <= U/I")                               // inequalities, polynomials (all roots), systems
-#solve("x^2 + 2x - 3 = 0")
-Runtime: #solve("Q0/I", unit: "h", inline: true, steps: "value")   // Runtime: 115 h
+#show: worksheet
+$Q_0 := 3450 mAh$, $I := 30 mA$, $U := 5 V$
+$Q_0/2 = I t -> solve(t)$ and $t = h$
+$R <= U/I -> solve(R)$
+$x^2 + 2x - 3 = 0 -> solve(x)$
+Runtime: $Q_0/I = h$
 ```
 
 ![Definitions, a solved equation, an inequality and a quadratic](docs/basics.png)
 
-Both mix freely: inside a solve-block, `#solve(…)` and `#defined()` see the values defined by the math around them.
-
 ## Units and variables
 
-Many symbols are also units: `A` (area, ampere), `V`, `T`, `h`, `C`, `W`, `m`, `s`, … solveng tells them apart by *how* they are written, never by guessing. In strings a unit is read only right after a number (`"I = 30 mA"`) or in brackets (`[5 V]`); in math quoted text is a unit (`$3 "h"$`). If a value could mean both, solveng refuses it and shows how to write either meaning:
+Units are names: `$30 mA$`, `$4.7 kΩ$`, `$9.81 m/s^2$`, and `unit("bar")` for units without one (your own). A single letter is a unit right after a number (`$5 V$`, `$3 h$`) or alone after a trailing `=` (`$t = h$`); anywhere else it's a variable – `$3 dot h$` is 3 times a variable h. So `A` (area, ampere), `V`, `T`, `h`, `C`, `W`, `m`, `s` can be both, and it's always clear which is meant:
 
 ```typ
 #import "@preview/solveng:0.2.0": *
-#def("A = 12")
-#solve("x = A [A]")                  // x = A · A = 12 · A = 12 A
-#def("T = 2 s")
-#solve("f = 1/(T)")                  // f = 1/T = 1/(2 s) = 500 mHz
-#def("g = 1/T")                      // error: 'T' in '1/T' is both a defined variable and a unit – …
+#show: worksheet
+$A := 12$, $x := A dot 2 A =$     // x ≔ A · 2 A = 24 A
+$T := 2 s$, $f := 1/T = Hz$      // f ≔ 1/T = 0.5 Hz
 ```
 
 ![Units and variables](docs/units.png)
 
-Your own units: `#solve-config(units: (bar: "100 kPa", rpm: "1/min", T: none))` – `none` removes one and frees its name.
+Your own units: `#worksheet-config(units: (bar: "100 kPa", rpm: "1/min", T: none))` – `none` removes one and frees its name.
 
 ## Plots
 
 ```typ
 #import "@preview/solveng:0.2.0": *
-#def("R = 50 Ω", "P0 = 2 W", "U0 = 10 V")
+#worksheet("R := 50 Ω", "P0 := 2 W", "U0 := 10 V", hidden: true)
 #graph("P(U: V) = U^2/R", ymark: "P0")         // a function of U: where P reaches P0
 #graph("cos(w)", "w")                           // two curves, the crossing marked
 #graph("P(..) = U0^2/R_L", xrange: ("10 Ω", "1 kΩ"), width: 10cm)   // .. takes R_L
@@ -97,14 +79,15 @@ Ranges, ticks, axis labels and units are picked automatically; marks, ranges and
 
 ## Options
 
-Every option works for the rest of the document, for a part, or directly on one call:
+Every option works for the rest of the document, for a part, or for a few equations:
 
 ```typ
 #import "@preview/solveng:0.2.0": *
-#show: solve-config.with(digits: 3, layout: "column")   // your defaults
-#def("U = 5 V", "I = 30 mA")
-#solve-config(form: "fraction")[#solve("I3 = I/3")]     // only inside the brackets
-#solve("R = U/I", digits: 2, separator: ",")            // only this call
+#show: worksheet-config.with(digits: 3, layout: "column")   // your defaults
+#show: worksheet
+$U := 5 V$, $I := 30 mA$
+#worksheet-config(form: "fraction")[$I/3 =$]            // only inside the brackets
+#worksheet($R := U/I =$, digits: 2, separator: ",")     // only these equations
 #defined(show-si: true, style: "inline")
 ```
 
@@ -116,7 +99,7 @@ The most used ones: `digits`, `separator` (`auto`: from the document language), 
 
 ## Editors
 
-`solveng-lsp` (in [`editor/`](editor)) is a language server for solveng that runs next to tinymist and answers only where solveng reads the document: ```` ```solveng ```` code, the strings of `def`, `solve`, `graph` and `lambdify`, math in a `solve-block` and the options of solveng's calls. It completes defined names, functions, units (also your own from `solve-config(units: …)`) and option values like `steps: "value"`, highlights calculations, shows values and units on hover, offers conversions (`#def("I = 30 mA")` ⇄ `$I = 30 "mA"$`, `#solve(…)` ⇄ ```` ```solveng ````) as code actions, goes to a name's definition and finds its usages as the compile sees them (in its `solve-block`, up to a redefinition or reset, through `#include`d files when `main` is set), and warns about unknown units. Settings, imports and includes of local files count; set `main` to the file you compile so its `solve-block` counts in the files it includes.
+`solveng-lsp` (in [`editor/`](editor)) is a language server for solveng that runs next to tinymist and answers only where solveng reads the document: ```` ```solveng ```` code blocks, math in a `worksheet`, the strings of `worksheet`, `graph` and `lambdify`, and the options of solveng's calls. It completes defined names, functions, units (also your own from `worksheet-config(units: …)`), keywords after `=` and `->`, and option values like `steps: "value"`; highlights calculations (the evaluating `=` bold); shows values and units on hover; converts a code line ⇄ math as a code action; goes to a name's definition and finds its usages as the compile sees them (in its `worksheet`, up to a redefinition or reset, through `#include`d files when `main` is set); and warns about unknown units. Settings, imports and includes of local files count; set `main` to the file you compile so its `worksheet` counts in the files it includes.
 
 ```sh
 cargo install --git https://github.com/BierDav/solveng solveng-lsp

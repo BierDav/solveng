@@ -22,7 +22,7 @@ def stored(n):
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LIB = os.path.join(os.path.dirname(HERE), "src", "graph.typ")  # internals (_st, _fmt, …) live in src/
-HEAD = '#import "{lib}": *\n#set page(height: auto)\n#show: solve-config.with(errors: "panic")\n'
+HEAD = '#import "{lib}": *\n#import "{lib}": solve as solves\n#set page(height: auto)\n#show: worksheet-config.with(errors: "panic")\n'
 
 def run(doc, typst, head=None):
     with tempfile.NamedTemporaryFile("w", suffix=".typ", dir=TMP, delete=False) as f:
@@ -152,7 +152,7 @@ def case_solve1(r, depth=None):
     used = sorted({a for a in vars_ if f"('v', '{a}')" in repr(e)})
     giv = "".join(f'"{v} = {num(env[v])}", ' for v in used)
     doc = f'#def({giv}"C = {num(C)}")\n'
-    doc += f'#solve("{show(e, r)} = C", unknown: "x")\n'
+    doc += f'#solves("{show(e, r)} = C", unknown: "x")\n'
     doc += '#context [#metadata((x: _st.get().at("x", default: (v: none)).v, sols: _st.get().at("..").last().at("sols", default: none))) <r>]'
     def check(out):
         x = out["x"]
@@ -171,7 +171,7 @@ def case_poly(r):
     co = [lead]
     for z in roots: co = [a - z * b for a, b in zip(co + [0], [0] + co)]
     terms = " + ".join(f"({num(c)}) x^{deg - i}" for i, c in enumerate(co) if c != 0)
-    doc = f'#solve("{terms} = 0", unknown: "x", max-solutions: 10)\n#context [#metadata(_st.get().at("..").last().sols) <r>]'
+    doc = f'#solves("{terms} = 0", unknown: "x", max-solutions: 10)\n#context [#metadata(_st.get().at("..").last().sols) <r>]'
     want = sorted(set(roots))
     def check(out):
         got = sorted(s[0] for s in out)
@@ -189,7 +189,7 @@ def case_system(r):
     if kind == 0: e1, e2, f1, f2 = f"({a}) x + ({b}) y", f"({c}) x - ({d}) y", a * x + b * y, c * x - d * y
     elif kind == 1: e1, e2, f1, f2 = "x y", f"x + ({b}) y", x * y, x + b * y
     else: e1, e2, f1, f2 = "x^2 + y^2", f"x - ({c}) y", x * x + y * y, x - c * y
-    doc = (f'#def("p = {num(f1)}", "q = {num(f2)}")\n#solve("{e1} = p", "{e2} = q", unknown: ("x", "y"))\n'
+    doc = (f'#def("p = {num(f1)}", "q = {num(f2)}")\n#solves("{e1} = p", "{e2} = q", unknown: ("x", "y"))\n'
            '#context [#metadata((x: _st.get().at("x", default: (v: none)).v, y: _st.get().at("y", default: (v: none)).v)) <r>]')
     def check(out):
         X, Y = out["x"], out["y"]
@@ -245,7 +245,7 @@ def case_units(r):
         giv.append(f'"{n} = {vals[n] / f:.12g} {u}"')
     tu, tf, _ = rand_unit(r, UNITS[dims[x]][1])
     target = f', unit: "{tu}"' if r.random() < 0.5 else ""
-    doc = (f'#def({", ".join(giv)})\n#solve("{eq}"{target}, unknown: "{x}")\n'
+    doc = (f'#def({", ".join(giv)})\n#solves("{eq}"{target}, unknown: "{x}")\n'
            f'#context [#metadata((v: _st.get().at("{stored(x)}", default: (v: none)).v, d: _st.get().at("{stored(x)}", default: (d: none)).d)) <r>]')
     def check(out):
         if out["v"] is None: return "miss", f"{x} = {vals[x]}"
@@ -301,7 +301,7 @@ def case_display(r):
     if sub is None: return None
     body = sub[0].rsplit("\n", 1)[0]
     g = r.choice(['"3450/2 mAh"', '$frac(2, 4)"A"$', '"0.000123 kΩ"', '"-12345678 V"', '"7.20 uF"'])
-    doc = f'#solve-config({opts})\n#def({g.replace(g[0], g[0] + 'z = ', 1)})\n{body}\n#defined()\n#solve("z", inline: true, steps: "value")\n#context [#metadata(1) <r>]'
+    doc = f'#worksheet-config({opts})\n#def({g.replace(g[0], g[0] + 'z = ', 1)})\n{body}\n#defined()\n#solves("z", inline: true, steps: "value")\n#context [#metadata(1) <r>]'
     return doc, None, lambda out: ("ok", "")
 
 
@@ -310,68 +310,68 @@ V = lambda n: f'#context [#metadata(_st.get().at("{stored(n)}", default: (v: non
 EDGE = [
     ('#def("a = ")', "graceful", None), ('#def("a =  V")', "graceful", None), ('#def("a = abc")', "graceful", None),
     ('#def("a = 1..2 V")', "graceful", None), ('#def("a = 1e999 V")', "graceful", None), ('#def("a = --5 V")', "graceful", None),
-    ('#def("a = −5 V")' + V("a"), "ok", -5), ('#def("a = 5 %") #solve("b = a * 200")' + V("b"), "ok", 10),
-    ('#def("Q_0 = 1 C", "R_min = 2 Ω") #solve("Q_0 R_min = y")' + V("y"), "ok", 2),
-    ('#def("e = 2") #solve("y = e^2")' + V("y"), "ok", 4), ('#def("pi = 3") #solve("y = pi")' + V("y"), "ok", 3),
-    ('#solve("y == 2")', "graceful", None), ('#solve("")', "graceful", None), ('#solve("= 5")', "graceful", None),
-    ('#solve("x^1000 = 2")' + V("x"), "ok", 2 ** (1 / 1000)), ('#solve("exp(x) = -1")', "ok", None), ('#solve("sin(x) = 2")', "ok", None),
-    ('#solve("' + "(" * 18 + "x+1" + ")" * 18 + ' = 2")' + V("x"), "ok", 1),
-    ('#solve("' + " + ".join(f"{i} x^{i % 5}" for i in range(1, 80)) + ' = 7", root: 1)', "ok", None),
-    ('#solve("' + " ".join(["x"] * 40) + ' = 2")' + V("x"), "ok", 2 ** (1 / 40)),
-    ('#solve("x + y + z = 6", "x - y = 0", "y + 2 z = 5")' + V("z"), "ok", 4 / 3),
-    ('#solve("x + y = 2", "x + y = 3", unknown: ("x", "y"))', "ok", None),
-    ('#solve-config(digit: 3)', "graceful", None), ('#solve-config(form: "frac")', "graceful", None), ('#solve-config(digits: 0)', "graceful", None),
-    ('#solve("nope", steps: "value")', "graceful", None), ('#def("a = 1 V") #solve("a", unit: "A")', "graceful", None),
-    ('#def("a = 1 V", "b = 1 A") #solve("c = a + b")', "graceful", None),
-    ('#def("a = 3 V") #solve-block[#def("a = 5 V")] #solve("b = a")' + V("b"), "ok", 3),
-    ('#def("a = 3 V") #solve-block(inherit: true)[#solve("b = 2 a")]' + V("b"), "ok", None),
-    ('#solve("x^2 = 4", root: 3)', "graceful", None), ('#solve("x^2 = 4", root: x => x > 100)', "graceful", None),
-    ('#solve("x^2 = 4", guess: -1)' + V("x"), "ok", -2), ('#solve("abs(x - 3) = 2", root: 1)' + V("x"), "ok", 1),
-    ('#solve($y = 2$)' + V("y"), "ok", 2), ('#def("R = 2 kΩ", "I = 3 mA") #solve($U = R dot I$)' + V("U"), "ok", 6),
-    ('#solve($x + y = 3$, $x - y = 1$)' + V("x"), "ok", 2), ('#solve($w = root(3, 8) times 2$)' + V("w"), "ok", 4),
-    ('#def("a = 2 m^2", "b = 3 m²") #solve("c = a + b")' + V("c"), "ok", 5), ('#def("v = 3 m/s/s") #solve("v")', "ok", None),
-    ('#def("m = 2 kg") #solve("F = m * [9.81 m/s^2]")' + V("F"), "ok", 19.62),
-    ('#def("a = 3 µF", "b = 3 μF", "c = 3 uF") #solve("d = a + b + c")' + V("d"), "ok", 9e-6),
+    ('#def("a = −5 V")' + V("a"), "ok", -5), ('#def("a = 5 %") #solves("b = a * 200")' + V("b"), "ok", 10),
+    ('#def("Q_0 = 1 C", "R_min = 2 Ω") #solves("Q_0 R_min = y")' + V("y"), "ok", 2),
+    ('#def("e = 2") #solves("y = e^2")' + V("y"), "ok", 4), ('#def("pi = 3") #solves("y = pi")' + V("y"), "ok", 3),
+    ('#solves("y == 2")', "graceful", None), ('#solves("")', "graceful", None), ('#solves("= 5")', "graceful", None),
+    ('#solves("x^1000 = 2")' + V("x"), "ok", 2 ** (1 / 1000)), ('#solves("exp(x) = -1")', "ok", None), ('#solves("sin(x) = 2")', "ok", None),
+    ('#solves("' + "(" * 18 + "x+1" + ")" * 18 + ' = 2")' + V("x"), "ok", 1),
+    ('#solves("' + " + ".join(f"{i} x^{i % 5}" for i in range(1, 80)) + ' = 7", root: 1)', "ok", None),
+    ('#solves("' + " ".join(["x"] * 40) + ' = 2")' + V("x"), "ok", 2 ** (1 / 40)),
+    ('#solves("x + y + z = 6", "x - y = 0", "y + 2 z = 5")' + V("z"), "ok", 4 / 3),
+    ('#solves("x + y = 2", "x + y = 3", unknown: ("x", "y"))', "ok", None),
+    ('#worksheet-config(digit: 3)', "graceful", None), ('#worksheet-config(form: "frac")', "graceful", None), ('#worksheet-config(digits: 0)', "graceful", None),
+    ('#solves("nope", steps: "value")', "graceful", None), ('#def("a = 1 V") #solves("a", unit: "A")', "graceful", None),
+    ('#def("a = 1 V", "b = 1 A") #solves("c = a + b")', "graceful", None),
+    ('#def("a = 3 V") #worksheet[#def("a = 5 V")] #solves("b = a")' + V("b"), "ok", 3),
+    ('#def("a = 3 V") #worksheet(inherit: true)[#solves("b = 2 a")]' + V("b"), "ok", None),
+    ('#solves("x^2 = 4", root: 3)', "graceful", None), ('#solves("x^2 = 4", root: x => x > 100)', "graceful", None),
+    ('#solves("x^2 = 4", guess: -1)' + V("x"), "ok", -2), ('#solves("abs(x - 3) = 2", root: 1)' + V("x"), "ok", 1),
+    ('#solves($y = 2$)' + V("y"), "ok", 2), ('#def("R = 2 kΩ", "I = 3 mA") #solves($U = R dot I$)' + V("U"), "ok", 6),
+    ('#solves($x + y = 3$, $x - y = 1$)' + V("x"), "ok", 2), ('#solves($w = root(3, 8) times 2$)' + V("w"), "ok", 4),
+    ('#def("a = 2 m^2", "b = 3 m²") #solves("c = a + b")' + V("c"), "ok", 5), ('#def("v = 3 m/s/s") #solves("v")', "ok", None),
+    ('#def("m = 2 kg") #solves("F = m * [9.81 m/s^2]")' + V("F"), "ok", 19.62),
+    ('#def("a = 3 µF", "b = 3 μF", "c = 3 uF") #solves("d = a + b + c")' + V("d"), "ok", 9e-6),
     ('#def("a = 2 V") #def("b = a^2", "c = 2 a", "d = (1+2) V", $f = frac(1, 3) "V"$)' + V("d"), "ok", 3),
-    ('#def(foo: 1, "a = 1 V")', "graceful", None), ('#solve("q = 1", digits: 99)', "graceful", None),
-    ('#def("a = 0 V") #solve("b = 1/a")', "graceful", None), ('#solve("x = 1/0")', "graceful", None), ('#solve("x = 0^-1")', "graceful", None), ('#solve("x = (-8)^(1/3)")', "graceful", None),
-    ('#def("a = 3450/2 mAh", $b = frac(2, 4) "A"$) #solve-config(form: "fraction")[#defined(included: "given")] #solve-config(form: "input")[#solve("a")]', "ok", None),
-    ('#solve-config(layout: "column", steps: "formula")[#solve("x^3 - x = 0")] #solve("p q = 6", "p + q = 5", steps: "result")', "ok", None),
-    ('#show: solve-config.with(digits: 2, separator: ",")\n#solve("y = 1/3")', "ok", None),
+    ('#def(foo: 1, "a = 1 V")', "graceful", None), ('#solves("q = 1", digits: 99)', "graceful", None),
+    ('#def("a = 0 V") #solves("b = 1/a")', "graceful", None), ('#solves("x = 1/0")', "graceful", None), ('#solves("x = 0^-1")', "graceful", None), ('#solves("x = (-8)^(1/3)")', "graceful", None),
+    ('#def("a = 3450/2 mAh", $b = frac(2, 4) "A"$) #worksheet-config(form: "fraction")[#defined(included: "given")] #worksheet-config(form: "input")[#solves("a")]', "ok", None),
+    ('#worksheet-config(layout: "column", steps: "formula")[#solves("x^3 - x = 0")] #solves("p q = 6", "p + q = 5", steps: "result")', "ok", None),
+    ('#show: worksheet-config.with(digits: 2, separator: ",")\n#solves("y = 1/3")', "ok", None),
     ('#def("f(x) = x^2 + 1") #def("y = f(3)")' + V("y"), "ok", 10),
     ('#def("g(a, b) = a b + b", "R = 2 kΩ") #def("z = g(2, R) / R")' + V("z"), "ok", 3),
     ('#def("f(x) = 2 x") #def("f(y) = 3 = 9")', "graceful", None), ('#def("f(x) = x") #def("y = f(1, 2)")', "graceful", None),
     ('#def("f(2 x) = x")', "graceful", None), ('#def("sin(x) = 2")' + V("x"), "ok", None), ('#def("f(x) = x") #def("y = f(")', "graceful", None),
-    ('#def("f(x) = x^2") #solve("f(x) = 9", root: 2)' + V("x"), "ok", 3),
+    ('#def("f(x) = x^2") #solves("f(x) = 9", root: 2)' + V("x"), "ok", 3),
     ('#def("h(s) = s/2") #def("t = 40 h") #def("w = h(t)")' + V("w"), "ok", 72000),
     ('#def("R = 1 k\\"\\"Omega", "I = 2 mA", "U = R I")' + V("U"), "ok", 2), ('#def("U = R I")', "graceful", None),
     ('#def("x + y = 3", "x - y = 1")' + V("y"), "ok", 1), ('#def()', "graceful", None), ('#def("a = 1", output: "yes")', "graceful", None),
-    ('#def("a = 1 V", output: true, steps: "value") #def("b = 2 V", output: true, inline: true) #solve("c = 2 a", steps: "value", inline: true) #solve("d = 2 a", layout: "column", steps: "formula") #def("c = 3 V", listed: false)', "ok", None),
-    ('#solve-config(integration: "full")[#solve-block[`a = 2 V` and\n```\nb = 2 a -> mV // c\nf(x) = x + 1\nc = f(1)\n\np + q = 3; p - q = 1\nd -> V\n```\n]]', "graceful", None),
-    ('#solve-config(integration: "full")[#solve-block[`a = 2 V` and\n```\nb = 2 a -> mV // c\nf(x) = x + 1\nc = f(1)\n\np + q = 3; p - q = 1\nb -> V\n```\n```py\nprint(1)\n```\n#defined()]]', "ok", None),
-    ('#def("a = 2 V") #solve-block[`a = 5 V`] #def("b = a")' + V("b"), "ok", 2),
-    ('#def("a = 2 V") #solve-block(inherit: true)[#solve("b = a / 3", digits: 2)]', "ok", None), ('#solve-block(digits: 2)[]', "graceful", None),
+    ('#def("a = 1 V", output: true, steps: "value") #def("b = 2 V", output: true, inline: true) #solves("c = 2 a", steps: "value", inline: true) #solves("d = 2 a", layout: "column", steps: "formula") #def("c = 3 V", listed: false)', "ok", None),
+    ('#worksheet-config(integration: "full")[#worksheet[`a = 2 V` and\n```\nb = 2 a -> mV // c\nf(x) = x + 1\nc = f(1)\n\np + q = 3; p - q = 1\nd -> V\n```\n]]', "graceful", None),
+    ('#worksheet-config(integration: "full")[#worksheet[`a = 2 V` and\n```\nb = 2 a -> mV // c\nf(x) = x + 1\nc = f(1)\n\np + q = 3; p - q = 1\nb -> V\n```\n```py\nprint(1)\n```\n#defined()]]', "ok", None),
+    ('#def("a = 2 V") #worksheet[`a = 5 V`] #def("b = a")' + V("b"), "ok", 2),
+    ('#def("a = 2 V") #worksheet(inherit: true)[#solves("b = a / 3", digits: 2)]', "ok", None), ('#worksheet(digits: 2)[]', "graceful", None),
     ('#def("a = 1 V", "b = 2 V", "f(x) = x", "c = a + b") #defined(included: "given", excluded: "a") #defined(included: regex("^[ab]$"), style: "column") #defined(excluded: ("given", "function"), style: "inline") #defined(included: n => n == "c", show-si: true)', "ok", None),
     ('#defined(included: 5)', "graceful", None), ('#def("a = 1") #defined(included: 5)', "graceful", None),
     # the typed API: the old forms are refused with a hint
-    ('#def(I: "30 mA")', "graceful", None), ('#def("I = 30 mA") #solve("I", "mA")', "graceful", None), ('#solve("x = 1", unitt: "A")', "graceful", None),
-    ('#solve("x = 1", unit: 5)', "graceful", None), ('#solve("x = 1", root: "1")', "graceful", None), ('#def(5)', "graceful", None),
-    ('#solve("x = 1", steps: true)', "graceful", None), ('#solve("x = 1", scientific: (1, 2, 3))', "graceful", None), ('#solve-config(prefixes: "k")', "graceful", None),
-    ('#def("I = 30mAh")' + V("I"), "ok", 108), ('#def("x = 1 V", "y = 1 A") #solve("z = x y", unit: "mW")' + V("z"), "ok", 1),
-    ('#solve("p + q = 3", "p - q = 1", unit: (p: "m"))', "graceful", None), ('#solve("p + q = [3 m]", "p - q = [1 m]", unit: (p: "mm", q: "cm"))' + V("q"), "ok", 1),
+    ('#def(I: "30 mA")', "graceful", None), ('#def("I = 30 mA") #solves("I", "mA")', "graceful", None), ('#solves("x = 1", unitt: "A")', "graceful", None),
+    ('#solves("x = 1", unit: 5)', "graceful", None), ('#solves("x = 1", root: "1")', "graceful", None), ('#def(5)', "graceful", None),
+    ('#solves("x = 1", steps: true)', "graceful", None), ('#solves("x = 1", scientific: (1, 2, 3))', "graceful", None), ('#worksheet-config(prefixes: "k")', "graceful", None),
+    ('#def("I = 30mAh")' + V("I"), "ok", 108), ('#def("x = 1 V", "y = 1 A") #solves("z = x y", unit: "mW")' + V("z"), "ok", 1),
+    ('#solves("p + q = 3", "p - q = 1", unit: (p: "m"))', "graceful", None), ('#solves("p + q = [3 m]", "p - q = [1 m]", unit: (p: "mm", q: "cm"))' + V("q"), "ok", 1),
     # solve finds the unknown on either side, units must fit
-    ('#def("f(y) = y * [2 V]") #solve("f(1) = x")' + V("x"), "ok", 2), ('#def("f(y) = y * [2 V]") #solve("x = f(1)", unit: "A")', "graceful", None),
-    ('#def("x = 1 V", "f(y) = 2 y") #solve("f([3 V]) = x")' + V("x"), "ok", 6),
-    # math equations in a solve-block are definitions
-    ('#show: solve-block\n$I = "30 mA"$ (#solve("I", steps: "value", inline: true)) $t = 2 I$ $x^2$ $ U &= 1 \\ &= 2 $' + V("t"), "ok", 0.06),
-    ('#solve-block[$a = 2 "V"$ #solve("b = 2 a")] #solve-config(integration: "none")[#solve-block[$c = 2$ #solve("c")]]', "graceful", None),
-    ('#show: solve-block\n$q = 7 "furlongs"$', "graceful", None),
-    ('#show: solve-block.with(reset: heading)\n= A\n$a = 2$\n= B\n#solve("b = a")', "graceful", None),
-    ('#def("a = 3")\n#show: solve-block.with(reset: heading, inherit: true)\n= A\n$a = 2$\n= B\n#reset\n#solve("b = a")\n#solve-block[#reset]' + V("b"), "ok", 3),
-    ('#solve-block(reset: 5)[]', "graceful", None),
-    ('#show: solve-block\n$ t = frac(3450 / 2 "mAh", 30 "mA") = 57","5 "h" $' + V("t"), "ok", 207000),
-    ('#show: solve-block\n$R = 7.2 "k"Omega = 7200 Omega$ $x = 0,5 dot R$' + V("x"), "ok", 3600),
-    ('#show: solve-block\n$a = 2 "m"/"s"^2$ $h = 2$ $y = 3 h$ $Q = I t => t = Q/I$' + V("a") + V("y"), "ok", None),
+    ('#def("f(y) = y * [2 V]") #solves("f(1) = x")' + V("x"), "ok", 2), ('#def("f(y) = y * [2 V]") #solves("x = f(1)", unit: "A")', "graceful", None),
+    ('#def("x = 1 V", "f(y) = 2 y") #solves("f([3 V]) = x")' + V("x"), "ok", 6),
+    # math equations in a worksheet are definitions
+    ('#show: worksheet\n$I = "30 mA"$ (#solves("I", steps: "value", inline: true)) $t = 2 I$ $x^2$ $ U &= 1 \\ &= 2 $' + V("t"), "ok", 0.06),
+    ('#worksheet[$a = 2 "V"$ #solves("b = 2 a")] #worksheet-config(integration: "none")[#worksheet[$c = 2$ #solves("c")]]', "graceful", None),
+    ('#show: worksheet\n$q = 7 "furlongs"$', "graceful", None),
+    ('#show: worksheet.with(reset: heading)\n= A\n$a = 2$\n= B\n#solves("b = a")', "graceful", None),
+    ('#def("a = 3")\n#show: worksheet.with(reset: heading, inherit: true)\n= A\n$a = 2$\n= B\n#reset\n#solves("b = a")\n#worksheet[#reset]' + V("b"), "ok", 3),
+    ('#worksheet(reset: 5)[]', "graceful", None),
+    ('#show: worksheet\n$ t = frac(3450 / 2 "mAh", 30 "mA") = 57","5 "h" $' + V("t"), "ok", 207000),
+    ('#show: worksheet\n$R = 7.2 "k"Omega = 7200 Omega$ $x = 0,5 dot R$' + V("x"), "ok", 3600),
+    ('#show: worksheet\n$a = 2 "m"/"s"^2$ $h = 2$ $y = 3 h$ $Q = I t => t = Q/I$' + V("a") + V("y"), "ok", None),
     ('#graph("y(x) = 1/x", xrange: (-1, 1), ymark: 2)', "ok", None), ('#graph("y(x) = x^2", "y(x) = 2x + 3")', "ok", None), ('#graph("sin(t)")', "ok", None), ('#graph("exp(a) - 3", xrange: (0, 2), yrange: (-3, 5), mark: ("roots", 1.5), xmark: "crossings")', "ok", None), ('#graph("sqrt(u) - 1", colors: red)', "ok", None), ('#graph("x", colors: [red])', "ok", None), ('#graph("x", width: 100%, height: 50%)', "ok", None), ('#graph("x", width: 6cm, height: 120pt)', "ok", None), ('#graph("x", width: -1)', "graceful", None), ('#graph("y() = 2", xrange: (0, 1), mark: ())', "graceful", None), ('#graph("P(..) = U^2/R")', "graceful", None), ('#graph("cos(w) = w")', "graceful", None), ('#graph("w = cos(w)")', "graceful", None), ('#graph("cos(w)", "w")', "ok", None), ('#graph("U = 2 x")', "graceful", None), ('#graph("U(..) = 1 A")', "ok", None), ('#graph("U(x: A) = x * [2 Ω]")', "ok", None), ('#def("f(x) = x + k")', "graceful", None),
 ]
 def case_edge(r, _i=[0]):
@@ -386,7 +386,7 @@ def case_edge(r, _i=[0]):
     return doc, None, check, want
 
 # the same hostile inputs with the default errors: "document": the document must always compile
-DOC_HEAD = '#import "{lib}": *\n#set page(height: auto)\n'
+DOC_HEAD = '#import "{lib}": *\n#import "{lib}": solve as solves\n#set page(height: auto)\n'
 def case_edge_doc(r, _i=[0]):
     i = _i[0]; _i[0] += 1
     if i >= len(EDGE): return None

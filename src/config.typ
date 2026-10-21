@@ -3,7 +3,7 @@
 #let _st = state("solveng", (:))
 // the export target; Typst 0.14 only knows target() with --features html, else it is paged
 #let _target() = if "target" in dictionary(std) { std.target() } else { "paged" }
-// ---------- configuration: #solve-config(..) globally, #solve-config(..)[..] / #show: solve-config.with(..) scoped, or per call ----------
+// ---------- configuration: #worksheet-config(..) globally, #worksheet-config(..)[..] / #show: worksheet-config.with(..) scoped, or per call ----------
 #let _DEF = (
   // numbers
   digits: 4, trailing-zeros: false, separator: auto, grouping: none, scientific: (-3, 6), engineering: false, multiplication: "dot",
@@ -16,7 +16,7 @@
   defined-style: "grid",
   // problems: shown in the document, or stop the compilation
   errors: "document",
-  // what solve-block calculates besides code tagged solveng: math equations, code without a language
+  // what worksheet calculates besides code tagged solveng: math equations, code without a language
   integration: "math",
   // casts (U as A) and types (f(x: A)) in what solveng shows, the equations as written included: left out, as plain math or as chips
   show-casts: "chip", show-types: "chip",
@@ -28,7 +28,7 @@
 )
 #let _CH = (
   form: ("auto", "decimal", "fraction", "input"), multiplication: ("dot", "times"), fractions: ("stacked", "slash"), steps: ("full", "formula", "result", "value", auto), inline-steps: ("full", "formula", "result", "value"),
-  layout: ("row", "column"), errors: ("document", "panic"), integration: ("full", "code", "math", "none"), implicit-parameters: ("no", "empty", "allow"),
+  layout: ("row", "column"), errors: ("document", "panic"), integration: ("math", "none"), implicit-parameters: ("no", "empty", "allow"),
   show-casts: ("no", "plain", "chip"), show-types: ("no", "plain", "chip"), defined-style: ("grid", "column", "inline", "list"),
 )
 // allowed types per option
@@ -41,7 +41,7 @@
   words: (dictionary,), chips: (type(auto), dictionary, function), unit-style: (type(auto), function), unit-separator: (type(auto), content, str, symbol),
 )
 #let _tyname(ts) = ts.map(t => if t == type(none) { "none" } else if t == type(auto) { "auto" } else { str(t) }).join(" or ")
-// global: units can only be set with solve-config (the unit table is built there)
+// global: units can only be set with worksheet-config (the unit table is built there)
 #let _check(o, global: false) = {
   if type(o) != dictionary { return (err: "config: expected a dictionary of options like (digits: 3), got " + str(type(o))) }
   let o = o
@@ -58,7 +58,7 @@
   if "prefixes" in o and type(o.prefixes) == array and o.prefixes.any(p => type(p) != str) { return (err: "prefixes: the array must hold strings like \"m\"") }
   if "words" in o and o.words.keys().any(k => k not in ("cast", "any")) { return (err: "words: the words shown for casts and any-unit types, (cast: \"als\", any: \"beliebig\")") }
   if "chips" in o and type(o.chips) == dictionary and o.chips.pairs().any(((k, v)) => k not in ("cast", "type") or type(v) != dictionary or v.keys().any(c => c not in ("fill", "mark", "ink"))) { return (err: "chips: colours per kind, (cast: (fill: …, mark: …, ink: …), type: (…)), or a function (kind, mark, unit) => content") }
-  if "units" in o and not global { return (err: "units can only be set with solve-config, e.g. #solve-config(units: (bar: \"100 kPa\"))") }
+  if "units" in o and not global { return (err: "units can only be set with worksheet-config, e.g. #worksheet-config(units: (bar: \"100 kPa\"))") }
   if "units" in o and o.units.values().any(v => type(v) not in (str, content, int, float, type(none), type(auto))) { return (err: "units: a dictionary of definitions like (bar: \"100 kPa\", rpm: \"1/min\", dozen: 12), auto for a base unit of your own (ü: auto), or none to remove a unit (T: none)") }
   if "preferred-units" in o { if type(o.preferred-units) == str { o.preferred-units = (o.preferred-units,) }; if o.preferred-units.any(u => type(u) != str) { return (err: "preferred-units: units like (\"kWh\", \"mm\")") } }
   o

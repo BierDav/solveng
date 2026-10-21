@@ -1,6 +1,5 @@
-// def, solve and solve-block.
+// worksheet, and def and solve, the calls behind code lines (and the tests).
 #import "core.typ": *
-#import "core.typ": solve-config as _solve-config
 
 #let _STEPS = ("full", "formula", "result", "value")
 // typed display arguments -> local options, or an error message
@@ -15,60 +14,7 @@
   o
 }
 
-/// Defines values, functions or unknowns from equations, silently.
-///
-/// Every positional argument is an equation, as a string or as math. Several are
-/// defined in order; equations that can't be defined one by one are solved together
-/// as a system. `def` shows nothing (except problems) unless `output: true`; `solve`
-/// is the same with the output on.
-///
-/// ```typ
-/// #def("R = 7.2 kΩ", "I = 415 uA")       // values: a number with a unit
-/// #def($Q_0 = 3450 "mAh"$)                // math works too
-/// #def("U = R I")                          // computed from defined values
-/// #def("f(x) = x^2 + 1")                   // a function, usable as f(3)
-/// #def("P(I: mA) = I^2 * [50 Ω]")          // a parameter with a unit: P(20) is P(20 mA)
-/// #def("g(x, ..) = x * m")                 // .. takes the undefined rest: g(x, m)
-/// #def("I := 0.004 A", unit: "mA")          // := gives a defined name a new value; shown in mA: 4 mA
-/// #def("I := U as A")                       // a cast: U's number as amperes
-/// #def("Q_0/2 = I t", unit: "h")           // an equation: t is solved for
-/// #def("x + y = 3", "x - y = 1")           // a system
-/// ```
-///
-/// Inside an equation `[5 V]` is a value and `@R` inlines the formula of `R`. A function uses only its parameters and defined variables: `f(x) = x + n` with an undefined `n` is an error, `f(x, ..)` takes the undefined rest as further parameters in order, and `f()` takes nothing – `solve-config(implicit-parameters: …)` changes that: `"empty"` makes `f()` short for `f(..)`, `"allow"` lets every function take the undefined rest. A parameter may have a unit (`I: mA`, in math `$P(I: "mA") = …$`): a plain number passed to it gets that unit, a value must have its dimension (checked in other functions' bodies too), and a graph over that parameter has its unit. A variable takes no type: its unit is its value's (`x/2 = 3 A` makes x 6 A); `unit:` (or `-> mA` in code) shows it in another. `1` is the type of a plain number (`f(n: 1)`), `any` takes every unit (`q(x: A, y: any) = x y`). A parameter without a type takes the one of what it's passed to as it is (`f(y_2: A, ..) = q(x_2, y_2)` makes `x_2` an A, through any number of functions), checked like a written one. Values convert between units of one dimension: `3 cm` passed to an `m` is 0.03 m. A function whose parameters all have a type has one too, A² for `W(x: V) = f(x as A, x as A)`, shown with it and used for its graph's axis; it follows from the body, so to change what a function returns, cast its expression. `:=` assigns (`≔` in math, typed `:=`): it defines a name or gives a defined one a new value, the last assignment winning, and redefines a function. `=` states what's true: it determines what isn't known yet (`I = 30 mA` defines I), is checked against what is (`I = 20 mA` after it is an error), and with a known function on the left it's an equation (`U(o) = 20` finds o). `solve` takes only statements. A function may compare, `U(x, y) := x = y` (also `<`, `>`, `≤`, `≥`, `≠`): it's 1 where that holds and 0 where not; so is a statement assigned to a variable, `V := 2 A = 2000 mA` is 1. Values of different units are never equal: `2 A = 2 V` is 0, `2 A ≠ 2 V` is 1. A chain `R = 7.2 kΩ = 7200 Ω` is one statement: all its steps must be equal, the last gives R its value, shown in the unit that fits it best (7.2 kΩ). `L := R = 7.2 kΩ = 7200 Ω -> R` stores what a statement tells R in L (`->` names what's solved for when the statement has that name, else it's the unit to show). A cast bypasses these checks: `U as A` takes the number of `U` in SI units as a value in `A` – with `U = 5 V`, `U as A` is 5 A, `U as mA` 5 mA, `U as 1` the plain number 5. It casts the term before it with its power (`2 U as A` is 2 · (U as A), `U^2 as V` casts U²; `(R I) as A` the product), to one unit word, `[a unit]`, `(a unit)` or in math units: `$I = U "as" "mA"$`, `$q = x "as" ("A" * "as")/"V"$`. Units of casts and types are simplified and shown with a dot between them: `"A""as"` is A·as, `mm mm/m` µm. After a number `as` is the unit, attosecond (`3 as`), and `U as as` casts to it. Casts and types show as chips that set them apart from the maths; `show-casts` and `show-types` show them as plain maths instead (`"plain"`) or hide them (`"no"`) wherever solveng shows them, in the equations as written too.
-///
-/// - ..eqs (str, content): The equations. A single one without `=` (`"Q0/I"`) is evaluated (only useful with `output: true`).
-/// - unit (none, str, content, dictionary): Unit of the result: `"mA"` (or math `$"mA"$`). For a system a dictionary per unknown: `(I: "mA", U: "V")`. Without it: the SI unit with an automatic prefix, or the non-SI unit of the inputs (h, mAh). If the result has another unit (`"x = f(1)"` gives volts, `unit: "A"`), that is an error.
-/// - output (bool): Show the definition (like `solve` does).
-/// - steps (auto, str): What is shown: `"full"`: equation ⇒ formula = numbers = result · `"formula"`: without the numbers · `"result"`: `t = 57.5 h` · `"value"`: just `57.5 h`. `auto`: the option `steps` (default `"full"`), or `inline-steps` with `inline: true`.
-/// - layout (auto, str): `"row"`: all steps in one line · `"column"`: one step per line, aligned at `=`. `auto`: the option `layout` (default `"row"`).
-/// - inline (bool): In the running text instead of a display block; `steps` default to `inline-steps` (`"result"`).
-/// - unknown (none, str, array): What to solve for, `"t"` or `("x", "y")`. Only needed when it isn't clear; by default all variables that aren't defined yet are the unknowns (one per equation). If everything is defined, a lone variable on either side is recomputed.
-/// - root (auto, int, function): Which solution is stored when there are several: `2` (1-based), or a test like `x => x > 0` (for systems it gets a dictionary). `auto`: the only all-positive one, else the first.
-/// - guess (none, str, content, int, float, dictionary): Newton start value instead of the search: `"-1 A"`, or `(U: "5 V")` for systems.
-/// - listed (bool): `false` hides it from `defined`.
-/// - digits (auto, int): Significant digits of computed values, 1…15. Default `4`: `57.5 h`, `123500`.
-/// - trailing-zeros (auto, bool): Keep trailing zeros up to `digits` (`2.500 V`). Default `false`.
-/// - separator (auto, str): Decimal separator, any string like `","`. `auto` (default): from the document language, `,` for de, fr, it, … and `.` otherwise.
-/// - grouping (auto, none, str, symbol, content): Digit grouping for integer parts with 5+ digits, e.g. `sym.space.thin` → `12 345`. Default `none`.
-/// - scientific (auto, none, array): `(low, high)`: plain notation while the exponent `e` is in `low ≤ e < high`, else `2.5 · 10⁻⁷`. Default `(-3, 6)`; `none` never switches.
-/// - engineering (auto, bool): Engineering notation, exponents in steps of 3. Default `false`.
-/// - multiplication (auto, str): `"dot"` (default, `2 · 10⁶`) or `"times"` (`2 × 10⁶`).
-/// - form (auto, str): How values are written. `"auto"` (default): as typed, results rounded · `"decimal"`: everything rounded to `digits` · `"fraction"`: exact fractions (`⅙ A`) · `"input"`: given values exactly as typed.
-/// - max-denominator (auto, int): Largest denominator for `form: "fraction"`. Default `1000`.
-/// - fractions (auto, str): How fractions are written: `"stacked"` (default) or `"slash"` (`1/2`).
-/// - prefixes (auto, str, none, array): Prefixes picked for results: `"all"` (default: a f p n µ m k M G T; times from a minute on in min or h, not ks), `none` (base unit only) or an array like `("m", "k")` (`"u"` = µ).
-/// - show-si (auto, bool): `defined` also shows the SI value (`Q₀ = 3450 mAh = 12420 C`). Default `false`.
-/// - preferred-units (auto, str, array): Units for results of their dimension, `("bar", "kWh")`, before the unit of the inputs and the SI unit.
-/// - strict (auto, bool): Unit names can't be variable names, and units in math must be quoted (`$5 "V"$`), see [Units and variables](#units-and-variables).
-/// - inline-steps (auto, str): Steps for `inline: true` and inline code: `"full"`, `"formula"`, `"result"` (default) or `"value"`.
-/// - implies (auto, content, symbol, str): What is written between steps, e.g. `sym.arrow.r.long` or `[and]`; ⇒ by default.
-/// - approximate (auto, bool): Write `≈` when the shown result is rounded. Default `true`.
-/// - block (auto, bool): Display equations (centred, default) or inline.
-/// - max-solutions (auto, int): How many solutions are listed; all are found, `root` picks among all.
-/// - defined-style (auto, str): How `defined` looks: `"grid"` (default: columns side by side, aligned at `=`), `"column"`, `"inline"` or `"list"`.
-/// - errors (auto, str): `"document"` (default): problems are shown as red notes · `"panic"`: stop the compilation.
-/// -> content
+// defines from equations as strings, silently (the string API behind code lines, kept for the tests)
 #let def(
   ..eqs,
   unit: none, output: false, steps: auto, layout: auto, inline: false,
@@ -125,56 +71,7 @@
   let unknown = if type(unknown) == str { _resolve(unknown) } else if type(unknown) == array { unknown.map(_resolve) } else { unknown }
   _def(strs, _resolve-keys(un), (unknown: unknown, root: root, guess: _resolve-keys(guess)), lc, output, listed)
 }
-/// Solves equations and shows the way: equation ⇒ rearranged formula = numbers = result.
-///
-/// Solves for all unknowns, i.e. all variables that aren't defined yet (one unknown per
-/// equation), and stores the results like `def`. The unknown can be on either side,
-/// also inside a function call. If the unknown occurs once it is isolated symbolically;
-/// polynomials give all real roots; anything else is solved numerically.
-///
-/// ```typ
-/// #def("Q0 = 3450 mAh", "I = 30 mA")
-/// #solve("Q0/2 = I t", unit: "h")          // Q₀/2 = I t ⇒ t = Q₀/(2I) = … = 57.5 h
-/// #solve("I", unit: "A")                    // no '=': convert, I = 30 mA = 0.03 A
-/// #solve("x^2 + 2x - 3 = 0")                // all real roots
-/// #def("P1 = 2 W", "R1 = 50 Ω")
-/// #solve("P1 = U1 I1", "U1 = R1 I1")        // a system
-/// Runtime: #solve("Q0/I", unit: "h", inline: true, steps: "value")   // 115 h
-/// #solve("Q0/4 = I t2", unit: "h", layout: "column", steps: "formula")
-/// ```
-///
-/// - ..eqs (str, content): The equations (or a single expression without `=` to evaluate).
-/// - unit (none, str, content, dictionary): Unit of the result: `"mA"` (or math `$"mA"$`). For a system a dictionary per unknown: `(I: "mA", U: "V")`. Without it: the SI unit with an automatic prefix, or the non-SI unit of the inputs (h, mAh). If the result has another unit (`"x = f(1)"` gives volts, `unit: "A"`), that is an error.
-/// - output (bool): `false` defines silently, like `def`.
-/// - steps (auto, str): What is shown: `"full"`: equation ⇒ formula = numbers = result · `"formula"`: without the numbers · `"result"`: `t = 57.5 h` · `"value"`: just `57.5 h`. `auto`: the option `steps` (default `"full"`), or `inline-steps` with `inline: true`.
-/// - layout (auto, str): `"row"`: all steps in one line · `"column"`: one step per line, aligned at `=`. `auto`: the option `layout` (default `"row"`).
-/// - inline (bool): In the running text instead of a display block; `steps` default to `inline-steps` (`"result"`).
-/// - unknown (none, str, array): What to solve for, `"t"` or `("x", "y")`. Only needed when it isn't clear; by default all variables that aren't defined yet are the unknowns (one per equation). If everything is defined, a lone variable on either side is recomputed.
-/// - root (auto, int, function): Which solution is stored when there are several: `2` (1-based), or a test like `x => x > 0` (for systems it gets a dictionary). `auto`: the only all-positive one, else the first.
-/// - guess (none, str, content, int, float, dictionary): Newton start value instead of the search: `"-1 A"`, or `(U: "5 V")` for systems.
-/// - listed (bool): `false` hides it from `defined`.
-/// - digits (auto, int): Significant digits of computed values, 1…15. Default `4`: `57.5 h`, `123500`.
-/// - trailing-zeros (auto, bool): Keep trailing zeros up to `digits` (`2.500 V`). Default `false`.
-/// - separator (auto, str): Decimal separator, any string like `","`. `auto` (default): from the document language, `,` for de, fr, it, … and `.` otherwise.
-/// - grouping (auto, none, str, symbol, content): Digit grouping for integer parts with 5+ digits, e.g. `sym.space.thin` → `12 345`. Default `none`.
-/// - scientific (auto, none, array): `(low, high)`: plain notation while the exponent `e` is in `low ≤ e < high`, else `2.5 · 10⁻⁷`. Default `(-3, 6)`; `none` never switches.
-/// - engineering (auto, bool): Engineering notation, exponents in steps of 3. Default `false`.
-/// - multiplication (auto, str): `"dot"` (default, `2 · 10⁶`) or `"times"` (`2 × 10⁶`).
-/// - form (auto, str): How values are written. `"auto"` (default): as typed, results rounded · `"decimal"`: everything rounded to `digits` · `"fraction"`: exact fractions (`⅙ A`) · `"input"`: given values exactly as typed.
-/// - max-denominator (auto, int): Largest denominator for `form: "fraction"`. Default `1000`.
-/// - fractions (auto, str): How fractions are written: `"stacked"` (default) or `"slash"` (`1/2`).
-/// - prefixes (auto, str, none, array): Prefixes picked for results: `"all"` (default: a f p n µ m k M G T; times from a minute on in min or h, not ks), `none` (base unit only) or an array like `("m", "k")` (`"u"` = µ).
-/// - show-si (auto, bool): `defined` also shows the SI value (`Q₀ = 3450 mAh = 12420 C`). Default `false`.
-/// - preferred-units (auto, str, array): Units for results of their dimension, `("bar", "kWh")`, before the unit of the inputs and the SI unit.
-/// - strict (auto, bool): Unit names can't be variable names, and units in math must be quoted (`$5 "V"$`), see [Units and variables](#units-and-variables).
-/// - inline-steps (auto, str): Steps for `inline: true` and inline code: `"full"`, `"formula"`, `"result"` (default) or `"value"`.
-/// - implies (auto, content, symbol, str): What is written between steps, e.g. `sym.arrow.r.long` or `[and]`; ⇒ by default.
-/// - approximate (auto, bool): Write `≈` when the shown result is rounded. Default `true`.
-/// - block (auto, bool): Display equations (centred, default) or inline.
-/// - max-solutions (auto, int): How many solutions are listed; all are found, `root` picks among all.
-/// - defined-style (auto, str): How `defined` looks: `"grid"` (default: columns side by side, aligned at `=`), `"column"`, `"inline"` or `"list"`.
-/// - errors (auto, str): `"document"` (default): problems are shown as red notes · `"panic"`: stop the compilation.
-/// -> content
+// def with its output: equation ⇒ rearranged formula = numbers = result
 #let solve(
   ..eqs,
   unit: none, output: true, steps: auto, layout: auto, inline: false,
@@ -194,15 +91,6 @@
   defined-style: defined-style, errors: errors,
 ) }
 
-// one line of a code block: "U = R I -> mV" (a system: equations separated by ';'; comments with //; "= expr" prints a value)
-#let _line(s, block) = {
-  let s = s.split("//").first().trim()
-  if s == "" { return none }
-  let (e, u) = if s.contains("->") { let p = s.split("->"); (p.at(0), p.at(1).trim()) } else { (s, none) }
-  let lc = (block: block) + if not block { (steps: auto) } else { (:) }
-  if e.trim().starts-with("=") { return _def((e.trim().slice(1),), u, (:), lc + (steps: "value"), true, false) }
-  _def(e.split(";").map(str.trim).filter(x => x != ""), u, (:), lc, true, true)
-}
 // expression tree -> string _parse reads back the same
 #let _src(e) = {
   let (k, ..a) = e
@@ -235,14 +123,14 @@
   }
   r
 }
-// a math equation in a solve-block: "I = 30 mA" is defined silently, the equation stays as written.
+// a math equation in a worksheet: "I = 30 mA" is defined silently, the equation stays as written.
 // Equations without '=', derivations (⇒, ≈, <, …) or content that isn't a formula (alignment, line breaks, calls) are left alone.
 // math with its casts (U "as" A) and types (f(x: "mA")) as chips, plain or left out, as the options say, their
 // units simplified; "as" after a number is the unit (3 "as"), a colon before something that isn't a unit stays
 #let _restyle(c, cf, U) = {
   if type(c) != content { return c }
   let f = c.func()
-  let space(x) = x.func() == [ ].func()
+  let space(x) = x == none or x.func() == [ ].func()
   // letters and : are symbols in math, quoted text is text
   let word(x) = if x.has("text") and type(x.text) == str { x.text } else { none }
   if c.has("children") {
@@ -273,6 +161,15 @@
           continue
         }
       }
+      // a letter after a number is a unit, set upright as units are: 5 V
+      let before = out.rev().find(y => not space(y))
+      let named = x.func() == text and x.has("label") and x.label == <solveng-unit>
+      if (named or (x.func() != text and mark != none and mark.clusters().len() == 1 and _known(mark, U))) and before != none and word(before) != none and word(before).match(regex("\\d$")) != none {
+        while out.len() > 0 and space(out.last()) { let _ = out.pop() }
+        out.push(h(0.1667em) + math.upright(mark))
+        i += 1
+        continue
+      }
       out.push(_restyle(x, cf, U))
       i += 1
     }
@@ -294,21 +191,29 @@
   let _ = fs.remove("body")
   math.equation(..fs, _RESHOWN + body)
 }
-#let _math-def(it) = context {
+// the equation itself, marked as read so solveng's rules leave it alone
+#let _as-shown(eq) = if _reshown(eq) { eq } else {
+  let fs = eq.fields()
+  let _ = fs.remove("body")
+  math.equation(..fs, _RESHOWN + eq.body)
+}
+// an equation without a clause: := defines, = states (checked when everything is known, else prose)
+// quiet: only problems are shown, not the equation
+#let _math-def0(it, quiet: false) = context {
   if _busy.get() > 0 or _reshown(it) or _own(it) { return it }
   let cf = _cf.get()
   let U = _UT(cf)
   // the equation as written, its casts and types as chips (or left out)
   let src = _str(it.body, q: true)
-  let shown = if not _E(src) and (src.contains("\"as\"") or src.contains(":")) { _reshow(it, cf, U) } else { it }
-  let U = _UT(cf)
+  let shown = if quiet { [] } else if not _E(src) { _reshow(it, cf, U) } else { it }
+  let shown = if quiet { [] } else { _as-shown(shown) }
   let s = _str(it.body, q: true)
   if _E(s) or s.match(regex("[⇒⇔⟹⟺→←↔≈≠≡∼∝∈]")) != none { return shown }
   let fail(e) = shown + _errc(e.err, cf, wide: it.block)
   // f(…) := body (≔ in math): the body as written, which may compare, U(x, y) := x = y
   let fm = s.split("≔")
-  // and a variable assigned a statement, V := 2 A = 2 V: whether it holds
-  let stmt = fm.len() == 2 and fm.first().trim().match(regex("^\\p{L}[\\p{L}\\p{N}_]*$")) != none and fm.last().match(regex("[=<>≤≥≠]")) != none
+  // and a variable assigned a comparison, V := a < b: whether it holds
+  let stmt = fm.len() == 2 and fm.first().trim().match(regex("^\\p{L}[\\p{L}\\p{N}_]*$")) != none and fm.last().match(regex("[<>≤≥≠]")) != none
   if stmt or (fm.len() == 2 and fm.first().trim().match(regex("^\\p{L}[\\p{L}\\p{N}_]*\\s*\\(")) != none) {
     let vars = _vars-of(_st.get())
     let (l, r) = (_math-src(fm.first(), vars, cf), _math-eq(fm.last(), vars, cf))
@@ -316,22 +221,8 @@
     if _E(r) { return fail(r) }
     return shown + _def((l.trim() + " := " + r.trim(),), none, (:), (block: it.block), false, true)
   }
-  let rs = s.matches(regex("[<>≤≥]"))
-  if rs.len() > 0 {
-    // a bound R ≤ U/I: a definition only with exactly one unknown (0 < x < 1, a < b with known a, b stay prose)
-    if rs.len() > 1 or s.contains("=") { return shown }
-    let rel = rs.first().text
-    let vars = _vars-of(_st.get())
-    let fns = _st.get().at("#fn", default: (:))
-    let p = s.split(rel).map(x => _math-src(x, vars, cf))
-    let b = _first-err(p)
-    if b != none { return fail(b) }
-    let p = p.map(str.trim)
-    if p.any(x => x == "") { return shown }
-    let es = p.map(x => _parse(x, vars, f: fns, U: U))
-    if es.any(_E) or es.map(_vars).flatten().dedup().filter(v => v not in vars).len() != 1 { return shown }
-    return shown + _def((p.join(" " + rel + " "),), none, (:), (block: it.block), false, true)
-  }
+  // inequalities are solved with -> solve(x), else they're prose
+  if s.match(regex("[<>≤≥]")) != none { return shown }
   // := (≔ in math) assigns, = states
   let assign = s.contains("≔")
   let p = s.replace("≔", "=").split("=")
@@ -343,8 +234,20 @@
   if b != none { return fail(b) }
   let ms = ms.map(str.trim)
   let lhs = ms.at(0)
-  // a variable has one value: the last step of a chain gives it (R = 7.2 kΩ = 7200 Ω), unless it needs what isn't known
   let fns = _st.get().at("#fn", default: (:))
+  if not assign {
+    // = states: with everything known its sides must agree, else it's prose (:= defines, -> solve(x) solves)
+    let vals = ms.map(x => { let e = _parse(x, vars, f: fns, U: U); if not _E(e) and _vars(e).all(v => v in vars) { _ev(e, vars) } })
+    if vals.any(v => v == none or _E(v)) { return shown }
+    let r0 = vals.first()
+    let round(dm) = dm.map(z => calc.round(z, digits: 6))
+    let i = vals.position(r => round(r.at(1)) != round(r0.at(1)) or calc.abs(r.at(0) - r0.at(0)) > 1e-3 * calc.max(calc.abs(r.at(0)), calc.abs(r0.at(0))))
+    if i == none { return shown }
+    let tidy(x) = x.replace(regex("[\\[\\]\"]"), "").trim()
+    let why = if round(vals.at(i).at(1)) != round(r0.at(1)) { "has another unit" } else { "has another value" }
+    return fail(_err("'" + tidy(p.at(i)) + "' " + why + " than '" + tidy(p.first()) + "' – = states what's true; := defines"))
+  }
+  // a variable has one value: the last step of a chain gives it (R = 7.2 kΩ = 7200 Ω), unless it needs what isn't known
   let last = if ms.len() > 2 { ms.slice(1).rev().position(x => _isq(x, U: U) or { let e = _parse(x, vars, f: fns, U: U); not _E(e) and _vars(e).all(v => v in vars) }) }
   // a chain goes whole: the steps are checked, the last gives the value, shown in the unit that fits
   let whole = ms.len() > 2 and last != none
@@ -394,8 +297,230 @@
   }
   shown + now.map(((x, e)) => one(x, e)).join() + _def((eq,), none, (:), (block: it.block), false, true) + imp.filter(c => c not in now).map(((x, e)) => one(x, e)).join()
 }
+// ---------- the clause after a trailing = or ->: a unit and keywords ----------
+#let _KEYS = ("solve", "simplify", "digits", "sci", "eng", "frac")
+// items ((key: …, args: (str, …)) or (unit: …)) -> (unit, local options, what to solve for), or an error
+#let _clause(items, U) = {
+  let (un, lc, xs) = (none, (:), none)
+  for it in items {
+    if "unit" in it {
+      if un != none { return _err("one unit per result, got " + un + " and " + it.unit) }
+      un = it.unit
+      continue
+    }
+    let (k, a) = (it.key, it.args)
+    if k not in _KEYS { return _err("unknown keyword '" + k + "' (keywords: " + _KEYS.join(", ") + ")") }
+    let n = (solve: a.len() > 0, digits: a.len() == 1).at(k, default: a.len() == 0)
+    if not n { return _err(if k == "solve" { "solve: what to solve for, solve(x) or solve(x, y)" } else if k == "digits" { "digits: the number of digits, digits(3)" } else { k + " takes no arguments" }) }
+    if k == "solve" { xs = a.map(x => _resolve(x.trim())) }
+    else if k == "digits" {
+      let d = a.first().trim()
+      if d.match(regex("^\d+$")) == none or int(d) < 1 or int(d) > 15 { return _err("digits: 1…15, got " + d) }
+      lc += (form: "decimal", digits: int(d))
+    }
+    else if k == "frac" { lc.form = "fraction" }
+    // in the base unit, 2.2 · 10⁻⁶ F
+    else if k == "sci" { lc += (scientific: (0, 1), prefixes: none) }
+    else if k == "eng" { lc += (engineering: true, scientific: (0, 1), prefixes: none) }
+  }
+  (unit: un, lc: lc, solve: xs)
+}
+// a unit written in a clause has no number (but exponents): = 2 A is a step, = A a unit
+#let _unitish(s) = s.replace(regex("\^\s*\(?\s*[-−]?\d+\s*\)?"), "").match(regex("\d")) == none
+// the clause in math: children after the marker, split at commas -> items, or none if it isn't one
+#let _citems(cs, U) = {
+  let groups = ((),)
+  for c in cs { if c.has("text") and c.text == "," { groups.push(()) } else { groups.last().push(c) } }
+  let items = ()
+  for g in groups {
+    let g = g.filter(c => c.func() != [ ].func())
+    if g.len() == 0 { if groups.len() == 1 { continue } else { return none } }
+    let x = g.first()
+    if g.len() == 1 and x.func() == metadata and x.has("label") and x.label == <solveng-key> {
+      items.push((key: x.value.key, args: x.value.args.map(a => { let t = _str(a); if _E(t) { "?" } else { t } })))
+      continue
+    }
+    // Typst's own frac, which math shows as its name
+    if g.len() == 1 and x.func() == raw and x.text == "frac" { items.push((key: "frac", args: ())); continue }
+    let s = _str(g.join(), q: true)
+    if _E(s) or not _unitish(s) { return none }
+    let r = _math-unit(s, U)
+    if _E(r) { return none }
+    items.push((unit: r.at(2)))
+  }
+  items
+}
+// an equation's children -> (head, marker, clause): at the last top-level ->, else at the last top-level =
+#let _split-eq(body) = {
+  let cs = if body.has("children") { body.children } else { (body,) }
+  let at(t) = range(cs.len()).filter(i => cs.at(i).has("text") and cs.at(i).text == t)
+  let ar = at("→")
+  let eq = at("=")
+  let (i, m) = if ar.len() > 0 { (ar.last(), "→") } else if eq.len() > 0 { (eq.last(), "=") } else { return (cs, none, ()) }
+  (cs.slice(0, i), m, cs.slice(i + 1))
+}
+// the evaluating =, bold as in Mathcad: stroked, since math fonts have no bold =
+#let _BEQ = math.class("relation", context text(stroke: (paint: text.fill, thickness: 0.045em), "="))
+// a solved record's results, x = 2 or x₁ = −2, x₂ = 2
+#let _result(r, cf) = {
+  let st = _stages(r, cf).last()
+  // an inequality's result: R ≤ 166.7 Ω
+  let b = st.at("rel", default: none)
+  st.segs.map(((lhs, ps)) => [#lhs#ps.slice(calc.max(ps.len() - 1, 0)).map(((rel, x, _)) => [#if b != none { _REL.at(b) } else { rel } #x]).join()]).join(st.join)
+}
+// the result shown after the equation as written, and the problems of the last calculation
+// errs: the calculation was solveng's (its problems are in its records)
+#let _shown-with(it, head, mark, res, quiet, errs: true) = context {
+  let cf = _cf.get()
+  let rs = if errs { _st.get().at("..", default: ()) } else { () }
+  let errs = rs.filter(r => r.k == "error").map(r => _errc(r.err, cf, wide: it.block)).join()
+  if quiet { return errs }
+  let U = _UT(cf)
+  let fs = it.fields()
+  let _ = fs.remove("body")
+  let m = if mark == "=" { _BEQ } else { $->$.body }
+  math.equation(..fs, _RESHOWN + _restyle(head, cf, U) + $#m #res(rs.filter(r => r.k != "error"), cf)$.body) + errs
+}
+// a math equation in a worksheet: := defines (≔ in math), a trailing = shows the value (in the unit and form its
+// clause gives, $t = h, digits(3)$), -> the symbolic result or, with solve(x), solves for x
+#let _math-def(it, quiet: false) = context {
+  if _busy.get() > 0 or _reshown(it) or _own(it) { return it }
+  let cf = _cf.get()
+  let U = _UT(cf)
+  let (head, mark, tail) = _split-eq(it.body)
+  let items = if mark == none { () } else { _citems(tail, U) }
+  // = followed by more than a unit and keywords is a step, $V := 2 A = 2000 mA$; an arrow among other words prose
+  if mark == none or items == none { return _math-def0(it, quiet: quiet) }
+  let fail(e) = (if quiet { none } else { _as-shown(it) }) + _errc(e.err, cf, wide: it.block)
+  let c = _clause(items, U)
+  if _E(c) { return fail(c) }
+  let lc = c.lc + (block: it.block)
+  while head.len() > 0 and head.last().func() == [ ].func() { let _ = head.pop() }
+  let hb = head.join()
+  let hs = if hb == none { _err("") } else { _str(hb, q: true) }
+  if _E(hs) or hs.trim() == "" { return fail(_err("nothing before the " + mark)) }
+  let assign = hs.contains("≔")
+  let (lhs, rhs) = if assign { let p = hs.split("≔"); (p.first().trim(), p.slice(1).join("≔")) } else { (none, hs) }
+  let fn = assign and lhs.contains("(")
+  // what it defines, silently
+  let defs = if assign { _math-def0(math.equation(block: it.block, hb), quiet: true) }
+  if c.solve != none {
+    if assign { return fail(_err("solve(…) solves an equation, which states something: write it without :=")) }
+    let xs = c.solve
+    return {
+      context {
+        let e = _math-eq(rhs, _vars-of(_st.get()), cf)
+        if _E(e) { _errc(e.err, cf, wide: it.block) } else { _def((e,), c.unit, (unknown: if xs.len() == 1 { xs.first() } else { xs }), lc, none, true) }
+      }
+      _shown-with(it, hb, mark, (rs, cf) => rs.map(r => _result(r, cf + lc)).join($, quad$), quiet)
+    }
+  }
+  if mark == "=" {
+    if fn { return fail(_err("a function has no value of its own – evaluate a call, " + lhs.replace(regex("\(.*$"), "") + "(2) =")) }
+    // a statement before the = is checked, its last side shown
+    let checks = if not assign and rhs.contains("=") { _math-def0(math.equation(block: it.block, hb), quiet: true) }
+    let target = if assign { lhs } else { rhs.split("=").last() }
+    return defs + checks + context {
+      let src = _math-src(target, _vars-of(_st.get()), cf, bare: true)
+      if _E(src) { _errc(src.err, cf, wide: it.block) } else { _def((src,), c.unit, (:), lc, none, false) }
+    } + _shown-with(it, hb, mark, (rs, cf) => rs.filter(r => "q" in r).map(r => _qc(r.q, cf + lc)).join(), quiet)
+  }
+  // ->: what's written with the known values put in, exact; a value once nothing unknown is left
+  let src = if assign { rhs.split("=").first() } else { rhs.split("=").last() }
+  let params = if fn { _tk(lhs.slice(lhs.position("(") + 1)).filter(t => t.match(regex("^\p{L}")) != none).map(_greek) } else { () }
+  defs + _shown-with(it, hb, mark, (rs, cf) => {
+    let cf = cf + (form: "fraction") + lc
+    let vars = _vars-of(_st.get())
+    let ms = _math-src(src, vars, cf)
+    if _E(ms) { return $?$ }
+    let e = _parse(ms, vars, f: _st.get().at("#fn", default: (:)), U: U)
+    if _E(e) { return $?$ }
+    let e = _s(_subst(e, vars.pairs().filter(((k, _)) => k not in params).map(((k, q)) => (k, ("q", q))).to-dict()))
+    if _vars(e).len() > 0 { return _dp(e, none, cf).at(0) }
+    let v = _ev(e, (:))
+    let q = if _E(v) { v } else { _mkq(v.at(0), v.at(1), c.unit, cf) }
+    if _E(q) { $?$ } else { _qc(q, cf) }
+  }, quiet, errs: false)
+}
+
+// one line of a code block, read like math: x := … defines, a trailing = shows a value, -> the formula or solves
+// (-> solve(x)); units in a clause in brackets or bare ([mA], mA), ';' separates a system, // starts a comment
+#let _cut(s) = {
+  let ar = s.matches("->")
+  if ar.len() > 0 { let m = ar.last(); return (s.slice(0, m.start), "→", s.slice(m.end)) }
+  let eq = s.matches(regex("[:<>!=]?=")).filter(m => m.text == "=")
+  if eq.len() > 0 { let m = eq.last(); return (s.slice(0, m.start), "=", s.slice(m.end)) }
+  (s, none, "")
+}
+// a clause in code -> items, or none if it isn't one
+#let _sitems(s, U) = {
+  let (parts, d, cur) = ((), 0, "")
+  for ch in s.clusters() {
+    if ch in ("(", "[") { d += 1 } else if ch in (")", "]") { d -= 1 }
+    if ch == "," and d == 0 { parts.push(cur); cur = "" } else { cur += ch }
+  }
+  let parts = (parts + (cur,)).map(str.trim)
+  if parts == ("",) { return () }
+  let items = ()
+  for p in parts {
+    let m = p.match(regex("^(\p{L}+)\s*(?:\((.*)\))?$"))
+    if m != none and m.captures.first() in _KEYS {
+      items.push((key: m.captures.first(), args: if m.captures.at(1) == none { () } else { m.captures.at(1).split(",").map(str.trim) }))
+      continue
+    }
+    let u = p.trim("[", at: start).trim("]", at: end).trim()
+    if u == "" or not _unitish(u) or not _isu(u, U: U) { return none }
+    items.push((unit: u))
+  }
+  items
+}
+#let _line(s, block, quiet: false) = {
+  let s = s.split("//").first().trim()
+  if s == "" { return none }
+  context {
+    let cf = _cf.get()
+    let U = _UT(cf)
+    let (head, mark, tail) = _cut(s)
+    let items = if mark == none { () } else { _sitems(tail, U) }
+    let (head, mark, items) = if mark == "=" and items == none { (s, none, ()) } else { (head, mark, items) }
+    if items == none { return _errc("-> takes keywords and a unit: -> solve(x), -> simplify, -> digits(3), [mA] – in '" + s + "'", cf, wide: block) }
+    let c = _clause(items, U)
+    if _E(c) { return _errc(c.err + " – in '" + s + "'", cf, wide: block) }
+    let lc = c.lc + (block: block)
+    let out = not quiet
+    let eqs = head.split(";").map(str.trim).filter(x => x != "")
+    if eqs.len() == 0 { return _errc("nothing before the " + mark + " in '" + s + "'", cf, wide: block) }
+    let assign = head.contains(":=")
+    if c.solve != none { return _def(eqs, c.unit, (unknown: if c.solve.len() == 1 { c.solve.first() } else { c.solve }), lc, out, true) }
+    if assign { return _def(eqs, c.unit, (:), lc + if mark == "→" { (steps: "formula") } else { (:) }, out, true) }
+    if mark != none { return _def(eqs, c.unit, (:), lc + (steps: if mark == "=" { "result" } else { "formula" }), out, false) }
+    // = states: checked against what's known, never defines
+    let vars = _vars-of(_st.get())
+    let fns = _st.get().at("#fn", default: (:))
+    let shown = ()
+    for e in eqs {
+      let sides = e.split("=")
+      if sides.len() < 2 { return _errc("'" + e + "' does nothing – x := … defines, a trailing = shows a value", cf, wide: block) }
+      let es = sides.map(x => _parse(x, vars, f: fns, U: U))
+      let b = _first-err(es)
+      if b != none { return _errc(b.err, cf, wide: block) }
+      let free = es.map(_vars).flatten().dedup().filter(v => v not in vars)
+      if free.len() > 0 { return _errc(free.map(v => "'" + v + "'").join(", ") + " in '" + e + "' isn't defined – define it with :=, or solve for it: " + e + " -> solve(" + free.first() + ")", cf, wide: block) }
+      let vals = es.map(x => _ev(x, vars))
+      let b = _first-err(vals)
+      if b != none { return _errc(b.err, cf, wide: block) }
+      let round(dm) = dm.map(z => calc.round(z, digits: 6))
+      let r0 = vals.first()
+      if vals.any(r => round(r.at(1)) != round(r0.at(1)) or calc.abs(r.at(0) - r0.at(0)) > 1e-3 * calc.max(calc.abs(r.at(0)), calc.abs(r0.at(0)))) {
+        return _errc("'" + e + "' doesn't hold – = states what's true; := defines", cf, wide: block)
+      }
+      shown.push(es.map(x => _dp(x, none, cf).at(0)).join($=$))
+    }
+    if out { _eqn(shown.join($, quad$), cf + lc) }
+  }
+}
 // ---------- what editors read ----------
-// Typewright and other editors query <solveng> metadata after compiling: per element solve-block saw (by its
+// Typewright and other editors query <solveng> metadata after compiling: per element worksheet saw (by its
 // location, which maps back to the source) whether it was calculated, per block what it defined, with values.
 #let _vstr(q, cf) = {
   let (m, e) = _fmt(q.n, cf + (digits: calc.max(cf.digits, 4)))
@@ -423,114 +548,109 @@
   body + [#metadata((kind: kind, element: loc, active: active, integration: cf.integration)) <solveng>]
 }
 
-// how many solve-blocks are around, kept with the configuration that every element reads anyway
+// how many worksheets are around, kept with the configuration that every element reads anyway
 #let _blocks(cf) = cf.at("#blocks", default: 0)
-// `b` with math and code calculated as `solve-config(integration: …)` says where each element is; `region`: for a
-// solve-config outside the solve-blocks, so not for the elements in one
-#let _rules(b, reset, region: false) = {
-  let skip(cf) = region and _blocks(cf) > 0
-  context {
-    // raw text is set smaller, monospaced and in English; definitions use the surrounding text and language
-    let (size, font, lang, region) = (text.size, text.font, text.lang, text.region)
-    let out(it, sep) = text(size: size, font: font, lang: lang, region: region, it.text.split("\n").map(l => _line(l, it.block)).filter(x => x != none).join(sep))
-    show raw.where(lang: "solveng"): it => context {
-      let cf = _cf.get()
-      if skip(cf) { return it }
-      _noted(it, "code", true, cf, out(it, if it.block { none } else { [, ] }))
-    }
-    // read where each element is, so solve-config(integration: …)[…] also works inside the block
-    show raw.where(lang: none): it => context {
-      let cf = _cf.get()
-      if skip(cf) { return it }
-      let on = cf.integration in ("code", "full")
-      _noted(it, "code", on, cf, if on { out(it, none) } else { it })
-    }
-    show std.math.equation: it => context {
-      if _busy.get() > 0 or _reshown(it) or _own(it) { return it }
-      let cf = _cf.get()
-      if skip(cf) { return it }
-      let on = cf.integration in ("math", "full")
-      _noted(it, "math", on, cf, if on { _math-def(it) } else { it })
-    }
-    // start over at each heading (or whatever reset selects): back to the state at the start of the block
-    show selector(if reset == none { <solveng-never> } else { reset }): it => {
-      if reset != none { _block-note + _st.update(_restart) }
-      it
-    }
-    b
+// `b` with math (as worksheet-config(integration: …) says where each element is) and solveng code blocks calculated
+#let _rules(b, reset) = context {
+  // raw text is set smaller, monospaced and in English; definitions use the surrounding text and language
+  let (size, font, lang, region) = (text.size, text.font, text.lang, text.region)
+  show raw.where(lang: "solveng", block: true): it => context {
+    _noted(it, "code", true, _cf.get(), text(size: size, font: font, lang: lang, region: region, it.text.split("\n").map(l => _line(l, true)).filter(x => x != none).join()))
   }
+  show std.math.equation: it => context {
+    if _busy.get() > 0 or _reshown(it) or _own(it) { return it }
+    let cf = _cf.get()
+    let on = cf.integration == "math"
+    _noted(it, "math", on, cf, if on { _math-def(it) } else { it })
+  }
+  // start over at each heading (or whatever reset selects): back to the state at the start of the worksheet
+  show selector(if reset == none { <solveng-never> } else { reset }): it => {
+    if reset != none { _block-note + _st.update(_restart) }
+    it
+  }
+  b
 }
 
-/// A scope in which math and code are calculations.
+/// Calculates the math you write, like a Mathcad worksheet.
 ///
-/// `#show: solve-block` calculates the whole rest of the document; `#solve-block[…]` only its body, whose definitions are dropped at its end. How results look is set with `solve-config`, not here.
-///
-/// ```typ
-/// #show: solve-block
-/// The load draws $I = "30 mA"$ (#solve("I", unit: "A", steps: "value", inline: true)),
-/// the battery holds $Q_0 = 3450 "mAh"$, so it lasts $t = Q_0 / I$, ```solveng = t -> h```.
-/// ```
-///
-/// **Math** (with the default `integration: "math"`). Every math equation with a `=` is a definition, exactly like `def`: `$I = "30 mA"$`, `$P = U I$`, `$Q_0/2 = I t$`. The equation stays as you wrote it; problems are shown next to it.
-///
-/// - An inequality with exactly one unknown (`$R <= U/I$`) defines it like `#solve("R <= U/I")`; `$0 < x < 1$` and inequalities between known values stay prose.
-/// - Equations without `=` (`$x^2$`), derivations with `⇒`, `≈`, … (`$ Q = I t => t = Q/I $`), equations with alignment or line breaks (`$ U &= R I \ &= 6 V $`) or with embedded calls are left alone.
-/// - In a worked chain `$R = 7.2 "k"Omega = 7200 Omega$` the first `=` defines, the rest are steps.
-/// - A step that writes an undefined variable out defines it: `$R = rho dot frac(l, A) = rho dot frac(l, b dot h)$` defines `A = b h`; with `R` given instead, `b` is solved from the most written-out step (`R = ρ l/(b h)`) and `A` follows.
-/// - A number followed by units is a value (`frac(3450 "mAh", 30 "mA")`, `9.81 "m"/"s"^2`), `0,95` is a decimal number. Quoted units (`"h"`) are always units; a bare letter that is a defined variable is that variable (`$3 h$` with a variable `h` is 3 times h).
-///
-/// **Code.** Code tagged `solveng` is calculated:
-///
-/// - A code block ```` ```solveng ````: every line is a definition that shows itself, exactly like `#solve(line)`.
-/// - Inline code ```` ```solveng t = Q0/I -> h``` ```` defines and shows inline with `inline-steps` (default `"result"`: t = 115 h).
-/// - ```` ```solveng = Q0/I -> h``` ````: just the value (115 h), nothing is defined.
-/// - Per line: `-> unit` for the result unit, `;` separates the equations of a system (`x + y = 3; x - y = 1`), `//` starts a comment.
-///
-/// What else is calculated is set with `solve-config(integration: …)`: `"math"` (default) reads math as above and leaves code without a language alone, so code samples stay code samples; `"code"` calculates code without a language instead of math, `"full"` both, `"none"` neither. Code with another language (```` ```py ````) is always left alone. The output of `def`, `solve`, `defined` and `graph` is never read as a definition again.
-///
-/// **Editors.** Each equation and code element the block sees leaves a `metadata` labelled `<solveng>` with its `location()`, whether it was calculated and the `integration` there; at the end of the block (and before each `reset`) one lists everything defined, with values, and the units. Editors like Typewright read them after compiling: `query(<solveng>)`.
-///
-/// **Starting over.** `reset` starts over at every match; `#reset` inside a solve-block does the same once: back to how the block started (with `inherit: true` the outer definitions stay). After the block the outer definitions come back.
+/// `#show: worksheet` calculates the rest of the document, `#worksheet[…]` its content (whose definitions are dropped at its end), and `#worksheet($…$)` single equations, also outside a worksheet.
 ///
 /// ```typ
-/// #show: solve-block.with(reset: heading)                    // every heading
-/// #show: solve-block.with(reset: heading.where(level: 1))    // only top-level ones
-/// #show: solve-block.with(reset: heading, inherit: true)     // keep the definitions made before the block
+/// #show: worksheet
+/// The battery holds $Q_0 := 3450 mAh$ and the load draws $I := 30 mA$,
+/// so it lasts $t := Q_0 / I = h$.
 /// ```
 ///
-/// - ..body (content): The content.
-/// - inherit (bool): See the definitions made before the block (also after each `reset`).
+/// **Math.** Three operators, as in Mathcad:
+///
+/// - `:=` defines (shown as ≔): `$I := 30 mA$`, `$P := U I$`, `$f(x) := x^2 + 1$`. Steps after it are checked: `$R := 7.2 kΩ = 7200 Ω$`.
+/// - `=` at the end shows the value, with a bold =: `$t =$` → t **=** 115 h, `$t := Q_0/I =$` defines and shows it. What follows it is the unit and keywords: `$t = h$`, `$t = min, digits(2)$`.
+/// - `->` at the end shows the symbolic result, the known values put in, exactly: `$f := (x^2 - 1)/(x - 1) -> simplify$`. With `solve(x)` it solves an equation for x (and defines it): `$Q_0/2 = I t -> solve(t)$`, `$x^2 - 4 = 0 -> solve(x)$`, `$x + y = 3, x - y = 1 -> solve(x, y)$`, `$R <= U/I -> solve(R)$`.
+///
+/// Keywords: `solve(x, …)`, `simplify`, `frac` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
+///
+/// **Units** are names: `$30 mA$`, `$4.7 kΩ$`, `$9.81 m/s^2$`, and `unit("bar")` for units without one (your own, from `worksheet-config(units: …)`). A single letter is a unit right after a number (`$5 V$`, `$3 h$`) or alone after a trailing `=` (`$t = h$`); anywhere else it's a variable, and `$3 dot h$` is 3 times a variable h.
+///
+/// **Code.** Each line of a ```` ```solveng ```` code block is calculated the same way and shown with all its steps: `t := Q0/I = [h]`, `Q0/I =`, `x^2 = 4 -> solve(x)`; units in brackets, `;` separates the equations of a system, `//` starts a comment. Inline code and code with another language are left alone.
+///
+/// **Calls.** `#worksheet($U := 5 V$, $I := U/R =$)` calculates its equations (and strings, read like a code line) where it stands, `hidden: true` without showing them. Its options are for these only; with content, for the content.
+///
+/// **Editors.** Each equation and code block the worksheet sees leaves a `metadata` labelled `<solveng>` with its `location()`, whether it was calculated and the `integration` there; at the end (and before each `reset`) one lists everything defined, with values, and the units. Editors like Typewright read them after compiling: `query(<solveng>)`.
+///
+/// **Starting over.** `reset` starts over at every match; `#reset` inside a worksheet does the same once: back to how it started (with `inherit: true` the outer definitions stay). After a `#worksheet[…]` the outer definitions come back.
+///
+/// ```typ
+/// #show: worksheet.with(reset: heading)                    // every heading
+/// #show: worksheet.with(reset: heading.where(level: 1))    // only top-level ones
+/// #show: worksheet.with(reset: heading, inherit: true)     // keep the definitions made before
+/// ```
+///
+/// - ..body (content, str): The content, or equations (math or code lines) to calculate.
+/// - inherit (bool): See the definitions made before the worksheet (also after each `reset`).
 /// - reset (none, function, selector): Start over at every match, e.g. `heading` (every heading) or `heading.where(level: 1)`: the definitions made since are forgotten, like `#reset`.
+/// - hidden (bool): For equations: calculate them without showing them (only problems are shown).
+/// - digits, separator, form, … (auto): Every option of `worksheet-config` (except `units`, `integration` and `implicit-parameters`), for this worksheet or these equations only.
 /// -> content
-#let solve-block(
+#let worksheet(
   ..body,
-  inherit: false, reset: none,
+  inherit: false, reset: none, hidden: false,
+  digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto, max-denominator: auto, fractions: auto,
+  prefixes: auto, show-si: auto, preferred-units: auto, strict: auto, steps: auto, layout: auto, implies: auto, approximate: auto, block: auto, max-solutions: auto,
+  defined-style: auto, errors: auto, show-casts: auto, show-types: auto,
 ) = {
-  let b = body.pos().at(0, default: [])
+  let pos = body.pos()
   if body.named().len() > 0 {
     let k = body.named().keys().first()
-    let hint = if k in ("equations", "plain-code") { " – use solve-config(integration: \"full\", \"code\", \"math\" or \"none\")" } else if k in _DEF { " – options go in solve-config(" + k + ": …)" } else { "" }
-    return _err-now("unknown argument '" + k + "' for solve-block (arguments: inherit, reset)" + hint) + b
+    return _err-now("unknown argument '" + k + "' for worksheet (arguments: inherit, reset, hidden and the options " + _DEF.keys().filter(k => k not in ("units", "integration", "implicit-parameters", "inline-steps")).join(", ") + ")")
   }
-  if body.pos().len() > 1 { return _err-now("solve-block takes one body") + b }
-  if type(b) != content { return _err-now("solve-block: the body must be content, got " + _tn(b)) }
-  if type(inherit) != bool { return _err-now("inherit: true or false, got " + _tn(inherit)) + b }
-  if type(reset) not in (type(none), function, selector, label) { return _err-now("reset: none or what to start over at, like heading or heading.where(level: 1), got " + _tn(reset)) + b }
-  // "^": the state outside, restored at the end; "^0": the state at the start, for reset
-  _st.update(d => { let n = if inherit { d } else { (:) }; n.insert("^", d); n.insert("^0", n); n })
-  _cf.update(c => c + ("#blocks": _blocks(c) + 1))
-  _rules(b, reset)
-  _block-note
-  _cf.update(c => c + ("#blocks": _blocks(c) - 1))
-  _st.update(d => d.at("^"))
-}
-
-// solve-config with a body and an `integration` that calculates something is a solve-block of its own outside one,
-// whose definitions stay: `#show: solve-config.with(integration: "full")` calculates the rest of the document.
-#let solve-config(..args) = {
-  let b = args.pos().at(0, default: none)
-  let calculates = args.named().at("integration", default: auto) in ("math", "code", "full")
-  if args.pos().len() != 1 or type(b) != content or not calculates { return _solve-config(..args) }
-  // inside a solve-block, whose rules read the option where each element is, its rules stand aside
-  _solve-config(..args.named(), _rules(b, none, region: true) + _block-note)
+  let lc = _check(_given((
+    digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions,
+    prefixes: prefixes, show-si: show-si, preferred-units: preferred-units, strict: strict, steps: steps, layout: layout, implies: implies, approximate: approximate, block: block, max-solutions: max-solutions,
+    defined-style: defined-style, errors: errors, show-casts: show-casts, show-types: show-types,
+  )))
+  if _E(lc) { return _err-now(lc.err) }
+  if type(hidden) != bool { return _err-now("hidden: true or false, got " + _tn(hidden)) }
+  let eqs = pos.len() > 0 and pos.all(x => type(x) == str or (type(x) == content and x.func() == math.equation))
+  let out = if eqs {
+    if inherit != false or reset != none { return _err-now("inherit and reset are for a worksheet's content, #worksheet[…]") }
+    pos.map(x => if type(x) == str { x.split("\n").map(l => _line(l, true, quiet: hidden)).filter(l => l != none).join() } else { _math-def(x, quiet: hidden) }).join()
+  } else {
+    let b = pos.at(0, default: [])
+    if pos.len() != 1 or type(b) != content { return _err-now("worksheet takes content, #worksheet[…], or equations, #worksheet($U := 5 V$)") }
+    if hidden { return _err-now("hidden is for equations, #worksheet($U := 5 V$, hidden: true)") + b }
+    if type(inherit) != bool { return _err-now("inherit: true or false, got " + _tn(inherit)) + b }
+    if type(reset) not in (type(none), function, selector, label) { return _err-now("reset: none or what to start over at, like heading or heading.where(level: 1), got " + _tn(reset)) + b }
+    // "^": the state outside, restored at the end; "^0": the state at the start, for reset
+    _st.update(d => { let n = if inherit { d } else { (:) }; n.insert("^", d); n.insert("^0", n); n })
+    _cf.update(c => c + ("#blocks": _blocks(c) + 1))
+    _rules(b, reset)
+    _block-note
+    _cf.update(c => c + ("#blocks": _blocks(c) - 1))
+    _st.update(d => d.at("^"))
+  }
+  if lc.len() == 0 { out } else {
+    _cf.update(c => c + lc + ("^": c))
+    out
+    _cf.update(c => c.at("^"))
+  }
 }

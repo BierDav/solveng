@@ -1,8 +1,12 @@
 #import "/lib.typ": *
 #set page(width: 13cm, height: auto, margin: 0.6cm)
-#def("Q0 = 3450 mAh", "I = 30 mA", "U = 5 V")
-#defined()
-#solve("Q0/2 = I t", unit: "h")
-#solve("R <= U/I")
-#solve("x^2 + 2x - 3 = 0")
-Runtime: #solve("Q0/I", unit: "h", inline: true, steps: "value")
+#show: worksheet
+$Q_0 := 3450 mAh$, $I := 30 mA$, $U := 5 V$
+
+$Q_0/2 = I t -> solve(t)$ and $t = h$
+
+$R <= U/I -> solve(R)$
+
+$x^2 + 2x - 3 = 0 -> solve(x)$
+
+Runtime: $Q_0/I = h$

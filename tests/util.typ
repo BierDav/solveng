@@ -15,6 +15,8 @@
 /// Fuzzer categories: `parse` (quantities and math content), `solve1` (random nonlinear equations), `poly`, `system`, `units` (physics formulas with random prefixes), `edge` (hostile inputs must be refused or solved right), `edge-doc` (the same inputs must never stop the compilation), `format`, `ratio`, `display` (random options must never crash). `--typst …` (fuzzer) and `TYPST=…` (examples) pick another compiler, e.g. the oldest supported version.
 
 #import "/lib.typ": *
+// the string API behind code lines; solves, since solve is the keyword
+#import "/src/api.typ": def, solve as solves
 #import "/src/lambdify.typ": _st, _math-src, _DEF, _U
 
 // the value of x is v (in SI), optionally stored with unit u
