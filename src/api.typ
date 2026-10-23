@@ -4,24 +4,30 @@
 // what the engine defined so far, for defined(), editors and the tests
 #let _rows(s, cf) = if _env(s).len() == 0 { () } else { _call(_p.defined, _env(s), (cfg: _req-cfg(cf))) }
 
+// what went wrong, for editors to show at the source: the element it's in (none for equations and code passed to
+// worksheet, which have no place of their own) and the statement solveng read there, for code its line
+#let _err-notes(loc, errors, source) = errors.map(m => [#metadata((kind: "error", element: loc, message: m, source: source))<solveng>]).join()
+
 // a math equation in a worksheet: := defines (≔ in math), a trailing = shows the value (in the unit and form its
 // clause gives, $t = 1 h, digits(3)$), -> the symbolic result or, with solve(x), solves for x; any other = states
-// something. Equations that aren't formulas are left alone. quiet: only problems are shown (prose stays).
-#let _math-def(it, quiet: false) = context {
+// something. Equations that aren't formulas are left alone. quiet: only problems are shown (prose stays). loc: the
+// equation in the document, for the errors' notes; auto is its own.
+#let _math-def(it, quiet: false, loc: auto) = context {
   if _busy.get() > 0 or _reshown(it) or _own(it) { return it }
+  let loc = if loc == auto { it.location() } else { loc }
   let children = if it.body.has("children") { it.body.children } else { (it.body,) }
   if children.any(c => c.func() == linebreak) {
     let groups = ((),)
     for c in children {
       if c.func() == linebreak { groups.push(()) } else { groups.last().push(c) }
     }
-    return groups.map(g => _math-def(math.equation(g.join(), block: it.block), quiet: quiet)).join()
+    return groups.map(g => _math-def(math.equation(g.join(), block: it.block), quiet: quiet, loc: loc)).join()
   }
   let cf = _cf.get() + (block: it.block)
   let src = _src(it.body)
   if _E(src) or src.trim() == "" { return it }
   _calc(src, "math", cf, out => {
-    let errs = out.errors.map(e => _errc(e, cf, wide: it.block)).join()
+    let errs = out.errors.map(e => _errc(e, cf, wide: it.block)).join() + _err-notes(loc, out.errors, "")
     if out.prose { return _with-body(it, _restyle(it.body, (), cf)) + errs }
     if quiet { return errs }
     let shown = if out.mark == none { _restyle(it.body, out.letters, cf) } else {
@@ -35,13 +41,14 @@
 
 // one line of a code block, read like math: x := … defines, a trailing = shows a value, -> the formula or solves
 // (-> solve(x)); units in brackets or after numbers, ';' separates a system, // starts a comment
-#let _line(s, block, quiet: false) = {
+// (loc: the raw element in the document, for the errors' notes)
+#let _line(s, block, quiet: false, loc: none) = {
   let s = s.split("//").first().trim()
   if s == "" { return none }
   context {
     let cf = _cf.get() + (block: block)
     _calc(s, "code", cf, out => {
-      let errs = out.errors.map(e => _errc(e + " – in '" + s + "'", cf, wide: block)).join()
+      let errs = out.errors.map(e => _errc(e + " – in '" + s + "'", cf, wide: block)).join() + _err-notes(loc, out.errors, s)
       if quiet or out.show == none { return errs }
       _eqn(_m(out.show, cf), cf) + errs
     })
@@ -50,7 +57,8 @@
 
 // ---------- what editors read ----------
 // Typewright and other editors query <solveng> metadata after compiling: per element worksheet saw (by its
-// location, which maps back to the source) whether it was calculated, per block what it defined, with values.
+// location, which maps back to the source) whether it was calculated, per block what it defined, with values, and
+// per problem (kind: "error") its message, element and statement, see _err-notes.
 #let _block-note = context {
   let cf = _cf.get()
   let units = cf.units.pairs().filter(((k, v)) => v != none).map(((k, v)) => (name: k, value: if v == auto { "auto" } else if type(v) in (str, int, float) { str(v) } else { "" }))
@@ -74,7 +82,7 @@
   // raw text is set smaller, monospaced and in English; definitions use the surrounding text and language
   let (size, font, lang, region) = (text.size, text.font, text.lang, text.region)
   show raw.where(lang: "solveng", block: true): it => context {
-    _noted(it, "code", true, _cf.get(), text(size: size, font: font, lang: lang, region: region, _call(_p.statements, it.text, "code").map(l => _line(l, true, quiet: hidden)).filter(x => x != none).join()))
+    _noted(it, "code", true, _cf.get(), text(size: size, font: font, lang: lang, region: region, _call(_p.statements, it.text, "code").map(l => _line(l, true, quiet: hidden, loc: it.location())).filter(x => x != none).join()))
   }
   show std.math.equation: it => context {
     if _busy.get() > 0 or _reshown(it) or _own(it) { return it }
@@ -107,7 +115,7 @@
 /// - `=` at the end shows the value, with a bold =: `$t =$` → t **=** 115 h, `$t := Q_0/I =$` defines and shows it. What follows it is the unit and keywords: `$t = 1 h$`, `$t = min, digits(2)$`.
 /// - `->` at the end shows the symbolic result, the known values put in, exactly: `$f := (x^2 - 1)/(x - 1) -> simplify$`. With `solve(x)` it solves an equation for x (and defines it when the solution is a value): `$Q_0/2 = I t -> solve(t)$`, `$x^2 - 4 = 0 -> solve(x)$`, `$x + y = 3, x - y = 1 -> solve(x, y)$`, `$R <= U/I -> solve(R)$`.
 ///
-/// Keywords: `solve(x, …)`, `laplace`, `invlaplace` (optional input and output names), `simplify`, `frac` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
+/// Keywords: `solve(x, …)`, `substitute(x, …)` (these variables' formulas put in, other names kept), `laplace`, `invlaplace` (optional input and output names), `simplify`, `frac` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
 ///
 /// **Units** are names: `$30 mA$`, `$4.7 kΩ$`, `$9.81 m/s^2$`, and `unit("bar")` for units without one (your own, from `worksheet-config(units: …)`). A single letter is a unit only right after a number: `$5 V$`, `$3 h$`, and `$t = 1 h$` shows t in hours. Anywhere else it's a variable, also alone after `=`: `$t = h$` compares t with a variable h, and `$3 dot h$` is 3 times h.
 ///
@@ -169,7 +177,7 @@
 /// $U =$ // still 12 V
 /// ```
 ///
-/// **Editors.** Each equation and code block the worksheet sees leaves a `metadata` labelled `<solveng>` with its `location()`, whether it was calculated and whether math is evaluated there; at the end (and before each match of `clear-at`) one lists everything defined, with values, and the units. Editors like Typewright read them after compiling: `query(<solveng>)`.
+/// **Editors.** Each equation and code block the worksheet sees leaves a `metadata` labelled `<solveng>` with its `location()`, whether it was calculated and whether math is evaluated there; each problem one with `kind: "error"`, its `message`, the `element` it's in (`none` for equations and code passed to `worksheet`) and the `source` statement (a code line; empty for math); at the end (and before each match of `clear-at`) one lists everything defined, with values, and the units. Editors like Typewright read them after compiling: `query(<solveng>)`.
 ///
 /// **Starting over.** `clear-at` clears every definition at each match; `#clear(all: true)` inside a worksheet does the same once: back to how it started (with `inherit: true` the outer definitions stay), and `#clear("x", "f")` forgets only those names. After a `#worksheet[…]` the outer definitions come back; with `export: true`, its final definitions are merged over them.
 ///

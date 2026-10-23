@@ -44,7 +44,32 @@ fn subscript_at(text: &[char], start: usize, end: usize) -> Option<usize> {
     None
 }
 
-/// The tokens of a clause, `start..end` after its marker: keywords, the names `solve` takes, units.
+/// Where a name in math that's called ends, with its subscripts (`m_2(`, `R_"load"(`, `x_(a b)(`): just before the
+/// `(`; None when the whole name has no subscript or isn't called, which the name's own token tells.
+fn called_subscripted(math: &[char], start: usize) -> Option<usize> {
+    let mut j = name_end(math, start);
+    // a name's scan takes the _ of a grouped subscript, v_(a b)
+    if j > start && math[j - 1] == '_' { j -= 1; }
+    while math.get(j) == Some(&'_') {
+        j = match math.get(j + 1) {
+            Some('(') => {
+                let mut depth = 0;
+                let close = (j + 1..math.len()).find(|&k| {
+                    depth += match math[k] { '(' => 1, ')' => -1, _ => 0 };
+                    depth == 0
+                })?;
+                close + 1
+            }
+            Some('"') => solveng_names::quoted(math, j + 1).ok()?.1,
+            Some(&c) if is_letter_or_digit(c) => name_end(math, j + 1),
+            _ => return None,
+        };
+    }
+    let subscripted = sub(math, start, j).contains('_');
+    (subscripted && math.get(j) == Some(&'(')).then_some(j)
+}
+
+/// The tokens of a clause, `start..end` after its marker: keywords, the names `solve` and `substitute` take, units.
 fn clause_tokens(text: &[char], start: usize, end: usize, unit: &dyn Fn(&str) -> bool) -> Vec<Tok> {
     let mut out = Vec::new();
     let (mut i, mut solve, mut in_solve) = (start, false, false);
@@ -60,7 +85,7 @@ fn clause_tokens(text: &[char], start: usize, end: usize, unit: &dyn Fn(&str) ->
             let word = sub(text, i, j);
             let call = text[j..end].iter().find(|ch| !ch.is_whitespace()) == Some(&'(');
             let kind = if crate::clause::is_keyword(&word) {
-                solve = word == "solve";
+                solve = crate::clause::NAMES.contains(&word.as_str());
                 K::KEYWORD
             } else if in_solve {
                 K::VARIABLE
@@ -180,14 +205,6 @@ fn tokens_of(code: &[char], unit: &dyn Fn(&str) -> bool, values: bool) -> Vec<To
                 (typed, in_bracket) = (false, false);
             }
             i = end;
-        } else if c == '@' && i + 1 < n && solveng_names::is_start(code[i + 1]) {
-            let mut j = i + 1;
-            while j < n && name_part(code[j]) {
-                j += 1;
-            }
-            emit(i, j, K::ANNOTATION);
-            unit_mode = false;
-            i = j;
         } else if solveng_names::numeric_start(code, i) {
             let end = name_end(code, i);
             let call = code[end..].iter().find(|c| !c.is_whitespace()) == Some(&'(');
@@ -354,6 +371,13 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok
             }
             unit_mode = false;
             i = j;
+        } else if let Some(end) = called_subscripted(math, i).filter(|_| !sub_ && (c == '"' || solveng_names::is_start(c))) {
+            // a function with a subscript, called: m_2(x), R_"load"(t), as one name
+            let word = crate::resolved_name(&sub(math, i, end));
+            let operator = MATH_OPERATORS.iter().any(|o| word.split('_').next() == Some(*o));
+            emit(i, end, if operator { K::OPERATOR } else { K::FUNCTION });
+            unit_mode = false;
+            i = end;
         } else if c == '"' {
             let end = name_end(math, i);
             let end = subscript_at(math, i, end).unwrap_or(end);
@@ -434,25 +458,6 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok
             if !exponent && !sub_ {
                 unit_mode = true;
             }
-            i = j;
-        } else if c == '@' && i + 1 < n && is_letter(math[i + 1]) {
-            // An inlined formula, with its subscript: @x, @Q_0, @t_"half".
-            let mut j = i + 1;
-            while j < n && is_letter_or_digit(math[j]) {
-                j += 1;
-            }
-            if j + 1 < n && math[j] == '_' {
-                j += 1;
-                if math[j] == '"' {
-                    j = (j + 1..n).find(|&k| math[k] == '"').map_or(n, |k| k + 1);
-                } else {
-                    while j < n && is_letter_or_digit(math[j]) {
-                        j += 1;
-                    }
-                }
-            }
-            emit(i, j, K::ANNOTATION);
-            unit_mode = false;
             i = j;
         } else if solveng_names::is_start(c) {
             let mut j = name_end(math, i);

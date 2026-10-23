@@ -10,10 +10,11 @@
 
 #import "src/api.typ": worksheet
 #import "src/core.typ": clear, worksheet-config
-#import "src/keywords.typ": solve, simplify, digits, sci, eng
+#import "src/keywords.typ": solve, substitute, simplify, digits, sci, eng
 #import "src/defined.typ": defined
 #import "src/graph.typ": graph
 #import "src/lambdify.typ": lambdify
+#import "src/value.typ": value
 // units as names, unquoted in math: $4 mA$, and unit("…") for any other
 #import "src/unit-words.typ": *
 

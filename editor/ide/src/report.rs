@@ -14,6 +14,27 @@ pub struct Report {
     pub defined: Vec<ReportValue>,
     /// The units `worksheet-config(units: …)` set.
     pub units: Vec<ReportValue>,
+    /// What went wrong calculating, where: the problems a `worksheet` shows in the document as red notes.
+    pub errors: Vec<ReportError>,
+}
+
+/// A problem solveng showed in the document, from its `kind: "error"` metadata: the message and where it is.
+/// Bridges fill `path`, `start`, `end` and `text` from the metadata's `element` as for [`ReportElement`]; equations
+/// and code passed to `worksheet` have none, so those stay empty and `source` alone finds the statement.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ReportError {
+    /// The file, relative to the root as typst names it; empty without an element.
+    pub path: String,
+    /// The element's UTF-16 range in the file when compiled, and its source there.
+    pub start: usize,
+    pub end: usize,
+    pub text: String,
+    /// The statement solveng read: a line of code (`x := R + U =`), empty for math, where the element is the
+    /// statement.
+    pub source: String,
+    /// `adding different units: Ω and V`, without the `solveng:` the document shows before it.
+    pub message: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -45,7 +66,8 @@ pub struct ReportValue {
     pub name: String,
     /// `given`, `computed` or `function` for definitions.
     pub kind: String,
-    /// `30 mA`; for functions `(x) = x^2 + 1`.
+    /// `30 mA`; for functions `(x) = x^2 + 1`, with what they return when every parameter has a unit:
+    /// `(x: Ω): Ω = x`.
     pub value: String,
 }
 

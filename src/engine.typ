@@ -8,7 +8,7 @@
 /// - **`:=` defines**, symbolically. Names defined by then are put in right away, names that aren't stay names until they are: `$h := 5 z$` works before `z` is defined, and after `$z := 20 cm$`, `$h =$` shows 1 m. What's put in is the value at that point – defining a name again later changes what comes after, not what came before.
 /// - **`=` inside an expression compares**, as Mathcad's bold =: `$M := 1 = 2 =$` gives 0, `$M := 2 A = 2000 mA$` gives 1. Values of different units are never equal (`1 A = 2 V` is 0, `1 A != 2 V` is 1); `<`, `<=`, `>`, `>=` and `!=` compare too, chains like `$0 < x <= 1$` hold when every step does.
 /// - **A trailing `=` shows the value**, numerically, with a bold =. After it come a unit and keywords: `$t = 1 h, digits(3)$`. Every name in it must have a value by then.
-/// - **A trailing `->` shows the symbolic result**: defined values put in, exactly (fractions, roots and π stay), undefined names kept: `$x + 3/3 y -> simplify$` is x + y. With `solve(x)` it solves – symbolically when it can (`$0 = 1 + 3/x + y^2 -> solve(x)$` is x = −3/(y² + 1)), numerically when every other name has a value – and defines x when the solution is a value.
+/// - **A trailing `->` shows the symbolic result**: defined values put in, exactly (fractions, roots and π stay), undefined names kept: `$x + 3/3 y -> simplify$` is x + y. With `solve(x)` it solves – symbolically when it can (`$0 = 1 + 3/x + y^2 -> solve(x)$` is x = −3/(y² + 1)), numerically when every other name has a value – and defines x when the solution is a value. `substitute(U, …)` shows the result with these variables' formulas put in and every other name kept: after `$U := R I$`, `$P := U^2/R -> substitute(U)$` is I² R.
 /// - **Any other `=`** states something: it's checked when everything in it has a value (`$U = R I$`), and left alone as prose when not (`$E = m c^2$`).
 ///
 /// **Functions** are defined the same way: `$f(x) := x^2 + 1$`. Their body is symbolic too, so a function needn't define everything it uses: names that aren't parameters and aren't defined stay names, looked up when the function is evaluated, and cancel where the algebra lets them (`$U(x: m) := h x a$`, then `$g(x: m) := U(x)/a ->$` is `1 m · x` without any `a`). Undefined function calls stay symbolic too: `$f(t) := integral_(-infinity)^t sigma(tau) dif tau$` is valid before `sigma` is defined; numerical evaluation requires its definition and convergence. A parameter can have a unit, `f(I: mA)`: plain numbers passed to it get the unit (`f(2)` is `f(2 mA)`), values must have its dimension; `any` takes every unit. `..` makes the body's other undefined names parameters, in the order they appear: `$P(..) := U^2/R$` is `P(U, R)`. A parameter passed on to one with a unit takes that unit: with `$q(x: A) := 2 x$`, `$f(y) := q(y)$` makes y an A.
@@ -33,7 +33,7 @@
 /// ```solveng
 /// R2 := 2 R; Z := [5 V] / I            // code: units in brackets inside an equation
 /// U2 := R [1 mA]
-/// Q := @U2 [2 s]                       // @U2 inlines its formula: Q = R [1 mA] [2 s]
+/// Q := U2 [2 s] -> substitute(U2)     // U2's formula put in: Q ≔ U2 · 2 s → 1/500 C · R
 /// ```
 /// ````
 ///

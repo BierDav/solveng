@@ -240,7 +240,6 @@ impl R<'_> {
             }
             Ast::Unit(u) => (unit(u, self.units, self.cfg), P_ATOM),
             Ast::Name(n) => sub(n).unwrap_or_else(|| (name(n), P_ATOM)),
-            Ast::Inline(n) => (name(n), P_ATOM),
             Ast::Neg(x) => (format!("-{}", wrap(self.ast(x, sub), P_PROD)), P_NEG),
             Ast::Add(ts) => {
                 let mut s = String::new();

@@ -9,7 +9,7 @@
 ///
 /// ## HTML
 ///
-/// With `typst compile --features html --format html`, equations become MathML, `defined` columns that reflow with the width (or a table with `style: "column"`), graphs inline SVGs (via `html.frame`) that shrink with the page, errors styled notes. One small stylesheet is added to the page (math font STIX Two Math / Cambria Math / Latin Modern Math, spacing, table stripes; classes `solveng`, `solveng-defs`, `solveng-list`, `solveng-plot`, `solveng-error`). HTML export is experimental in Typst; in column layout browsers drop the space after a leading `=`.
+/// With `typst compile --features html --format html`, equations become MathML, `defined` columns that reflow with the width (or a table with `style: "column"`), graphs inline SVGs (via `html.frame`) that shrink with the page, errors styled notes. One small stylesheet is added to the page (math font STIX Two Math / Cambria Math / Latin Modern Math, spacing, table stripes; classes `solveng`, `solveng-defs`, `solveng-list`, `solveng-plot`, `solveng-error`; casts and types are `solveng-chip` with `solveng-cast` or `solveng-type`, coloured inline). HTML export is experimental in Typst; in column layout browsers drop the space after a leading `=`.
 
 #import "config.typ": *
 
@@ -19,11 +19,17 @@
   cast: (fill: rgb("#fde7a8"), mark: rgb("#c2780a"), ink: rgb("#713f12")),
   type: (fill: rgb("#cdeafb"), mark: rgb("#2b8ac4"), ink: rgb("#0c4a6e")),
 )
+// (in HTML MathML has no boxes and drops text colours: an <mrow> styled inline, so chips: still sets them)
 #let _chip(kind, mark, u, cf) = {
   let ch = cf.at("chips", default: auto)
   if type(ch) == function { return ch(kind, mark, u) }
   let c = _CHIPS.at(kind) + if type(ch) == dictionary { ch.at(kind, default: (:)) } else { (:) }
-  box(fill: c.fill, radius: 0.3em, inset: (x: 0.28em, y: 0.16em), baseline: 0.1em, text(size: 0.7em, fill: c.ink, $#text(fill: c.mark, mark) thin #u$))
+  context if _target() == "html" {
+    let style = "background-color: " + c.fill.to-hex() + "; color: " + c.ink.to-hex() + "; border-radius: 0.3em; padding: 0.16em 0.28em; font-size: 0.7em"
+    html.elem("mrow", attrs: (class: "solveng-chip solveng-" + kind, style: style), html.elem("mrow", attrs: (style: "color: " + c.mark.to-hex()), mark) + h(0.1667em) + u)
+  } else {
+    box(fill: c.fill, radius: 0.3em, inset: (x: 0.28em, y: 0.16em), baseline: 0.1em, text(size: 0.7em, fill: c.ink, $#text(fill: c.mark, mark) thin #u$))
+  }
 }
 
 // HTML: one stylesheet per document (browsers set math fonts on <math> itself, so inline styles can't reach it)

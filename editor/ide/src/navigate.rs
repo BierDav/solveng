@@ -16,7 +16,7 @@ struct Name {
     end: usize,
 }
 
-/// Names in solveng code: variables, functions other than the built-in ones, and `@`-inlined formulas.
+/// Names in solveng code: variables and functions other than the built-in ones.
 fn code_names(doc: &Doc, base: usize, toks: Vec<Tok>, out: &mut Vec<Name>) {
     for (s, l, kind) in toks {
         let (start, end) = (base + s, base + s + l);
@@ -26,7 +26,6 @@ fn code_names(doc: &Doc, base: usize, toks: Vec<Tok>, out: &mut Vec<Name>) {
         match kind {
             K::VARIABLE => out.push(Name { key: crate::resolved_name(&text), start, end }),
             K::FUNCTION if !FUNCTIONS.contains(&text.as_str()) => out.push(Name { key: crate::resolved_name(&text), start, end }),
-            K::ANNOTATION if text.starts_with('@') => out.push(Name { key: crate::resolved_name(&text[1..]), start: start + 1, end }),
             _ => {}
         }
     }
@@ -40,11 +39,6 @@ fn math_names(doc: &Doc, base: usize, toks: Vec<Tok>, out: &mut Vec<Name>) {
         let (s, l, kind) = toks[i];
         let (start, mut end) = (base + s, base + s + l);
         i += 1;
-        if kind == K::ANNOTATION {
-            let key = crate::resolved_name(&doc.sub(start + 1, end).replace('"', ""));
-            out.push(Name { key, start: start + 1, end });
-            continue;
-        }
         // A subscript on its own is part of a name before it.
         if !matches!(kind, K::VARIABLE | K::FUNCTION) || (start > 0 && c[start - 1] == '_') {
             continue;

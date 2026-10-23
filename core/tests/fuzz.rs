@@ -275,3 +275,36 @@ fn fuzz_hostile() {
         let _: Option<Expr> = None;
     }
 }
+
+/// A function's return unit, inferred from its parameters' units and reported by defined(), is the unit of what
+/// its calls give.
+#[test]
+fn return_units_match_the_calls() {
+    use solveng_core::api::{DefinedReq, defined};
+    let mut r = Rng::new(11);
+    let units = ["V", "A", "Ω", "s", "m", "kg", "W", "mA", "kΩ", "Hz"];
+    for _ in 0..n() {
+        let mut env = Env::default();
+        let (u, w, c) = (*r.pick(&units), *r.pick(&units), *r.pick(&units));
+        let (a, b) = (r.int(-2, 2), r.int(-2, 2));
+        let term = format!("x^({a}) y^({b})");
+        let body = match r.int(0, 3) {
+            0 => format!("3 * {term}"),
+            1 => format!("[2 {c}] * {term}"),
+            2 => format!("{term} + 2 {term} / [5 {c}] * [1 {c}]"),
+            _ => format!("sqrt(x^({}) y^({}))", 2 * a, 2 * b),
+        };
+        let src = format!("f(x: {u}, y: {w}) := {body}");
+        let out = run(&mut env, &src);
+        assert!(out.errors.is_empty(), "{src}: {:?}", out.errors);
+        let ret = env.funs["f"].ret.unwrap_or_else(|| panic!("{src}: no return unit"));
+        let call = format!("v := f([2 {u}], [3 {w}])");
+        let out = run(&mut env, &call);
+        assert!(out.errors.is_empty(), "{call}: {:?}", out.errors);
+        let v = value(&env.bind(&env.vars["v"].expr, &Default::default()).unwrap()).unwrap();
+        assert_eq!(ret, v.d, "{src}; {call}");
+        let rows = defined(&env, &DefinedReq { cfg: Cfg::default() }).unwrap();
+        let plain = &rows.iter().find(|row| row.name == "f").unwrap().plain;
+        assert!(plain.starts_with(&format!("(x: {u}, y: {w}): ")), "{src}: {plain}");
+    }
+}

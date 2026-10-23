@@ -140,6 +140,18 @@ v_c := 4 m / t_c
   assert(r.any(x => x.kind == "math" and x.active and type(x.element) == location))
   assert(r.any(x => x.kind == "block" and x.defined.any(d => d.name == "k" and d.value == "2 V")))
 }
+// and what went wrong: per problem its message, element (none passed to worksheet) and statement
+#worksheet[$e_1 := 2 V + 1 s =$
+```solveng
+e_2 := 2 [V] + 1 [s] =
+```]
+#worksheet("e_3 := e_4 + 1 =")
+#context {
+  let r = query(<solveng>).map(it => it.value).filter(x => x.kind == "error")
+  assert(r.any(x => type(x.element) == location and x.source == "" and x.message.contains("units")), message: "math error reported")
+  assert(r.any(x => type(x.element) == location and x.source == "e_2 := 2 [V] + 1 [s] ="), message: "code error reported")
+  assert(r.any(x => x.element == none and x.source == "e_3 := e_4 + 1 ="), message: "call error reported")
+}
 // only the innermost worksheet reads an element
 #worksheet[
   #worksheet[$h := 3$ #expect("h", 3)]
@@ -222,4 +234,23 @@ v_c := 4 m / t_c
   #graph($c_g(c_g) := C_g(c_g)$) #passes()
   $v_c := c_g(1)$ #expect("v_c", 20)
   #graph("w_g(t) = X_g(t)") #undefined("w_g")
+]
+
+// value: a result alone, from code or math, which defines nothing
+#worksheet[
+  $U_v := 5 V$, $f_v(x) := 2 x$
+  #context {
+    let w(x) = measure(value(x)).width
+    assert(w("U_v") > 0pt, message: "value shown")
+    assert.eq(w("U_v"), w($U_v$), message: "value from code and math")
+    assert.eq(w("f_v(2)"), w($f_v(2)$), message: "a call's value from code and math")
+    assert(w("U_v = mV") > w("U_v"), message: "value in another unit")
+  }
+  #value("z_v := 2") #undefined("z_v")
+  #value("q_v + 1")
+  #context {
+    let r = query(<solveng>).map(it => it.value).filter(x => x.kind == "error")
+    assert(r.any(x => x.element == none and x.source == "q_v + 1" and x.message.contains("q_v")), message: "value error reported")
+    assert(not r.any(x => x.source in ("U_v", "f_v(2)")), message: "value reported an error")
+  }
 ]

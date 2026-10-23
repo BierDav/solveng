@@ -82,6 +82,17 @@ pub fn lambdify(env: &[u8], req: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
+/// (env, request) → (value: the result's markup) or (err: …); the env stays as it is.
+#[wasm_func]
+pub fn value(env: &[u8], req: &[u8]) -> Result<Vec<u8>, String> {
+    let e = env_of(env)?;
+    let r: LineReq = de(req, "request")?;
+    en(&Value::Map(vec![match api::show_value(&e, &r) {
+        Ok(m) => (Value::Text("value".into()), Value::Text(m)),
+        Err(m) => (Value::Text("err".into()), Value::Text(m)),
+    }]))
+}
+
 /// (prepared, args) → the value, none where undefined, or (err: …).
 #[wasm_func]
 pub fn lam_eval(lam: &[u8], args: &[u8]) -> Result<Vec<u8>, String> {

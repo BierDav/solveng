@@ -185,13 +185,38 @@ fn resolves_spelled_greek_names() {
 }
 
 #[test]
-fn highlights_inlined_formulas_in_math() {
-    let doc = "#show: worksheet\n$x := y$\n$z := @x$\n$w := @Q_0 + 1$";
+fn value_reads_its_string_as_a_calculation() {
+    let doc = "#show: worksheet\n$U_2 := 5 V$\nIt is #value(\"U_2 / 2 = mV\").";
+    let at = u16len(&doc[..doc.rfind("U_2").unwrap()]);
+    assert_eq!(definition(doc, &Context::default(), at).unwrap().start, u16len(&doc[..doc.find("U_2").unwrap()]));
+    assert_eq!(rename(doc, &Context::default(), at, "U_3").len(), 2);
     let tokens = found(doc);
-    assert!(tokens.contains(&"@x:7".to_string()), "{tokens:?}");
-    assert!(tokens.contains(&"@Q_0:7".to_string()), "{tokens:?}");
-    let at = u16len(&doc[..doc.find("@x").unwrap()]) + 1;
-    assert_eq!(usages(doc, &Context::default(), at).len(), 2);
+    assert!(tokens.contains(&"mV:9".to_string()), "{tokens:?}");
+    assert!(labels("#show: worksheet\n$U_2 := 5 V$\n#value(\"U|\")").contains(&"U_2".to_string()));
+}
+
+#[test]
+fn substitute_takes_names_of_the_worksheet() {
+    // highlighted as names, also where a name is spelled like a unit
+    let doc = "#show: worksheet\n$V := 2 m^3$\n$Q_0 := V a$\n$w := Q_0 + 1 -> substitute(Q_0, V)$";
+    let tokens = found(doc);
+    assert!(tokens.contains(&"substitute:0".to_string()), "{tokens:?}");
+    assert_eq!(tokens.iter().filter(|t| *t == "V:6").count(), 3, "{tokens:?}");
+    // its names are uses: definition, usages and rename reach them, in math and code
+    let at = u16len(&doc[..doc.rfind("Q_0").unwrap()]);
+    assert_eq!(definition(doc, &Context::default(), at).unwrap().start, u16len(&doc[..doc.find("Q_0").unwrap()]));
+    assert_eq!(usages(doc, &Context::default(), at).len(), 3);
+    let edits = rename(doc, &Context::default(), at, "Q_1");
+    assert_eq!(edits.len(), 3, "{edits:?}");
+    let doc = "```solveng\nk := a b\nz := k c -> substitute(k)\n```\n";
+    let at = u16len(&doc[..doc.rfind('k').unwrap()]);
+    assert_eq!(usages(doc, &Context::default(), at).len(), 3);
+    assert_eq!(rename(doc, &Context::default(), at, "m").len(), 3);
+    // it completes as a keyword, and the defined names inside its parentheses
+    let doc = "```solveng\nk := a b\nz := k c -> subst|";
+    assert!(labels(doc).contains(&"substitute".to_string()), "{:?}", labels(doc));
+    let doc = "```solveng\nk := a b\nz := k c -> substitute(|";
+    assert!(labels(doc).contains(&"k".to_string()), "{:?}", labels(doc));
 }
 
 #[test]
@@ -237,9 +262,9 @@ fn completes_units_after_a_colon() {
     only_units("```solveng\nf(x, y: |) := x\n```");
     only_units("#worksheet(\"f(I: |) := I\")");
     let math = only_units("$ q(x: |) := x $");
-    // Math quotes what's longer than a letter (without solveng's names); Ω is found typing Omega.
+    // Math quotes what's longer than a letter (without solveng's names); Ω is found typing Omega or its name.
     let k = math.iter().find(|i| i.label == "kΩ").unwrap();
-    assert_eq!((k.insert.as_str(), k.filter.as_deref()), ("\"kΩ\"", Some("kOmega")));
+    assert_eq!((k.insert.as_str(), k.filter.as_deref()), ("\"kΩ\"", Some("kΩ kOmega kiloohm")));
     assert_eq!(math.iter().find(|i| i.label == "A").unwrap().insert, "A");
     assert!(math.iter().any(|i| i.label == "über" && i.insert == "\"über\""));
     // Variables and what a function returns take no type.
@@ -396,3 +421,44 @@ fn assignments_statements_and_results() {
 }
 
 
+
+/// Whether an editor filtering by substring, as Typewright and VS Code do, keeps a unit for what's typed.
+fn offers_unit(doc: &str, typed: &str, label: &str) -> bool {
+    let c = complete_at(doc, &Context::default()).unwrap();
+    c.items.iter().any(|i| i.kind == ItemKind::UNIT && i.label == label && i.filter.as_deref().unwrap_or(&i.label).to_lowercase().contains(&typed.to_lowercase()))
+}
+
+#[test]
+fn finds_units_by_their_names() {
+    // typing a unit's name finds it, also where its symbol shares no letter with it: ohm is Ω
+    for (doc, typed, label) in [
+        ("#show: worksheet\n$R := 5 ohm|$", "ohm", "Ω"),
+        ("#show: worksheet\n$R := 5 o|$", "o", "Ω"),
+        ("#show: worksheet\n$R := 5 kiloohm|$", "kiloohm", "kΩ"),
+        ("#show: worksheet\n$R := 5 Omega|$", "Omega", "Ω"),
+        ("#show: worksheet\n$q(x: ohm|) := x$", "ohm", "Ω"),
+        ("```solveng\nR := 5 ohm|\n```", "ohm", "Ω"),
+        ("```solveng\nU := 5 volt|\n```", "volt", "V"),
+        ("#worksheet(\"P := 2 watt|\")", "watt", "W"),
+        ("```solveng\nT := 20 Celsius|\n```", "Celsius", "°C"),
+    ] {
+        assert!(offers_unit(doc, typed, label), "{label} for {typed} in {doc}");
+    }
+}
+
+#[test]
+fn colours_called_subscripted_names_as_functions() {
+    // m() and m_2() are both functions, defined and called, whatever their subscript
+    let kinds = |doc: &str, name: &str| -> Vec<u8> {
+        document_tokens(doc, &Context::default()).iter().filter(|t| slice(doc, t.start, t.length) == name).map(|t| t.kind).collect()
+    };
+    let doc = "#show: worksheet\n$m() := 2$\n$m_2() := 3$\n$R_\"load\"(x) := x$\n$v_(a b)(t) := t$\n$a := m() + m_2() + R_\"load\"(2) + v_(a b)(1)$";
+    assert_eq!(kinds(doc, "m"), vec![TokenKind::FUNCTION; 2]);
+    for name in ["m_2", "R_\"load\"", "v_(a b)"] {
+        assert_eq!(kinds(doc, name), vec![TokenKind::FUNCTION; 2], "{name} in {:?}", found(doc));
+    }
+    // a subscripted variable, a sum and an integral stay as they were
+    let doc = "#show: worksheet\n$x_1 := 2$\n$y := x_1 (3)$\n$s := sum_(k=0)^10 k$\n$i := integral_0^1 x dif x$";
+    assert!(kinds(doc, "x_1").is_empty() && kinds(doc, "x").contains(&TokenKind::VARIABLE));
+    assert_eq!(kinds(doc, "sum"), vec![TokenKind::OPERATOR]);
+}

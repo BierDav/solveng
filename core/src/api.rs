@@ -35,6 +35,33 @@ pub fn line(env: &mut Env, req: &LineReq) -> Out {
     }
 }
 
+/// `#value("…")`: the result of an expression alone, as markup, against the worksheet so far, which it leaves as
+/// it is. An expression is shown like `… =` (a clause of its own picks the unit or form: `"t = min"`), a
+/// function's name alone like its body. Nothing can be defined here.
+pub fn show_value(env: &Env, req: &LineReq) -> Result<String, String> {
+    let src = req.src.trim();
+    let chars: Vec<char> = src.chars().collect();
+    if let Ok(Some(n)) = solveng_names::scan(&chars, 0)
+        && n.end == chars.len()
+        && let Some(f) = env.funs.get(&n.value)
+    {
+        let units = Units::build(&req.cfg.units)?;
+        return Ok(R { units: &units, cfg: &req.cfg, exact: true, sub: None }.expr(&f.body).0);
+    }
+    let run = |src: &str| line(&mut env.clone(), &LineReq { src: src.into(), listed: false, ..req.clone() });
+    // as written when it shows a result (t = min, x ->), else its value
+    let written = run(src);
+    let out = if written.mark.is_some() || !written.defined.is_empty() { written } else { run(&format!("{src} =")) };
+    if !out.defined.is_empty() {
+        let n = &out.defined[0];
+        return Err(format!("nothing can be defined here – define {n} in the worksheet with :=, then #value(\"{n}\") shows it"));
+    }
+    if let Some(e) = out.errors.into_iter().next() {
+        return Err(e);
+    }
+    out.result.ok_or_else(|| "this has no value to show – an expression like \"U / 2\" or \"f(2)\"".to_string())
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DefinedReq {
     pub cfg: Cfg,
@@ -52,7 +79,8 @@ pub struct Row {
     pub values: Vec<String>,
     /// "=" or the relation of an inequality's boundary.
     pub rel: String,
-    /// The value in plain text: "2.988 V", "(x: A) = x [2 Ω]".
+    /// The value in plain text: "2.988 V", "(x: A): V = x [2 Ω]" (a function's return unit when its parameters
+    /// have units).
     pub plain: String,
     /// The value in SI units and the unit it's shown in, when it has a value.
     pub si: Option<f64>,
@@ -83,7 +111,11 @@ pub fn defined(env: &Env, req: &DefinedReq) -> Result<Vec<Row>, String> {
                 lhs: format!("{}({})", format::name(&e.name), ps.join(", ")),
                 values: vec![r.expr(&f.body).0],
                 rel: "=".into(),
-                plain: format!("({}) = {}", ptext.join(", "), f.src),
+                // what it returns, when every parameter has a unit: (x: Ω): A = x/R
+                plain: match f.ret {
+                    Some(d) => format!("({}): {} = {}", ptext.join(", "), if d.is_one() { "1".into() } else { units.auto(&d).text() }, f.src),
+                    None => format!("({}) = {}", ptext.join(", "), f.src),
+                },
                 si: None,
                 unit: None,
             });
@@ -357,5 +389,26 @@ mod tests {
         assert_eq!(rs.len(), 2);
         assert_eq!(rs[0].plain, "7.2 kΩ");
         assert_eq!(rs[1].plain, "(x) = x^2");
+    }
+
+    #[test]
+    fn rows_show_what_functions_return() {
+        let mut env = Env::default();
+        run(&mut env, "R := 2 Ω");
+        run(&mut env, "o(x: Ω) := x");
+        run(&mut env, "i(u: V) := u/R");
+        run(&mut env, "p(u: V, t: s) := u^2/R t");
+        run(&mut env, "q(x: m, y: m) := x/y");
+        run(&mut env, "a(x: any) := 2 x");
+        run(&mut env, "n(x) := x");
+        let rs = defined(&env, &DefinedReq { cfg: Cfg::default() }).unwrap();
+        let plain = |name: &str| rs.iter().find(|r| r.name == name).unwrap().plain.clone();
+        assert_eq!(plain("o"), "(x: Ω): Ω = x");
+        assert_eq!(plain("i"), "(u: V): A = u / R");
+        assert_eq!(plain("p"), "(u: V, t: s): J = u^2 / R t");
+        assert_eq!(plain("q"), "(x: m, y: m): 1 = x / y");
+        // a type that follows what's passed, or none, leaves the result's unit open
+        assert_eq!(plain("a"), "(x: any) = 2 x");
+        assert_eq!(plain("n"), "(x) = x");
     }
 }

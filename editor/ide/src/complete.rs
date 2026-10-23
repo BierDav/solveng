@@ -387,7 +387,7 @@ fn clause_items(a: &Analysis, names: bool, math: bool) -> Vec<Item> {
     }
     let mut items: Vec<Item> = crate::clause::KEYWORDS
         .iter()
-        .map(|(k, d)| Item::new(k, ItemKind::KEYWORD, d, &if *k == "solve" || *k == "digits" { format!("{k}($0)") } else { k.to_string() }))
+        .map(|(k, d)| Item::new(k, ItemKind::KEYWORD, d, &if crate::clause::NAMES.contains(k) || *k == "digits" { format!("{k}($0)") } else { k.to_string() }))
         .collect();
     items.extend(units::unit_items(&a.units).into_iter().map(|mut u| {
         // math writes units of its own as unit("…")
@@ -731,7 +731,7 @@ fn option_completions(a: &Analysis, call: &Call, at: usize) -> Option<Completion
 }
 
 /// The info of a solveng code fence, with the document's own units for [`crate::pretty`]: `solveng units=bar,ü`.
-fn fence(a: &Analysis) -> String {
+pub(crate) fn fence(a: &Analysis) -> String {
     let units: Vec<&str> = a.units.iter().map(|u| u.name.as_str()).collect();
     if units.is_empty() { "solveng".into() } else { format!("solveng units={}", units.join(",")) }
 }
@@ -739,10 +739,20 @@ fn fence(a: &Analysis) -> String {
 /// The detail of a defined name, for hovers: a value or formula as solveng code, which editors highlight and show
 /// with [`crate::pretty`].
 pub(crate) fn defined(a: &Analysis, name: &str) -> Option<String> {
+    defined_item(a, name).map(|i| if i.detail.starts_with('=') { format!("```{}\n{} {}\n```", fence(a), i.label, i.detail) } else { format!("`{}` {}", i.label, i.detail) })
+}
+
+/// The completion of a defined name: its label (`f(x: A): V`, `U: V`) and detail (`= 5 V`, `from x^2 = 4`).
+pub(crate) fn defined_item(a: &Analysis, name: &str) -> Option<Item> {
     let mut seen = HashSet::new();
     let resolved = crate::resolved_name(name);
     definition_items(a, &mut seen, false, true)
         .into_iter()
         .find(|i| before(&i.label, "(") == name || (i.kind == ItemKind::VARIABLE && before(&i.label, ":") == resolved))
-        .map(|i| if i.detail.starts_with('=') { format!("```{}\n{} {}\n```", fence(a), i.label, i.detail) } else { format!("`{}` {}", i.label, i.detail) })
+}
+
+/// A defined name as one line of solveng code, for lists of them: `f(x: Ω): Ω = x`, `U: V = 5 V`, `x // from x^2 = 4`.
+pub(crate) fn defined_line(a: &Analysis, name: &str) -> Option<String> {
+    let i = defined_item(a, name)?;
+    Some(if i.detail.starts_with('=') { format!("{} {}", i.label, i.detail) } else { format!("{} // {}", i.label, i.detail) })
 }

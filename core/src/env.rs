@@ -211,6 +211,52 @@ impl<'a> Lower<'a> {
         if self.bind { self.env.bind_with_units(&e, &self.params, self.units) } else { Ok(e) }
     }
 
+    /// `-> substitute(x, …)`: the named variables replaced by their formulas as written, every other name kept.
+    /// A formula using another listed name gets that one's formula too; the name being put in stays inside its own
+    /// formula (x := x + 1 shows x + 1, x the older one), as does a sum's or integral's index. The names put in
+    /// are added to `used`.
+    pub fn substitute(&self, e: &Expr, names: &[String], used: &mut BTreeSet<String>) -> Result<Expr, String> {
+        let mut path: Vec<String> = self.params.iter().cloned().collect();
+        self.substitute_(e, names, &mut path, used)
+    }
+
+    fn substitute_(&self, e: &Expr, names: &[String], path: &mut Vec<String>, used: &mut BTreeSet<String>) -> Result<Expr, String> {
+        let local = match e {
+            Expr::Sym(n) if names.contains(n) && !path.contains(n) => {
+                let Some(v) = self.env.vars.get(n) else { return Ok(e.clone()) };
+                let formula = match &v.ast {
+                    Some(a) => {
+                        let mut lo = Lower::new(self.env, self.units);
+                        lo.bind = false;
+                        lo.expr(a)?
+                    }
+                    None => v.expr.clone(),
+                };
+                used.insert(n.clone());
+                path.push(n.clone());
+                let r = self.substitute_(&formula, names, path, used);
+                path.pop();
+                return r;
+            }
+            Expr::Sym(_) | Expr::C(_) | Expr::Pi | Expr::E => return Ok(e.clone()),
+            Expr::Sum(_, var, ..) | Expr::Integral(_, var, ..) | Expr::Derivative(_, var) | Expr::Subs(_, var, _) | Expr::InverseLaplace(_, var, _) => Some(var.clone()),
+            _ => None,
+        };
+        path.extend(local.clone());
+        let mut err = None;
+        let r = e.map(&mut |c| match self.substitute_(c, names, path, used) {
+            Ok(x) => x,
+            Err(m) => {
+                err.get_or_insert(m);
+                c.clone()
+            }
+        });
+        if local.is_some() {
+            path.pop();
+        }
+        err.map_or(Ok(r), Err)
+    }
+
     fn raw(&mut self, a: &Ast) -> Result<Expr, String> {
         Ok(match a {
             Ast::Num(raw, v) => Expr::C(Val { v: *v, d: Dim::ONE, u: None, raw: Some(raw.clone()) }),
@@ -271,10 +317,6 @@ impl<'a> Lower<'a> {
                 let (f, d) = self.unit(u)?;
                 Expr::Cast(Box::new(self.raw(x)?), f, d, u.clone())
             }
-            Ast::Inline(n) => match self.env.vars.get(n).and_then(|v| v.ast.clone()) {
-                Some(a) => self.raw(&a)?,
-                None => return Err(format!("no stored formula for '{n}' (@{n} puts in how {n} was computed)")),
-            },
             Ast::Call(n, args) => self.call(n, args)?,
         })
     }

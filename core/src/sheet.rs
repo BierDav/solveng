@@ -193,6 +193,9 @@ impl<'a> Sheet<'a> {
 
     /// One statement; stages for code.
     fn stmt(&mut self, s: &Stmt, trail: Option<Trail>, clause: &Clause, cfg: &Cfg) -> Result<Vec<Stage>, String> {
+        if !clause.substitute.is_empty() && (trail != Some(Trail::Sym) || clause.solve.is_some()) {
+            return Err("substitute shows a formula: it goes after ->, without solve".into());
+        }
         if let Some((operation, variables)) = &clause.transform {
             if trail.is_some() {
                 let wrap = |body: &Ast| Ast::Call(operation.clone(), std::iter::once(body.clone()).chain(variables.iter().cloned().map(Ast::Name)).collect());
@@ -228,6 +231,8 @@ impl<'a> Sheet<'a> {
         if e.has(n) || e.contains(&|e| matches!(e, Expr::Call(name, _) if name == n)) {
             return Err(format!("'{n}' is used in its own definition but isn't defined yet – define it first, or solve for it: … -> solve({n})"));
         }
+        // what substitute shows, from the definitions before this one
+        let shown = if clause.substitute.is_empty() { None } else { Some(self.substituted(rhs, &[], &clause.substitute)?) };
         let given = literal(rhs);
         let s = simp(&e);
         // a symbolic result asked for: what's stored is the simplified form
@@ -252,7 +257,7 @@ impl<'a> Sheet<'a> {
                 Ok(stages)
             }
             Some(Trail::Sym) => {
-                let m = self.sym_markup(&stored, unit.as_ref(), cfg)?;
+                let m = self.sym_markup(shown.as_ref().unwrap_or(&stored), unit.as_ref(), cfg)?;
                 self.out.mark = Some("->".into());
                 self.out.result = Some(m.clone());
                 let f = self.r(cfg, false).ast(rhs, &|_| None).0;
@@ -359,6 +364,7 @@ impl<'a> Sheet<'a> {
         if body.contains(&|e| matches!(e, Expr::Call(name, _) if name == n)) || (body.has(n) && !ps.iter().any(|p| p.name == n)) {
             return Err(format!("{n} is used in its own definition – functions can't call themselves"));
         }
+        let shown = if clause.substitute.is_empty() { None } else { Some(self.substituted(rhs, &ps.iter().map(|p| p.name.clone()).collect::<Vec<_>>(), &clause.substitute)?) };
         let written = (clause.solve.is_none() && body.contains(&|e| matches!(e, Expr::Mul(_)))).then(|| body.clone());
         let body = if sym { simplify(&body) } else { simp(&body) };
         let pd: BTreeMap<String, Dim> = ps
@@ -381,7 +387,7 @@ impl<'a> Sheet<'a> {
         self.out.defined.push(n.to_string());
         let lhs = self.fn_head(n, &ps, cfg);
         if sym {
-            let m = self.r(cfg, true).expr(&body).0;
+            let m = self.r(cfg, true).expr(&shown.map_or_else(|| body.clone(), |e| simplify(&e))).0;
             self.out.mark = Some("->".into());
             self.out.result = Some(m.clone());
             let f = self.r(cfg, false).ast(rhs, &|_| None).0;
@@ -389,6 +395,32 @@ impl<'a> Sheet<'a> {
         }
         let f = self.r(cfg, false).ast(rhs, &|_| None).0;
         Ok(vec![stage(lhs, vec![part("≔", f, PartKind::Formula)])])
+    }
+
+    /// What `-> substitute(…)` shows: `a` as written, with the formulas of the listed variables put in.
+    fn substituted(&self, a: &Ast, params: &[String], names: &[String]) -> Result<Expr, String> {
+        for n in names {
+            if params.contains(n) {
+                return Err(format!("substitute: '{n}' is a parameter here, it has no formula"));
+            }
+            if !self.env.vars.contains_key(n) {
+                return Err(if self.env.funs.contains_key(n) {
+                    format!("substitute puts in variables' formulas – '{n}' is a function, whose calls -> puts in already")
+                } else {
+                    format!("substitute: '{n}' isn't defined")
+                });
+            }
+        }
+        let mut lo = Lower::new(self.env, &self.units);
+        lo.params = params.iter().cloned().collect();
+        lo.bind = false;
+        let e = lo.expr(a)?;
+        let mut used = BTreeSet::new();
+        let e = lo.substitute(&e, names, &mut used)?;
+        if let Some(n) = names.iter().find(|n| !used.contains(*n)) {
+            return Err(format!("substitute: '{n}' doesn't occur in '{}'", ast_text(a)));
+        }
+        Ok(e)
     }
 
     fn fn_head(&self, n: &str, ps: &[Param], cfg: &Cfg) -> String {
@@ -611,7 +643,7 @@ impl<'a> Sheet<'a> {
     }
 
     fn sym_expr(&mut self, a: &Ast, clause: &Clause, cfg: &Cfg) -> Result<Vec<Stage>, String> {
-        let e = self.lower(a, &[], true)?;
+        let e = if clause.substitute.is_empty() { self.lower(a, &[], true)? } else { self.substituted(a, &[], &clause.substitute)? };
         let m = self.sym_markup(&e, clause.unit.as_ref(), cfg)?;
         self.out.mark = Some("->".into());
         self.out.result = Some(m.clone());
@@ -1115,7 +1147,7 @@ fn literal(a: &Ast) -> bool {
 
 pub(crate) fn ast_names(a: &Ast, out: &mut Vec<String>) {
     match a {
-        Ast::Name(n) | Ast::Inline(n) => {
+        Ast::Name(n) => {
             if !out.contains(n) {
                 out.push(n.clone())
             }
@@ -1160,7 +1192,6 @@ pub fn ast_text(a: &Ast) -> String {
             Ast::Qty(n, u) => (format!("{} {}", p(n, 9), u.text()), 3),
             Ast::Unit(u) => (u.text(), 9),
             Ast::Name(n) => (n.clone(), 9),
-            Ast::Inline(n) => (format!("@{n}"), 9),
             Ast::Neg(x) => (format!("-{}", p(x, 3)), 2),
             Ast::Add(ts) => (
                 ts.iter().enumerate().map(|(i, (n, x))| format!("{}{}", if *n { if i == 0 { "-" } else { " - " } } else if i > 0 { " + " } else { "" }, p(x, 2))).collect(),

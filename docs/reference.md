@@ -7,6 +7,7 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 - [`worksheet`](#worksheet)
 - [`unit`](#unit)
 - [`solve`](#solve)
+- [`substitute`](#substitute)
 - [`simplify`](#simplify)
 - [`digits`](#digits)
 - [`sci`](#sci)
@@ -14,6 +15,7 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 - [`defined`](#defined)
 - [`graph`](#graph)
 - [`lambdify`](#lambdify)
+- [`value`](#value)
 - [`clear`](#clear)
 - [`rect`](#rect)
 - [`tri`](#tri)
@@ -50,6 +52,7 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 | [`worksheet`](#worksheet) | Calculates the math you write, like a Mathcad worksheet. |
 | [`unit`](#unit) | A unit in math, for units without a name of their own: `$p := 3 unit("bar")$`, `$5 unit("V")$`. |
 | [`solve`](#solve) | Solves an equation for these names (and defines them): `$x^2 - 4 = 0 -> solve(x)$`. |
+| [`substitute`](#substitute) | The result with these variables' formulas put in, every other name kept: `$P := U^2/R -> substitute(U)$`. |
 | [`simplify`](#simplify) | The symbolic result, what `->` shows anyway: `$f := (x^2 - 1)/(x - 1) -> simplify$`. |
 | [`digits`](#digits) | Decimals with n significant digits: `$t = 1 h, digits(2)$`. |
 | [`sci`](#sci) | Scientific notation: `$C = sci$` → 2.2 · 10⁻⁶ F. |
@@ -57,6 +60,7 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 | [`defined`](#defined) | Lists the definitions made so far, in order. |
 | [`graph`](#graph) | Plots an equation with `simple-plot`: ranges, nice ticks, axis labels and units are picked automatically. |
 | [`lambdify`](#lambdify) | Turns an expression into a plain Typst function of numbers, for value tables, other plotting packages (lilaq, cetz-plot, simple-plot) or your own calculations. |
+| [`value`](#value) | The result of an expression alone, where the text needs it: what `$U =$` shows after its `=`. |
 | [`clear`](#clear) | Forgets definitions: the names given, or with `all: true` every one made so far. |
 | [`rect`](#rect) | Rectangular pulse: `rect(x)` is 1 for \|x\| < ½, ½ at x = ±½, and 0 otherwise. |
 | [`tri`](#tri) | Triangular pulse: `tri(x)` is max(1 − \|x\|, 0), with height 1 at 0 and support from −1 to 1. |
@@ -96,7 +100,7 @@ so it lasts $t := Q_0 / I = 1 h$.
 - `=` at the end shows the value, with a bold =: `$t =$` → t **=** 115 h, `$t := Q_0/I =$` defines and shows it. What follows it is the unit and keywords: `$t = 1 h$`, `$t = min, digits(2)$`.
 - `->` at the end shows the symbolic result, the known values put in, exactly: `$f := (x^2 - 1)/(x - 1) -> simplify$`. With `solve(x)` it solves an equation for x (and defines it when the solution is a value): `$Q_0/2 = I t -> solve(t)$`, `$x^2 - 4 = 0 -> solve(x)$`, `$x + y = 3, x - y = 1 -> solve(x, y)$`, `$R <= U/I -> solve(R)$`.
 
-Keywords: `solve(x, …)`, `laplace`, `invlaplace` (optional input and output names), `simplify`, `frac` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
+Keywords: `solve(x, …)`, `substitute(x, …)` (these variables' formulas put in, other names kept), `laplace`, `invlaplace` (optional input and output names), `simplify`, `frac` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
 
 **Units** are names: `$30 mA$`, `$4.7 kΩ$`, `$9.81 m/s^2$`, and `unit("bar")` for units without one (your own, from `worksheet-config(units: …)`). A single letter is a unit only right after a number: `$5 V$`, `$3 h$`, and `$t = 1 h$` shows t in hours. Anywhere else it's a variable, also alone after `=`: `$t = h$` compares t with a variable h, and `$3 dot h$` is 3 times h.
 
@@ -158,7 +162,7 @@ $I = mA$ // 120 mA, exported from the block
 $U =$ // still 12 V
 ```
 
-**Editors.** Each equation and code block the worksheet sees leaves a `metadata` labelled `<solveng>` with its `location()`, whether it was calculated and whether math is evaluated there; at the end (and before each match of `clear-at`) one lists everything defined, with values, and the units. Editors like Typewright read them after compiling: `query(<solveng>)`.
+**Editors.** Each equation and code block the worksheet sees leaves a `metadata` labelled `<solveng>` with its `location()`, whether it was calculated and whether math is evaluated there; each problem one with `kind: "error"`, its `message`, the `element` it's in (`none` for equations and code passed to `worksheet`) and the `source` statement (a code line; empty for math); at the end (and before each match of `clear-at`) one lists everything defined, with values, and the units. Editors like Typewright read them after compiling: `query(<solveng>)`.
 
 **Starting over.** `clear-at` clears every definition at each match; `#clear(all: true)` inside a worksheet does the same once: back to how it started (with `inherit: true` the outer definitions stay), and `#clear("x", "f")` forgets only those names. After a `#worksheet[…]` the outer definitions come back; with `export: true`, its final definitions are merged over them.
 
@@ -197,6 +201,16 @@ Solves an equation for these names (and defines them): `$x^2 - 4 = 0 -> solve(x)
 | parameter | type | default | |
 |---|---|---|---|
 | `..names` | content |  | What to solve for. |
+
+Returns content.
+
+## `substitute`
+
+The result with these variables' formulas put in, every other name kept: `$P := U^2/R -> substitute(U)$`.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `..names` | content |  | The variables whose formulas to put in. |
 
 Returns content.
 
@@ -332,6 +346,28 @@ result is a function and not content.
 | `digits`, `separator`, … | auto | `auto` | Any [option](#options) for this call; `auto` keeps the current setting. |
 
 Returns function.
+
+## `value`
+
+The result of an expression alone, where the text needs it: what `$U =$` shows
+after its `=`. Calculated with the worksheet's definitions at this point, which
+it leaves as they are.
+
+```typ
+#show: worksheet
+$R := 4.7 kΩ$, $I := 2 mA$, $U := R I$, $f(x: Ω) := 2 x$
+The voltage is #value("U") (#value($U = mV$)), and #value("f(3)") for 3 Ω.
+```
+
+A clause picks the unit or form as after `=`: `#value("U = mV, digits(2)")`; a
+trailing `->` shows the symbolic result. A function's name alone shows its body.
+It shows one expression and defines nothing: definitions go in the worksheet.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `expr` | str, content |  | The expression: `"U"`, `"f(2)"`, `"U / 2 = mV"` or `$U$`. |
+
+Returns content.
 
 ## `clear`
 
@@ -777,7 +813,7 @@ Three operators, and `=` keeps its meaning from maths:
 - **`:=` defines**, symbolically. Names defined by then are put in right away, names that aren't stay names until they are: `$h := 5 z$` works before `z` is defined, and after `$z := 20 cm$`, `$h =$` shows 1 m. What's put in is the value at that point – defining a name again later changes what comes after, not what came before.
 - **`=` inside an expression compares**, as Mathcad's bold =: `$M := 1 = 2 =$` gives 0, `$M := 2 A = 2000 mA$` gives 1. Values of different units are never equal (`1 A = 2 V` is 0, `1 A != 2 V` is 1); `<`, `<=`, `>`, `>=` and `!=` compare too, chains like `$0 < x <= 1$` hold when every step does.
 - **A trailing `=` shows the value**, numerically, with a bold =. After it come a unit and keywords: `$t = 1 h, digits(3)$`. Every name in it must have a value by then.
-- **A trailing `->` shows the symbolic result**: defined values put in, exactly (fractions, roots and π stay), undefined names kept: `$x + 3/3 y -> simplify$` is x + y. With `solve(x)` it solves – symbolically when it can (`$0 = 1 + 3/x + y^2 -> solve(x)$` is x = −3/(y² + 1)), numerically when every other name has a value – and defines x when the solution is a value.
+- **A trailing `->` shows the symbolic result**: defined values put in, exactly (fractions, roots and π stay), undefined names kept: `$x + 3/3 y -> simplify$` is x + y. With `solve(x)` it solves – symbolically when it can (`$0 = 1 + 3/x + y^2 -> solve(x)$` is x = −3/(y² + 1)), numerically when every other name has a value – and defines x when the solution is a value. `substitute(U, …)` shows the result with these variables' formulas put in and every other name kept: after `$U := R I$`, `$P := U^2/R -> substitute(U)$` is I² R.
 - **Any other `=`** states something: it's checked when everything in it has a value (`$U = R I$`), and left alone as prose when not (`$E = m c^2$`).
 
 **Functions** are defined the same way: `$f(x) := x^2 + 1$`. Their body is symbolic too, so a function needn't define everything it uses: names that aren't parameters and aren't defined stay names, looked up when the function is evaluated, and cancel where the algebra lets them (`$U(x: m) := h x a$`, then `$g(x: m) := U(x)/a ->$` is `1 m · x` without any `a`). Undefined function calls stay symbolic too: `$f(t) := integral_(-infinity)^t sigma(tau) dif tau$` is valid before `sigma` is defined; numerical evaluation requires its definition and convergence. A parameter can have a unit, `f(I: mA)`: plain numbers passed to it get the unit (`f(2)` is `f(2 mA)`), values must have its dimension; `any` takes every unit. `..` makes the body's other undefined names parameters, in the order they appear: `$P(..) := U^2/R$` is `P(U, R)`. A parameter passed on to one with a unit takes that unit: with `$q(x: A) := 2 x$`, `$f(y) := q(y)$` makes y an A.
@@ -802,7 +838,7 @@ $I := frac(2, 4) A$, $Q_0 := 3450/2 mAh$, $U := (1+2) dot 1,5 V$, $A := 2^3 m^2$
 ```solveng
 R2 := 2 R; Z := [5 V] / I            // code: units in brackets inside an equation
 U2 := R [1 mA]
-Q := @U2 [2 s]                       // @U2 inlines its formula: Q = R [1 mA] [2 s]
+Q := U2 [2 s] -> substitute(U2)     // U2's formula put in: Q ≔ U2 · 2 s → 1/500 C · R
 ```
 ````
 
@@ -871,14 +907,14 @@ Problems (an unknown unit, a missing value, units that don't match, a typo) are 
 
 ## HTML
 
-With `typst compile --features html --format html`, equations become MathML, `defined` columns that reflow with the width (or a table with `style: "column"`), graphs inline SVGs (via `html.frame`) that shrink with the page, errors styled notes. One small stylesheet is added to the page (math font STIX Two Math / Cambria Math / Latin Modern Math, spacing, table stripes; classes `solveng`, `solveng-defs`, `solveng-list`, `solveng-plot`, `solveng-error`). HTML export is experimental in Typst; in column layout browsers drop the space after a leading `=`.
+With `typst compile --features html --format html`, equations become MathML, `defined` columns that reflow with the width (or a table with `style: "column"`), graphs inline SVGs (via `html.frame`) that shrink with the page, errors styled notes. One small stylesheet is added to the page (math font STIX Two Math / Cambria Math / Latin Modern Math, spacing, table stripes; classes `solveng`, `solveng-defs`, `solveng-list`, `solveng-plot`, `solveng-error`; casts and types are `solveng-chip` with `solveng-cast` or `solveng-type`, coloured inline). HTML export is experimental in Typst; in column layout browsers drop the space after a leading `=`.
 
 ## Testing
 
 The engine is tested in Rust, the package with [tytanic](https://github.com/typst-community/tytanic) (`cargo install tytanic`); the scripts need Python 3 and `typst` on the `PATH`:
 
 ```sh
-cargo test                                    # the engine: units, parsing, algebra, solving, worksheets, graphs, random inputs
+cargo test                                    # the engine (units, parsing, algebra, solving, worksheets, graphs, random inputs) and the editor (IDE, language server)
 plugin/build.sh                               # src/solveng.wasm from the engine (rustup target add wasm32-unknown-unknown; wasm-opt if installed)
 tt run                                        # units, solving, names, lambdify and the README examples (reference images)
 tt update readme                              # accept changed output of the README examples
@@ -887,4 +923,4 @@ python3 tests/reference.py                    # docs/reference.md from the doc c
 uv run --no-project --with sympy --with mpmath python tests/oracle/generate.py   # the reference results
 ```
 
-`cargo test` includes a fuzzer (`core/tests/fuzz.rs`): random nonlinear equations, polynomials, systems, physics formulas with random prefixes and random numbers to format, checked against direct calculation (`FUZZ_N=5000 cargo test --release fuzz` for more cases). `core/tests/oracle.rs` checks families of matrices, integrals, series, simplifications and equations against SymPy and mpmath (the results are in `core/tests/oracle/`, so `cargo test` needs neither); what the engine can't do yet is listed in `core/tests/oracle/known.txt`, which only shrinks: a listed case that passes fails the test until `ORACLE_BLESS=1 cargo test --test oracle` updates the list. `TYPST=…` picks another compiler for the examples, e.g. the oldest supported version.
+`cargo test` includes a fuzzer (`core/tests/fuzz.rs`): random nonlinear equations, polynomials, systems, physics formulas with random prefixes and random numbers to format, checked against direct calculation, and functions whose shown return unit must match what their calls produce; and one for the editor (`editor/ide/tests/fuzz.rs`): random and mutated documents through every editor feature at random positions, which must neither panic nor return ranges outside the text (`FUZZ_N=5000 cargo test --release fuzz` for more cases). `core/tests/oracle.rs` checks families of matrices, integrals, series, simplifications and equations against SymPy and mpmath (the results are in `core/tests/oracle/`, so `cargo test` needs neither); what the engine can't do yet is listed in `core/tests/oracle/known.txt`, which only shrinks: a listed case that passes fails the test until `ORACLE_BLESS=1 cargo test --test oracle` updates the list. `TYPST=…` picks another compiler for the examples, e.g. the oldest supported version.

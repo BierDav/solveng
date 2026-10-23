@@ -13,8 +13,8 @@
   #def("f(alpha) := 2 alpha", "k := f(3)")
   #expect("Δ_R", 0.05) #expect("Δ_T", 3) #expect("α2", 2) #expect("DeltaT", 4) #expect("x", 6) #expect("k", 6)
   $Delta_x := 2 Delta_T$
-  #def("q := @Delta_x")
-  #expect("q", 6)
+  #def("q := 3 Delta_x -> substitute(Delta_x)")
+  #expect("q", 18)
 ]
 
 // empty strings glue names as in math: Delta""r_R is Δr_R in math, code and strings

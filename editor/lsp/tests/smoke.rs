@@ -121,3 +121,36 @@ fn finds_definitions_and_references_across_files() {
     assert!(child.wait().unwrap().success());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn shows_the_errors_a_client_reports() {
+    let dir = std::env::temp_dir().join(format!("solveng-lsp-errors-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let root = format!("file://{}", dir.display());
+    let uri = format!("{root}/main.typ");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_solveng-lsp")).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"capabilities": {}, "rootUri": root, "initializationOptions": {"main": "main.typ"}}}));
+    wait(&mut stdout, |m| m["id"] == 1);
+    send(&mut stdin, json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}));
+    let text = "#show: worksheet\n$U := 5 V$\n$t := U + 2 s =$\n";
+    send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri, "languageId": "typst", "version": 1, "text": text}}}));
+    let before = wait(&mut stdout, |m| m["method"] == "textDocument/publishDiagnostics");
+    assert_eq!(before["params"]["diagnostics"], json!([]));
+    // what the compile reported, as typst saw the file
+    let start = text.find("$t").unwrap();
+    let element = "$t := U + 2 s =$";
+    let report = json!({"blocks": 1, "errors": [{"path": "main.typ", "start": start, "end": start + element.len(), "text": element, "message": "adding different units: s and V"}]});
+    send(&mut stdin, json!({"jsonrpc": "2.0", "method": "solveng/report", "params": {"report": report.to_string()}}));
+    let after = wait(&mut stdout, |m| m["method"] == "textDocument/publishDiagnostics");
+    let d = &after["params"]["diagnostics"][0];
+    assert_eq!((d["severity"].clone(), d["message"].clone()), (json!(1), json!("adding different units: s and V")));
+    assert_eq!(d["range"], json!({"start": {"line": 2, "character": 1}, "end": {"line": 2, "character": 15}}));
+    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null}));
+    wait(&mut stdout, |m| m["id"] == 5);
+    send(&mut stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    drop(stdin);
+    assert!(child.wait().unwrap().success());
+    let _ = std::fs::remove_dir_all(&dir);
+}

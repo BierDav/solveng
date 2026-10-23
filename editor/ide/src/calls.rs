@@ -85,7 +85,7 @@ pub(crate) fn callee(node: &SyntaxNode) -> Option<String> {
 fn role(function: &str, param: Option<&str>, index: usize) -> Option<Role> {
     let Some(param) = param else {
         return match function {
-            "worksheet" | "graph" => Some(Role::Code),
+            "worksheet" | "graph" | "value" => Some(Role::Code),
             "unit" => Some(Role::Unit),
             "lambdify" => Some(if index == 0 { Role::Code } else { Role::Name }),
             "clear" => Some(Role::Name),

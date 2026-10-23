@@ -1,5 +1,9 @@
 //! solveng's language server: completions, highlighting, hovers, conversions and unit checks for solveng code in
 //! Typst files. It runs next to tinymist and answers only where solveng reads the document.
+//!
+//! It doesn't compile. A client that does can send what the compile reported (`query(<solveng>)`, gathered into a
+//! `solveng_ide::Report`) with the notification `solveng/report`, `{ "report": … }` as an object or JSON string:
+//! then the errors solveng showed in the document are diagnostics too, and the compiler's values complete.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -22,6 +26,8 @@ struct Server {
     root: Option<PathBuf>,
     /// The file typst compiles, whose setup (`worksheet`, `worksheet-config`) counts for the files it includes.
     main: Option<PathBuf>,
+    /// What the last compile reported, as the client sent it with `solveng/report`.
+    report: Report,
 }
 
 fn main() -> Result<(), Box<dyn Error + Sync + Send>> {
@@ -32,7 +38,7 @@ fn main() -> Result<(), Box<dyn Error + Sync + Send>> {
     let (connection, threads) = Connection::stdio();
     let (id, params) = connection.initialize_start()?;
     let root = params["rootUri"].as_str().and_then(path_of).or_else(|| params["workspaceFolders"][0]["uri"].as_str().and_then(path_of));
-    let mut server = Server { open: HashMap::new(), root, main: None };
+    let mut server = Server { open: HashMap::new(), root, main: None, report: Report::default() };
     server.configure(&params["initializationOptions"]);
     connection.initialize_finish(id, json!({ "capabilities": capabilities(), "serverInfo": { "name": "solveng-lsp", "version": env!("CARGO_PKG_VERSION") } }))?;
     for message in &connection.receiver {
@@ -205,7 +211,7 @@ impl Server {
         }
         let relative = |p: &Path| p.strip_prefix(&root).unwrap_or(p).to_string_lossy().into_owned();
         // Names resolve in compile order from the main file; without one the document stands alone.
-        let context = Context::new("").with_files(parts).with_report(&Report::default(), &relative(&file), self.main.as_ref() == Some(&file));
+        let context = Context::new("").with_files(parts).with_report(&self.report, &relative(&file), self.main.as_ref() == Some(&file));
         match &self.main {
             Some(main) => context.with_main(&relative(main)),
             None => context,
@@ -356,6 +362,14 @@ impl Server {
                 self.configure(&p["settings"]["solveng"]);
                 Vec::new()
             }
+            "solveng/report" => {
+                self.report = match &p["report"] {
+                    Value::String(json) => Report::parse(json),
+                    other => serde_json::from_value(other.clone()).unwrap_or_default(),
+                };
+                let open: Vec<String> = self.open.keys().cloned().collect();
+                open.iter().flat_map(|uri| self.publish(uri)).collect()
+            }
             _ => Vec::new(),
         }
     }
@@ -365,7 +379,7 @@ impl Server {
         let starts = line_starts(text);
         let diagnostics: Vec<Value> = ide::diagnostics(text, &self.context(uri, text))
             .into_iter()
-            .map(|d| json!({ "range": range(&starts, d.start, d.end), "severity": 2, "source": "solveng", "message": d.message }))
+            .map(|d| json!({ "range": range(&starts, d.start, d.end), "severity": if d.severity == "error" { 1 } else { 2 }, "source": "solveng", "message": d.message }))
             .collect();
         vec![Notification::new("textDocument/publishDiagnostics".into(), json!({ "uri": uri, "diagnostics": diagnostics }))]
     }

@@ -4,7 +4,7 @@
 /// The engine is tested in Rust, the package with [tytanic](https://github.com/typst-community/tytanic) (`cargo install tytanic`); the scripts need Python 3 and `typst` on the `PATH`:
 ///
 /// ```sh
-/// cargo test                                    # the engine: units, parsing, algebra, solving, worksheets, graphs, random inputs
+/// cargo test                                    # the engine (units, parsing, algebra, solving, worksheets, graphs, random inputs) and the editor (IDE, language server)
 /// plugin/build.sh                               # src/solveng.wasm from the engine (rustup target add wasm32-unknown-unknown; wasm-opt if installed)
 /// tt run                                        # units, solving, names, lambdify and the README examples (reference images)
 /// tt update readme                              # accept changed output of the README examples
@@ -13,7 +13,7 @@
 /// uv run --no-project --with sympy --with mpmath python tests/oracle/generate.py   # the reference results
 /// ```
 ///
-/// `cargo test` includes a fuzzer (`core/tests/fuzz.rs`): random nonlinear equations, polynomials, systems, physics formulas with random prefixes and random numbers to format, checked against direct calculation (`FUZZ_N=5000 cargo test --release fuzz` for more cases). `core/tests/oracle.rs` checks families of matrices, integrals, series, simplifications and equations against SymPy and mpmath (the results are in `core/tests/oracle/`, so `cargo test` needs neither); what the engine can't do yet is listed in `core/tests/oracle/known.txt`, which only shrinks: a listed case that passes fails the test until `ORACLE_BLESS=1 cargo test --test oracle` updates the list. `TYPST=…` picks another compiler for the examples, e.g. the oldest supported version.
+/// `cargo test` includes a fuzzer (`core/tests/fuzz.rs`): random nonlinear equations, polynomials, systems, physics formulas with random prefixes and random numbers to format, checked against direct calculation, and functions whose shown return unit must match what their calls produce; and one for the editor (`editor/ide/tests/fuzz.rs`): random and mutated documents through every editor feature at random positions, which must neither panic nor return ranges outside the text (`FUZZ_N=5000 cargo test --release fuzz` for more cases). `core/tests/oracle.rs` checks families of matrices, integrals, series, simplifications and equations against SymPy and mpmath (the results are in `core/tests/oracle/`, so `cargo test` needs neither); what the engine can't do yet is listed in `core/tests/oracle/known.txt`, which only shrinks: a listed case that passes fails the test until `ORACLE_BLESS=1 cargo test --test oracle` updates the list. `TYPST=…` picks another compiler for the examples, e.g. the oldest supported version.
 
 #import "/lib.typ": *
 #import "/src/api.typ": _rows, _st, _cf, _line

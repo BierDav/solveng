@@ -119,6 +119,16 @@ pub(crate) fn resolve(unit: &Custom, all: &[Custom]) -> String {
     out
 }
 
+/// What typing matches for a built-in unit, words apart: the unit (`kΩ`), how it's typed when that differs
+/// (`kOmega`) and its name (`kiloohm`), so `ohm` and `volt` find Ω and V.
+fn unit_filter(unit: &str, prefix: &str, name: &str) -> String {
+    let mut words = vec![format!("{prefix}{unit}")];
+    words.extend(SPELLINGS.iter().filter(|(s, u)| *u == unit && *s != unit).map(|(s, _)| format!("{prefix}{s}")));
+    // degree Celsius (a difference): the name without what's in parentheses
+    words.push(name.split(" (").next().unwrap_or(name).replace(' ', ""));
+    words.join(" ")
+}
+
 /// Every unit a completion offers: the document's first, then the built-in ones with common prefixes.
 pub(crate) fn unit_items(custom: &[Custom]) -> Vec<Item> {
     let mut items = Vec::new();
@@ -128,10 +138,8 @@ pub(crate) fn unit_items(custom: &[Custom]) -> Vec<Item> {
         items.push(Item::new(&u.name, ItemKind::UNIT, &detail, &u.name));
     }
     for (u, name) in PREFIXABLE {
-        // Ω matches typing Omega
-        let spelled = |p: &str| (*u == "Ω").then(|| format!("{p}Omega"));
         let mut item = Item::new(u, ItemKind::UNIT, &format!("{name} · built-in"), u);
-        item.filter = spelled("");
+        item.filter = Some(unit_filter(u, "", name));
         items.push(item);
         for p in COMMON_PREFIXES {
             if *u == "g" && *p != "k" && *p != "m" {
@@ -140,12 +148,14 @@ pub(crate) fn unit_items(custom: &[Custom]) -> Vec<Item> {
             let label = format!("{p}{u}");
             let full = format!("{}{name}", lookup(PREFIXES, p).unwrap());
             let mut item = Item::new(&label, ItemKind::UNIT, &format!("{full} · built-in"), &label);
-            item.filter = spelled(p);
+            item.filter = Some(unit_filter(u, p, &full));
             items.push(item);
         }
     }
     for (u, name) in PLAIN {
-        items.push(Item::new(u, ItemKind::UNIT, &format!("{name} · built-in"), u));
+        let mut item = Item::new(u, ItemKind::UNIT, &format!("{name} · built-in"), u);
+        item.filter = Some(unit_filter(u, "", name));
+        items.push(item);
     }
     let mut seen = std::collections::HashSet::new();
     items.retain(|i| seen.insert(i.label.clone()));

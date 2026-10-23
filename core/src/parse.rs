@@ -26,8 +26,6 @@ pub enum Tok {
     Bracket(String),
     /// A keyword of a clause, ⦅digits(3)⦆ in math.
     Kw(String),
-    /// @U: the formula of U.
-    At(String),
     Op(&'static str),
 }
 
@@ -153,11 +151,8 @@ pub fn lex(s: &str, mode: Mode) -> Result<Vec<Tok>, String> {
                 continue;
             }
             '@' => {
-                i += 1;
-                let name = solveng_names::scan(&cs, i)?.ok_or("a variable name after @")?;
-                i = name.end;
-                out.push(Tok::At(name.value));
-                continue;
+                let name = solveng_names::scan(&cs, i + 1).ok().flatten().map_or_else(|| "x".to_string(), |n| n.value);
+                return Err(format!("'@' isn't solveng syntax – to put {name}'s formula into a result, end the line with -> substitute({name})"));
             }
             '°' => {
                 i += 1;
@@ -296,8 +291,6 @@ pub enum Ast {
     Cmp(Box<Ast>, Vec<(Rel, Ast)>),
     /// e as u: e's SI number as a value in u.
     Cast(Box<Ast>, UnitExpr),
-    /// @U: the formula U was computed by.
-    Inline(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -336,6 +329,8 @@ pub enum Trail {
 pub struct Clause {
     pub unit: Option<UnitExpr>,
     pub solve: Option<Vec<String>>,
+    /// -> substitute(x, …): the variables whose formulas the result shows put in.
+    pub substitute: Vec<String>,
     pub simplify: bool,
     pub transform: Option<(String, Vec<String>)>,
     pub frac: bool,
@@ -361,7 +356,7 @@ const BUILTIN_FNS: &[&str] = &[
 pub fn is_builtin(n: &str) -> bool {
     BUILTIN_FNS.contains(&n) || n == "mat"
 }
-const KEYWORDS: &[&str] = &["solve", "simplify", "laplace", "invlaplace", "digits", "sci", "eng", "frac"];
+const KEYWORDS: &[&str] = &["solve", "substitute", "simplify", "laplace", "invlaplace", "digits", "sci", "eng", "frac"];
 
 /// What the parser needs to know about the document so far.
 pub struct Ctx<'a> {
@@ -756,7 +751,6 @@ impl<'a, 'b> P<'a, 'b> {
             }
             Tok::Name(n) => self.name(n),
             Tok::Bracket(b) => self.bracket(&b),
-            Tok::At(n) => Ok(Ast::Inline(n)),
             Tok::Op("(") => {
                 let x = std::mem::take(&mut self.in_exp);
                 let e = self.cmp();
@@ -1010,6 +1004,14 @@ fn clause(t: &[Tok], c: &Ctx) -> Result<Option<Clause>, String> {
                 }
                 cl.solve = Some(args);
             }
+            "substitute" => {
+                if args.is_empty() || args.iter().any(|n| solveng_names::scan(&n.chars().collect::<Vec<_>>(), 0).ok().flatten().is_none_or(|v| v.end != n.chars().count())) {
+                    return Err("substitute: the variables whose formulas to put in, substitute(x) or substitute(x, y)".into());
+                }
+                for n in args {
+                    if !cl.substitute.contains(&n) { cl.substitute.push(n); }
+                }
+            }
             "laplace" | "invlaplace" => {
                 if args.len() > 2 || args.iter().any(|n| solveng_names::scan(&n.chars().collect::<Vec<_>>(), 0).ok().flatten().is_none_or(|v| v.end != n.chars().count())) {
                     return Err(format!("{name} takes up to two variable names"));
@@ -1052,7 +1054,6 @@ fn tok_text(t: &Tok) -> String {
         Tok::UnitWord(s) => s.clone(),
         Tok::Bracket(s) => format!("[{s}]"),
         Tok::Kw(s) => s.clone(),
-        Tok::At(s) => format!("@{s}"),
         Tok::Op(o) => o.to_string(),
     }
 }

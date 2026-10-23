@@ -7,6 +7,11 @@
 /// - ..names (content): What to solve for.
 /// -> content
 #let solve(..names) = _key("solve", ..names.pos())
+/// The result with these variables' formulas put in, every other name kept: `$P := U^2/R -> substitute(U)$`.
+///
+/// - ..names (content): The variables whose formulas to put in.
+/// -> content
+#let substitute(..names) = _key("substitute", ..names.pos())
 /// The symbolic result, what `->` shows anyway: `$f := (x^2 - 1)/(x - 1) -> simplify$`.
 #let simplify = _key("simplify")
 /// Decimals with n significant digits: `$t = 1 h, digits(2)$`.

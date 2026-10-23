@@ -71,12 +71,12 @@ fn highlights_values_units_and_variables() {
 }
 
 #[test]
-fn highlights_brackets_functions_and_inlining() {
+fn highlights_brackets_and_functions() {
     assert_eq!(
-        tokens_of("P = [5 V] I sqrt(@R) 2 pi f"),
+        tokens_of("P = [5 V] I sqrt(R) 2 pi f"),
         vec![
             t("P", TokenKind::VARIABLE), t("=", TokenKind::OPERATOR), t("5", TokenKind::NUMBER), t("V", TokenKind::UNIT),
-            t("I", TokenKind::VARIABLE), t("sqrt", TokenKind::FUNCTION), t("@R", TokenKind::ANNOTATION), t("2", TokenKind::NUMBER),
+            t("I", TokenKind::VARIABLE), t("sqrt", TokenKind::FUNCTION), t("R", TokenKind::VARIABLE), t("2", TokenKind::NUMBER),
             t("pi", TokenKind::KEYWORD), t("f", TokenKind::VARIABLE),
         ]
     );

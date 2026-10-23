@@ -6,6 +6,7 @@ use crate::text::{is_letter, sub};
 /// The keywords, with what they do.
 pub(crate) const KEYWORDS: &[(&str, &str)] = &[
     ("solve", "solve(x, …): solves the equation for these names and defines them"),
+    ("substitute", "substitute(x, …): the result with these variables' formulas put in, other names kept"),
     ("laplace", "laplace(t, s): unilateral Laplace transform; variables default to t and s"),
     ("invlaplace", "invlaplace(s, t): inverse Laplace transform; variables default to s and t"),
     ("simplify", "the symbolic result, with the known values put in"),
@@ -14,6 +15,9 @@ pub(crate) const KEYWORDS: &[(&str, &str)] = &[
     ("sci", "scientific notation, 2.2 · 10⁻⁶ F"),
     ("eng", "engineering notation, exponents in steps of 3"),
 ];
+
+/// The keywords whose arguments are names of the worksheet.
+pub(crate) const NAMES: &[&str] = &["solve", "substitute"];
 
 pub(crate) fn is_keyword(word: &str) -> bool {
     KEYWORDS.iter().any(|(k, _)| *k == word)
@@ -157,7 +161,7 @@ pub(crate) fn solved(tail: &str) -> Vec<String> {
 }
 
 /// Whether the caret, at the end of `line`, is in a clause: after a top-level `->`, or after a top-level `=` that
-/// only words, brackets and commas follow. `Some(true)` inside `solve(…)`, where names go.
+/// only words, brackets and commas follow. `Some(true)` inside `solve(…)` or `substitute(…)`, where names go.
 pub(crate) fn at_clause(line: &str) -> Option<bool> {
     let c: Vec<char> = line.chars().collect();
     let (mut depth, mut quoted, mut found) = (0i32, false, None);
@@ -188,6 +192,5 @@ pub(crate) fn at_clause(line: &str) -> Option<bool> {
     if !arrow && value {
         return None;
     }
-    let open = tail.rfind("solve(");
-    Some(open.is_some_and(|o| !tail[o..].contains(')')))
+    Some(NAMES.iter().any(|k| tail.rfind(&format!("{k}(")).is_some_and(|o| !tail[o..].contains(')'))))
 }

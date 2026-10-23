@@ -12,6 +12,8 @@ mod clause;
 mod complete;
 mod conceal;
 mod convert;
+mod depends;
+mod errors;
 mod elements;
 mod highlight;
 mod locals;
@@ -35,7 +37,7 @@ pub use conceal::{conceals, conceals_of, resolved_name};
 pub use convert::{conversions, from_math, to_math};
 pub use navigate::{definition, rename, rename_target, usages};
 pub use highlight::{diagnostics, document_tokens, hover, math_tokens, math_tokens_of, pretty, regions, tokens, tokens_with_units};
-pub use report::{Report, ReportElement, ReportValue};
+pub use report::{Report, ReportElement, ReportError, ReportValue};
 pub use units::{is_unit, unit_name};
 
 use elements::Element;
@@ -145,13 +147,14 @@ pub struct Conceal {
     pub element_end: u32,
 }
 
-/// A source inspection found while typing: unknown units, redefinitions or scope surprises.
+/// A problem in the document: an inspection found while typing (unknown units, redefinitions or scope surprises),
+/// or an error the last compile reported where it still applies.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Problem {
     pub start: u32,
     pub end: u32,
     pub message: String,
-    /// Always `warning`: the compile has the last word.
+    /// `warning` for inspections, where the compile has the last word; `error` for what the compile reported.
     pub severity: &'static str,
 }
 
@@ -222,6 +225,8 @@ pub struct Context {
     pub files: Vec<ContextFile>,
     /// The compiled main file, relative to the root: where the compile starts, for which definition a name means.
     pub main: Option<String>,
+    /// What the compile reported as going wrong, in every file; empty without a report.
+    pub errors: Vec<ReportError>,
 }
 
 const COMPILED: &str = "\u{1}solveng-evaluate:";
@@ -249,6 +254,7 @@ impl Context {
             self.main = Some(path.into());
         }
         self.reported = if report.blocks == 0 { Vec::new() } else { report.elements.clone() };
+        self.errors = report.errors.clone();
         self
     }
 

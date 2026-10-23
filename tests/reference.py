@@ -12,7 +12,7 @@ import os, re, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "docs", "reference.md")
 # public functions in the order they are documented; worksheet-config comes with the option tables
-FUNCTIONS = ["worksheet", "unit", "solve", "simplify", "digits", "sci", "eng", "defined", "graph", "lambdify", "clear", "rect", "tri", "sgn", "floor", "factorial", "diff", "integrate", "laplace", "invlaplace", "at", "rank", "identity", "rows", "cols", "asin", "acos", "atan", "worksheet-config"]
+FUNCTIONS = ["worksheet", "unit", "solve", "substitute", "simplify", "digits", "sci", "eng", "defined", "graph", "lambdify", "value", "clear", "rect", "tri", "sgn", "floor", "factorial", "diff", "integrate", "laplace", "invlaplace", "at", "rank", "identity", "rows", "cols", "asin", "acos", "atan", "worksheet-config"]
 CHAPTERS = ["src/builtins.typ", "src/engine.typ", "src/display.typ", "tests/util.typ"]
 PARAM = re.compile(r"^- ((?:\.\.)?[a-z][\w-]*(?:, [a-z][\w-]*)*(?:, …)?) \(([^)]*)\): (.*)$")
 

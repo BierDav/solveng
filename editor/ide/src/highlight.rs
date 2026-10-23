@@ -207,7 +207,8 @@ pub fn regions(document: &str, context: &Context) -> Vec<Region> {
     out
 }
 
-/// Source inspections: unknown units, redefinitions, and worksheet scope surprises.
+/// Problems: the errors the last compile reported (see [`crate::Report::errors`]) where they still apply, and source
+/// inspections, unknown units, redefinitions and worksheet scope surprises.
 pub fn diagnostics(document: &str, context: &Context) -> Vec<Problem> {
     let a = Analysis::new(document, context);
     let mut out = Vec::new();
@@ -317,7 +318,9 @@ pub fn diagnostics(document: &str, context: &Context) -> Vec<Problem> {
         });
     }
     out.extend(crate::scope::export_warnings(&a.doc));
-    out
+    let mut reported = crate::errors::reported(&a);
+    reported.append(&mut out);
+    reported
 }
 
 /// A function's docs as its hover: the summary and every parameter, with its types, default and description.
@@ -336,9 +339,32 @@ pub(crate) fn function_docs(f: &crate::params::Function) -> String {
     out
 }
 
-/// What the word at `offset` is: a defined name with its value, a unit, solveng's functions and constants, or a
-/// parameter of solveng's functions with its docs.
+/// What the word at `offset` is: a defined name with its value (or formula) and what it depends on, a unit,
+/// solveng's functions and constants, or a parameter of solveng's functions with its docs.
 pub fn hover(document: &str, context: &Context, offset: u32) -> Option<Hover> {
+    let found = hover_at(document, context, offset);
+    // A defined name, where it's defined or used: also what its formula depends on.
+    let Some(target) = crate::rename_target(document, context, offset) else { return found };
+    let Some(definition) = crate::definition(document, context, offset) else { return found };
+    let a = Analysis::new(document, context);
+    let name = crate::depends::key(&target.name);
+    // not a parameter or a sum's index, though it may share a defined name
+    let at = a.doc.from16(offset as usize);
+    if crate::complete::defined_item(&a, &name).is_none() || crate::navigate::parameter_at(&a, at).is_some() || crate::navigate::local_at(&a, at).is_some() {
+        return found;
+    }
+    let markdown = match found {
+        Some(h) if (h.start, h.end) == (target.start, target.end) => h.markdown,
+        _ => defined(&a, &name)?,
+    };
+    let markdown = match crate::depends::section(&a, document, definition, &name) {
+        Some(section) => format!("{markdown}\n\n{section}"),
+        None => markdown,
+    };
+    Some(Hover { start: target.start, end: target.end, markdown })
+}
+
+fn hover_at(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     let a = Analysis::new(document, context);
     let at = a.doc.from16(offset as usize);
     let c = &a.doc.c;

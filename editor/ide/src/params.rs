@@ -12,6 +12,7 @@ const SOURCES: &[&str] = &[
     include_str!("../../../src/defined.typ"),
     include_str!("../../../src/graph.typ"),
     include_str!("../../../src/lambdify.typ"),
+    include_str!("../../../src/value.typ"),
     include_str!("../../../src/keywords.typ"),
     include_str!("../../../src/unit-words.typ"),
 ];
