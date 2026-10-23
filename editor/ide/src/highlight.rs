@@ -290,6 +290,17 @@ pub fn document_tokens(document: &str, context: &Context) -> Vec<Token> {
             }
         }
     }
+    // Imported shorthands are units or operations where they're imported too; a renamed one's module name isn't
+    // a name in the document, so it's plain text.
+    for ((start, end), units, original) in a.bindings.shorthand_imports() {
+        let spans = std::iter::once((start, end, if units { K::UNIT } else { K::BUILTIN_FUNCTION }))
+            .chain(original.map(|(s, e)| (s, e, K::FUNCTION_CALL)));
+        for (s, e, kind) in spans {
+            let (from, to) = (a.doc.to16(s) as u32, a.doc.to16(e) as u32);
+            out.retain(|t| t.start + t.length <= from || to <= t.start);
+            out.push(Token { start: from, length: to - from, kind });
+        }
+    }
     reference_tokens(&a, &mut out);
     out.sort_by_key(|t| t.start);
     out
@@ -471,9 +482,35 @@ pub fn hover(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     Some(Hover { start: target.start, end: target.end, markdown })
 }
 
+/// The docs of solveng's `units` or `functions` module: the leading `///` block of its file.
+fn module_docs(units: bool) -> String {
+    let source = if units { include_str!("../../../src/unit-words.typ") } else { include_str!("../../../src/builtins.typ") };
+    source.lines().map_while(|l| l.strip_prefix("///")).map(|l| l.strip_prefix(' ').unwrap_or(l)).collect::<Vec<_>>().join("\n")
+}
+
+/// Hovers of solveng's modules in their imports and of the shorthands imported from them.
+fn shorthand_hover(a: &Analysis, at: usize) -> Option<Hover> {
+    let hover = |s: usize, e: usize, markdown: String| Hover { start: a.doc.to16(s) as u32, end: a.doc.to16(e) as u32, markdown };
+    if let Some((s, e, units)) = a.bindings.module_at(at) {
+        let module = if units { "units" } else { "functions" };
+        return Some(hover(s, e, format!("`{module}` module of solveng\n\n{}", module_docs(units))));
+    }
+    let (s, e, name, original, units) = a.bindings.shorthand_info(at)?;
+    let module = if units { "units" } else { "functions" };
+    let what = if units {
+        units::describe(&original, &a.units_at(at)).unwrap_or_else(|| format!("`{original}` unit"))
+    } else {
+        crate::params::builtin(&original).map(function_docs).unwrap_or_else(|| format!("`{original}()` built-in function"))
+    };
+    let title = if name == original { format!("`{name}`: shorthand from solveng's `{module}`") }
+        else { format!("`{name}`: shorthand for `{original}` from solveng's `{module}`") };
+    Some(hover(s, e, format!("{title}\n\n{what}\n\nSee `{module}` in the import for how shorthands work.")))
+}
+
 fn hover_at(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     let a = Analysis::new(document, context);
     let at = a.doc.from16(offset as usize);
+    if let Some(h) = shorthand_hover(&a, at) { return Some(h); }
     if let Some((name, unit, start, end)) = a.bindings.unit_shortcut(at) {
         let settings = a.unit_completion_context(at);
         if a.evaluates_at(at) {

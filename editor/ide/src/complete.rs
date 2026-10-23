@@ -406,25 +406,37 @@ fn clause_items(a: &Analysis, names: bool, math: bool, at: usize, line_start: us
     items
 }
 
-/// The units math can write at `at`: a unit with a shorthand in scope there (`#let km = unit("km")`,
-/// `#import units: km`) inserts the shorthand and comes first; the others are quoted, as math needs them.
-/// `explicit`: typed after `#`, which the insert replaces.
+/// The units math can write at `at`. Built-in units longer than a letter go by their shorthand: one in scope there
+/// (`#let km = unit("km")`, `#import units: km`) comes first, else solveng's, imported along (`#import units: km`)
+/// when its import is in scope and the name isn't taken. Single letters (`"s"`), the document's own units and the
+/// rest are quoted, as math needs them. `explicit`: typed after `#`, which the insert replaces.
 fn math_unit_items(a: &Analysis, at: usize, explicit: bool) -> Vec<Item> {
     let units = a.units_at(at);
-    let shorthands: Vec<(String, String)> = a.bindings.unit_items(at).into_iter().filter(|(_, unit)| !unit.is_empty() && units::known(unit, &units)).collect();
+    let long = |name: &str| crate::resolved_name(name).chars().count() > 1;
+    let shorthands: Vec<(String, String)> = a.bindings.unit_items(at).into_iter()
+        .filter(|(name, unit)| !unit.is_empty() && long(name) && units::known(unit, &units)).collect();
     let hash = |text: &str| if explicit { format!("#{text}") } else { text.to_string() };
     let mut items: Vec<Item> = shorthands.iter().map(|(name, unit)| {
-        // Single letters are math symbols: only `#s` reaches the binding.
-        let insert = if name.chars().count() == 1 { format!("#{name}") } else { name.clone() };
-        let mut item = Item::new(name, ItemKind::UNIT, &format!("shorthand for {unit}"), &insert);
+        let mut item = Item::new(name, ItemKind::UNIT, &format!("shorthand for {unit}"), name);
         item.filter = Some(format!("{} {}", hash(name), hash(unit)));
         item
     }).collect();
     for mut u in units::unit_items(&units) {
-        if shorthands.iter().any(|(_, unit)| *unit == u.insert) { continue; }
+        // a shorthand named like its unit is that unit's entry
+        if shorthands.iter().any(|(name, unit)| *unit == u.insert && *name == u.insert) { continue; }
         let filter = u.filter.take().unwrap_or_else(|| u.insert.clone());
         u.filter = Some(hash(&filter));
-        u.insert = format!("\"{}\"", u.insert);
+        let name = u.insert.clone();
+        let builtin = long(&name) && units::shorthand(&name) && !units.iter().any(|c| c.name == name);
+        let edits = builtin.then(|| a.bindings.bound(at, &name).is_none()).unwrap_or(false)
+            .then(|| a.bindings.import_edits(&a.doc, at, true, &name)).flatten();
+        match edits {
+            Some(edits) => {
+                if !edits.is_empty() { u.detail = format!("{} · imports units: {name}", u.detail); }
+                u.edits = edits;
+            }
+            None => u.insert = format!("\"{name}\""),
+        }
         items.push(u);
     }
     items
@@ -574,8 +586,16 @@ pub fn complete(document: &str, context: &Context, offset: u32) -> Option<Comple
             let base = if let Some((name, _)) = binding {
                 if name.chars().count() == 1 && (start == 0 || a.doc.c[start - 1] != '#') { format!("#{name}") } else { name }
             } else if item.kind == ItemKind::FUNCTION && standard && !crate::params::automatic_math(&canonical) { canonical.clone() }
-                // solveng's own operations need `#import functions: …` in math; without it, the explicit reference
-                else if item.kind == ItemKind::FUNCTION && standard { format!("op(\"{canonical}\")") }
+                // solveng's own operations need `#import functions: …` in math, imported along where solveng is;
+                // else the explicit reference
+                else if item.kind == ItemKind::FUNCTION && standard {
+                    let edits = (a.builtin_functions_at(at) && a.bindings.bound(at, &canonical).is_none())
+                        .then(|| a.bindings.import_edits(&a.doc, at, false, &canonical)).flatten();
+                    match edits {
+                        Some(edits) => { item.edits = edits; canonical.clone() }
+                        None => format!("op(\"{canonical}\")"),
+                    }
+                }
                 else { math_name(&canonical) };
             let suffix = if canonical == "sum" && item.insert.starts_with("sum_(") { item.insert[3..].to_string() }
                 else { item.insert.find('(').map(|at| item.insert[at..].to_string()).unwrap_or_default() };

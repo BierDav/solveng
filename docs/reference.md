@@ -106,9 +106,9 @@ so it lasts $t := Q_0 / I = 1 "h"$.
 - `=` at the end shows the value, with a bold =: `$t =$` → t **=** 115 h, `$t := Q_0/I =$` defines and shows it. What follows it is the unit and keywords: `$t = 1 "h"$`, `$t = min, digits(2)$`.
 - `->` at the end shows the symbolic result, the known values put in, exactly: `$f := (x^2 - 1)/(x - 1) -> simplify$`. With `solve(x)` it solves an equation for x (and defines it when the solution is a value): `$Q_0/2 = I t -> solve(t)$`, `$x^2 - 4 = 0 -> solve(x)$`, `$x + y = 3, x - y = 1 -> solve(x, y)$`, `$R <= U/I -> solve(R)$`.
 
-Keywords: `solve(x, …)`, `substitute(x, …)` (these variables' formulas put in, other names kept), `laplace`, `invlaplace` (optional input and output names), `simplify`, `frac` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
+Keywords: `solve(x, …)`, `substitute(x, …)` (these variables' formulas put in, other names kept), `simplify`, `frac` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
 
-**Units** are quoted names, `$9.81 "m"/"s"^2$`, `$3 "bar"$` for your own units (with `worksheet(units: …)`), or unit words imported from solveng's `units` module: after `#import units: mA, kΩ`, `$30 mA$`, `$4.7 kΩ$`; single letters need a hash, `#import units: V` then `$5#V$`. An unquoted single letter is a variable, also alone after `=`: `$t = h$` compares t with a variable h, and `$3 dot h$` is 3 times h; after `->` only a unit can follow, so `$t -> h$` shows t in hours.
+**Units** are quoted names, `$9.81 "m"/"s"^2$`, `$3 "bar"$` for your own units (with `worksheet(units: …)`), or unit words imported from solveng's `units` module: after `#import units: mA, kΩ`, `$30 mA$`, `$4.7 kΩ$`; single letters need a hash, `#import units: V` then `$5#V$`. An unquoted single letter is a variable, also alone after `=`: `$t = h$` compares t with a variable h, and `$3 dot h$` is 3 times h; after `->` it's an error, so write `$t -> "h"$`.
 
 **Code.** Each line of a `solveng` code block is calculated the same way and shown with all its steps: `t := Q0/I = [h]`, `Q0/I =`, `x^2 = 4 -> solve(x)`; units in brackets, `;` separates the equations of a system, `//` starts a comment. Inline code and code with another language are left alone.
 
@@ -567,8 +567,8 @@ Returns expression or value.
 
 Unilateral Laplace transform: `laplace(expression, variable, result-variable)`.
 
-The variables default to t and s. Use `$t^2 -> laplace$`,
-`$exp(-x) -> laplace(x, p)$`, or `$laplace(t^2) ->$`.
+The variables default to t and s: `$laplace(t^2) ->$`, `$F(p) := laplace(exp(-x), x, p)$`.
+(The keyword form `-> laplace` was removed; it's an error pointing here.)
 The input variable is local, so a worksheet value for it is ignored.
 Supports constants, polynomials through degree 33, affine exponentials,
 sine, cosine, hyperbolic sine and cosine, linear combinations, exponential
@@ -595,8 +595,8 @@ Returns expression.
 
 Inverse unilateral Laplace transform: `invlaplace(expression, variable, result-variable)`.
 
-The variables default to s and t. Use `$1/(s+1) -> invlaplace$`,
-`$1/(p+1) -> invlaplace(p, x)$`, or `$invlaplace(1/s^2) ->$`.
+The variables default to s and t: `$invlaplace(1/s^2) ->$`, `$f(x) := invlaplace(1/(p+1), p, x)$`.
+(The keyword form `-> invlaplace` was removed; it's an error pointing here.)
 Proper rational functions are inverted symbolically using repeated poles,
 quadratic factors and exact partial fractions where available. The general
 numerical evaluator uses a state-space matrix exponential, including complex
@@ -900,7 +900,7 @@ The following operations use Typst's existing math names or syntax:
 | `mat(a, b; c, d)` | Matrix, rows separated by semicolons, blocks allowed: `mat(A, b)`, `mat(A; B)`. `A B` multiplies, `A^(-1)` inverts, `A^T` transposes, `a times b` is the cross product. Use `at(matrix, row, column)` for an element. |
 | `det(A)`, `tr(A)`, `norm(v)` | Determinant and trace of a square matrix; length of a vector (‖v‖). |
 | `cases(value, condition, …, default)` | First matching branch; conditions are unitless, and only the selected value is evaluated. The final default is optional. In math use `cases(0 & t < 0, 1 & "otherwise")`. |
-| `laplace(expression, variable, result-variable)`, `invlaplace(expression, variable, result-variable)` | Symbolic unilateral transforms, also used after `->`. Defaults: t → s and s → t. See their entries below for supported forms. |
+| `laplace(expression, variable, result-variable)`, `invlaplace(expression, variable, result-variable)` | Symbolic unilateral transforms. Defaults: t → s and s → t. See their entries below for supported forms. |
 | `sum(expression, index, lower, upper)` | Sum over inclusive integer bounds; the index is local and unitless. In math use `sum_(k=0)^10 k^2`. Small finite sums simplify exactly; infinite sums stay symbolic with `->` and are evaluated for `=` and graphs. |
 
 For sums, the upper bound may be `infinity`. Piecewise linear signal sums are counted
@@ -968,8 +968,8 @@ Q := U2 [2 s] -> substitute(U2)     // U2's formula put in: Q ≔ U2 · 2 s → 
 
 Many engineering symbols are also units: `A` (area, ampere), `V` (volume, volt), `T` (period, tesla), `h` (height, hour), `C`, `F`, `W`, `m`, `s`, `l`, `L`, … solveng keeps them apart by *how* they are written, never by guessing:
 
-- **Math:** units are quoted names, `$9.81 "m"/"s"^2$`, `$3 "bar"$` (your own too), or unit words: solveng's `units` module has every built-in unit and every prefixed one as a name, imported where you want them – `#import units: mA, kΩ, s`, or `#import units: *` – and then `$30 mA$`, `$4.7 kΩ$`, `$2#s$` (a single letter needs a hash, since Typst reads a lone letter in math as the letter). Typst's own names (`h`, `min`, `deg`, …) are left out. Nothing comes with `#import "@preview/solveng:1.0.0": *`: a shorthand in your document is one you imported or declared, so it's always clear where a name comes from, and like any import it holds only in its scope (a `#worksheet[…]` block, a file). A unit word means what the worksheet where it's used has under that name: your own unit if `units` redefines it, an error with `builtin-units: false` unless `units` defines it, a variable when `units` hides it (`T: none`). Unquoted single letters are variables, including after numbers (`$5 V$` multiplies by the variable V); after `->` only a unit can follow, so a single letter there is the unit: `$t -> h$` shows t in hours, `$v -> m/s$` in metres per second (after a trailing `=` it stays a variable: `$t = h$` compares). Parameter annotations such as `$f(x: A) := x$` accept unit names; calls must carry the dimension, as in `$f(1"A") =$`. Quoted text is a name of several letters (`$"tews" := 2$`), as Typst needs; `"as"` casts.
-- **Code:** a unit is read only where a value is written – right after a number (`I := 30 mA`), in brackets (`[5 V]`, `[A]` for one ampere) or after `->`. Every other name in an equation is a variable. A value whose unit is also a defined variable (`t := 3 h` with `h` defined, `f := 1/T` with `T` defined) is refused, with a hint how to write either meaning: `[3 h]` for hours, `3*h` or `1/(T)` for the variable.
+- **Math:** units are quoted names, `$9.81 "m"/"s"^2$`, `$3 "bar"$` (your own too), or unit words: solveng's `units` module has every built-in unit and every prefixed one as a name, imported where you want them – `#import units: mA, kΩ, s`, or `#import units: *` – and then `$30 mA$`, `$4.7 kΩ$`, `$2#s$` (a single letter needs a hash, since Typst reads a lone letter in math as the letter). Names of Typst's global scope (`h`, `v`) are left out, so `#import units: *` never hides `#h(1em)`; Typst's math names are in (`#import units: min`, then `$t := 2 min$` and `$t -> min$` read the minute, and `min(a, b)` is no longer Typst's operator there). Nothing comes with `#import "@preview/solveng:1.0.0": *`: a shorthand in your document is one you imported or declared, so it's always clear where a name comes from, and like any import it holds only in its scope (a `#worksheet[…]` block, a file). A unit word means what the worksheet where it's used has under that name: your own unit if `units` redefines it, an error with `builtin-units: false` unless `units` defines it, a variable when `units` hides it (`T: none`). Unquoted single letters are variables, including after numbers (`$5 V$` multiplies by the variable V) and after a trailing `=` (`$t = h$` compares); after `->`, where only a unit can follow, one is an error: write `$t -> "s"$`, or `$t -> #s$` with `#import units: s`. Parameter annotations such as `$f(x: A) := x$` accept unit names; calls must carry the dimension, as in `$f(1"A") =$`. Quoted text is a name of several letters (`$"tews" := 2$`), as Typst needs; `"as"` casts.
+- **Code:** a unit is read only where a value is written – right after a number (`I := 30 mA`) or in brackets (`[5 V]`, `[A]` for one ampere) – and in the clause after `=` or `->` (`= mA`; a single letter in brackets, `-> [h]`). Every other name in an equation is a variable. A value whose unit is also a defined variable (`t := 3 h` with `h` defined, `f := 1/T` with `T` defined) is refused, with a hint how to write either meaning: `[3 h]` for hours, `3*h` or `1/(T)` for the variable.
 
 ````typ
 #show: worksheet

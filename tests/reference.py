@@ -111,7 +111,8 @@ def options():
 
 
 def chapter(path):
-    """The /// block at the top of a file, when an empty line follows it."""
+    """The /// block at the top of a file, when an empty line follows it; a module's doc (a block before it that
+    doesn't start with a ## heading, shown by editors) is skipped."""
     lines = read(path).split("\n")
     i = 0
     while i < len(lines) and lines[i].startswith("//") and not lines[i].startswith("///"):
@@ -119,6 +120,13 @@ def chapter(path):
     j = i
     while j < len(lines) and lines[j].startswith("///"):
         j += 1
+    if j > i and not lines[i].startswith("/// ##"):
+        i = j
+        while i < len(lines) and not lines[i].strip():
+            i += 1
+        j = i
+        while j < len(lines) and lines[j].startswith("///"):
+            j += 1
     if j == i or j >= len(lines) or lines[j].strip():
         return ""
     return "\n".join(l[4:] if l.startswith("/// ") else l[3:] for l in lines[i:j]).strip()

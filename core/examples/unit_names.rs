@@ -1,4 +1,5 @@
-//! Prints every built-in unit name and every prefixed one, one per line, for scripts/unit-words.py.
+//! Prints every built-in unit name and every prefixed one, one per line, for scripts/unit-words.py; spellings of
+//! other names (Omega for Ω) are left out.
 
 use solveng_core::units::{PREFIXES, Units};
 
@@ -13,6 +14,7 @@ fn main() {
             }
         }
     }
+    names.retain(|n| solveng_names::normalize(n) == *n);
     names.sort();
     names.dedup();
     for name in names {

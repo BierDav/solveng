@@ -385,7 +385,6 @@ pub struct Clause {
     /// -> substitute(x, …): the variables whose formulas the result shows put in.
     pub substitute: Vec<String>,
     pub simplify: bool,
-    pub transform: Option<(String, Vec<String>)>,
     pub frac: bool,
     pub digits: Option<u32>,
     pub sci: bool,
@@ -408,7 +407,13 @@ pub fn is_builtin(n: &str) -> bool {
 fn applies_bare(op: &str) -> bool {
     matches!(op, "sqrt" | "exp" | "ln" | "log" | "sin" | "cos" | "tan" | "arcsin" | "arccos" | "arctan" | "sinh" | "cosh" | "tanh" | "abs" | "rect" | "tri" | "sgn" | "floor" | "factorial" | "det" | "tr")
 }
-const KEYWORDS: &[&str] = &["solve", "substitute", "simplify", "laplace", "invlaplace", "digits", "sci", "eng", "frac"];
+const KEYWORDS: &[&str] = &["solve", "substitute", "simplify", "digits", "sci", "eng", "frac"];
+/// Keywords that were removed, read only to say what replaced them.
+const REMOVED: &[&str] = &["laplace", "invlaplace"];
+fn removed(n: &str) -> String {
+    let (what, from, to) = if n == "laplace" { ("f", "t", "s") } else { ("F", "s", "t") };
+    format!("-> {n} was removed: write {n}({what}, {from}, {to}) (in math with #import functions: {n})")
+}
 
 /// What the parser needs to know about the document so far.
 pub struct Ctx<'a> {
@@ -1051,7 +1056,19 @@ fn split_trail(t: &[Tok], c: &Ctx) -> Result<(usize, Option<(Trail, Clause)>), S
         }
     }
     if let Some(i) = arrow {
-        let Some(cl) = clause(&t[i + 1..], c, true)? else {
+        let Some(cl) = clause(&t[i + 1..], c)? else {
+            // a single letter is a name, also where only a unit can follow
+            let letter = t[i + 1..].iter().find_map(|k| match k {
+                Tok::Name(n) if n.chars().count() == 1 && c.units.visible(n) => Some(n),
+                _ => None,
+            });
+            if let Some(n) = letter {
+                return Err(if c.mode == Mode::Math {
+                    format!("'{n}' after -> is a name, not a unit – write \"{n}\", or #{n} with #import units: {n}")
+                } else {
+                    format!("'{n}' after -> is a name, not a unit – write [{n}]")
+                });
+            }
             // a name that is no unit here: say which
             let unknown = t[i + 1..].iter().find_map(|k| match k {
                 Tok::Name(n) | Tok::Quoted(n) | Tok::UnitWord(n) if !KEYWORDS.contains(&n.as_str()) && !c.units.visible(n) => Some(n),
@@ -1066,17 +1083,16 @@ fn split_trail(t: &[Tok], c: &Ctx) -> Result<(usize, Option<(Trail, Clause)>), S
     }
     if let Some(i) = eq {
         // = followed by more than a unit and keywords is a comparison
-        if let Some(cl) = clause(&t[i + 1..], c, false)? {
+        if let Some(cl) = clause(&t[i + 1..], c)? {
             return Ok((i, Some((Trail::Eval, cl))));
         }
     }
     Ok((t.len(), None))
 }
 
-/// Keywords and a unit, separated by commas; None if it isn't one (2000 mA is a value, not a clause). After ->
-/// (`arrow`) only a clause can follow, so a single letter that is a unit is the unit there.
-fn clause(t: &[Tok], c: &Ctx, arrow: bool) -> Result<Option<Clause>, String> {
-    // keywords written with math.op (laplace) are keywords here; math writes m/s as frac(m, s)
+/// Keywords and a unit, separated by commas; None if it isn't one (2000 mA is a value, not a clause).
+fn clause(t: &[Tok], c: &Ctx) -> Result<Option<Clause>, String> {
+    // names written with math.op are read as names here; math writes m/s as frac(m, s)
     let t: Vec<Tok> = t.iter().map(|k| match k { Tok::Builtin(n) => Tok::Name(n.clone()), k => k.clone() }).collect();
     let t = unfrac(&t);
     let t = t.as_slice();
@@ -1110,6 +1126,9 @@ fn clause(t: &[Tok], c: &Ctx, arrow: bool) -> Result<Option<Clause>, String> {
             continue;
         }
         if let Some(Tok::Name(n)) = g.first() {
+            if REMOVED.contains(&n.as_str()) && (g.len() == 1 || s_op(g.get(1)) == Some("(")) {
+                return Err(removed(n));
+            }
             if KEYWORDS.contains(&n.as_str()) && (g.len() == 1 || s_op(g.get(1)) == Some("(")) {
                 let mut s = n.clone();
                 for k in &g[1..] {
@@ -1119,11 +1138,11 @@ fn clause(t: &[Tok], c: &Ctx, arrow: bool) -> Result<Option<Clause>, String> {
                 continue;
             }
         }
-        // a unit: names (units only), powers, /, brackets; no numbers but exponents. After =, a single letter is a
-        // unit only after a 1 (t = 1 h) or with a unit of more letters (km/h): alone it's a variable, t = h compares
+        // a unit: names (units only), powers, /, brackets; no numbers but exponents. A single letter is a unit only
+        // after a 1 (t = 1 h) or with a unit of more letters (km/h): alone it's a variable, t = h compares
         let mut s = String::new();
         let mut prev_pow = false;
-        let mut named = arrow || matches!(g.first(), Some(Tok::Num(n)) if n == "1");
+        let mut named = matches!(g.first(), Some(Tok::Num(n)) if n == "1");
         for k in &g {
             match k {
                 Tok::Num(n) if prev_pow || n == "1" => s += n,
@@ -1131,7 +1150,6 @@ fn clause(t: &[Tok], c: &Ctx, arrow: bool) -> Result<Option<Clause>, String> {
                 Tok::Name(n) | Tok::Quoted(n) | Tok::UnitWord(n) => {
                     let unit = match k {
                         Tok::UnitWord(_) => true,
-                        Tok::Name(_) if arrow => c.named_unit(n),
                         Tok::Name(_) => c.expression_unit(n),
                         _ => c.units.visible(n),
                     };
@@ -1177,13 +1195,6 @@ fn clause(t: &[Tok], c: &Ctx, arrow: bool) -> Result<Option<Clause>, String> {
                     if !cl.substitute.contains(&n) { cl.substitute.push(n); }
                 }
             }
-            "laplace" | "invlaplace" => {
-                if args.len() > 2 || args.iter().any(|n| solveng_names::scan(&n.chars().collect::<Vec<_>>(), 0).ok().flatten().is_none_or(|v| v.end != n.chars().count())) {
-                    return Err(format!("{name} takes up to two variable names"));
-                }
-                if cl.transform.is_some() { return Err("one transform per result".into()); }
-                cl.transform = Some((name, args));
-            }
             "digits" => {
                 let d: u32 = args.first().and_then(|a| a.parse().ok()).filter(|d| (1..=15).contains(d)).ok_or_else(|| format!("digits: 1…15, got {}", args.join(", ")))?;
                 cl.digits = Some(d);
@@ -1199,6 +1210,7 @@ fn clause(t: &[Tok], c: &Ctx, arrow: bool) -> Result<Option<Clause>, String> {
                     _ => cl.frac = true,
                 }
             }
+            n if REMOVED.contains(&n) => return Err(removed(n)),
             _ => return Err(format!("unknown keyword '{name}' (keywords: {})", KEYWORDS.join(", "))),
         }
     }
@@ -1349,6 +1361,32 @@ fn src_text(t: &[Tok]) -> String {
     s
 }
 
+/// Whether a line with a trailing -> is meant for solveng though it can't be read: what comes before the arrow
+/// uses a unit or a defined name (`1 "min" -> s`), or a keyword follows it, unlike prose such as `f: X -> Y`.
+pub fn meant(src: &str, c: &Ctx) -> bool {
+    let Ok(t) = visible_tokens(src, c) else { return false };
+    let mut depth = 0i32;
+    let mut arrow = None;
+    for (i, k) in t.iter().enumerate() {
+        match k {
+            Tok::Op("(" | "[") => depth += 1,
+            Tok::Op(")" | "]") => depth -= 1,
+            Tok::Op("->") if depth == 0 => arrow = Some(i),
+            _ => {}
+        }
+    }
+    let Some(arrow) = arrow else { return false };
+    // solveng's keywords (also removed ones) after the arrow
+    let keyword = |n: &str| KEYWORDS.contains(&n) || REMOVED.contains(&n);
+    if t[arrow + 1..].iter().any(|k| matches!(k, Tok::Kw(_)) || matches!(k, Tok::Name(n) | Tok::Builtin(n) if keyword(n))) { return true; }
+    t[..arrow].iter().any(|k| match k {
+        Tok::UnitWord(_) | Tok::Bracket(_) => true,
+        Tok::Quoted(n) => c.units.visible(n) || (c.is_var)(n) || (c.is_fn)(n),
+        Tok::Name(n) => (c.is_var)(n) || (c.is_fn)(n),
+        _ => false,
+    })
+}
+
 /// Reads a line: statements separated by ; (or , in math), an optional trailing = or -> with its clause.
 pub fn parse_line(src: &str, c: &Ctx) -> Result<Line, String> {
     let src = if c.mode == Mode::Code { src.split("//").next().unwrap_or("") } else { src };
@@ -1385,11 +1423,6 @@ pub fn parse_line(src: &str, c: &Ctx) -> Result<Line, String> {
         let (s, l) = stmt(p, c)?;
         stmts.push(s);
         letters.extend(l);
-    }
-    if let Some((kind, clause)) = &trail {
-        if clause.transform.is_some() && (*kind != Trail::Sym || clause.solve.is_some()) {
-            return Err("laplace and invlaplace require -> and cannot be combined with solve".into());
-        }
     }
     Ok(Line { stmts, trail, unit_letters: letters })
 }

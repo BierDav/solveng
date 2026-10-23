@@ -118,11 +118,14 @@ pub struct Item {
     /// What typing matches when it differs from `insert`: `Delta_R` for `Δ_R`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub filter: Option<String>,
+    /// Edits elsewhere applied with it, like the `#import units: km` a shorthand needs.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub edits: Vec<Edit>,
 }
 
 impl Item {
     pub(crate) fn new(label: &str, kind: u8, detail: &str, insert: &str) -> Item {
-        Item { label: label.into(), kind, detail: detail.into(), insert: insert.into(), documentation: None, filter: None }
+        Item { label: label.into(), kind, detail: detail.into(), insert: insert.into(), documentation: None, filter: None, edits: Vec::new() }
     }
 }
 
@@ -144,6 +147,9 @@ pub struct Conversion {
     pub start: u32,
     pub end: u32,
     pub text: String,
+    /// Edits elsewhere applied with it, like an import.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub edits: Vec<Edit>,
 }
 
 /// Code shown as it renders while the caret is elsewhere: UTF-16 `start` and `length` show as `character` (a

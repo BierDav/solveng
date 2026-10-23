@@ -111,11 +111,11 @@ impl<'a> Sheet<'a> {
             let is_fn = |n: &str| env.funs.contains_key(n);
             let is_var = |n: &str| env.vars.contains_key(n);
             let ctx = Ctx { units: &self.units, functions: &self.functions, mode: self.mode, is_fn: &is_fn, is_var: &is_var, strict: self.cfg.strict };
-            parse::parse_line(src, &ctx)
+            parse::parse_line(src, &ctx).map_err(|e| (e, calc || parse::meant(src, &ctx)))
         };
         let line = match line {
             Ok(l) => l,
-            Err(e) => {
+            Err((e, calc)) => {
                 if self.mode == Mode::Math && !calc {
                     self.out.prose = true;
                 } else {
@@ -198,18 +198,6 @@ impl<'a> Sheet<'a> {
     fn stmt(&mut self, s: &Stmt, trail: Option<Trail>, clause: &Clause, cfg: &Cfg) -> Result<Vec<Stage>, String> {
         if !clause.substitute.is_empty() && (trail != Some(Trail::Sym) || clause.solve.is_some()) {
             return Err("substitute shows a formula: it goes after ->, without solve".into());
-        }
-        if let Some((operation, variables)) = &clause.transform {
-            if trail.is_some() {
-                let wrap = |body: &Ast| Ast::Builtin(operation.clone(), std::iter::once(body.clone()).chain(variables.iter().cloned().map(Ast::Name)).collect());
-                let transformed = match s {
-                    Stmt::Def { head, rhs, src } => Stmt::Def { head: head.clone(), rhs: wrap(rhs), src: src.clone() },
-                    Stmt::Expr(body) => Stmt::Expr(wrap(body)),
-                };
-                let mut local = clause.clone();
-                local.transform = None;
-                return self.stmt(&transformed, trail, &local, cfg);
-            }
         }
         match s {
             Stmt::Def { head: Head::Fn { name, params, rest }, rhs, src } => {

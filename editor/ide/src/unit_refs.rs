@@ -24,7 +24,8 @@ struct Spot {
 
 static UNITS_ARG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"units\s*:\s*\(").unwrap());
 static KEY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?:^|[(,])\s*([\p{L}][\p{L}\p{N}_-]*|"[^"]+")\s*:"#).unwrap());
-static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\p{L}°%‰µΩ]+").unwrap());
+// `_` belongs to a unit's name: `km_old` is one
+static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\p{L}_°%‰µΩ]+").unwrap());
 
 /// The keys of `units: (…)` dictionaries.
 fn definitions(doc: &Doc, out: &mut Vec<Spot>) {
@@ -83,11 +84,18 @@ fn spots(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Eleme
         let settings = units_at(e.body_start);
         let toks = if e.math { math_tokens(body, &|w| crate::units::visible(w, &settings), &|_| false) } else { code_tokens(body, &unit) };
         let toks = toks.into_iter().filter(|(s, _, _)| !bindings.contains(e.body_start + s)).collect();
-        uses(doc, e.body_start, toks, e.math, custom, &mut out);
+        // a word means the units in effect where it's written
+        uses(doc, e.body_start, toks, e.math, &own(&settings), &mut out);
     }
     for call in calls {
         for t in &call.texts {
             let code = &doc.c[t.start..t.end];
+            // a worksheet's own units may use the ones it defines next to them
+            let mut settings = units_at(t.start);
+            for (name, value) in call.args.iter().filter(|(n, _)| n.as_deref() == Some("units")) {
+                crate::units::custom_units(&format!("{}: {value}", name.as_deref().unwrap_or_default()), &mut settings);
+            }
+            let custom = own(&settings);
             let toks = match t.role {
                 Role::Code if call.is_curve(t) => formula_tokens(code, &unit),
                 Role::Code | Role::Mark => code_tokens(code, &unit),
@@ -99,10 +107,15 @@ fn spots(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Eleme
                 }
                 _ => Vec::new(),
             };
-            uses(doc, t.start, toks, false, custom, &mut out);
+            uses(doc, t.start, toks, false, &custom, &mut out);
         }
     }
     out
+}
+
+/// The document's own units among those in effect: what a word can be a use of.
+fn own(settings: &[Custom]) -> Vec<Custom> {
+    settings.iter().filter(|u| !u.name.is_empty() && u.value != "none").cloned().collect()
 }
 
 /// The spots of the document (`path` None) and the files around.

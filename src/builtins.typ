@@ -1,3 +1,20 @@
+/// Shorthands for solveng's operations in math: `tri`, `rect`, `sgn`, `floor`, `convolve`, `range`, `at`, `laplace`, ….
+///
+/// Import only the ones you use, where you use them: `#import functions: tri, sgn`. Typst imports are lexical, so
+/// they apply to that file or block and the ones nested in it; nothing comes along with
+/// `#import "@preview/solveng:1.0.0": *`. Without the import, math reads the name as Typst's own (`at` is the
+/// symbol @) or as an unknown variable. Strings and code blocks need no import: `#worksheet("tri(0) =")`.
+///
+/// Imported names follow `builtin-functions`, and a worksheet's own function of that name wins. `op("tri")` and
+/// `operation("convolve")` are the explicit references, independent of both. Typst's own math operators (`sin`,
+/// `exp`, `sqrt`, …) need no import.
+///
+/// ```typ
+/// #import functions: tri, sgn
+/// #show: worksheet
+/// $f(t) := tri(t) sgn(t)$, $f(1/2) =$
+/// ```
+
 /// ## Built-in operations
 ///
 /// Built-in operations work in worksheet math, calculation strings and graphs. In strings and code their
@@ -44,7 +61,7 @@
 /// | `mat(a, b; c, d)` | Matrix, rows separated by semicolons, blocks allowed: `mat(A, b)`, `mat(A; B)`. `A B` multiplies, `A^(-1)` inverts, `A^T` transposes, `a times b` is the cross product. Use `at(matrix, row, column)` for an element. |
 /// | `det(A)`, `tr(A)`, `norm(v)` | Determinant and trace of a square matrix; length of a vector (‖v‖). |
 /// | `cases(value, condition, …, default)` | First matching branch; conditions are unitless, and only the selected value is evaluated. The final default is optional. In math use `cases(0 & t < 0, 1 & "otherwise")`. |
-/// | `laplace(expression, variable, result-variable)`, `invlaplace(expression, variable, result-variable)` | Symbolic unilateral transforms, also used after `->`. Defaults: t → s and s → t. See their entries below for supported forms. |
+/// | `laplace(expression, variable, result-variable)`, `invlaplace(expression, variable, result-variable)` | Symbolic unilateral transforms. Defaults: t → s and s → t. See their entries below for supported forms. |
 /// | `sum(expression, index, lower, upper)` | Sum over inclusive integer bounds; the index is local and unitless. In math use `sum_(k=0)^10 k^2`. Small finite sums simplify exactly; infinite sums stay symbolic with `->` and are evaluated for `=` and graphs. |
 ///
 /// For sums, the upper bound may be `infinity`. Piecewise linear signal sums are counted
@@ -316,8 +333,8 @@
 
 /// Unilateral Laplace transform: `laplace(expression, variable, result-variable)`.
 ///
-/// The variables default to t and s. Use `$t^2 -> laplace$`,
-/// `$exp(-x) -> laplace(x, p)$`, or `$laplace(t^2) ->$`.
+/// The variables default to t and s: `$laplace(t^2) ->$`, `$F(p) := laplace(exp(-x), x, p)$`.
+/// (The keyword form `-> laplace` was removed; it's an error pointing here.)
 /// The input variable is local, so a worksheet value for it is ignored.
 /// Supports constants, polynomials through degree 33, affine exponentials,
 /// sine, cosine, hyperbolic sine and cosine, linear combinations, exponential
@@ -340,8 +357,8 @@
 
 /// Inverse unilateral Laplace transform: `invlaplace(expression, variable, result-variable)`.
 ///
-/// The variables default to s and t. Use `$1/(s+1) -> invlaplace$`,
-/// `$1/(p+1) -> invlaplace(p, x)$`, or `$invlaplace(1/s^2) ->$`.
+/// The variables default to s and t: `$invlaplace(1/s^2) ->$`, `$f(x) := invlaplace(1/(p+1), p, x)$`.
+/// (The keyword form `-> invlaplace` was removed; it's an error pointing here.)
 /// Proper rational functions are inverted symbolically using repeated poles,
 /// quadratic factors and exact partial fractions where available. The general
 /// numerical evaluator uses a state-space matrix exponential, including complex

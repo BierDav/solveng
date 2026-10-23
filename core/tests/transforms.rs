@@ -50,29 +50,43 @@ fn inverse_table_and_round_trips() {
 }
 
 #[test]
-fn keywords_definitions_custom_variables_and_local_input() {
+fn definitions_custom_variables_and_local_input() {
     for mode in [Mode::Code, Mode::Math] {
         let mut env = Env::default();
         run(&mut env, "t := 7", mode);
-        run(&mut env, "F := t^2 -> laplace", mode);
+        run(&mut env, "F := laplace(t^2, t, s) ->", mode);
         equal(&mut env, "F", "2/s^3", mode);
         run(&mut env, "g(x) := exp(-x)", mode);
-        run(&mut env, "G := g(x) -> laplace(x, p)", mode);
+        run(&mut env, "G := laplace(g(x), x, p)", mode);
         equal(&mut env, "G", "1/(p+1)", mode);
-        run(&mut env, "f(u) := 1/(p+1) -> invlaplace(p, u)", mode);
+        run(&mut env, "f(u) := invlaplace(1/(p+1), p, u)", mode);
         run(&mut env, "answer := f(2) =", mode);
         assert!((value(&env.vars["answer"].expr).unwrap().v.f() - (-2.0_f64).exp()).abs() < 1e-12);
         assert_eq!(value(&env.vars["t"].expr).unwrap().v.f(), 7.0);
         equal(&mut env, "laplace(x^2, x, p)", "2/p^3", mode);
     }
-    let mut env = Env::default();
-    run(&mut env, "t^2 → ⦅laplace⦆", Mode::Math);
-    run(&mut env, "x^2 → ⦅laplace(x, p)⦆", Mode::Math);
+}
+
+#[test]
+fn the_removed_keywords_point_to_the_functions() {
+    for mode in [Mode::Code, Mode::Math] {
+        for (src, name) in [("t^2 -> laplace", "laplace"), ("F := t^2 -> laplace(t, p)", "laplace"), ("1/(s+1) -> invlaplace", "invlaplace"), ("f(u) := 1/(p+1) -> invlaplace(p, u)", "invlaplace"), ("t -> simplify, laplace", "laplace"), ("t = laplace", "laplace")] {
+            // in math, t = laplace with nothing known is prose
+            if mode == Mode::Math && src == "t = laplace" { continue; }
+            let out = api::line(&mut Env::default(), &LineReq { src: src.into(), mode, cfg: Cfg::default(), listed: true });
+            let want = if name == "laplace" { "-> laplace was removed: write laplace(f, t, s) (in math with #import functions: laplace)" } else { "-> invlaplace was removed: write invlaplace(F, s, t) (in math with #import functions: invlaplace)" };
+            assert!(out.errors.iter().any(|e| e == want), "{mode:?} {src}: {out:?}");
+        }
+    }
+    for src in ["t^2 → ⦅laplace⦆", "x^2 → ⦅laplace(x, p)⦆"] {
+        let out = api::line(&mut Env::default(), &LineReq { src: src.into(), mode: Mode::Math, cfg: Cfg::default(), listed: true });
+        assert!(out.errors.iter().any(|e| e.contains("-> laplace was removed")), "{src}: {out:?}");
+    }
 }
 
 #[test]
 fn invalid_and_unsupported_transforms_are_errors() {
-    for src in ["laplace() ->", "laplace(t, 2) ->", "laplace(t, t, t) ->", "laplace(s*t) ->", "laplace(ln(t)) ->", "invlaplace(1) ->", "invlaplace(s) ->", "t -> laplace(x+1)", "t -> laplace, invlaplace", "t = laplace", "t -> laplace, solve(t)", "laplace(t^40) ->"] {
+    for src in ["laplace() ->", "laplace(t, 2) ->", "laplace(t, t, t) ->", "laplace(s*t) ->", "laplace(ln(t)) ->", "invlaplace(1) ->", "invlaplace(s) ->", "laplace(t^40) ->"] {
         let out = api::line(&mut Env::default(), &LineReq { src: src.into(), mode: Mode::Code, cfg: Cfg::default(), listed: true });
         assert!(!out.errors.is_empty(), "{src}: {out:?}");
     }

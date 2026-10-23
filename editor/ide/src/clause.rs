@@ -7,8 +7,6 @@ use crate::text::{is_letter, sub};
 pub(crate) const KEYWORDS: &[(&str, &str)] = &[
     ("solve", "solve(x, …): solves the equation for these names and defines them"),
     ("substitute", "substitute(x, …): the result with these variables' formulas put in, other names kept"),
-    ("laplace", "laplace(t, s): unilateral Laplace transform; variables default to t and s"),
-    ("invlaplace", "invlaplace(s, t): inverse Laplace transform; variables default to s and t"),
     ("simplify", "the symbolic result, with the known values put in"),
     ("frac", "exact fractions"),
     ("digits", "digits(n): decimals with n significant digits"),

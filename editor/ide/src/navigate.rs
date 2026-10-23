@@ -425,6 +425,10 @@ fn location(files: &[File], o: &Occurrence) -> Location {
 /// just the name. On one of the document's own units (`ü` of `units: (ü: auto)`), its key in `units: (…)`.
 pub fn definition(document: &str, context: &Context, offset: u32) -> Option<Location> {
     let a = Analysis::new(document, context);
+    // a shorthand from solveng's modules: where it's imported
+    if let Some((s, e)) = a.bindings.shorthand_definition(a.doc.from16(offset as usize)) {
+        return Some(Location { path: None, start: a.doc.to16(s) as u32, end: a.doc.to16(e) as u32 });
+    }
     if a.bindings.at(&a.doc, offset) { return None; }
     let (files, occurrences) = resolved(&a);
     let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::definition(&a, offset) };
@@ -437,6 +441,10 @@ pub fn definition(document: &str, context: &Context, offset: u32) -> Option<Loca
 /// On one of the document's own units, its keys and every use, prefixed ones (`mü`) and other units' values included.
 pub fn usages(document: &str, context: &Context, offset: u32) -> Vec<Location> {
     let a = Analysis::new(document, context);
+    let shorthand = a.bindings.shorthand_usages(a.doc.from16(offset as usize));
+    if !shorthand.is_empty() {
+        return shorthand.into_iter().map(|(s, e)| Location { path: None, start: a.doc.to16(s) as u32, end: a.doc.to16(e) as u32 }).collect();
+    }
     if a.bindings.at(&a.doc, offset) { return Vec::new(); }
     let (files, occurrences) = resolved(&a);
     let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::usages(&a, offset).unwrap_or_default() };
@@ -447,6 +455,9 @@ pub fn usages(document: &str, context: &Context, offset: u32) -> Vec<Location> {
 /// The solveng name at `offset` that [`rename`] renames, as it's written there: its range and text.
 pub fn rename_target(document: &str, context: &Context, offset: u32) -> Option<RenameTarget> {
     let a = Analysis::new(document, context);
+    if let Some((s, e, name)) = a.bindings.shorthand_target(a.doc.from16(offset as usize)) {
+        return Some(RenameTarget { start: a.doc.to16(s) as u32, end: a.doc.to16(e) as u32, name });
+    }
     if a.bindings.at(&a.doc, offset) { return None; }
     let (files, occurrences) = resolved(&a);
     let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::rename_target(&a, offset) };
@@ -461,6 +472,10 @@ pub fn rename_target(document: &str, context: &Context, offset: u32) -> Option<R
 /// with longer names quoted (`"tews"`, `t_"half"`). Empty if there's nothing to rename or the input is empty.
 pub fn rename(document: &str, context: &Context, offset: u32, name: &str) -> Vec<Edit> {
     let a = Analysis::new(document, context);
+    // a shorthand gets an alias in its import, `s as test`
+    if let Some(edits) = a.bindings.shorthand_rename(&a.doc, a.doc.from16(offset as usize), name.trim()) {
+        return edits.into_iter().map(|(s, e, text)| Edit { path: None, start: a.doc.to16(s) as u32, end: a.doc.to16(e) as u32, text }).collect();
+    }
     if a.bindings.at(&a.doc, offset) { return Vec::new(); }
     let (files, occurrences) = resolved(&a);
     let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::rename(&a, offset, name).unwrap_or_default() };

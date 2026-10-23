@@ -1,25 +1,25 @@
 #import "/lib.typ": *
-#import "/tests/util.typ": expect, passes
+#import "/tests/util.typ": expect, passes, fails
 #import functions: *
 #set page(width: 18cm, height: auto)
 #show: worksheet.with(errors: "panic")
-$F(p) := exp(-t) -> laplace(t, p)$
+$F(p) := laplace(exp(-t), t, p)$
 #passes()
 $"forward" := F(2) =$
 #passes() #expect("forward", 1/3)
-$f(x) := 1/(p+1) -> invlaplace(p, x)$
+$f(x) := invlaplace(1/(p+1), p, x)$
 #passes()
 $"inverse" := f(0) =$
 #passes() #expect("inverse", 1)
-$t^2 -> laplace$
+$laplace(t^2) ->$
 #passes()
-$1/(s^2+4) -> invlaplace$
+$invlaplace(1/(s^2+4)) ->$
 #passes()
 $G(p) := laplace(t^2, t, p)$
 $"called" := G(2) =$
 #passes() #expect("called", 0.25)
 ```solveng
-H(p) := t^2 -> laplace(t, p)
+H(p) := laplace(t^2, t, p)
 code_value := H(2) =
 ```
 #passes() #expect("code_value", 0.25)
@@ -66,3 +66,10 @@ $"rzero" := r(0) =$
 #passes() #expect("rzero", 2)
 #graph("r(t)", xrange: (0, 3))
 #passes()
+
+// the keyword forms were removed: they say what to write instead
+#worksheet(errors: "document")[
+  $x := t^2 -> laplace$ #fails("-> laplace was removed: write laplace(f, t, s) (in math with #import functions: laplace)")
+  $y := 1/(s+1) -> invlaplace(s, u)$ #fails("-> invlaplace was removed: write invlaplace(F, s, t)")
+  #worksheet("z := t -> laplace(t, p)") #fails("-> laplace was removed")
+]

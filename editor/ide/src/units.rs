@@ -340,25 +340,19 @@ pub(crate) fn visible(word: &str, custom: &[Custom]) -> bool {
     !custom.iter().any(|u| u.name == word && u.value == "none") && known(word, custom)
 }
 
-/// Whether solveng's `units` module holds a shorthand for `name`: built-in units, prefixed or not, that are Typst
-/// identifiers and don't shadow Typst's own globals (`h` is spacing).
+/// The names of solveng's `units` module, for `#import units: *`, read from the package.
+static SHORTHANDS: LazyLock<Vec<String>> = LazyLock::new(|| {
+    include_str!("../../../src/unit-words.typ").lines().filter_map(|line| line.strip_prefix("#let "))
+        .filter_map(|line| line.split_once(" = ").map(|(name, _)| name.trim().to_string()))
+        .filter(|name| !name.starts_with('_') && !name.contains('(')).collect()
+});
+
+/// Whether solveng's `units` module holds a shorthand for the built-in unit `name`.
 pub(crate) fn shorthand(name: &str) -> bool {
-    is_unit(name) && typst_syntax::is_ident(name) && !TYPST_GLOBALS.contains(&name)
+    SHORTHANDS.iter().any(|n| n == name)
 }
 
-/// One-letter globals of Typst's standard library a glob import must not shadow.
-const TYPST_GLOBALS: &[&str] = &["h", "v"];
-
-/// Every name of solveng's `units` module, for `#import units: *`.
+/// Every name of solveng's `units` module.
 pub(crate) fn shorthands() -> Vec<String> {
-    let mut out = Vec::new();
-    for (u, _) in PREFIXABLE.iter().chain(PLAIN) {
-        out.push(u.to_string());
-        if PREFIXABLE.iter().any(|(p, _)| p == u) {
-            out.extend(PREFIXES.iter().map(|(p, _)| format!("{p}{u}")));
-        }
-    }
-    out.retain(|n| shorthand(n));
-    out.dedup();
-    out
+    SHORTHANDS.clone()
 }

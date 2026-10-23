@@ -42,7 +42,7 @@
   #let metre = unit("m")
   $x := 2metre$ #fails("unknown unit 'm' (built-in units are off")
   $x := 2km$ #fails("unknown unit 'km'")
-  $x := 1unit("km") -> s$ #fails("unknown unit 'km'")
+  $x := 1unit("km") -> "s"$ #fails("unknown unit 'km'")
   $x := 3"s" -> min$ #fails("unknown unit 'min' (built-in units are off")
 ]
 #worksheet(builtin-units: false, units: (m: auto, km: "1000 m", s: auto, min: "60 s", dz: 12, v: "km/min"))[
@@ -51,7 +51,7 @@
   $t := 90 "s" -> min$ #expect("t", 90) #result("\"1.5\" thin upright(\"min\")")
   $n := 2 "dz"$ #expect("n", 24)
   $w := 6 "v" =$ #expect("w", 100)
-  $p := 3 km -> m$ #result("\"3000\" thin upright(\"m\")")
+  $p := 3 km -> "m"$ #result("\"3000\" thin upright(\"m\")")
 ]
 // definitions see only what exists
 #worksheet(builtin-units: false, units: (km: "1000 m"))[]
@@ -150,7 +150,7 @@
 #worksheet(units: (km: "s", km_old: "10^3m"))[
   $a := 1#km -> min$ #expect("a", 1) #result("\"0.01667\" thin upright(\"min\")")
   $b := 1unit("km") -> min$ #expect("b", 1)
-  $c := 1"km_old" -> m$ #expect("c", 1000) #result("\"1000\" thin upright(\"m\")")
+  $c := 1"km_old" -> "m"$ #expect("c", 1000) #result("\"1000\" thin upright(\"m\")")
   $y := 10^3"m"$ #expect("y", 1000, u: "m")
   $y_2 := 2 dot 10^6"m" =$ #expect("y_2", 2e6, u: "Mm")
   #worksheet(builtin-units: false)[
@@ -180,18 +180,31 @@
 #let words = dictionary(unit-module).keys()
 #for w in ("s", "m", "g", "A", "V", "C", "J", "W", "N", "K", "T", "Ω", "l", "L", "km", "mA", "kΩ", "µA", "uA", "Ah") { assert(w in words, message: w + " isn't a unit word") }
 // Typst's own names stay Typst's
-#for w in ("h", "v", "min", "deg", "as", "Omega") { assert(w not in words, message: w + " shadows Typst") }
-#assert(words.all(w => w not in dictionary(std) and w not in dictionary(math) and w not in dictionary(sym)))
+// Typst's global names stay Typst's, its math names are imported on purpose
+#for w in ("h", "v", "as", "Omega") { assert(w not in words, message: w + " shadows Typst") }
+#for w in ("min", "deg", "kmin", "mdeg") { assert(w in words, message: w + " isn't a unit word") }
+#assert(words.all(w => w not in dictionary(std)))
+#worksheet[
+  #import units: min
+  $t := 2 min$ #expect("t", 120, u: "min")
+  $u := 1 "h" -> min$ #result("\"60\" thin upright(\"min\")")
+  $w := 90 "s" -> min$ #expect("w", 90)
+]
 #assert(words.all(w => not w.starts-with("_")))
 
-// after ->, a single letter that is a unit is the target; after =, it stays a variable
+// a single letter is a name, also after ->: quote the unit or import it
 #worksheet[
   $x := 5"km"$
-  $x -> m$ #result("\"5000\" thin upright(\"m\")")
+  $x -> m$ #fails("'m' after -> is a name, not a unit – write \"m\", or #m with #import units: m")
+  $1"min" -> s$ #fails("'s' after -> is a name, not a unit – write \"s\", or #s with #import units: s")
+  $x -> "m"$ #result("\"5000\" thin upright(\"m\")")
+  $x -> #m$ #result("\"5000\" thin upright(\"m\")")
   $v := 72"km"/"h"$
-  $v -> m/s$ #result("\"20\" thin upright(\"m\") \\/ upright(\"s\")")
+  $v -> "m"/"s"$ #result("\"20\" thin upright(\"m\") \\/ upright(\"s\")")
+  $v -> #m/#s$ #result("\"20\" thin upright(\"m\") \\/ upright(\"s\")")
   $v = "m"/"s"$ #result("\"20\" thin upright(\"m\") \\/ upright(\"s\")")
-  $v -> km/h, digits(2)$ #result("\"72\" thin upright(\"km\") \\/ upright(\"h\")")
-  $t := x/v -> s$ #expect("t", 250)
+  $v -> km/"h", digits(2)$ #result("\"72\" thin upright(\"km\") \\/ upright(\"h\")")
+  $t := x/v -> "s"$ #expect("t", 250)
+  $f: X -> Y$ #passes()
   $x = m$ #passes()
 ]

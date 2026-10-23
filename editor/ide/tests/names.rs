@@ -224,8 +224,10 @@ fn function_definitions_calls_and_builtins_have_distinct_styles() {
         (format!("```solveng\n{code}\n```"), document_tokens(&format!("```solveng\n{code}\n```"), &Context::default())),
         (format!("#worksheet(\"{code}\")"), document_tokens(&format!("#worksheet(\"{code}\")"), &Context::default())),
     ] {
+        // the code itself, not the import before it
+        let code_start = source[..source.find("f(x)").unwrap()].encode_utf16().count() as u32;
         let source: Vec<u16> = source.encode_utf16().collect();
-        let functions: Vec<_> = tokens.iter().filter_map(|t| {
+        let functions: Vec<_> = tokens.iter().filter(|t| t.start >= code_start).filter_map(|t| {
             let name = String::from_utf16(&source[t.start as usize..(t.start + t.length) as usize]).unwrap();
             ["f", "sin", "cos", "tri", "rect"].contains(&name.as_str()).then_some((name, t.kind))
         }).collect();

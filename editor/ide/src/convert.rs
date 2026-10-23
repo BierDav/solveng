@@ -23,7 +23,7 @@ pub fn conversions(document: &str, context: &Context, offset: u32) -> Vec<Conver
     let at = a.doc.from16(offset as usize);
     let Some(e) = a.elements.iter().find(|e| e.start <= at && at <= e.end) else { return Vec::new() };
     let body = a.doc.sub(e.body_start, e.body_end);
-    let conversion = |title: &str, text: String| Conversion { title: title.into(), start: a.doc.to16(e.start), end: a.doc.to16(e.end), text };
+    let conversion = |title: &str, text: String| Conversion { title: title.into(), start: a.doc.to16(e.start), end: a.doc.to16(e.end), text, edits: Vec::new() };
     if e.math && a.active(e) {
         return from_math(&body).map(|code| conversion("Convert to solveng Code", format!("```{TAG}\n{code}\n```"))).into_iter().collect();
     }

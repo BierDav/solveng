@@ -77,11 +77,11 @@ fn applied_completion(marked: &str, label: &str) -> String {
 }
 
 #[test]
-fn math_unit_completion_prefers_quotes_and_replaces_an_existing_hash() {
+fn single_letter_units_complete_quoted_even_with_a_shorthand() {
     for typed in ["34s|", "34#s|", "34 #s|"] {
-        let doc = format!("#show: worksheet.with(builtin-units: false, units: (s: \"s\"))\n#let s = unit(\"s\")\n$z := {typed}$");
+        let doc = format!("#show: worksheet.with(builtin-units: false, units: (s: auto))\n#let s = unit(\"s\")\n$z := {typed}$");
         let result = applied_completion(&doc, "s");
-        assert!(result.ends_with("34#s$") || result.ends_with("34 #s$"), "{result}");
+        assert!(result.ends_with("34\"s\"$") || result.ends_with("34 \"s\"$"), "{result}");
     }
 }
 

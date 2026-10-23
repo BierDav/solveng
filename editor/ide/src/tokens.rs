@@ -404,9 +404,9 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool, defined: &
         if let Some((s, e, _)) = marker.filter(|m| m.0 == i) {
             // the = or -> showing a result, then its clause
             emit(s, e, K::EVALUATE);
-            // Bare words are Typst's names in math: units only as single letters or Typst's own words (min, deg);
-            // shorthands come from their bindings.
-            let bare = |w: &str| unit(w) && (crate::resolved_name(w).chars().count() == 1 || TYPST_MATH_UNITS.contains(&w));
+            // Bare words are Typst's names in math: units only as Typst's own words (min, deg); single letters
+            // are variables, shorthands come from their bindings.
+            let bare = |w: &str| unit(w) && TYPST_MATH_UNITS.contains(&w);
             let quoted = |w: &str| unit(w);
             for (ts, tl, k) in clause_tokens_with(math, e, n, &bare, &quoted) {
                 emit(ts, ts + tl, k);
