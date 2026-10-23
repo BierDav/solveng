@@ -270,8 +270,8 @@ fn colors_math_like_code() {
     let doc = "#show: worksheet\n$t = A$";
     let found: Vec<String> = math_tokens(doc, &ctx("")).iter().map(|x| format!("{}:{}", slice(doc, x.start, x.length), x.kind)).collect();
     assert_eq!(found, vec![t("t", TokenKind::VARIABLE), t("=", TokenKind::OPERATOR), t("A", TokenKind::VARIABLE)]);
-    // solveng's names of units are units anywhere in math, unit("…") too
-    let doc = "#show: worksheet\n$x := U \"as\" kΩ + unit(\"bar\")$";
+    // solveng's names of units are units anywhere in math, "…" too
+    let doc = "#show: worksheet.with(units: (bar: \"100 kPa\"))\n$x := U \"as\" kΩ + \"bar\"$";
     let found: Vec<String> = math_tokens(doc, &ctx("")).iter().map(|x| format!("{}:{}", slice(doc, x.start, x.length), x.kind)).collect();
     assert!(found.contains(&t("kΩ", TokenKind::UNIT)) && found.contains(&t("\"bar\"", TokenKind::UNIT)));
     assert!(math_tokens("#worksheet(evaluate: false)[$x = 1$]", &ctx("")).is_empty());

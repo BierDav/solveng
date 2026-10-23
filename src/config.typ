@@ -13,10 +13,10 @@
   form: "auto", max-denominator: 1000, fractions: "stacked",
   // units
   prefixes: "all", show-si: false, builtin-units: true, units: (:), preferred-units: (), strict: false,
-  // operations: the built-in overlay of their standard names, and overlays of your own
-  builtin-functions: true, functions: (:),
+  // operations: automatic lookup of standard names
+  builtin-functions: true,
   // output
-  steps: "full", inline-steps: "result", layout: "row", implies: sym.arrow.r.double, approximate: true, block: true, max-solutions: 6,
+  steps: "full", layout: "row", implies: sym.arrow.r.double, approximate: true, block: true, max-solutions: 6,
   // output of defined
   defined-style: "grid",
   // problems: shown in the document, or stop the compilation
@@ -28,7 +28,7 @@
   words: (cast: "as", any: "any"), chips: auto, unit-style: auto, unit-separator: auto,
 )
 #let _CH = (
-  form: ("auto", "decimal", "fraction", "input"), multiplication: ("dot", "times"), fractions: ("stacked", "slash"), steps: ("full", "formula", "result", "value", auto), inline-steps: ("full", "formula", "result", "value"),
+  form: ("auto", "decimal", "fraction", "input"), multiplication: ("dot", "times"), fractions: ("stacked", "slash"), steps: ("full", "formula", "result", "value", auto),
   layout: ("row", "column"), errors: ("document", "panic"),
   show-casts: ("no", "plain", "chip"), show-types: ("no", "plain", "chip"), defined-style: ("grid", "column", "inline", "list"),
 )
@@ -37,8 +37,8 @@
   digits: (int,), trailing-zeros: (bool,), separator: (type(auto), str), grouping: (type(none), str, symbol, content), scientific: (type(none), array), engineering: (bool,),
   multiplication: (str,), form: (str,), max-denominator: (int,), fractions: (str,), prefixes: (str, type(none), array), show-si: (bool,),
   builtin-units: (bool,), units: (dictionary,), preferred-units: (array, str), strict: (bool,),
-  builtin-functions: (bool,), functions: (dictionary,),
-  steps: (str, type(auto)), inline-steps: (str,), layout: (str,), implies: (content, symbol, str), approximate: (bool,), block: (bool,),
+  builtin-functions: (bool,),
+  steps: (str, type(auto)), layout: (str,), implies: (content, symbol, str), approximate: (bool,), block: (bool,),
   max-solutions: (int,), defined-style: (str,), errors: (str,), show-casts: (str,), show-types: (str,),
   words: (dictionary,), chips: (type(auto), dictionary, function), unit-style: (type(auto), function), unit-separator: (type(auto), content, str, symbol),
 )
@@ -61,7 +61,6 @@
   if "words" in o and o.words.keys().any(k => k not in ("cast", "any")) { return (err: "words: the words shown for casts and any-unit types, (cast: \"als\", any: \"beliebig\")") }
   if "chips" in o and type(o.chips) == dictionary and o.chips.pairs().any(((k, v)) => k not in ("cast", "type") or type(v) != dictionary or v.keys().any(c => c not in ("fill", "mark", "ink"))) { return (err: "chips: colours per kind, (cast: (fill: …, mark: …, ink: …), type: (…)), or a function (kind, mark, unit) => content") }
   if "units" in o and o.units.values().any(v => type(v) not in (str, content, int, float, type(none), type(auto))) { return (err: "units: a dictionary of definitions like (bar: \"100 kPa\", rpm: \"1/min\", dozen: 12), auto for a base unit of your own (ü: auto), or none to remove a unit (T: none)") }
-  if "functions" in o and o.functions.values().any(v => type(v) not in (str, content, type(none))) { return (err: "functions: a dictionary of names and the operations they stand for, like (conv: \"convolve\", Λ: \"tri\"), or none to hide a name (rect: none)") }
   if "preferred-units" in o { if type(o.preferred-units) == str { o.preferred-units = (o.preferred-units,) }; if o.preferred-units.any(u => type(u) != str) { return (err: "preferred-units: units like (\"kWh\", \"mm\")") } }
   o
 }

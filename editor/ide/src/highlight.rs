@@ -19,22 +19,15 @@ fn local(text: &str, toks: Vec<Tok>, math: bool) -> Vec<Token> {
     let element = crate::elements::Element { start: 0, end: doc.c.len(), body_start: 0, body_end: doc.c.len(), tag: crate::TAG.into(), math, block: true };
     let defs = definitions(&doc, &[element], &[], &|_| true);
     let mut tokens = utf16(&doc, 0, toks).collect::<Vec<_>>();
-    function_styles(&doc, &mut tokens, &defs);
+    let context = Context::default();
+    let a = Analysis::new(text, &context);
+    function_styles(&a, &mut tokens, &defs);
     tokens
 }
 
-/// The operation a name calls: a standard name, unless the document's function overlays hide it, or a name they
-/// map (`functions: (conv: "convolve")`).
-pub(crate) fn operation(doc: &Doc, name: &str) -> Option<String> {
-    let text: String = doc.c.iter().collect();
-    match units::custom_functions(&text).into_iter().find(|(n, _)| n == name) {
-        Some((_, target)) => target.filter(|t| FUNCTIONS.contains(&t.as_str())),
-        None => FUNCTIONS.contains(&name).then(|| name.to_string()),
-    }
-}
-
-fn function_styles(doc: &Doc, tokens: &mut [Token], defs: &[crate::complete::Definition]) {
-    for token in tokens.iter_mut().filter(|t| t.kind == K::FUNCTION) {
+fn function_styles(a: &Analysis, tokens: &mut [Token], defs: &[crate::complete::Definition]) {
+    let doc = &a.doc;
+    for token in tokens.iter_mut().filter(|t| t.kind == K::FUNCTION || t.kind == K::VARIABLE && a.bindings.operation(doc.from16(t.start as usize)).is_some()) {
         let start = doc.from16(token.start as usize);
         let end = doc.from16((token.start + token.length) as usize);
         let mut tail = end;
@@ -53,7 +46,10 @@ fn function_styles(doc: &Doc, tokens: &mut [Token], defs: &[crate::complete::Def
         if defs.iter().any(|d| d.function && d.start == start) || assigns { continue; }
         let (text, _) = crate::text::unescape(&doc.c[start..end]);
         let name = crate::resolved_name(&text.iter().collect::<String>());
-        token.kind = if operation(doc, &name).is_some() && !defs.iter().any(|d| d.function && d.base() == name) {
+        let quoted = doc.c.get(start) == Some(&'"');
+        let op = a.bindings.operation(start).is_some_and(|op| FUNCTIONS.contains(&op))
+            || !a.bindings.contains(start) && !quoted && (a.builtin_functions_at(start) || a.elements.iter().any(|e| e.math && e.body_start <= start && start < e.body_end) && !crate::params::automatic_math(&name)) && FUNCTIONS.contains(&name.as_str());
+        token.kind = if op && !defs.iter().any(|d| d.function && d.base() == name) {
             K::BUILTIN_FUNCTION
         } else { K::FUNCTION_CALL };
     }
@@ -161,8 +157,30 @@ pub fn math_tokens(document: &str, context: &Context) -> Vec<Token> {
         let units = a.units_at(e.body_start);
         out.extend(utf16(&a.doc, e.body_start, math_toks(&a.doc.c[e.body_start..e.body_end], &|w| units::visible(w, &units), &|w| units::bare(w, &units), &defined)));
     }
-    function_styles(&a.doc, &mut out, &defs);
+    out.extend(call_tokens(&a).into_iter().filter(|token| a.elements.iter().any(|e|
+        e.math && a.active(e) && a.doc.to16(e.body_start) <= token.start && token.start + token.length <= a.doc.to16(e.body_end))));
+    function_styles(&a, &mut out, &defs);
+    reference_tokens(&a, &mut out);
+    out.retain(|token| a.elements.iter().any(|e| e.math && a.active(e)
+        && a.doc.to16(e.body_start) <= token.start && token.start + token.length <= a.doc.to16(e.body_end)));
+    out.sort_by_key(|t| t.start);
     out
+}
+
+/// Highlight constructor string contents without claiming their quotes or emitting overlapping tokens.
+fn reference_tokens(a: &Analysis, out: &mut Vec<Token>) {
+    for (start, end) in a.reference_strings() {
+        let (inner_start, inner_end) = (a.doc.to16(start), a.doc.to16(end));
+        let left = a.doc.to16(start.saturating_sub(1));
+        let right = a.doc.to16(end + usize::from(a.doc.c.get(end) == Some(&'"')));
+        out.retain(|t| t.start + t.length <= left || right <= t.start
+            || inner_start <= t.start && t.start + t.length <= inner_end);
+    }
+    for (start, end, name) in a.bindings.operator_strings() {
+        if a.evaluates_at(*start) && FUNCTIONS.contains(&name.as_str()) {
+            out.push(Token { start: a.doc.to16(*start), length: a.doc.to16(*end) - a.doc.to16(*start), kind: K::BUILTIN_FUNCTION });
+        }
+    }
 }
 
 /// A unit string's tokens: every word is a unit, as after `->`.
@@ -239,12 +257,26 @@ pub fn document_tokens(document: &str, context: &Context) -> Vec<Token> {
     for token in &mut out {
         if a.bindings.contains(a.doc.from16(token.start as usize)) { token.kind = K::VARIABLE; }
     }
-    for at in a.bindings.unit_hashes(&a.doc) {
-        if a.elements.iter().any(|e| e.math && a.active(e) && e.body_start <= at && at < e.body_end) {
-            out.push(Token { start: a.doc.to16(at), length: 1, kind: K::UNIT_REFERENCE });
+    function_styles(&a, &mut out, &defs);
+    for (start, end, name) in a.bindings.operation_uses() {
+        if a.elements.iter().any(|e| e.math && a.active(e) && e.body_start <= start && end <= e.body_end)
+            && FUNCTIONS.contains(&name) {
+            let from = a.doc.to16(start);
+            out.retain(|t| t.start != from);
+            out.push(Token { start: from, length: a.doc.to16(end) - from, kind: K::BUILTIN_FUNCTION });
         }
     }
-    function_styles(&a.doc, &mut out, &defs);
+    for (start, end, _) in a.bindings.unit_uses() {
+        if a.elements.iter().any(|e| e.math && a.active(e) && e.body_start <= start && end <= e.body_end) {
+            let from = a.doc.to16(start);
+            out.retain(|t| t.start != from);
+            out.push(Token { start: from, length: a.doc.to16(end) - from, kind: K::UNIT });
+            if start > 0 && a.doc.c[start - 1] == '#' {
+                out.push(Token { start: a.doc.to16(start - 1), length: 1, kind: K::UNIT_REFERENCE });
+            }
+        }
+    }
+    reference_tokens(&a, &mut out);
     out.sort_by_key(|t| t.start);
     out
 }
@@ -427,7 +459,22 @@ pub fn hover(document: &str, context: &Context, offset: u32) -> Option<Hover> {
 
 fn hover_at(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     let a = Analysis::new(document, context);
-    if a.bindings.at(&a.doc, offset) { return None; }
+    let at = a.doc.from16(offset as usize);
+    if let Some((name, unit, start, end)) = a.bindings.unit_shortcut(at) {
+        let settings = a.unit_completion_context(at);
+        if a.evaluates_at(at) {
+            let detail = units::describe(unit, &settings).unwrap_or_else(|| format!("`{unit}` unit"));
+            return Some(Hover { start: a.doc.to16(start), end: a.doc.to16(end),
+                markdown: format!("`{name}` unit shortcut for `{unit}`\n\nDetected from `unit(…)`: an explicit unit reference. The unit is resolved through the active worksheet overlays at each use.\n\n{detail}") });
+        }
+    }
+    if let Some((start, end, name)) = a.bindings.operator_strings().iter().find(|(s, e, _)| *s <= at && at <= *e) {
+        if a.evaluates_at(at) && FUNCTIONS.contains(&name.as_str()) {
+            let markdown = crate::params::builtin(name).map(function_docs).unwrap_or_else(|| format!("`{name}()` built-in function"));
+            return Some(Hover { start: a.doc.to16(*start), end: a.doc.to16(*end), markdown });
+        }
+    }
+    if a.bindings.at(&a.doc, offset) && a.bindings.operation(a.doc.from16(offset as usize)).is_none() { return None; }
     let at = a.doc.from16(offset as usize);
     let c = &a.doc.c;
     let part = |ch: char| is_letter_or_digit(ch) || "_°%‰µΩ".contains(ch);
@@ -510,9 +557,10 @@ fn hover_at(document: &str, context: &Context, offset: u32) -> Option<Hover> {
         return hover(d);
     }
     let builtin = if word == "sum_" { "sum".to_string() } else { word.clone() };
-    if let Some(op) = operation(&a.doc, &builtin).or_else(|| FUNCTIONS.contains(&builtin.as_str()).then(|| builtin.clone())) {
+    if let Some(op) = a.bindings.operation(at).map(str::to_string).or_else(|| a.bindings.operator_strings().iter().find(|(s, e, _)| *s <= at && at <= *e).map(|(_, _, n)| n.clone())).or_else(||
+        (a.builtin_functions_at(at) && FUNCTIONS.contains(&builtin.as_str())).then(|| builtin.clone())) {
         let docs = crate::params::builtin(&op).map(function_docs).unwrap_or_else(|| format!("`{op}()` built-in function"));
-        return hover(if op == builtin { docs } else { format!("`{builtin}` stands for `{op}` (option functions)\n\n{docs}") });
+        return hover(if op == builtin { docs } else { format!("`{builtin}` stands for `{op}` (math.op)\n\n{docs}") });
     }
     if let Some((_, d)) = CONSTANTS.iter().find(|(n, _)| *n == word) {
         return hover(format!("`{word}` {d}"));

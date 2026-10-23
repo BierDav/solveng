@@ -34,21 +34,22 @@ fn reads_the_package_signatures() {
     let steps = ws.named.iter().find(|p| p.name == "steps").unwrap();
     assert_eq!(steps.values, vec!["full", "formula", "result", "value", "auto"].into_iter().filter(|v| *v != "auto").collect::<Vec<_>>());
     assert_eq!(ws.positional[0].name, "body");
+    assert!(!ws.named.iter().any(|p| p.name == "functions"));
     let graph = params::functions().iter().find(|f| f.name == "graph").unwrap();
     // Options documented at worksheet.
     assert!(!graph.named.iter().find(|p| p.name == "digits").unwrap().doc.is_empty());
     assert!(ws.named.iter().find(|p| p.name == "units").unwrap().doc.contains("user overlay"));
-    assert!(ws.named.iter().any(|p| p.name == "inline-steps"));
     assert_eq!(ws.named.iter().find(|p| p.name == "evaluate").unwrap().default, "true");
     let defined = params::functions().iter().find(|f| f.name == "defined").unwrap();
     assert_eq!(defined.named.iter().find(|p| p.name == "style").unwrap().values, vec!["grid", "column", "inline", "list"]);
-    // the keywords and unit() are documented too
-    assert!(params::functions().iter().any(|f| f.name == "unit") && params::functions().iter().any(|f| f.name == "digits"));
+    // Keywords and the explicit unit constructor are documented.
+    assert!(params::functions().iter().any(|f| f.name == "unit"));
+    assert!(params::functions().iter().any(|f| f.name == "digits"));
 }
 
 #[test]
 fn highlights_the_strings_of_calls() {
-    let doc = "#worksheet(\"R := 7.2 kΩ\", steps: \"value\") #graph(\"P(..) = U^2/R\", mark: \"extrema\") #worksheet($p := 3 unit(\"bar\")$)";
+    let doc = "#worksheet(\"R := 7.2 kΩ\", steps: \"value\") #graph(\"P(..) = U^2/R\", mark: \"extrema\") #worksheet(units: (bar: \"100 kPa\"))[$p := 3 \"bar\"$]";
     let t = found(doc);
     for want in [
         format!("R:{}", TokenKind::VARIABLE),
@@ -62,7 +63,7 @@ fn highlights_the_strings_of_calls() {
         assert!(t.contains(&want), "{want} in {t:?}");
     }
     // A solveng call's string is read wherever it is, though math outside a worksheet isn't.
-    assert!(found("$p := 3 unit(\"bar\")$").contains(&format!("bar:{}", TokenKind::UNIT)));
+    assert!(found("$p := 3 \"bar\"$").is_empty());
     // Strings of other functions stay Typst's.
     assert!(found("#text(\"R = 3 V\")").is_empty());
     // A `$` in a string doesn't start math.
@@ -79,7 +80,7 @@ fn completes_in_the_strings_of_calls() {
     assert_eq!(labels("#worksheet(\"x =\", steps: \"r|\")"), vec!["full", "formula", "result", "value"]);
     assert!(labels("#graph(\"y\", mark: \"|\")").contains(&"extrema".into()));
     assert!(labels("#lambdify(\"U^2/R\", \"U\", unit: \"m|\")").contains(&"mW".into()));
-    assert!(labels("#worksheet[$p := 3 unit(\"k|\")$]").contains(&"kΩ".into()));
+    assert!(labels("#worksheet[$p := 3 \"k|\"$]").contains(&"kΩ".into()));
     // Unclosed strings are what's being typed.
     assert!(labels("#worksheet(\"I := 30 m|").contains(&"mA".into()));
 }
@@ -350,7 +351,7 @@ fn units_show_their_heritage() {
 fn units_named_like_variables_hover_as_units() {
     let doc = r#"#show: worksheet
 #worksheet(units: (über: auto), evaluate: false)[]
-$V := 4 unit("über")$
+$V := 4 "über"$
 $U(x: V) := f(x "as" V, x)$
 $W := V + 1 V$
 "#;
@@ -383,7 +384,7 @@ fn warns_about_definitions_made_again() {
 
 #[test]
 fn chains_define_with_their_last_step() {
-    let doc = "#show: worksheet\n#worksheet(units: (über: auto), evaluate: false)[]\n$V := 4 unit(\"über\") = 2 \"A\"$\n$W := V$\n";
+    let doc = "#show: worksheet\n#worksheet(units: (über: auto), evaluate: false)[]\n$V := 4 \"über\" = 2 \"A\"$\n$W := V$\n";
     let h = hover(doc, &Context::default(), u16len(&doc[..doc.find("W := ").unwrap() + 5])).unwrap().markdown;
     assert_eq!(h, "```solveng units=über\nV: A = 2 A\n```");
 }
@@ -397,8 +398,8 @@ fn completes_quoted_units_with_the_whole_import() {
     assert_eq!(insert(&format!("{all}$I := 30 |$"), "über").as_deref(), Some("\"über\""));
     assert_eq!(insert(&format!("{all}$f(x: |) := x$"), "kΩ").as_deref(), Some("\"kΩ\""));
     assert_eq!(insert(&format!("{some}$I := 30 |$"), "mA").as_deref(), Some("\"mA\""));
-    // after a trailing =, a unit of the document's own is unit("…")
-    assert_eq!(insert(&format!("{all}$I := 30 mA$ $I = |$"), "über").as_deref(), Some("unit(\"über\")"));
+    // after a trailing =, a unit of the document's own is "…"
+    assert_eq!(insert(&format!("{all}$I := 30 mA$ $I = |$"), "über").as_deref(), Some("\"über\""));
 }
 
 #[test]

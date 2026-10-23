@@ -52,11 +52,11 @@
   equation, ..args, xrange: auto, yrange: auto, mark: none, xmark: (), ymark: (), samples: 400,
   width: auto, height: auto, colors: (blue, red.darken(10%), green.darken(25%), orange.darken(10%)),
   digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto,
-  max-denominator: auto, fractions: auto, prefixes: auto, show-si: auto, builtin-units: auto, builtin-functions: auto, preferred-units: auto, strict: auto, steps: auto, inline-steps: auto,
+  max-denominator: auto, fractions: auto, prefixes: auto, show-si: auto, builtin-units: auto, builtin-functions: auto, preferred-units: auto, strict: auto, steps: auto,
   layout: auto, implies: auto, approximate: auto, block: auto, max-solutions: auto, defined-style: auto, errors: auto, show-casts: auto, show-types: auto,
   words: auto, chips: auto, unit-style: auto, unit-separator: auto,
 ) = _mine(context {
-  let lc = _check(_given((digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions, prefixes: prefixes, show-si: show-si, builtin-units: builtin-units, builtin-functions: builtin-functions, preferred-units: preferred-units, strict: strict, steps: steps, inline-steps: inline-steps, layout: layout, implies: implies, approximate: approximate, block: block, max-solutions: max-solutions, defined-style: defined-style, errors: errors, show-casts: show-casts, show-types: show-types, words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator)))
+  let lc = _check(_given((digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions, prefixes: prefixes, show-si: show-si, builtin-units: builtin-units, builtin-functions: builtin-functions, preferred-units: preferred-units, strict: strict, steps: steps, layout: layout, implies: implies, approximate: approximate, block: block, max-solutions: max-solutions, defined-style: defined-style, errors: errors, show-casts: show-casts, show-types: show-types, words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator)))
   if _E(lc) { return _errc("graph: " + lc.err, _cf.get(), wide: true) }
   let cf = _cf.get() + lc
   let fail(m) = _errc("graph: " + m, cf, wide: true)

@@ -8,7 +8,7 @@
 /// ```typ
 /// #show: worksheet
 /// $R := 4.7 kΩ$, $I := 2 mA$, $U := R I$, $f(x: Ω) := 2 x$
-/// The voltage is #value("U") (#value($U = mV$)), and #value("f(3)") for 3 Ω.
+/// The voltage is #value("U") (#value($U = mV$)), and #value("f(3 Ω)") for 3 Ω.
 /// ```
 ///
 /// A clause picks the unit or form as after `=`: `#value("U = mV, digits(2)")`; a

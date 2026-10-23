@@ -188,11 +188,6 @@ pub fn check_units(cfg: &Cfg) -> Option<String> {
     Units::configured(&cfg).err()
 }
 
-/// Problems with the option functions: none or the message.
-pub fn check_functions(cfg: &Cfg) -> Option<String> {
-    crate::builtins::Functions::configured(cfg).err()
-}
-
 // ---------- lambdify ----------
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

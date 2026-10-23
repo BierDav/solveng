@@ -180,6 +180,20 @@ pub fn conceals(document: &str, context: &Context) -> Vec<Conceal> {
         };
         push(t.start, found, (t.start.saturating_sub(1), (t.end + 1).min(a.doc.c.len())));
     }
-    out.sort_by_key(|c| c.start);
+    // Explicit constructor display follows syntax, so stale compile reports cannot expand it while typing.
+    for reference in a.bindings.inline_references() {
+        if !a.elements.iter().any(|e| e.math && e.body_start <= reference.start && reference.end <= e.body_end) { continue; }
+        let start = a.doc.to16(reference.start);
+        let end = a.doc.to16(reference.end);
+        for conceal in out.iter_mut().filter(|c| start <= c.start && c.start + c.length <= end) {
+            conceal.element_start = start;
+            conceal.element_end = end;
+        }
+        for (from, to) in [(reference.start, reference.text_start), (reference.text_end, reference.end)] {
+            out.push(Conceal { start: a.doc.to16(from), length: a.doc.to16(to) - a.doc.to16(from), character: 0, element_start: start, element_end: end });
+        }
+    }
+    out.sort_by_key(|c| (c.start, c.length, c.character, c.element_start, c.element_end));
+    out.dedup();
     out
 }

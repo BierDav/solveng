@@ -82,6 +82,44 @@ fn nth(doc: &str, needle: &str, n: usize) -> u32 {
     doc[..byte].encode_utf16().count() as u32
 }
 
+#[test]
+fn repeated_equations_do_not_take_a_later_worksheets_report() {
+    let equation = "$y := x$";
+    for prefix in ["", "😅\n#import \"@solveng/solveng:1.0.0\": *\n"] {
+        let doc = format!("{prefix}{equation}\n#show: worksheet\n{equation}");
+        let start = nth(&doc, equation, 1) as usize;
+        let compiled = Report { blocks: 1, elements: vec![ReportElement {
+            path: "main.typ".into(), start, end: start + equation.len(), text: equation.into(),
+            kind: "math".into(), active: true, evaluate: true,
+        }], ..Report::default() };
+        let context = Context::default().with_report(&compiled, "main.typ", true);
+        for document in [&doc, &format!("// inserted\n{doc}")] {
+            let tokens = document_tokens(document, &context);
+            for (occurrence, expected) in [(0, false), (1, true)] {
+                let at = nth(document, equation, occurrence) + 1;
+                assert_eq!(tokens.iter().any(|t| t.start <= at && at < t.start + t.length), expected, "{document}, occurrence {occurrence}");
+            }
+        }
+    }
+}
+
+#[test]
+fn identical_equations_keep_distinct_activity_across_nested_worksheets() {
+    let equation = "$y := x$";
+    let doc = format!("{equation}\n#show: worksheet\n{equation}\n#worksheet(evaluate: false)[{equation}]\n{equation}");
+    let compiled = Report { blocks: 1, elements: [(1, true), (2, false), (3, true)].into_iter().map(|(i, active)| {
+        let start = nth(&doc, equation, i) as usize;
+        ReportElement { path: "main.typ".into(), start, end: start + equation.len(), text: equation.into(),
+            kind: "math".into(), active, evaluate: active }
+    }).collect(), ..Report::default() };
+    let context = Context::default().with_report(&compiled, "main.typ", true);
+    let tokens = document_tokens(&doc, &context);
+    for (i, expected) in [false, true, false, true].into_iter().enumerate() {
+        let at = nth(&doc, equation, i) + 1;
+        assert_eq!(tokens.iter().any(|t| t.start <= at && at < t.start + t.length), expected, "occurrence {i}");
+    }
+}
+
 /// The texts of `usages` in `doc` (path None), with their positions.
 fn used(doc: &str, context: &Context, offset: u32) -> Vec<u32> {
     usages(doc, context, offset).into_iter().map(|l| {
@@ -193,9 +231,9 @@ fn follows_includes_in_compile_order() {
 
 #[test]
 fn ignores_units_and_prose() {
-    let doc = "#show: worksheet\n$V := 5 unit(\"V\")$, $P := V dot 2 unit(\"V\") = mV$ and V in prose\n";
-    let found = used(doc, &Context::new(""), nth(doc, "V", 0));
-    assert_eq!(found, [nth(doc, "V", 0), nth(doc, "V", 2)]);
+    let doc = "#show: worksheet\n$U := 5 \"V\"$, $P := U dot 2 \"V\" = mV$ and U in prose\n";
+    let found = used(doc, &Context::new(""), nth(doc, "U", 0));
+    assert_eq!(found, [nth(doc, "U", 0), nth(doc, "U", 1)]);
 }
 
 #[test]

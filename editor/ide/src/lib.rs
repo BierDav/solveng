@@ -15,6 +15,7 @@ mod conceal;
 mod convert;
 mod depends;
 mod errors;
+mod format;
 mod elements;
 mod highlight;
 mod locals;
@@ -34,6 +35,7 @@ use regex::Regex;
 use serde::Serialize;
 
 pub use bindings::unit_fixes;
+pub use format::format;
 pub use complete::complete;
 pub use conceal::{conceals, conceals_of, resolved_name};
 pub use convert::{conversions, from_math, to_math};
@@ -419,10 +421,15 @@ pub(crate) fn scan(doc: &Doc, calls: &[calls::Call]) -> Vec<Element> {
     elements::elements(&c)
 }
 
-/// Which elements solveng calculates. With the compiler's elements for the file (`reported`), an element whose
-/// source matches one (the nearest by position, each used once) takes its flag; one written since takes the
-/// `evaluate` of the matched element before it (and of the worksheets written around it), and nothing before the
-/// first. Without them the worksheets' `evaluate` decides, and `math` for what no worksheet of the file covers.
+/// Which elements solveng calculates. Without the compiler's elements for the file (`reported`) the worksheets
+/// written in the source decide, and `math` for what none of them covers.
+///
+/// With them, an element whose source matches one takes its flag; copies of the same source are aligned in order,
+/// preferring the copy whose worksheets agree with the report, then the least movement. A worksheet written around
+/// an element decides for one written since the compile (and `evaluate: false` there wins over a stale report).
+/// Outside every written worksheet, a template solveng can't read may hold the worksheet: an element there is
+/// calculated like the last calculated element before it outside written worksheets, if that one's block holds it,
+/// else when `included` says a worksheet of another file includes this one.
 /// Equations and code passed to `worksheet` are calculated wherever they are.
 pub(crate) fn activity(
     doc: &Doc,
@@ -431,28 +438,52 @@ pub(crate) fn activity(
     scopes: &[calls::Scope],
     reported: &[&ReportElement],
     math: Option<bool>,
+    included: &dyn Fn() -> bool,
 ) -> Vec<bool> {
     let in_call = |e: &Element| calls.iter().any(|c| c.maths.iter().any(|m| m.0 == e.start));
     if reported.is_empty() {
         return elements.iter().map(|e| is_solveng(e, math, scopes) || in_call(e)).collect();
     }
-    let mut used = vec![false; reported.len()];
-    let mut before: Option<bool> = None;
+    // What the worksheets written around say: math as their `evaluate`, solveng code blocks always, other raw never.
+    let written: Vec<Option<bool>> = elements.iter().map(|e| {
+        let around = calls::evaluates_at(scopes, e.start);
+        if e.math { around } else if e.tag == TAG && e.block { around.map(|_| true) } else { Some(false) }
+    }).collect();
+    // Disagreeing with the written worksheets costs more than any movement; being calculated outside every one
+    // (only a template explains it) less so.
+    let cost = |i: usize, j: usize| {
+        let r = reported[j];
+        let moved = (doc.to16(elements[i].start) as usize).abs_diff(r.start) as u64;
+        let penalty = match written[i] {
+            Some(evaluates) if evaluates != r.active && !in_call(&elements[i]) => 1 << 40,
+            None if r.active && !in_call(&elements[i]) => 1 << 32,
+            _ => 0,
+        };
+        moved + penalty
+    };
+    let matches = report::match_elements(doc, elements, reported, &cost);
+    let blocks = calls::blocks(doc);
+    // The innermost block around a position; the whole document outside every one.
+    let block = |at: usize| blocks.iter().filter(|b| b.0 < at && at < b.1).min_by_key(|b| b.1 - b.0).copied().unwrap_or((0, doc.c.len()));
+    // Matched elements outside written worksheets: their block and, when calculated, the worksheet's `evaluate`.
+    let mut unwritten: Vec<((usize, usize), Option<bool>)> = Vec::new();
+    let mut included_once: Option<bool> = None;
     elements
         .iter()
-        .map(|e| {
-            let text = doc.sub(e.start, e.end);
-            let at = doc.to16(e.start) as i64;
-            let found = (0..reported.len())
-                .filter(|&i| !used[i] && reported[i].text == text)
-                .min_by_key(|&i| (reported[i].start as i64 - at).abs());
-            let active = match found {
-                Some(i) => {
-                    used[i] = true;
-                    before = Some(reported[i].evaluate);
-                    reported[i].active
+        .enumerate()
+        .map(|(index, e)| {
+            let active = match (matches[index], written[index]) {
+                (Some(i), written) => {
+                    if written.is_none() {
+                        unwritten.push((block(e.start), reported[i].active.then_some(reported[i].evaluate)));
+                    }
+                    reported[i].active && !(e.math && written == Some(false))
                 }
-                None => before.is_some_and(|f| is_solveng(e, Some(f), scopes)),
+                (None, Some(evaluates)) => evaluates,
+                (None, None) => match unwritten.iter().rev().find(|(b, _)| b.0 <= e.start && e.end <= b.1) {
+                    Some((_, evaluate)) => evaluate.is_some_and(|evaluate| evaluate || !e.math),
+                    None => *included_once.get_or_insert_with(included),
+                },
             };
             active || in_call(e)
         })
@@ -478,7 +509,7 @@ impl Part {
         let reported = path.as_deref().map(|p| context.reported_in(p)).unwrap_or_default();
         // Included where a worksheet of another file evaluates math.
         let math = path.as_deref().filter(|p| included_in_worksheet(context, p)).map(|_| true);
-        let active = activity(&doc, &elements, &calls, &scopes, &reported, math);
+        let active = activity(&doc, &elements, &calls, &scopes, &reported, math, &|| math == Some(true));
         Part { path, doc, calls, elements, active }
     }
 
@@ -518,7 +549,8 @@ impl<'a> Analysis<'a> {
             }
         }
         let math = wrapped(context, &context.path);
-        let calculated = activity(&doc, &elements, &calls, &scopes, &context.reported_in(&context.path), math);
+        let calculated = activity(&doc, &elements, &calls, &scopes, &context.reported_in(&context.path), math,
+            &|| included_in_worksheet(context, &context.path));
         let bindings = bindings::Bindings::new(&doc);
         Analysis { doc, context, elements, calculated, calls, units, bindings, unit_scopes: scopes, unit_context, around: OnceCell::new() }
     }
@@ -549,6 +581,33 @@ impl<'a> Analysis<'a> {
                 vec![Part::new(None, &self.context.text, self.context)]
             }
         })
+    }
+
+    pub fn builtin_functions_at(&self, at: usize) -> bool {
+        let mut enabled = true;
+        let mut scopes: Vec<_> = self.unit_scopes.iter().filter(|s| s.start <= at && at < s.end).collect();
+        scopes.sort_by_key(|s| s.start);
+        for scope in scopes { if let Some(value) = scope.builtin_functions { enabled = value; } }
+        for call in self.calls.iter().filter(|c| c.args_start <= at && at <= c.args_end) {
+            for (name, value) in &call.args {
+                if name.as_deref() == Some("builtin-functions") {
+                    if let Ok(value) = value.trim().parse() { enabled = value; }
+                }
+            }
+        }
+        enabled
+    }
+
+    /// String contents of explicit constructors. Quotes stay ordinary Typst syntax.
+    pub fn reference_strings(&self) -> Vec<(usize, usize)> {
+        self.bindings.operator_strings().iter().map(|(s, e, _)| (*s, *e))
+            .chain(self.calls.iter().filter(|call| call.function.name == "unit")
+                .flat_map(|call| call.texts.iter().filter(|t| t.param.is_none()).map(|t| (t.start, t.end)))).collect()
+    }
+
+    pub fn evaluates_at(&self, at: usize) -> bool {
+        self.elements.iter().any(|e| e.math && self.active(e) && e.body_start <= at && at < e.body_end)
+            || calls::evaluates_at(&self.unit_scopes, at) == Some(true)
     }
 
     fn local_units_at(&self, at: usize, explicit: bool) -> Vec<units::Custom> {

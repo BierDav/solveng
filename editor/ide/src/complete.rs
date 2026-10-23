@@ -390,10 +390,10 @@ fn clause_items(a: &Analysis, names: bool, math: bool) -> Vec<Item> {
         .map(|(k, d)| Item::new(k, ItemKind::KEYWORD, d, &if crate::clause::NAMES.contains(k) || *k == "digits" { format!("{k}($0)") } else { k.to_string() }))
         .collect();
     items.extend(units::unit_items(&a.units).into_iter().map(|mut u| {
-        // math writes units of its own as unit("…")
+        // Custom units use quoted names in math.
         if math && a.units.iter().any(|c| c.name == u.insert) {
             u.filter.get_or_insert_with(|| u.insert.clone());
-            u.insert = format!("unit(\"{}\")", u.insert);
+            u.insert = format!("\"{}\"", u.insert);
         }
         u
     }));
@@ -426,7 +426,7 @@ fn code_items(a: &Analysis, line: &str, at: usize) -> Vec<Item> {
     items.extend(definition_items(a, &mut seen, false, true));
     items.extend(keyword_items(line, false));
     for f in FUNCTIONS {
-        if seen.insert(f.to_string()) {
+        if (a.builtin_functions_at(at) || matches!(*f, "mat" | "frac")) && seen.insert(f.to_string()) {
             let insert = match *f {
                 "at" => "at(${1:vector}, ${2:0})$0".into(),
                 "vec" => "vec(${1:first}, ${2:second})$0".into(),
@@ -518,8 +518,11 @@ pub fn complete(document: &str, context: &Context, offset: u32) -> Option<Comple
         // Client-side filtering must accept the exact spelling typed, including transport quotes.
         if !prefix.is_empty() { item.filter = Some(prefix.clone()); }
         if math {
+            let binding = a.bindings.operation_items(at).into_iter().find(|(name, _)| crate::resolved_name(name) == canonical);
             let standard = NATIVE_FUNCTIONS.contains(&canonical.as_str());
-            let base = if item.kind == ItemKind::FUNCTION && standard { canonical.clone() }
+            let base = if let Some((name, _)) = binding {
+                if name.chars().count() == 1 && (start == 0 || a.doc.c[start - 1] != '#') { format!("#{name}") } else { name }
+            } else if item.kind == ItemKind::FUNCTION && standard { canonical.clone() }
                 else { math_name(&canonical) };
             let suffix = if canonical == "sum" && item.insert.starts_with("sum_(") { item.insert[3..].to_string() }
                 else { item.insert.find('(').map(|at| item.insert[at..].to_string()).unwrap_or_default() };
@@ -562,6 +565,11 @@ fn complete_at(document: &str, context: &Context, offset: u32) -> Option<Complet
     let a = Analysis::new(document, context);
     let at = a.doc.from16(offset as usize);
     let done = |from: usize, items: Vec<Item>, exclusive: bool| Some(Completions { to: None, from: a.doc.to16(from), items, exclusive });
+    if let Some((start, end, _)) = a.bindings.operator_strings().iter().find(|(s, e, _)| *s <= at && at <= *e) {
+        let items = FUNCTIONS.iter().filter(|f| !matches!(**f, "mat" | "frac"))
+            .map(|f| Item::new(f, ItemKind::FUNCTION, "built-in operation", f)).collect();
+        return Some(Completions { from: a.doc.to16(*start), to: Some(a.doc.to16(*end)), items, exclusive: true });
+    }
     // The innermost call's string around the caret.
     let call = a.calls.iter().rev().find(|c| c.args_start <= at && at <= c.args_end);
     if let Some(call) = call
@@ -612,11 +620,20 @@ fn complete_math(a: &Analysis, e: &Element, from: usize) -> Option<Completions> 
     // after a number: its unit, or a variable it multiplies
     if before_.trim_end().chars().last().is_some_and(is_digit) {
         let mut items: Vec<Item> = units::unit_items(&a.units).into_iter().map(quote).collect();
+        let mut binding_names = HashSet::new();
+        for (name, unit) in a.bindings.unit_items(from) {
+            if !unit.is_empty() {
+                let insert = if name.chars().count() == 1 { format!("#{name}") } else { name.clone() };
+                items.retain(|item| item.label != name);
+                items.push(Item::new(&name, ItemKind::UNIT, &format!("unit binding: {unit}"), &insert));
+                binding_names.insert(name);
+            }
+        }
         if a.doc.c.get(from) == Some(&'"') {
             return Some(Completions { to: None, from: replacement, items, exclusive: true });
         }
         if explicit { return Some(Completions { to: None, from: replacement, items, exclusive: true }); }
-        let mut seen = HashSet::new();
+        let mut seen = binding_names;
         items.extend(local_items(a, &mut seen, from, true));
         items.extend(definition_items(a, &mut seen, true, true));
         return Some(Completions { to: None, from: a.doc.to16(from), items, exclusive: false });
@@ -633,6 +650,11 @@ fn complete_math(a: &Analysis, e: &Element, from: usize) -> Option<Completions> 
         item.insert = "cases(${1:0} & ${2:t < 0}, ${3:1} & \"otherwise\")$0".into();
         item.detail = "cases(value & condition, …): first matching branch".into();
     }
+    for (name, op) in a.bindings.operation_items(from) {
+        if FUNCTIONS.contains(&op.as_str()) {
+            items.push(Item::new(&name, ItemKind::FUNCTION, &format!("math.op(\"{op}\")"), &format!("{name}($0)")));
+        }
+    }
     items.extend(keyword_items(&before_, true));
     if items.is_empty() { None } else { Some(Completions { to: None, from: a.doc.to16(from), items, exclusive: false }) }
 }
@@ -646,12 +668,7 @@ fn string_completions(a: &Analysis, call: &Call, t: &crate::calls::Text, at: usi
             let line_start = t.start.max(last_index_of_char(c, '\n', from).map_or(0, |i| i + 1));
             code_items(a, &a.doc.sub(line_start, from), at)
         }
-        Role::Unit if call.function.name == "unit" => {
-            let settings = a.unit_completion_context(at);
-            let mut items = units::explicit_items(&settings);
-            for item in &mut items { item.detail.push_str(" · available here; resolved at use"); }
-            items
-        }
+        Role::Unit if call.function.name == "unit" => units::explicit_items(&a.unit_completion_context(at)),
         Role::Unit => units::explicit_items(&a.units),
         Role::Name => definition_items(a, &mut HashSet::new(), false, false),
         Role::Mark => {
@@ -668,7 +685,7 @@ fn string_completions(a: &Analysis, call: &Call, t: &crate::calls::Text, at: usi
                     i
                 }));
             }
-            // Values like `inline-steps` hold dashes, so the whole string typed so far is replaced.
+            // Options like `preferred-units` hold dashes, so the whole string typed so far is replaced.
             return Some(Completions { to: None, from: a.doc.to16(t.start), items, exclusive: true });
         }
     };

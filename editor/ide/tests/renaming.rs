@@ -151,7 +151,7 @@ fn a_graph_plots_against_its_parameter() {
 
 #[test]
 fn parameters_stand_out_and_resolve() {
-    let doc = format!("{FULL}{}$ g(..) := U^2 unit(\"V\") $\n#graph(\"U(I: mA) = I * [2 Ω]\")\n", code("k := 2\nf(x: A, ..) := x * k + m"));
+    let doc = format!("{FULL}{}$ g(..) := U^2 \"V\" $\n#graph(\"U(I: mA) = I * [2 Ω]\")\n", code("k := 2\nf(x: A, ..) := x * k + m"));
     for p in ["x: A", "x * k", "m\n", "U^2", "I: mA", "I * "] {
         assert_eq!(kind_at(&doc, p), Some(TokenKind::PARAMETER), "{p}");
     }
@@ -168,14 +168,14 @@ fn parameters_stand_out_and_resolve() {
 
 #[test]
 fn functions_in_math() {
-    let doc = format!("{FULL}#worksheet(units: (ü: auto), evaluate: false)[]\n$ q(x) := x unit(\"ü\") $\n{}", code("y := q(3)\nx := 5"));
+    let doc = format!("{FULL}#worksheet(units: (ü: auto), evaluate: false)[]\n$ q(x) := x \"ü\" $\n{}", code("y := q(3)\nx := 5"));
     let d = definition(&doc, &Context::default(), u16_at(&doc, "q(3)")).unwrap();
     assert_eq!(d.start, u16_at(&doc, "q(x)"));
     // x is the parameter, not the variable defined below.
-    let body = u16_at(&doc, "x unit");
+    let body = u16_at(&doc, "x \"ü\"");
     assert_eq!(definition(&doc, &Context::default(), body).unwrap().start, u16_at(&doc, "x) :="));
     let out = applied(&doc, rename(&doc, &Context::default(), body, "t"));
-    assert!(out.contains("$ q(t) := t unit(\"ü\") $") && out.contains("x := 5"), "{out}");
+    assert!(out.contains("$ q(t) := t \"ü\" $") && out.contains("x := 5"), "{out}");
 }
 
 #[test]

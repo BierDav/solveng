@@ -441,7 +441,6 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool, bare: &dyn
                 continue;
             }
             // Quoted text is a unit, except in a subscript (R_"load") and a name no unit spells ("tews", "x"_"in");
-            // unit("bar") always is
             let named = sub(math, 0, i).trim_end().ends_with("unit(");
             let name = !named && (sub_ || quoted_name(math, i, end, unit, defined));
             let call = math[end..].iter().find(|c| !c.is_whitespace()) == Some(&'(');
@@ -519,8 +518,7 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool, bare: &dyn
             let base = word.split('.').next().unwrap_or("");
             let kind = if sub_ {
                 K::VARIABLE
-            } else if call && word == "unit" {
-                // solveng's unit("…"), no function of the document's
+            } else if call && matches!(word.as_str(), "unit" | "op") {
                 K::KEYWORD
             } else if call {
                 K::FUNCTION

@@ -2,6 +2,80 @@
 //! compiling (`query(<solveng>)`). Typewright's typst bridge collects it into a [`Report`].
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+use crate::elements::Element;
+use crate::text::Doc;
+
+/// For each element, the reported one it is, by source text. Copies of the same source are aligned in order at the
+/// least total `cost` (of element, report), so an earlier copy can't steal a later one's report.
+pub(crate) fn match_elements(doc: &Doc, elements: &[Element], reported: &[&ReportElement], cost: &dyn Fn(usize, usize) -> u64) -> Vec<Option<usize>> {
+    let mut groups: HashMap<&str, (Vec<usize>, Vec<usize>)> = HashMap::new();
+    for (i, report) in reported.iter().enumerate() {
+        groups.entry(&report.text).or_default().1.push(i);
+    }
+    for (i, element) in elements.iter().enumerate() {
+        if let Some(group) = groups.get_mut(doc.sub(element.start, element.end).as_str()) { group.0.push(i); }
+    }
+    let mut matches = vec![None; elements.len()];
+    for (current, mut previous) in groups.into_values() {
+        previous.sort_by_key(|&i| (reported[i].start, i));
+        for (i, j) in match_occurrences(current.len(), previous.len(), &|i, j| cost(current[i], previous[j])) {
+            matches[current[i]] = Some(previous[j]);
+        }
+    }
+    matches
+}
+
+/// Pairs `(current, previous)` keeping both in order, as many as the shorter side has, at the least total cost.
+fn match_occurrences(current: usize, previous: usize, cost: &dyn Fn(usize, usize) -> u64) -> Vec<(usize, usize)> {
+    let reverse = current > previous;
+    let (n, m) = if reverse { (previous, current) } else { (current, previous) };
+    if n == 0 { return Vec::new(); }
+    if n == m { return (0..n).map(|i| (i, i)).collect(); }
+    let pair = |i: usize, j: usize| if reverse { cost(j, i) } else { cost(i, j) };
+    let mut costs = vec![0u64; m + 1];
+    let mut chosen = vec![vec![false; m + 1]; n + 1];
+    for i in 1..=n {
+        let mut next = vec![u64::MAX; m + 1];
+        for j in i..=m {
+            let take = costs[j - 1].saturating_add(pair(i - 1, j - 1));
+            if take <= next[j - 1] {
+                next[j] = take;
+                chosen[i][j] = true;
+            } else { next[j] = next[j - 1]; }
+        }
+        costs = next;
+    }
+    let (mut i, mut j) = (n, m);
+    let mut matches = Vec::with_capacity(n);
+    while i > 0 {
+        if chosen[i][j] {
+            matches.push(if reverse { (j - 1, i - 1) } else { (i - 1, j - 1) });
+            i -= 1;
+        }
+        j -= 1;
+    }
+    matches.reverse();
+    matches
+}
+
+#[cfg(test)]
+mod tests {
+    fn match_occurrences(current: &[usize], previous: &[usize]) -> Vec<(usize, usize)> {
+        super::match_occurrences(current.len(), previous.len(), &|i, j| current[i].abs_diff(previous[j]) as u64)
+    }
+
+    #[test]
+    fn repeated_source_keeps_order_and_minimizes_total_movement() {
+        assert_eq!(match_occurrences(&[0, 25, 50], &[25]), [(1, 0)]);
+        assert_eq!(match_occurrences(&[0, 10], &[9, 11, 100]), [(0, 0), (1, 1)]);
+        assert_eq!(match_occurrences(&[10, 20], &[0, 10, 20]), [(0, 1), (1, 2)]);
+        assert_eq!(match_occurrences(&[0, 10, 20], &[10, 20]), [(1, 0), (2, 1)]);
+        assert!(match_occurrences(&[], &[10]).is_empty());
+        assert!(match_occurrences(&[10], &[]).is_empty());
+    }
+}
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]

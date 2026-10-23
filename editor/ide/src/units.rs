@@ -95,37 +95,6 @@ pub(crate) fn custom_units(text: &str, out: &mut Vec<Custom>) {
     }
 }
 
-static FUNCTIONS_ARG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|[^\w-])functions\s*:\s*\(").unwrap());
-static FUNCTION_ENTRY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"([\p{L}][\p{L}\p{N}_]*|"[^"]+")\s*:\s*("[^"]*"|none)"#).unwrap());
-
-/// Names a text maps with `worksheet(functions: (conv: "convolve", tri: none))`: the operation each stands for, or
-/// None for a hidden name; later ones winning.
-pub(crate) fn custom_functions(text: &str) -> Vec<(String, Option<String>)> {
-    let mut out: Vec<(String, Option<String>)> = Vec::new();
-    for m in FUNCTIONS_ARG.find_iter(text) {
-        let start = m.end();
-        let end = text[start..].find(')').map_or(text.len(), |i| start + i);
-        for c in FUNCTION_ENTRY.captures_iter(&text[start..end]) {
-            let name = crate::resolved_name(c[1].trim_matches('"'));
-            let target = (&c[2] != "none").then(|| crate::resolved_name(c[2].trim_matches('"')));
-            out.retain(|(n, _)| *n != name);
-            out.push((name, target));
-        }
-    }
-    // a name standing for another of the overlay: what that one stands for
-    let resolved: Vec<(String, Option<String>)> = out.iter().map(|(n, t)| {
-        let mut t = t.clone();
-        for _ in 0..8 {
-            match t.as_ref().and_then(|x| out.iter().find(|(m, _)| m == x && m != n)) {
-                Some((_, next)) if next.is_some() => t = next.clone(),
-                _ => break,
-            }
-        }
-        (n.clone(), t)
-    }).collect();
-    resolved
-}
-
 static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\p{L}°%‰µΩ]+").unwrap());
 
 /// What a custom unit stands for, with the custom units it uses spelled out: `= 10 bar (bar = 100 kPa)`.

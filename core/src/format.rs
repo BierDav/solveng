@@ -6,7 +6,6 @@
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::builtins::FnOpt;
 use crate::dim::Dim;
 use crate::expr::Val;
 use crate::num::{Num, Rat};
@@ -35,9 +34,6 @@ fn d_stacked() -> String {
 }
 fn d_full() -> String {
     "full".into()
-}
-fn d_result() -> String {
-    "result".into()
 }
 fn d_row() -> String {
     "row".into()
@@ -88,16 +84,10 @@ pub struct Cfg {
     /// The built-in overlay of function names: standard names reach operations by plain lookup.
     #[serde(default = "d_true")]
     pub builtin_functions: bool,
-    /// The innermost user overlay of function names, `(conv: "convolve", tri: none)`.
-    pub functions: IndexMap<String, FnOpt>,
-    /// Every user overlay of function names, outermost first.
-    pub function_layers: Vec<IndexMap<String, FnOpt>>,
     pub preferred_units: Vec<String>,
     pub strict: bool,
     #[serde(default = "d_full")]
     pub steps: String,
-    #[serde(default = "d_result")]
-    pub inline_steps: String,
     #[serde(default = "d_row")]
     pub layout: String,
     #[serde(default = "d_true")]
@@ -152,12 +142,9 @@ fn serde_json_like_default() -> Cfg {
         builtin_units: true,
         unit_layers: Vec::new(),
         builtin_functions: true,
-        functions: IndexMap::new(),
-        function_layers: Vec::new(),
         preferred_units: vec![],
         strict: false,
         steps: "full".into(),
-        inline_steps: "result".into(),
         layout: "row".into(),
         approximate: true,
         block: true,
@@ -366,6 +353,13 @@ pub struct Shown {
     pub bare: bool,
 }
 
+/// First configured preferred unit matching a dimension, without automatic prefixing.
+pub fn preferred_unit(d: Dim, units: &Units, cfg: &Cfg) -> Option<UnitExpr> {
+    if d.is_one() { return None; }
+    cfg.preferred_units.iter().filter_map(|p| units.parse(p, false).ok())
+        .find(|p| p.d == d).map(|p| p.u)
+}
+
 /// Which unit a value is shown in: the one asked for, else a preferred one, the one it was written in, the
 /// non-SI unit of the inputs (hint), or SI with a prefix.
 pub fn pick(v: &Val, want: Option<&UnitExpr>, hint: Option<&UnitExpr>, units: &Units, cfg: &Cfg) -> Result<Shown, String> {
@@ -382,12 +376,8 @@ pub fn pick(v: &Val, want: Option<&UnitExpr>, hint: Option<&UnitExpr>, units: &U
         let f = units.factor(u);
         return Ok(Shown { n: si.div(f).unwrap_or(si), u: u.clone(), raw: None, bare: false });
     }
-    for p in &cfg.preferred_units {
-        if let Ok(pu) = units.parse(p, false) {
-            if pu.d == v.d && !v.d.is_one() {
-                return Ok(Shown { n: si.div(pu.f).unwrap_or(si), u: pu.u, raw: None, bare: false });
-            }
-        }
+    if let Some(u) = preferred_unit(v.d, units, cfg) {
+        return Ok(Shown { n: si.div(units.factor(&u)).unwrap_or(si), u, raw: None, bare: false });
     }
     // the unit it was written in (7.2 kΩ), or a unit that isn't SI it came from (2 p in bar)
     if let Some(u) = v.u.as_ref().filter(|u| v.raw.is_some() || !si_unit(u, units)) {

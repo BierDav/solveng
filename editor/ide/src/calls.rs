@@ -50,6 +50,7 @@ pub(crate) struct Scope {
     pub end: usize,
     pub evaluate: bool,
     pub units: Vec<crate::units::Custom>,
+    pub builtin_functions: Option<bool>,
 }
 
 /// Whether the math at `at` is calculated as the innermost worksheet around says; None outside every one.
@@ -63,11 +64,12 @@ pub(crate) fn evaluates_at(scopes: &[Scope], at: usize) -> Option<bool> {
 pub(crate) struct Wrapper {
     pub evaluate: bool,
     pub units: Vec<Custom>,
+    pub builtin_functions: Option<bool>,
 }
 
 impl Default for Wrapper {
     fn default() -> Wrapper {
-        Wrapper { evaluate: true, units: Vec::new() }
+        Wrapper { evaluate: true, units: Vec::new(), builtin_functions: None }
     }
 }
 
@@ -78,6 +80,14 @@ impl Wrapper {
         if let Some(args) = args {
             wrapper.evaluate = evaluate(args);
             wrapper.units.extend(unit_settings(args));
+            for named in args.children().filter(|n| n.kind() == SyntaxKind::Named) {
+                let source = named.get().clone().full_text();
+                if let Some((name, value)) = source.split_once(':') {
+                    if name.trim() == "builtin-functions" {
+                        wrapper.builtin_functions = value.trim().parse().ok();
+                    }
+                }
+            }
         }
         wrapper
     }
@@ -196,7 +206,7 @@ pub(crate) struct Call {
 /// The function a callee names: `worksheet`, `solveng.worksheet`, `worksheet.with`.
 pub(crate) fn callee(node: &SyntaxNode) -> Option<String> {
     match node.kind() {
-        // in math too: unit("bar")
+        // Calls in code and math.
         SyntaxKind::Ident | SyntaxKind::MathIdent => Some(node.leaf_text().to_string()),
         SyntaxKind::FieldAccess => {
             let children: Vec<_> = node.children().collect();
@@ -300,7 +310,7 @@ impl Reader<'_> {
         };
         let wrapper = base.with(args.as_ref());
         let end = node.parent().map_or(self.doc.c.len(), |p| self.chars(p).1);
-        self.scopes.push(Scope { start: self.chars(node).1, end, evaluate: wrapper.evaluate, units: wrapper.units });
+        self.scopes.push(Scope { start: self.chars(node).1, end, evaluate: wrapper.evaluate, units: wrapper.units, builtin_functions: wrapper.builtin_functions });
     }
 
     fn call(&mut self, node: &LinkedNode) {
@@ -335,7 +345,7 @@ impl Reader<'_> {
                     if function.name == "worksheet" {
                         let (start, end) = self.chars(&arg);
                         let wrapper = base.with(Some(&args));
-                        self.scopes.push(Scope { start, end, evaluate: wrapper.evaluate, units: wrapper.units });
+                        self.scopes.push(Scope { start, end, evaluate: wrapper.evaluate, units: wrapper.units, builtin_functions: wrapper.builtin_functions });
                     }
                 }
                 SyntaxKind::LeftParen | SyntaxKind::RightParen | SyntaxKind::Comma => {}
@@ -423,6 +433,22 @@ pub(crate) fn read(doc: &Doc, aliases: &Aliases) -> (Vec<Call>, Vec<Scope>) {
     let mut reader = Reader { doc, aliases, calls: Vec::new(), scopes: Vec::new() };
     reader.visit(&LinkedNode::new(&root));
     (reader.calls, reader.scopes)
+}
+
+/// The content and code blocks of a document, in characters: where a show rule's worksheet ends.
+pub(crate) fn blocks(doc: &Doc) -> Vec<(usize, usize)> {
+    fn visit(node: &LinkedNode, doc: &Doc, out: &mut Vec<(usize, usize)>) {
+        if matches!(node.kind(), SyntaxKind::ContentBlock | SyntaxKind::CodeBlock) {
+            out.push((doc.of_byte(node.offset()), doc.of_byte(node.offset() + node.len())));
+        }
+        for child in node.children() {
+            visit(&child, doc, out);
+        }
+    }
+    let root = typst_syntax::parse(&doc.s);
+    let mut out = Vec::new();
+    visit(&LinkedNode::new(&root), doc, &mut out);
+    out
 }
 
 /// The files a document includes (`#include "…"`), as written, and where in it (in characters).

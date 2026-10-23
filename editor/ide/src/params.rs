@@ -245,6 +245,12 @@ fn read_builtins() -> Vec<Function> {
 
 static BUILTINS: LazyLock<Vec<Function>> = LazyLock::new(read_builtins);
 
+/// Exported operation words obey builtin-functions; Typst's native math operations are explicit content.
+pub(crate) fn automatic_math(name: &str) -> bool {
+    include_str!("../../../src/builtins.typ").lines().filter_map(|line| line.strip_prefix("#let "))
+        .any(|line| line.split_once(" = ").is_some_and(|(binding, _)| binding == name))
+}
+
 /// Documentation of a calculation operation, including its alternative spellings.
 pub(crate) fn builtin(name: &str) -> Option<&'static Function> {
     let name = match name { "arcsin" => "asin", "arccos" => "acos", "arctan" => "atan", name => name };

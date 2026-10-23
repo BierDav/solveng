@@ -76,6 +76,16 @@
 
 #let α = unit("alpha")
 #let alpha = unit("alpha")
+#worksheet(builtin-functions: false, units: (bar: "100kPa", Alpha: 1), preferred-units: "bar")[
+  #let cusom = unit("Alpha")
+  $t := 5cusom =$ #expect("t", 5, u: "Alpha") #result("\"5\" thin upright(\"Α\")")
+]
+#import "/src/engine.typ": _restyle, _unit-mk
+#let render-cfg = _DEF + (separator: ".", builtin-functions: false, units: (bar: "100kPa", alpha: 1), preferred-units: "bar")
+#for name in ("alpha", "α", "m/s^2", "km") {
+  assert.eq(_restyle(unit(name), (), render-cfg), _unit-mk(name, render-cfg))
+  assert.eq(_restyle($5#unit(name)$.body, (), render-cfg), $5$.body + h(0.1667em) + _unit-mk(name, render-cfg))
+}
 #worksheet(builtin-units: false, units: (alpha: "m"))[
   $a := 34"alpha"$ #expect("a", 34)
   $b := 34"α"$ #expect("b", 34)
@@ -94,4 +104,12 @@
   $"answer" := f(1"A") =$ #expect("answer", 1, u: "A")
   $A := 2"A"$
   $"answer" := f(1A) =$ #expect("answer", 2, u: "A")
+]
+
+#worksheet(units: (iwef: "km"))[
+  #let ing = unit("iwef")
+  #let i = unit("iwef")
+  $a := 1ing$ #expect("a", 1000)
+  $b := 1#i$ #expect("b", 1000)
+  $c := 1i$ #unresolved("c")
 ]

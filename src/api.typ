@@ -105,23 +105,23 @@
 /// ```typ
 /// #show: worksheet
 /// The battery holds $Q_0 := 3450 mAh$ and the load draws $I := 30 mA$,
-/// so it lasts $t := Q_0 / I = 1 h$.
+/// so it lasts $t := Q_0 / I = 1 "h"$.
 /// ```
 ///
 /// **Math.** As in Mathcad:
 ///
 /// - `:=` defines (shown as ≔), symbolically: `$I := 30 mA$`, `$P := U I$`, `$f(x) := x^2 + 1$`. Names not defined yet stay names until they are, see *Calculating like Mathcad*.
 /// - `=` inside an expression compares, 1 or 0: `$M := 1 = 2 =$` is 0.
-/// - `=` at the end shows the value, with a bold =: `$t =$` → t **=** 115 h, `$t := Q_0/I =$` defines and shows it. What follows it is the unit and keywords: `$t = 1 h$`, `$t = min, digits(2)$`.
+/// - `=` at the end shows the value, with a bold =: `$t =$` → t **=** 115 h, `$t := Q_0/I =$` defines and shows it. What follows it is the unit and keywords: `$t = 1 "h"$`, `$t = min, digits(2)$`.
 /// - `->` at the end shows the symbolic result, the known values put in, exactly: `$f := (x^2 - 1)/(x - 1) -> simplify$`. With `solve(x)` it solves an equation for x (and defines it when the solution is a value): `$Q_0/2 = I t -> solve(t)$`, `$x^2 - 4 = 0 -> solve(x)$`, `$x + y = 3, x - y = 1 -> solve(x, y)$`, `$R <= U/I -> solve(R)$`.
 ///
 /// Keywords: `solve(x, …)`, `substitute(x, …)` (these variables' formulas put in, other names kept), `laplace`, `invlaplace` (optional input and output names), `simplify`, `frac` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
 ///
-/// **Units** are names: `$30 mA$`, `$4.7 kΩ$`, `$9.81 m/s^2$`, and `unit("bar")` for units without one (your own, with `worksheet(units: …)`). A single letter is a unit only right after a number: `$5 V$`, `$3 h$`, and `$t = 1 h$` shows t in hours. Anywhere else it's a variable, also alone after `=`: `$t = h$` compares t with a variable h, and `$3 dot h$` is 3 times h.
+/// **Units** are names: `$30 mA$`, `$4.7 kΩ$`, `$9.81 "m"/"s"^2$`, and `$3 "bar"$` for your own units (with `worksheet(units: …)`). Single-letter units require quotes: `$5 "V"$`, `$3 "h"$`, and `$t = 1 "h"$` shows t in hours. Anywhere else it's a variable, also alone after `=`: `$t = h$` compares t with a variable h, and `$3 dot h$` is 3 times h.
 ///
 /// **Code.** Each line of a `solveng` code block is calculated the same way and shown with all its steps: `t := Q0/I = [h]`, `Q0/I =`, `x^2 = 4 -> solve(x)`; units in brackets, `;` separates the equations of a system, `//` starts a comment. Inline code and code with another language are left alone.
 ///
-/// **Calls.** `#worksheet($U := 5 V$, $I := U/R =$)` calculates its equations (and strings, read like a code line) where it stands, with the definitions made before. A code block passed to it is calculated line by line, like a `solveng` code block but without the tag. Its options are for these only; with content, for the content.
+/// **Calls.** `#worksheet($U := 5 "V"$, $I := U/R =$)` calculates its equations (and strings, read like a code line) where it stands, with the definitions made before. A code block passed to it is calculated line by line, like a `solveng` code block but without the tag. Its options are for these only; with content, for the content.
 ///
 /// **Evaluate.** `#worksheet(evaluate: false)[…]` leaves its math alone: only its `solveng` code blocks and `#worksheet(…)` calls are calculated. Nested worksheets don't inherit it, so a `#worksheet[…]` or `#worksheet($t =$)` inside calculates its math again.
 ///
@@ -134,9 +134,9 @@
 ///
 /// ```typ
 /// #worksheet[
-///   $t := 5 s$
+///   $t := 5 "s"$
 ///   #worksheet(evaluate: false, inherit: true)[
-///     $E = m c^2$ stays as written, and so does $t = 3 s$;
+///     $E = m c^2$ stays as written, and so does $t = 3 "s"$;
 ///     #worksheet($t =$) is still calculated.
 ///   ]
 /// ]
@@ -147,7 +147,7 @@
 /// ````typ
 /// #worksheet(hidden: true)[
 ///   The values for the example:
-///   $U := 5 V$, $R := 100 Ω$
+///   $U := 5 "V"$, $R := 100 "Ω"$
 ///   ```solveng
 ///   I := U/R
 ///   ```
@@ -167,13 +167,13 @@
 ///
 /// ```typ
 /// #show: worksheet
-/// $U := 12 V$
+/// $U := 12 "V"$
 /// #worksheet(inherit: true, export: true)[
-///   $R := 100 Ω$
+///   $R := 100 "Ω"$
 ///   $I := U/R = mA$
 /// ]
 /// $I = mA$ // 120 mA, exported from the block
-/// #worksheet($U := 5 V$, export: false) // local to this call
+/// #worksheet($U := 5 "V"$, export: false) // local to this call
 /// $U =$ // still 12 V
 /// ```
 ///
@@ -191,7 +191,7 @@
 ///
 /// ```typ
 /// #show: worksheet.with(digits: 3, form: "fraction")   // your defaults, the whole document
-/// $U := 5 V$, $I := 30 mA$
+/// $U := 5 "V"$, $I := 30 mA$
 /// #worksheet($I/3 =$, digits: 2)                        // only this equation
 /// #worksheet(evaluate: false, multiplication: "times")[Prose and $E = m c^2$ stay as written.]
 /// ```
@@ -235,15 +235,13 @@
 /// - fractions (auto, str): How fractions are written: `"stacked"` (default) or `"slash"` (`1/2`).
 /// - prefixes (auto, str, none, array): Prefixes picked for results: `"all"` (default: a f p n µ m k M G T; times from a minute on in min or h, not ks), `none` (base unit only) or an array like `("m", "k")` (`"u"` = µ).
 /// - show-si (auto, bool): `defined` also shows the SI value (`Q₀ = 3450 mAh = 12420 C`). Default `false`.
-/// - builtin-units (auto, bool): Enable the built-in overlay, true by default: built-in units can be read through quoted names and automatic unit words. False disables this overlay, not the underlying built-in units. User overlays still work: `units: (s: "s")` restores `"s"`, but does not create a bare Typst binding `s`. Explicit `unit("s")` always resolves through the user overlays and falls back to the underlying built-in units.
-/// - units (auto, dictionary): Add a user overlay of unit definitions: `(bar: "100 kPa", rpm: "1/min", dozen: 12)`. Each overlay falls back to the overlays below it, then the underlying built-in units. Definitions can refer to other entries in the same overlay, regardless of order; self references use lower overlays, so nested `(s: "2s")` overlays scale the previous second. Circular dependencies are rejected. `auto` creates a base unit of its own; `none` hides just that name from implicit and quoted lookup, while explicit `unit("…")` references can still fall back below it. An overlay does not create Typst bindings: use quoted names or declare `#let second = unit("s")`. That binding resolves its unit at each use, in the active overlays. With content, the overlay is scoped to the worksheet; `#show: worksheet.with(units: …)` applies it to the remaining content.
-/// - builtin-functions (auto, bool): Enable the built-in overlay of function names, true by default: the standard names of the operations (`tri`, `convolve`, …) reach them by plain lookup, in code lines and as quoted names in math. False disables this overlay, never the operations: `math.op` references, like the names solveng exports for math (`$tri(t)$`), always reach them, and user overlays still map names (`functions: (tri: "tri")` restores `tri`).
-/// - functions (auto, dictionary): Add a user overlay of function names: `(conv: "convolve", Λ: "tri")` makes `conv(x, h)` the convolution and `Λ(t)` the triangular pulse, `(rect: none)` hides `rect` from plain lookup. Each overlay falls back to the overlays below it, then the built-in overlay. Entries can refer to each other regardless of their order; a self reference uses the lower overlays; circular references are rejected. An explicit reference, `math.op("conv")` or `operation("conv")`, resolves through the overlays active where it is used and reaches an operation even below `none`. A worksheet's own function of a name takes precedence over plain lookup. With content, the overlay is scoped to the worksheet; `#show: worksheet.with(functions: …)` applies it to the remaining content.
-/// - preferred-units (auto, str, array): Units for results of their dimension, `("bar", "kWh")`, before the unit of the inputs and the SI unit.
+/// - builtin-units (auto, bool): Enable automatic unit words and quoted built-in names, true by default. False disables their exposure; user overlays still work: `units: (s: "s")` restores `"s"`. Unit definitions can always refer to underlying built-ins.
+/// - units (auto, dictionary): Add a user overlay of unit definitions: `(bar: "100 kPa", rpm: "1/min", dozen: 12)`. Each overlay falls back to lower overlays and underlying built-ins. Entries may refer to each other regardless of order; self references use lower overlays, so `(s: "2s")` doubles the previous second. Circular dependencies are rejected. `auto` creates a base unit; `none` hides a name. Use quoted names (`$1"ing"$`) or declare `#let ing = unit("ing")` for `$1ing$`; single-letter bindings need a hash (`#let i = unit("i")`, `$1#i$`). Explicit `unit` shortcuts complete inside their strings, show unit-shortcut hover documentation, and resolve through the overlays at each use. The editor action *Declare unit overlay bindings* generates these declarations; worksheet options cannot inject Typst lexical bindings. With content, overlays are scoped to the worksheet; a show rule applies them to remaining content.
+/// - builtin-functions (auto, bool): Enable automatic built-in operation names, true by default. False disables automatic lookup in code and solveng's exported math names. Explicit `math.op("tri")` and `operation("convolve")` references always select the underlying operations. Quoted math names never select built-in operations.
+/// - preferred-units (auto, str, array): Units for results and graph axes of their dimension, `("bar", "kWh")`, before input units and automatic SI prefixes.
 /// - strict (auto, bool): Unit names can't be variable names, and units in math must be quoted (`$5 "V"$`), see *Units and variables*.
 /// - steps (auto, str): Default for `steps` of `solve`: `"full"` (default), `"formula"`, `"result"` or `"value"`.
 /// - layout (auto, str): Default for `layout` of `solve`: `"row"` (default) or `"column"`.
-/// - inline-steps (auto, str): Steps for `inline: true` and inline code: `"full"`, `"formula"`, `"result"` (default) or `"value"`.
 /// - implies (auto, content, symbol, str): What is written between steps, e.g. `sym.arrow.r.long` or `[and]`; ⇒ by default.
 /// - approximate (auto, bool): Write `≈` when the shown result is rounded. Default `true`.
 /// - block (auto, bool): Display equations (centred, default) or inline.
@@ -262,8 +260,8 @@
   inherit: auto, export: auto, clear-at: none, hidden: false, evaluate: true,
   digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto, max-denominator: auto, fractions: auto,
   prefixes: auto, show-si: auto, builtin-units: auto, units: auto, preferred-units: auto, strict: auto,
-  builtin-functions: auto, functions: auto,
-  steps: auto, inline-steps: auto, layout: auto, implies: auto, approximate: auto, block: auto, max-solutions: auto,
+  builtin-functions: auto,
+  steps: auto, layout: auto, implies: auto, approximate: auto, block: auto, max-solutions: auto,
   defined-style: auto, errors: auto, show-casts: auto, show-types: auto,
   words: auto, chips: auto, unit-style: auto, unit-separator: auto,
 ) = {
@@ -275,7 +273,7 @@
   let lc = _check(_given((
     digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions,
     prefixes: prefixes, show-si: show-si, builtin-units: builtin-units, units: units, preferred-units: preferred-units, strict: strict,
-    builtin-functions: builtin-functions, functions: functions, steps: steps, inline-steps: inline-steps, layout: layout, implies: implies, approximate: approximate, block: block, max-solutions: max-solutions,
+    builtin-functions: builtin-functions, steps: steps, layout: layout, implies: implies, approximate: approximate, block: block, max-solutions: max-solutions,
     defined-style: defined-style, errors: errors, show-casts: show-casts, show-types: show-types,
     words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator,
   )))
@@ -318,11 +316,6 @@
       let layers = c.at("#unit-layers", default: if c.units.len() == 0 { () } else { (c.units,) })
       c + (units: c.units + lc.units, "#unit-layers": layers + (lc.units,))
     }
-    // function overlays: the same, each worksheet's on top of the ones around it
-    let function-config(c) = {
-      let layers = c.at("#function-layers", default: if c.functions.len() == 0 { () } else { (c.functions,) })
-      c + (functions: lc.functions, "#function-layers": layers + (lc.functions,))
-    }
     let up(c) = {
       let c2 = c + lc + ("^": c)
       if "units" in lc {
@@ -332,26 +325,12 @@
           c2.insert("#unit-layers", unit-config(c).at("#unit-layers"))
         } else { c2.units = c.units }
       }
-      if "functions" in lc {
-        let m = _call(_p.check_functions, _req-cfg(function-config(c) + (separator: ".",)))
-        if m == none {
-          c2.functions = lc.functions
-          c2.insert("#function-layers", function-config(c).at("#function-layers"))
-        } else { c2.functions = c.functions }
-      }
       c2
     }
     if "units" in lc {
       context {
         let c = _cf.get()
         let m = _call(_p.check_units, _req-cfg(unit-config(c) + (separator: ".",)))
-        if m != none { _errc(m, c, wide: true) }
-      }
-    }
-    if "functions" in lc {
-      context {
-        let c = _cf.get()
-        let m = _call(_p.check_functions, _req-cfg(function-config(c) + (separator: ".",)))
         if m != none { _errc(m, c, wide: true) }
       }
     }

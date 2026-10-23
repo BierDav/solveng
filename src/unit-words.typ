@@ -1,14 +1,30 @@
 // Units as names, so math knows them without guessing: $4 mA$ is 4 milliamperes, never a variable. Each is the unit's
-// text labelled <solveng-unit>, set upright; unit("…") makes any other, also one of your own units (unit("bar")).
-// Single letters (V, A, s) can't be names in math: they are units right after a number or alone after a trailing =.
+// text labelled <solveng-unit-word>, set upright; quote other units, including your own: $3 "bar"$.
+// Single letters (V, A, s) stay math symbols: quote units, or reference a unit binding with a hash.
 // Left out: what Typst's math already names (min, deg) and as, the cast. Generated from the unit table: every unit of
 // more than one letter and every prefixed one.
 
-/// A unit in math, for units without a name of their own: `$p := 3 unit("bar")$`, `$5 unit("V")$`.
+/// An explicit unit reference: `#let ing = unit("iwef")` makes a unit shortcut for `$1ing$`.
 ///
-/// The name is resolved through the overlays active where this content is used, not where `unit` or a Typst binding was declared. Completion offers units from the local context; an unknown name here is not an error because a later use may supply an overlay. Greek spellings and symbols agree: `unit("alpha")` and `unit("α")` name the same unit, and the editor displays the string as `"α"`.
+/// Unlike an ordinary string binding, this explicitly marks its value as a unit and completes unit names
+/// inside the string. Only the unit string is highlighted in the declaration; evaluated uses get unit styling.
+/// Hover identifies the binding as a unit shortcut and shows the target unit's definition.
+/// Inline references also work, with or without a space: `$y := 1unit("km")$`, `$y := 1 unit("km")$`.
+/// Completion and unit styling apply inside the string; the constructor collapses to the unit in the editor.
+/// The unit resolves through the overlays active at each use, not where the binding is declared.
+/// Explicit references can reach underlying units even when automatic lookup is disabled or a name is hidden.
+/// Multiletter bindings need no hash; single letters do: `#let i = unit("iwef")`, then `$1#i$`.
+/// `$1i$` stays multiplication by a worksheet variable. Complex numbers are unsupported; `i` is no imaginary constant.
 ///
-/// - name (str): The unit as solveng writes it, `"mAh"`, `"kΩ"`, `"m/s^2"`.
+/// ```typ
+/// #show: worksheet.with(units: (iwef: "km"))
+/// #let ing = unit("iwef")
+/// #let i = unit("iwef")
+/// $t := 1ing =$
+/// $u := 1#i =$
+/// ```
+///
+/// - name (str): The unit name or expression, such as `"km"`, `"iwef"`, or `"m/s^2"`.
 /// -> content
 #let unit(name) = {
   assert(type(name) == str, message: "unit: the unit as a string, unit(\"mA\"), got " + str(type(name)))

@@ -225,6 +225,9 @@ fn code_of(math: &str) -> Option<String> {
         } else if c == '"' {
             let end = (i + 1..n).find(|&j| m[j] == '"')?;
             let text = sub(&m, i + 1, end);
+            if crate::complete::FUNCTIONS.contains(&text.as_str()) && m[end + 1..].iter().find(|c| !c.is_whitespace()) == Some(&'(') {
+                return None;
+            }
             i = end + 1;
             if out.ends_with('_') || !after_value || !is_unit(&text) {
                 // a name of several letters, or a subscript

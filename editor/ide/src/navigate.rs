@@ -133,6 +133,11 @@ fn names(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Eleme
             _ => {}
         }
     }
+    // Constructor strings name operations and units, never worksheet variables with the same spelling.
+    let bindings = crate::bindings::Bindings::new(doc);
+    let references: Vec<_> = bindings.operator_strings().iter().map(|(s, e, _)| (*s, *e))
+        .chain(calls.iter().filter(|c| c.function.name == "unit").flat_map(|c| c.texts.iter().map(|t| (t.start, t.end)))).collect();
+    out.retain(|n| !references.iter().any(|&(s, e)| n.start < e + 1 && s.saturating_sub(1) < n.end));
     out.sort_by_key(|n| n.start);
     out
 }

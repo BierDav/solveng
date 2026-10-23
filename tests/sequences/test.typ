@@ -44,29 +44,25 @@ $q_1 := q[1] =$
 #assert.eq(range(3), (0, 1, 2))
 #assert.eq(range(1, 7, step: 2), (1, 3, 5))
 
-// function overlays
-#worksheet(functions: (conv: "convolve", Λ: "tri"))[
-  #let conv = operation("conv")
-  $a := conv(vec(1, 1), vec(1, 1), step: 2) =$
-  #passes()
-  $b := "Λ"(1/2) =$
-  #expect("b", 0.5)
-  #worksheet("d := conv(vec(1), vec(3))")
-  #passes()
-]
-#worksheet(functions: (tri: none))[
-  // the exported binding is math.op: an explicit reference, still the operation
-  $e := tri(1/2) =$
-  #expect("e", 0.5)
-  // a plain name is hidden
-  #worksheet("f(x) := tri(x)")
-  #worksheet("g := f(0) =")
+// Explicit operator bindings work independently of automatic names.
+#worksheet(builtin-functions: false)[
+  #let triangle = math.op("tri")
+  $a := triangle(1/2) =$
+  #expect("a", 0.5)
+  $b := tri(0) =$
   #fails("tri")
+  $c := "tri"(0) =$
+  #fails("tri")
+  #let conv = operation("convolve")
+  $d := conv(vec(1, 1), vec(1, 1), step: 2) =$
+  #passes()
 ]
-#worksheet(builtin-functions: false, functions: (pulse: "rect"))[
-  #worksheet("h := pulse(0) =")
-  #expect("h", 1)
-  $m := sin(0) =$
-  #expect("m", 0)
+
+// Inline explicit references work with automatic names disabled, in both unit spacings.
+#worksheet(builtin-functions: false, builtin-units: false)[
+  $x := 1/2$
+  $a := op("tri")(x) =$ #expect("a", 0.5)
+  $b := 1unit("km") =$ #expect("b", 1000)
+  $c := 1 unit("km") =$ #expect("c", 1000)
+  $d := op("rect")(0) =$ #expect("d", 1)
 ]
-#worksheet(functions: (a: "b", b: "a"))[]

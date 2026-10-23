@@ -6,8 +6,8 @@
 /// Three operators, and `=` keeps its meaning from maths:
 ///
 /// - **`:=` defines**, symbolically. Names defined by then are put in right away, names that aren't stay names until they are: `$h := 5 z$` works before `z` is defined, and after `$z := 20 cm$`, `$h =$` shows 1 m. What's put in is the value at that point – defining a name again later changes what comes after, not what came before.
-/// - **`=` inside an expression compares**, as Mathcad's bold =: `$M := 1 = 2 =$` gives 0, `$M := 2 A = 2000 mA$` gives 1. Values of different units are never equal (`1 A = 2 V` is 0, `1 A != 2 V` is 1); `<`, `<=`, `>`, `>=` and `!=` compare too, chains like `$0 < x <= 1$` hold when every step does.
-/// - **A trailing `=` shows the value**, numerically, with a bold =. After it come a unit and keywords: `$t = 1 h, digits(3)$`. Every name in it must have a value by then.
+/// - **`=` inside an expression compares**, as Mathcad's bold =: `$M := 1 = 2 =$` gives 0, `$M := 2 "A" = 2000 mA$` gives 1. Values of different units are never equal (`1 A = 2 V` is 0, `1 A != 2 V` is 1); `<`, `<=`, `>`, `>=` and `!=` compare too, chains like `$0 < x <= 1$` hold when every step does.
+/// - **A trailing `=` shows the value**, numerically, with a bold =. After it come a unit and keywords: `$t = 1 "h", digits(3)$`. Every name in it must have a value by then.
 /// - **A trailing `->` shows the symbolic result**: defined values put in, exactly (fractions, roots and π stay), undefined names kept: `$x + 3/3 y -> simplify$` is x + y. With `solve(x)` it solves – symbolically when it can (`$0 = 1 + 3/x + y^2 -> solve(x)$` is x = −3/(y² + 1)), numerically when every other name has a value – and defines x when the solution is a value. `substitute(U, …)` shows the result with these variables' formulas put in and every other name kept: after `$U := R I$`, `$P := U^2/R -> substitute(U)$` is I² R.
 /// - **Any other `=`** states something: it's checked when everything in it has a value (`$U = R I$`), and left alone as prose when not (`$E = m c^2$`).
 ///
@@ -18,7 +18,7 @@
 /// $h := 5 z$, $z := 20 cm$, $h =$             // h ≔ 5z, z ≔ 20 cm, h = 1 m
 /// $U(x: m) := h x a ->$                      // U(x) ≔ h x a → 1 m · a x
 /// $g(x: m) := U(x)/a ->$                     // g(x) ≔ U(x)/a → 1 m · x
-/// $M := 1 A = 2 V ->$                        // M ≔ 1 A = 2 V → 0
+/// $M := 1 "A" = 2 "V" ->$                        // M ≔ 1 A = 2 V → 0
 /// ```solveng
 /// k := 2 m = 200 cm =                        // k = 1: the comparison holds
 /// ```
@@ -29,7 +29,7 @@
 /// ````typ
 /// #show: worksheet
 /// $R := 4.7 kΩ$                        // math: a number and a unit
-/// $I := frac(2, 4) A$, $Q_0 := 3450/2 mAh$, $U := (1+2) dot 1,5 V$, $A := 2^3 m^2$  // arithmetic in the number
+/// $I := frac(2, 4) A$, $Q_0 := 3450/2 mAh$, $U := (1+2) dot 1,5 "V"$, $A := 2^3 "m"^2$  // arithmetic in the number
 /// ```solveng
 /// R2 := 2 R; Z := [5 V] / I            // code: units in brackets inside an equation
 /// U2 := R [1 mA]
@@ -43,7 +43,7 @@
 /// - **No e-notation:** numbers are written out (`$11200$`, or `$1.12 dot 10^4$`). `1.12e4` is the coefficient 1.12 times the variable `e4` (undefined unless defined; quote it, `$"e4"$`, for a name of several letters). Scientific notation is only how results are written (option `scientific`, keyword `sci`).
 /// - **Names:** the acute accent `´` and the backtick (`` ` ``) are literal name characters (`$x´ := 3$`), with no escaping needed. Digits continue a name: `t2` differs from `t_2` and keeps its digits on the baseline. Complete Latin letter runs normalize to Greek: `Delta2tau` → Δ2τ, while `Deltatau` stays unchanged. `""` joins name fragments: `Delta""tau` → Δτ and `t""2` → t2. Quotes only carry a name through Typst: `$"Delta2tau"$` names Δ2τ, and `$"Delta\"\"tau"$` names Δτ. Explicit subscripts may be grouped: `$R_(a b)$` names R_ab. Operators and whitespace end a name; a leading number remains a coefficient (`2t2` is 2 times t2).
 /// - **Sums:** `sum_(k=0)^10 k^2` or `sum(k^2, k, 0, 10)` sums over inclusive integer bounds. The index is local and case-sensitive. Parenthesize a summand containing addition. Small finite sums simplify exactly; infinite sums stay symbolic after `->` and are evaluated numerically for `=` and graphs. For example, `$s_2(t) := sum_(k=0)^infinity sigma(t-k+3/4)$` defines a function usable as `#graph("s_2(t)")` once `sigma` is defined. Piecewise linear signal sums are counted directly between their corners. Other numerical sums use at most 100000 terms and a shrinking-tail convergence estimate; slow or nonconvergent series report an error. Bounds and the index are unitless, while summands may carry units.
-/// - **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. The standard names are exported by solveng; a worksheet function such as `$Lambda(t) := tri(t)$` or the option `functions: (Λ: "tri")` gives another name. Linear combinations simplify and can be solved; definite integrals split affine arguments at their boundaries. Distributional derivatives stay symbolic.
+/// - **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. The standard names are exported by solveng; a worksheet function such as `$Lambda(t) := tri(t)$` or `#let triangle = math.op("tri")` gives another name. Linear combinations simplify and can be solved; definite integrals split affine arguments at their boundaries. Distributional derivatives stay symbolic.
 /// - **Ranges and elements:** `$i := 0..N$` (also `0 .. N`, `0...N`) is a range variable: the values from 0 to N in steps of 1, both included, counting down when N < 0; with units, use `range(start, end, step: …)`. `x[i]` and `A[i, j]` are elements, counted from 0, written right after the name without a space; a vector of indices selects several (`x[i]` with i a range is a vector). `$x[i] := …$` defines an element for each value of the range variable i, the body calculated with i standing for that value: `$t[i] := i Delta""t$`, `$x[i] := tri(t[i])$`. Elements not defined yet are 0; defining one past the end extends the vector, as in Mathcad. `A[i, j] := …` defines a matrix. In code, `x[i]` is an index and `R [1 mA]`, with a space, a value with a unit.
 /// - **Convolution:** `convolve(x, h)` of sequences and `convolve(f(τ), g(τ), τ, t)` of functions, see `convolve`. Sequences of values are convolved numerically (whole numbers exactly), so long sampled signals stay fast; functions exactly where they're piecewise polynomial.
 /// - **Operators:** `+ - * / ^ · ×`, implicit multiplication (`2 pi f C`), `sqrt exp ln log sin cos tan asin acos atan abs`, constants `pi e` (unless you define a variable with that name), your own functions.
@@ -52,7 +52,7 @@
 ///
 /// Many engineering symbols are also units: `A` (area, ampere), `V` (volume, volt), `T` (period, tesla), `h` (height, hour), `C`, `F`, `W`, `m`, `s`, `l`, `L`, … solveng keeps them apart by *how* they are written, never by guessing:
 ///
-/// - **Math:** units are names, `$30 mA$`, `$4.7 kΩ$`, `$9.81 m/s^2$` (solveng brings every unit of several letters and every prefixed one, set upright); `unit("bar")` writes any other, also your own. Single letters are variables, including after numbers (`$5 V$` multiplies by the variable V). Quote a unit (`$5"V"$`, `$3"h"$`), or use an explicit Typst binding (`$5#V$`). Parameter annotations such as `$f(x: A) := x$` accept unit names; calls must carry the dimension, as in `$f(1"A") =$`. Quoted text is a name of several letters (`$"tews" := 2$`), as Typst needs; `"as"` casts.
+/// - **Math:** units are names, `$30 mA$`, `$4.7 kΩ$`, `$9.81 "m"/"s"^2$` (solveng brings every unit of several letters and every prefixed one, set upright); quoted names (`$3 "bar"$`) write other units, including your own. Single letters are variables, including after numbers (`$5 "V"$` multiplies by the variable V). Quote a unit (`$5"V"$`, `$3"h"$`), or use an explicit Typst binding (`$5#V$`). Parameter annotations such as `$f(x: A) := x$` accept unit names; calls must carry the dimension, as in `$f(1"A") =$`. Quoted text is a name of several letters (`$"tews" := 2$`), as Typst needs; `"as"` casts.
 /// - **Code:** a unit is read only where a value is written – right after a number (`I := 30 mA`) or in brackets (`[5 V]`, `[A]` for one ampere). Every other name in an equation is a variable. A value whose unit is also a defined variable (`t := 3 h` with `h` defined, `f := 1/T` with `T` defined) is refused, with a hint how to write either meaning: `[3 h]` for hours, `3*h` or `1/(T)` for the variable.
 ///
 /// ````typ
@@ -68,28 +68,33 @@
 ///
 /// **Unit overlays.** Lookup has separate layers: the underlying built-in units, the optional built-in overlay, then user overlays in order. The built-in overlay exposes quoted unit names and automatic unit words. `builtin-units: false` disables that exposure; it never deletes the underlying units. Each `units: (…)` adds a user overlay, scoped to its worksheet, which falls back through lower overlays to the underlying built-ins.
 ///
-/// Definitions in one overlay can refer to each other regardless of their order: `(km: "m", tui: "km")` makes both units one metre. A self reference falls back to the next lower overlay: `(s: "2s")` doubles the lower overlay's second. Circular dependencies such as `(zu: "uz", uz: "zu")` are rejected. `none` hides only the exact name for automatic and quoted lookup: `(s: none)` hides `s`, while `ms`, definition expressions such as `(mys: "s")`, and explicit `unit("s")` references still work.
+/// Definitions in one overlay can refer to each other regardless of their order: `(km: "m", tui: "km")` makes both units one metre. A self reference falls back to the next lower overlay: `(s: "2s")` doubles the lower overlay's second. Circular dependencies such as `(zu: "uz", uz: "zu")` are rejected. `none` hides only the exact name for automatic and quoted lookup: `(s: none)` hides `s`, while `ms`, definition expressions such as `(mys: "s")`, still work.
 ///
-/// Overlay unit names support the same symbols as variable names. `(alpha: "m")` defines the unit `α`: `$34"alpha"$` and `$34"α"$` agree, and completion inserts `"α"`. With the respective Typst bindings, `$34alpha$` and `$34#α$` work too: `#let alpha = unit("alpha")` and `#let α = unit("alpha")`. The editor collapses the spelled name to `α` both in equations and in the string passed to `unit`.
+/// Overlay unit names support the same symbols as variable names. `(alpha: "m")` defines the unit `α`: `$34"alpha"$` and `$34"α"$` agree, and completion inserts `"α"`. With explicit Typst unit bindings, `$34alpha$` and `$34#α$` work too: `#let alpha = unit("alpha")` and `#let α = unit("alpha")`. The editor collapses spelled names to `α` in equations.
 ///
 /// A user overlay provides quoted lookup, not Typst bindings. With `builtin-units: false, units: (s: "s")`, `$34"s"$` is a quantity, but `$34s$` multiplies by an unresolved math symbol. A worksheet variable with that quoted name takes precedence over the unit. Completion inserts quoted units, and can replace `#s` with `"s"` after a number.
 ///
-/// `unit("s")` carries a unit name, resolved through the overlays active where it is used. A Typst binding such as `#let second = unit("s")` can therefore mean different quantities in different worksheets; its declaration location does not freeze the unit definition. Single-letter math symbols do not read Typst bindings: `#let s = unit("s")` requires `$34#s$`, whereas `$34second$` works without a hash. The editor offers an explicit-reference quick fix for an unresolved single letter with a unit binding and shows that reference's hash in gray.
+/// An explicit unit shortcut uses `unit`: `#let ing = unit("ing")`, used as `$1ing$`. A single letter
+/// needs an explicit reference: `#let i = unit("i")`, `$1#i$`. The unit name resolves through the active overlays
+/// at use, so the same binding can denote different units in nested worksheets. Completion is available inside
+/// the string; hover identifies the binding as a unit shortcut. Plain string bindings are not detected as unit shortcuts.
+/// `$1i$` stays multiplication
+/// by a worksheet variable. Complex numbers are unsupported; `i` is not a built-in imaginary constant.
+/// Typst options cannot create lexical bindings. Use the editor action *Declare unit overlay bindings* to
+/// insert declarations for an overlay's names, or write them directly.
 ///
 /// ```typ
-/// #show: worksheet.with(builtin-units: false, units: (s: "s"))
-/// $z := 34"s"$                         // the quoted name uses the user overlay
-/// #let s = unit("s")
-/// $a := 34#s$                          // an explicit Typst reference also works
-/// #let second = unit("s")
-/// #worksheet(units: (s: "2s"))[
-///   $b := 2second$                     // four underlying SI seconds
-/// ]
+/// #show: worksheet.with(units: (ing: "km", i: "km"))
+/// #let ing = unit("ing")
+/// #let i = unit("i")
+/// $a := 1ing =$
+/// $b := 1#i =$
+/// $c := 1"i" =$
 /// ```
 ///
 /// ```typ
 /// #show: worksheet.with(units: (bar: "100 kPa", rpm: "1/min", t: "1000 kg", T: none))
-/// $p := 3 unit("bar")$, $n := 3000 unit("rpm")$          // prefixes work too: unit("mbar")
+/// $p := 3 "bar"$, $n := 3000 "rpm"$          // prefixes work too: "mbar"
 /// #worksheet(preferred-units: ("bar",))[$p/2 =$]      // results with these dimensions are shown in these units
 /// ```
 ///
@@ -125,9 +130,8 @@
 // needs context: the decimal separator follows the document language
 #let _sep(cf) = if cf.separator != auto { cf.separator } else if text.lang in _LANGS { "," } else { "." }
 // plain text of content (units: (bar: [100 kPa]))
-#let _plain(c) = if type(c) == str { c } else if type(c) in (int, float, symbol) { str(c) } else if c.has("text") and type(c.text) == str { c.text } else if c.has("children") { c.children.map(_plain).join() } else if c.has("body") { _plain(c.body) } else { " " }
-// a function overlay entry: the operation's name, or none to hide one
-#let _fopt(v) = if v == none { "none" } else { _plain(v) }
+#let _plain(c) = if type(c) == str { c } else if type(c) in (int, float, symbol) { str(c) } else if c.has("text") { _plain(c.text) } else if c.has("children") { c.children.map(_plain).join() } else if c.has("body") { _plain(c.body) } else { " " }
+// Unit overlay definitions as the plugin reads them.
 #let _uopt(v) = if v == none { "none" } else if v == auto { "auto" } else if type(v) in (int, float) { float(v) } else { _plain(v) }
 // the options as the engine reads them
 #let _req-cfg(cf) = {
@@ -140,10 +144,9 @@
     prefixes: if cf.prefixes == none { "None" } else if cf.prefixes == "all" { "All" } else { (Some: cf.prefixes) },
     unit-layers: cf.at("#unit-layers", default: ()).map(layer => layer.pairs().map(((k, v)) => (k, _uopt(v))).to-dict()),
     show-si: cf.show-si, builtin-units: cf.builtin-units, units: cf.units.pairs().map(((k, v)) => (k, _uopt(v))).to-dict(),
-    builtin-functions: cf.builtin-functions, functions: cf.functions.pairs().map(((k, v)) => (k, _fopt(v))).to-dict(),
-    function-layers: cf.at("#function-layers", default: ()).map(layer => layer.pairs().map(((k, v)) => (k, _fopt(v))).to-dict()),
+    builtin-functions: cf.builtin-functions,
     preferred-units: if type(cf.preferred-units) == str { (cf.preferred-units,) } else { cf.preferred-units }, strict: cf.strict,
-    steps: if cf.steps == auto { cf.inline-steps } else { cf.steps }, inline-steps: cf.inline-steps, layout: cf.layout,
+    steps: cf.steps, layout: cf.layout,
     approximate: cf.approximate, block: cf.block, max-solutions: cf.max-solutions,
     show-casts: cf.show-casts, show-types: cf.show-types,
     words: (cast: cf.words.at("cast", default: "as"), any: cf.words.at("any", default: "any")),
@@ -210,6 +213,7 @@
   }
   if c.has("label") and c.label == <solveng-unit-word> { return "⦗" + _plain(c) + "⦘" }
   if c.has("label") and c.label == <solveng-unit> { return "⦃" + _plain(c) + "⦄" }
+  if c.has("label") and c.label == <solveng-function> { return _plain(c) }
   if f == metadata {
     if c.has("label") and c.label == <solveng-key> {
       let args = c.value.args.map(a => { let s = _src(a); if _E(s) { "?" } else { s.replace("\"", "").trim() } })
@@ -272,7 +276,7 @@
     return out
   }
   if f == math.class and _plain(c.body) == "d" { return "dif" }
-  // math.op is an explicit reference to an operation, resolved through the function overlays where it's used
+  // math.op explicitly selects the underlying operation
   if f == math.op {
     let name = _plain(c.text).trim()
     return if name == "d" { "dif" } else { "⦇" + name + "⦈" }
@@ -306,7 +310,11 @@
   if type(c) != content { return c }
   if c == math.dif { return c }
   let f = c.func()
-  if f == text and not (c.has("label") and c.label == <solveng-unit>) {
+  if f == text and c.has("label") and c.label == <solveng-unit> {
+    let formatted = _unit-mk(c.text, cf)
+    return if formatted != none { formatted } else { math.upright(c.text) }
+  }
+  if f == text {
     let normalized = _call(_p.name, c.text)
     if normalized != none { return _m(normalized, cf) }
   }
@@ -364,7 +372,7 @@
       let named = x.func() == text and x.has("label") and x.label == <solveng-unit>
       if mark != none and (named or (mark in letters and x.func() != text)) and number {
         while out.len() > 0 and space(out.last()) { let _ = out.pop() }
-        out.push(h(0.1667em) + math.upright(mark))
+        out.push(h(0.1667em) + if named { _restyle(x, letters, cf) } else { math.upright(mark) })
         i += 1
         continue
       }

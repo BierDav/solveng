@@ -71,6 +71,7 @@ fn capabilities() -> Value {
         "textDocumentSync": 1,
         "completionProvider": { "triggerCharacters": ["\"", "(", ",", "[", "`", "/", "_"] },
         "hoverProvider": true,
+        "documentFormattingProvider": true,
         "definitionProvider": true,
         "referencesProvider": true,
         "renameProvider": { "prepareProvider": true },
@@ -282,6 +283,9 @@ impl Server {
                     }
                 json!(found.iter().filter_map(|l| self.location(&uri, &text, l)).collect::<Vec<_>>())
             }
+            "textDocument/formatting" => json!(ide::format(&text, &context).iter().map(|e| {
+                json!({ "range": range(&starts, e.start, e.end), "newText": e.text })
+            }).collect::<Vec<_>>()),
             "textDocument/prepareRename" => match ide::rename_target(&text, &context, offset(&text, &p["position"])) {
                 Some(t) => json!({ "range": range(&starts, t.start, t.end), "placeholder": t.name }),
                 None => Value::Null,

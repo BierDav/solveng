@@ -9,11 +9,14 @@ pub const OPERATIONS: &[&str] = &[
 ];
 
 pub const GREEK: &[(&str, char)] = &[
-    ("alpha", 'α'), ("beta", 'β'), ("gamma", 'γ'), ("Gamma", 'Γ'), ("delta", 'δ'), ("Delta", 'Δ'), ("epsilon", 'ε'),
-    ("zeta", 'ζ'), ("eta", 'η'), ("theta", 'θ'), ("Theta", 'Θ'), ("iota", 'ι'), ("kappa", 'κ'), ("lambda", 'λ'),
-    ("Lambda", 'Λ'), ("mu", 'μ'), ("nu", 'ν'), ("xi", 'ξ'), ("Xi", 'Ξ'), ("pi", 'π'), ("Pi", 'Π'), ("rho", 'ρ'),
-    ("sigma", 'σ'), ("Sigma", 'Σ'), ("tau", 'τ'), ("upsilon", 'υ'), ("phi", 'φ'), ("Phi", 'Φ'), ("chi", 'χ'),
-    ("psi", 'ψ'), ("Psi", 'Ψ'), ("omega", 'ω'), ("Omega", 'Ω'),
+    ("alpha", 'α'), ("Alpha", 'Α'), ("beta", 'β'), ("Beta", 'Β'), ("gamma", 'γ'), ("Gamma", 'Γ'),
+    ("delta", 'δ'), ("Delta", 'Δ'), ("epsilon", 'ε'), ("Epsilon", 'Ε'), ("zeta", 'ζ'), ("Zeta", 'Ζ'),
+    ("eta", 'η'), ("Eta", 'Η'), ("theta", 'θ'), ("Theta", 'Θ'), ("iota", 'ι'), ("Iota", 'Ι'),
+    ("kappa", 'κ'), ("Kappa", 'Κ'), ("lambda", 'λ'), ("Lambda", 'Λ'), ("mu", 'μ'), ("Mu", 'Μ'),
+    ("nu", 'ν'), ("Nu", 'Ν'), ("xi", 'ξ'), ("Xi", 'Ξ'), ("omicron", 'ο'), ("Omicron", 'Ο'),
+    ("pi", 'π'), ("Pi", 'Π'), ("rho", 'ρ'), ("Rho", 'Ρ'), ("sigma", 'σ'), ("Sigma", 'Σ'),
+    ("tau", 'τ'), ("Tau", 'Τ'), ("upsilon", 'υ'), ("Upsilon", 'Υ'), ("phi", 'φ'), ("Phi", 'Φ'),
+    ("chi", 'χ'), ("Chi", 'Χ'), ("psi", 'ψ'), ("Psi", 'Ψ'), ("omega", 'ω'), ("Omega", 'Ω'),
 ];
 
 
@@ -177,6 +180,21 @@ pub fn math(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_greek_letter_resolves_in_both_cases() {
+        let names = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Eta", "Theta", "Iota", "Kappa", "Lambda", "Mu",
+            "Nu", "Xi", "Omicron", "Pi", "Rho", "Sigma", "Tau", "Upsilon", "Phi", "Chi", "Psi", "Omega"];
+        for (name, symbol) in names.into_iter().zip("ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ".chars()) {
+            for (name, symbol) in [(name.to_string(), symbol), (name.to_lowercase(), symbol.to_lowercase().next().unwrap())] {
+                assert_eq!(greek(&name), Some(symbol));
+                assert_eq!(resolve(&name).unwrap(), symbol.to_string());
+                assert_eq!(resolve(&format!("{name}2_{name}")).unwrap(), format!("{symbol}2_{symbol}"));
+            }
+        }
+        assert_eq!(normalize("AlphaBeta"), "AlphaBeta");
+        assert_eq!(normalize("ALPHA"), "ALPHA");
+    }
 
     #[test]
     fn rename_formats_numeric_names_without_changing_them() {

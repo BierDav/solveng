@@ -15,7 +15,7 @@
 #import "src/graph.typ": graph
 #import "src/lambdify.typ": lambdify
 #import "src/value.typ": value
-// units as names, unquoted in math: $4 mA$, and unit("…") for any other
+// units as names, unquoted in math: $4 mA$, and unit("…") for explicit references and shortcuts
 #import "src/unit-words.typ": *
 
 // Non-native math operation names are available without local declarations.

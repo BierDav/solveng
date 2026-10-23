@@ -1,10 +1,8 @@
-//! Range variables, elements x[i], discrete and continuous convolution, named arguments and function overlays.
+//! Range variables, elements x[i], discrete and continuous convolution, named arguments and explicit operation references.
 
 use std::collections::BTreeSet;
 
-use indexmap::IndexMap;
 use solveng_core::api::{self, LineReq};
-use solveng_core::builtins::FnOpt;
 use solveng_core::env::Env;
 use solveng_core::eval::value;
 use solveng_core::expr::{Expr, simp};
@@ -198,53 +196,21 @@ fn named_parameters() {
     assert_eq!(num(&env, "d"), 6.0);
 }
 
-fn with_functions(layers: Vec<Vec<(&str, Option<&str>)>>, builtin: bool) -> Cfg {
-    let mut cfg = Cfg::default();
-    cfg.builtin_functions = builtin;
-    cfg.function_layers = layers
-        .into_iter()
-        .map(|l| l.into_iter().map(|(k, v)| (k.to_string(), v.map_or(FnOpt::Key(solveng_core::builtins::Hidden::None), |s| FnOpt::Name(s.into())))).collect::<IndexMap<_, _>>())
-        .collect();
-    cfg.functions = cfg.function_layers.last().cloned().unwrap_or_default();
-    cfg
-}
-
 #[test]
-fn overlays() {
-    let cfg = with_functions(vec![vec![("conv", Some("convolve")), ("Λ", Some("tri")), ("rect", None)]], true);
+fn explicit_operations_and_disabled_automatic_names() {
     let mut env = Env::default();
-    let o = out(&mut env, "y := conv(vec(1, 1), vec(1, 1))", Mode::Code, &cfg);
-    assert!(o.errors.is_empty(), "{:?}", o.errors);
-    assert!(close(&nums(&env, "y"), &[1.0, 2.0, 1.0]));
-    let o = out(&mut env, "a := Lambda(1/2)", Mode::Code, &cfg);
-    assert!(o.errors.is_empty(), "{:?}", o.errors);
-    assert_eq!(num(&env, "a"), 0.5);
-    // a hidden name is no operation for plain lookup: a function still to be defined
-    let o = out(&mut env, "b := rect(0) =", Mode::Code, &cfg);
-    assert!(!o.errors.is_empty());
-    // an explicit reference (math.op) still reaches it
-    let o = out(&mut env, "b ≔ ⦇rect⦈(0)", Mode::Math, &cfg);
-    assert!(o.errors.is_empty(), "{:?}", o.errors);
-    assert_eq!(num(&env, "b"), 1.0);
-    // an explicit reference through an overlay
-    let o = out(&mut env, "c ≔ ⦇conv⦈(vec(1), vec(2))", Mode::Math, &cfg);
-    assert!(o.errors.is_empty(), "{:?}", o.errors);
-    // without the built-in overlay: only explicit references and what the overlays map
-    let cfg = with_functions(vec![vec![("tri", Some("tri"))]], false);
-    let mut env = Env::default();
-    assert!(out(&mut env, "a := tri(0)", Mode::Code, &cfg).errors.is_empty());
-    assert_eq!(num(&env, "a"), 1.0);
-    assert!(!out(&mut env, "b := rect(0) =", Mode::Code, &cfg).errors.is_empty());
-    assert!(out(&mut env, "b ≔ ⦇rect⦈(0)", Mode::Math, &cfg).errors.is_empty());
-    // a nested overlay over another: a self reference is the name below
-    let cfg = with_functions(vec![vec![("pulse", Some("rect"))], vec![("pulse", Some("tri"))]], true);
-    let mut env = Env::default();
-    assert!(out(&mut env, "a := pulse(1/2)", Mode::Code, &cfg).errors.is_empty());
-    assert_eq!(num(&env, "a"), 0.5);
-    let cfg = with_functions(vec![vec![("a", Some("b")), ("b", Some("a"))]], true);
-    assert!(api::check_functions(&cfg).unwrap().contains("circular"));
-    let cfg = with_functions(vec![vec![("a", Some("nothing"))]], true);
-    assert!(api::check_functions(&cfg).unwrap().contains("no built-in operation"));
+    let cfg = Cfg { builtin_functions: false, ..Cfg::default() };
+    assert!(!out(&mut env, "a := tri(0) =", Mode::Code, &cfg).errors.is_empty());
+    assert!(!out(&mut env, "a ≔ tri(0) =", Mode::Math, &cfg).errors.is_empty());
+    assert!(out(&mut env, "b ≔ ⦇tri⦈(1/2)", Mode::Math, &cfg).errors.is_empty());
+    assert_eq!(num(&env, "b"), 0.5);
+    for name in ["tri", "sin", "rect"] {
+        let src = format!("a ≔ \"{name}\"(0) =");
+        assert!(!out(&mut env, &src, Mode::Math, &Cfg::default()).errors.is_empty(), "{src}");
+    }
+    assert!(out(&mut env, "\"pulse\"(x) ≔ 2 x", Mode::Math, &cfg).errors.is_empty());
+    assert!(out(&mut env, "c ≔ \"pulse\"(3)", Mode::Math, &cfg).errors.is_empty());
+    assert_eq!(num(&env, "c"), 6.0);
 }
 
 #[test]

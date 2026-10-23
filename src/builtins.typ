@@ -1,33 +1,28 @@
 /// ## Built-in operations
 ///
 /// Built-in operations work in worksheet math, calculation strings and graphs. Import solveng with `*`
-/// to bring its additional math names into scope. These exported names are math content: write
-/// `$tri(t)$` or `#worksheet("tri(0) =")`, rather than `#tri(0)`. Use a worksheet function such as
-/// `$Lambda(t) := tri(t)$`, or a function overlay, for another name.
+/// to bring its additional math names into scope. Write `$tri(t)$` or `#worksheet("tri(0) =")`.
+/// `builtin-functions: false` disables automatic operation names, including solveng's exported names.
+/// A worksheet's own functions take precedence over automatic names.
 ///
-/// **Function overlays.** Names reach operations as units do, through layers: the underlying
-/// operations, the built-in overlay, then user overlays in order. The built-in overlay gives the
-/// standard names (`tri`, `convolve`, …) to plain lookup: names in code lines and quoted names in
-/// math. `builtin-functions: false` disables it, never the operations. Each `functions: (…)` adds a
-/// user overlay, scoped to its worksheet: `(conv: "convolve", Λ: "tri")` maps names to operations
-/// (entries may refer to each other in any order, a self reference to the overlays below, cycles
-/// are rejected), `(rect: none)` hides a name from plain lookup. A worksheet's own function of a
-/// name takes precedence over plain lookup, so `tri(x) := …` in code replaces `tri` there.
+/// Explicit references always select the underlying operation: `#let triangle = math.op("tri")`,
+/// then `$triangle(x)$`, also with automatic names disabled. The editor completes the operation's name
+/// inside `math.op` and highlights the string and its binding's uses in evaluated worksheets.
+/// Quoted names such as `$"tri"(x)$` call worksheet functions only; they never select built-in operations.
+/// Typst's native operation content, such as `math.sin`, is also an explicit reference.
+/// In math, use the native constructor directly: `$y := op("tri")(x)$`. Completion inside its string offers
+/// the underlying operations even with automatic names disabled. The operation string gets built-in styling;
+/// the constructor collapses to its contents in the editor.
 ///
-/// An explicit reference is Typst's `math.op("name")`: what Typst's own `sin` and `det` are, and
-/// what solveng exports for math (`tri`, `convolve`). It resolves through the overlays active where
-/// it is used and always reaches an operation, even below a `none` or without the built-in overlay;
-/// a `math.op` of a name that is no operation (`min`) is a name like any other. In Typst math,
-/// named arguments (`step: 10 ms`) parse only for functions: `operation("name")` makes an explicit
-/// reference that is one, `#let conv = operation("conv")`, as `convolve` and `range` are.
+/// For named arguments, use `operation("convolve")`: Typst only parses named math arguments for functions.
 ///
 /// ```typ
 /// #import "@preview/solveng:1.0.0": *
-/// #show: worksheet.with(functions: (conv: "convolve", Λ: "tri"))
-/// #let conv = operation("conv")
+/// #show: worksheet.with(builtin-functions: false)
+/// #let triangle = math.op("tri")
+/// #let conv = operation("convolve")
+/// $a := triangle(1/2) =$
 /// $y := conv(vec(1, 2), vec(1, 1), step: 2) =$
-/// $a := "Λ"(1/2) =$
-/// #worksheet("b := conv(vec(1), vec(3)) =")
 /// ```
 ///
 /// The following operations use Typst's existing math names or syntax:
@@ -54,7 +49,7 @@
 /// ```typ
 /// #import "@preview/solveng:1.0.0": *
 /// #show: worksheet
-/// $a := sqrt(9 m^2) =$
+/// $a := sqrt(9 "m"^2) =$
 /// $b := sum_(k=0)^3 k^2 =$
 /// $c := cases(0 & b < 0, b & "otherwise") =$
 /// ```
@@ -69,7 +64,7 @@
 ///
 /// - x (expression): Unitless position relative to the pulse center.
 /// -> unitless value
-#let rect = math.op("rect")
+#let rect = [#math.op("rect")<solveng-function>]
 
 /// Triangular pulse: `tri(x)` is max(1 − |x|, 0), with height 1 at 0 and support from −1 to 1.
 ///
@@ -79,7 +74,7 @@
 ///
 /// - x (expression): Unitless position relative to the pulse center.
 /// -> unitless value
-#let tri = math.op("tri")
+#let tri = [#math.op("tri")<solveng-function>]
 
 /// Greatest integer less than or equal to x: `floor(x)`.
 ///
@@ -88,7 +83,7 @@
 ///
 /// - x (number): Unitless real value.
 /// -> integer
-#let floor = math.op("floor")
+#let floor = [#math.op("floor")<solveng-function>]
 
 /// Factorial of a nonnegative integer: `factorial(k)`.
 ///
@@ -97,7 +92,7 @@
 ///
 /// - k (integer): Nonnegative unitless integer.
 /// -> number
-#let factorial = math.op("factorial")
+#let factorial = [#math.op("factorial")<solveng-function>]
 
 /// Sign function: `sgn(x)` is −1 for x < 0, 0 for x = 0, and 1 for x > 0.
 ///
@@ -106,7 +101,7 @@
 ///
 /// - x (expression): Unitless value whose sign to take.
 /// -> unitless value
-#let sgn = math.op("sgn")
+#let sgn = [#math.op("sgn")<solveng-function>]
 
 /// Symbolically differentiates an expression with respect to a name: `diff(expression, variable)`.
 ///
@@ -117,7 +112,7 @@
 /// - expression (expression): Expression to differentiate.
 /// - variable (name): Differentiation variable, written as a name rather than a value.
 /// -> expression
-#let diff = math.op("diff")
+#let diff = [#math.op("diff")<solveng-function>]
 
 /// Definite integral: `integrate(expression, variable, lower, upper)`.
 ///
@@ -133,7 +128,7 @@
 /// - lower (expression): Lower bound, including `-infinity`.
 /// - upper (expression): Upper bound, including `infinity`.
 /// -> expression or value
-#let integrate = math.op("integrate")
+#let integrate = [#math.op("integrate")<solveng-function>]
 
 /// Convolution: `convolve(x, h)` of two sequences, `convolve(f(τ), g(τ), τ, t)` of two functions.
 ///
@@ -153,12 +148,12 @@
 /// - at (expression): Where the convolution of functions is taken, usually the result's variable; default: the variable.
 /// - step (expression): Named: the sampling step of sequences, the result is multiplied by it.
 /// -> vector or expression
-#let convolve = operation("convolve")
+#let convolve = (..args) => _op-call("convolve", args, implicit: true)
 
 /// Values from start to end, as Typst's range: `range(end)`, `range(start, end, step: 1)`, the end left out.
 ///
 /// `$range(0, 1, step: 1/4)$` is `vec(0, 1/4, 1/2, 3/4)`. Values may have a unit, then the step needs it too:
-/// `$range(0 s, 1 s, step: 250 ms)$`. The bounds and the step need values when the range is defined. A
+/// `$range(0 "s", 1 "s", step: 250 ms)$`. The bounds and the step need values when the range is defined. A
 /// range variable, as Mathcad writes it, includes the end: `$i := 0 .. N$` (or `0...N`) counts from 0 to N in
 /// steps of 1. Used as an index, `$x[i] := tri(t[i])$` defines an element for each value. In Typst code
 /// (`#for i in range(5)`), `range` stays Typst's own.
@@ -167,7 +162,7 @@
 /// - end (expression): The bound, not included.
 /// - step (expression): Named: the distance between values, default 1; negative counts down.
 /// -> vector
-#let range = (..args) => if args.pos().all(a => type(a) in (int, float)) and args.named().values().all(a => type(a) in (int, float)) { std.range(..args) } else { _op-call("range", args) }
+#let range = (..args) => if args.pos().all(a => type(a) in (int, float)) and args.named().values().all(a => type(a) in (int, float)) { std.range(..args) } else { _op-call("range", args, implicit: true) }
 
 /// Selects a vector component with a zero-based index: `at(vector, index)`, or a matrix
 /// element: `at(matrix, row, column)`.
@@ -180,7 +175,7 @@
 /// - index (int): Component number, or the row of a matrix, starting at 0.
 /// - column (int): Column of a matrix element, starting at 0.
 /// -> expression or value
-#let at = math.op("at")
+#let at = [#math.op("at")<solveng-function>]
 
 /// Inverse sine, also spelled `arcsin`: `asin(x)` returns an angle in radians from −π/2 to π/2.
 ///
@@ -189,7 +184,7 @@
 ///
 /// - x (expression): Unitless sine value in [−1, 1].
 /// -> unitless angle in radians
-#let asin = math.op("asin")
+#let asin = [#math.op("asin")<solveng-function>]
 
 /// Inverse cosine, also spelled `arccos`: `acos(x)` returns an angle in radians from 0 to π.
 ///
@@ -198,7 +193,7 @@
 ///
 /// - x (expression): Unitless cosine value in [−1, 1].
 /// -> unitless angle in radians
-#let acos = math.op("acos")
+#let acos = [#math.op("acos")<solveng-function>]
 
 /// Inverse tangent, also spelled `arctan`: `atan(x)` returns an angle in radians between −π/2 and π/2.
 ///
@@ -206,7 +201,7 @@
 ///
 /// - x (expression): Unitless tangent value.
 /// -> unitless angle in radians
-#let atan = math.op("atan")
+#let atan = [#math.op("atan")<solveng-function>]
 
 // Native operation documentation is also read by the IDE. Each @builtin marker
 // names the operation documented by the preceding /// comment.
@@ -327,7 +322,7 @@
 /// - variable (name): Input variable, t by default.
 /// - result-variable (name): Output variable, s by default.
 /// -> expression
-#let laplace = math.op("laplace")
+#let laplace = [#math.op("laplace")<solveng-function>]
 
 /// Inverse unilateral Laplace transform: `invlaplace(expression, variable, result-variable)`.
 ///
@@ -367,7 +362,7 @@
 /// - variable (name): Input variable, s by default.
 /// - result-variable (name): Output variable, t by default.
 /// -> expression
-#let invlaplace = math.op("invlaplace")
+#let invlaplace = [#math.op("invlaplace")<solveng-function>]
 
 /// Matrix: `mat(a, b; c, d)`, commas between the elements of a row and semicolons between rows.
 ///
@@ -412,19 +407,19 @@
 /// Exact for exact numbers; floats count as zero within rounding of the largest element.
 /// - matrix (expression): A vector or matrix.
 /// -> integer
-#let rank = math.op("rank")
+#let rank = [#math.op("rank")<solveng-function>]
 
 /// Identity matrix: `identity(n)` has n rows and columns, ones on the diagonal.
 /// - n (int): Number of rows and columns, 1 or more.
 /// -> matrix
-#let identity = math.op("identity")
+#let identity = [#math.op("identity")<solveng-function>]
 
 /// Number of rows of a vector or matrix: `rows(A)`.
 /// - matrix (expression): A vector or matrix.
 /// -> integer
-#let rows = math.op("rows")
+#let rows = [#math.op("rows")<solveng-function>]
 
 /// Number of columns of a vector or matrix: `cols(A)`; a vector has 1.
 /// - matrix (expression): A vector or matrix.
 /// -> integer
-#let cols = math.op("cols")
+#let cols = [#math.op("cols")<solveng-function>]

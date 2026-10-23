@@ -26,7 +26,7 @@ $"area" := integral_(-2)^2 rect(t) dif t =$
 #import "/src/engine.typ": _m, _src, _restyle
 #import "/src/config.typ": _DEF
 #assert.eq(_m("frac(dif, dif t)", _DEF), $dif / (dif t)$)
-#assert.eq(_src($dif / (dif t) tri(t)$.body), "dif / (dif t) ⦇tri⦈(t)")
+#assert.eq(_src($dif / (dif t) tri(t)$.body), "dif / (dif t) tri(t)")
 // Worksheet restyling must preserve the operator inside a denominator sequence.
 #let derivative = _restyle($dif / (dif t)$.body, (), _DEF)
 #assert.eq(derivative.num, math.dif)

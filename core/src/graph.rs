@@ -558,6 +558,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
             }
         }
     }
+    if let Some(u) = format::preferred_unit(xd, &units, cfg) { xunit = u; }
     let xf = units.factor(&xunit).f();
     let misfit = |v: &V, axis: &str, u: &str| -> String {
         let V::Q(val, d, vu, src) = v else { return String::new() };
@@ -608,7 +609,8 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
     if let Some(bad) = yrv.iter().chain(ymv.iter()).find(|v| matches!(v, V::Q(_, d, ..) if *d != yd)) {
         return Err(misfit(bad, &yaxis, &if yd.is_one() { String::new() } else { units.auto(&yd).text() }));
     }
-    let yb = units.factor(&units.auto(&yd)).f();
+    let preferred_yunit = format::preferred_unit(yd, &units, cfg);
+    let yb = units.factor(&preferred_yunit.clone().unwrap_or_else(|| units.auto(&yd))).f();
     let yrv: Vec<f64> = yrv.iter().map(|v| si(v, yb)).collect();
     let ymv: Vec<f64> = ymv.iter().map(|v| si(v, yb)).collect();
     let f = |c: &Curve, t: f64| match &c.data {
@@ -754,7 +756,8 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         Some(d) if d == yd => units.auto(&d),
         _ => units.auto(&yd),
     };
-    let yunit = units.prefixed_for(lo.abs().max(hi.abs()) / units.factor(&ybase).f(), &ybase, &cfg.prefixes);
+    let yunit = preferred_yunit.unwrap_or_else(||
+        units.prefixed_for(lo.abs().max(hi.abs()) / units.factor(&ybase).f(), &ybase, &cfg.prefixes));
     let yf = units.factor(&yunit).f();
     let (x0, x1) = (xa / xf, xb / xf);
     let (mut y0, mut y1) = if dedup_y.len() >= 2 {
@@ -1417,6 +1420,28 @@ mod tests {
         let env = data_env(&["one := vec(3)"]);
         let g = graph(&env, &data_req(&["one"], vec![])).unwrap();
         assert_eq!(g.series[0].points, vec![(0.0, 3.0)]);
+    }
+
+    #[test]
+    fn preferred_units_scale_both_axes_and_keep_the_requested_prefix() {
+        let env = data_env(&["tau := vec(0, 1, 2) * 1 s", "y := vec(0, 2, 4) * 1 V"]);
+        let mut req = data_req(&["y(tau)"], vec![]);
+        req.cfg.preferred_units = vec!["kg".into(), "ms".into(), "mV".into(), "h".into()];
+        let g = graph(&env, &req).unwrap();
+        assert!(g.xlabel.contains("ms"), "{}", g.xlabel);
+        assert!(g.ylabel.contains("mV"), "{}", g.ylabel);
+        assert_eq!(g.series[0].points, vec![(0.0, 0.0), (1000.0, 2000.0), (2000.0, 4000.0)]);
+        assert_eq!((g.x0, g.x1), (0.0, 2000.0));
+        let mut req = data_req(&["U(t: s) = t * 1 V/s"], vec![]);
+        req.cfg.preferred_units = vec!["ms".into(), "mV".into()];
+        req.xrange = vec![XV::Num(0.0), XV::Num(2.0)];
+        let g = graph(&Env::default(), &req).unwrap();
+        assert_eq!((g.x0, g.x1), (0.0, 2.0));
+        assert!(g.ylabel.contains("mV"), "{}", g.ylabel);
+        assert!(g.series.iter().flat_map(|s| &s.points).all(|(x, y)| (x - y).abs() < 1e-8));
+        req.yrange = vec![XV::Num(0.0), XV::Num(4.0)];
+        let g = graph(&Env::default(), &req).unwrap();
+        assert_eq!((g.y0, g.y1), (0.0, 4.0));
     }
 
     #[test]

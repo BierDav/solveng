@@ -21,7 +21,7 @@ pub enum Tok {
     Name(String),
     /// "text" in math: a name of several letters, a unit, or `as`.
     Quoted(String),
-    /// A unit name from solveng's unit words or unit("…"): always a unit.
+    /// A unit name explicitly marked as a unit.
     UnitWord(String),
     /// An exported Typst unit word, subject to worksheet visibility.
     ImplicitUnit(String),
@@ -460,7 +460,7 @@ fn s_op(t: Option<&Tok>) -> Option<&'static str> {
 }
 
 impl<'a, 'b> P<'a, 'b> {
-    /// The operation a name calls here: an explicit reference through the overlays; a plain name unless the
+    /// The operation a name calls here: an explicit underlying operation; a plain name unless the
     /// worksheet defines a function (or variable) of that name, or the function being defined has it.
     fn operation(&self, n: &str, explicit: bool) -> Option<&'static crate::builtins::Builtin> {
         if explicit {
@@ -855,7 +855,15 @@ impl<'a, 'b> P<'a, 'b> {
                     let u = self.unit_run()?.unwrap();
                     return Ok(Ast::Unit(u));
                 }
-                self.name(greek(&q))
+                let n = greek(&q);
+                if self.op() == Some("(") {
+                    self.i += 1;
+                    let x = std::mem::take(&mut self.in_exp);
+                    let args = self.args(&n);
+                    self.in_exp = x;
+                    return Ok(Ast::Call(n, args?));
+                }
+                Ok(Ast::Name(n))
             }
             Tok::Name(n) | Tok::ImplicitUnit(n) => self.name(n),
             Tok::Builtin(n) => self.call_or_name(n, true),
