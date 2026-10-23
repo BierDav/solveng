@@ -10,7 +10,7 @@
 ///
 /// ```typ
 /// #show: worksheet
-/// $I := 30 mA$, $f(x) := 2 x$, $U := 5 "V"$
+/// $I := 30 "mA"$, $f(x) := 2 x$, $U := 5 "V"$
 /// #clear("I", $f$)
 /// $I := 1 "A"$
 /// #clear(all: true)

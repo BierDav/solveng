@@ -5,7 +5,7 @@
 ///
 /// ```typ
 /// #show: worksheet
-/// $R := 7.2 kΩ$, $U := 5 "V"$, $I := U/R$, $f(x) := x^2$
+/// $R := 7.2 "kΩ"$, $U := 5 "V"$, $I := U/R$, $f(x) := x^2$
 /// #defined()                                          // everything, in columns side by side
 /// #defined(included: "given")                         // only plain values (also "computed", "function")
 /// #defined(excluded: ("U", "function"))               // names and kinds
@@ -26,16 +26,16 @@
 /// - excluded (none, str, regex, function, array): What to leave out.
 /// - style (auto, str): `"grid"`, `"column"`, `"inline"` or `"list"`, see above. `auto`: the option `defined-style` (default `"grid"`).
 /// - show-si (auto, bool): Also show the SI value: `Q₀ = 3450 mAh = 12420 C`.
-/// - digits, separator, form, … (auto): Every option of `worksheet` (except `units`) works here too, for this call only.
+/// - digits, separator, form, … (auto): Every option of `worksheet` (except `units` and `builtin-units`, which need a worksheet of their own) works here too, for this call only.
 /// -> content
 #let defined(
   included: "all", excluded: none, style: auto,
   digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto,
-  max-denominator: auto, fractions: auto, prefixes: auto, show-si: auto, builtin-units: auto, builtin-functions: auto, preferred-units: auto, strict: auto, steps: auto,
+  max-denominator: auto, fractions: auto, prefixes: auto, show-si: auto, builtin-functions: auto, preferred-units: auto, strict: auto, steps: auto,
   layout: auto, implies: auto, approximate: auto, block: auto, max-solutions: auto, errors: auto, show-casts: auto, show-types: auto,
   words: auto, chips: auto, unit-style: auto, unit-separator: auto,
 ) = _mine(context {
-  let lc = _check(_given((defined-style: style, digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions, prefixes: prefixes, show-si: show-si, builtin-units: builtin-units, builtin-functions: builtin-functions, preferred-units: preferred-units, strict: strict, steps: steps, layout: layout, implies: implies, approximate: approximate, block: block, max-solutions: max-solutions, errors: errors, show-casts: show-casts, show-types: show-types, words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator)))
+  let lc = _check(_given((defined-style: style, digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions, prefixes: prefixes, show-si: show-si, builtin-functions: builtin-functions, preferred-units: preferred-units, strict: strict, steps: steps, layout: layout, implies: implies, approximate: approximate, block: block, max-solutions: max-solutions, errors: errors, show-casts: show-casts, show-types: show-types, words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator)))
   if _E(lc) { return _errc(lc.err, _cf.get(), wide: true) }
   let cf0 = _cf.get() + lc
   let ok(p) = p == none or type(p) in (str, regex, function) or (type(p) == array and p.all(ok))

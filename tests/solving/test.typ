@@ -1,6 +1,7 @@
 // The solver and the worksheet's semantics: := defines (symbolically), = compares, a trailing = shows the
 // value, -> the symbolic result or a solution.
 #import "/tests/util.typ": *
+#import units: *
 
 #worksheet[
   // Mathcad's =: a comparison, 1 or 0; different units are never equal
@@ -113,12 +114,12 @@
 ]
 // evaluate: false leaves the worksheet's math alone, not its code blocks and calls, and isn't inherited
 #worksheet[
-  #worksheet(evaluate: false, inherit: true)[$d := 2$ ```solveng
+  #worksheet(evaluate: false, scope: "inherit")[$d := 2$ ```solveng
   e := 3
   ```
   #expect("e", 3) #undefined("d")
   #worksheet($d_e := e + 1$) #expect("d_e", 4)
-  #worksheet(inherit: true)[$f_e := 6$ #expect("f_e", 6)]
+  #worksheet(scope: "inherit")[$f_e := 6$ #expect("f_e", 6)]
   ]
   $g := 5$ #expect("g", 5)
 ]
@@ -190,7 +191,7 @@ e_2 := 2 [V] + 1 [s] =
 // hidden: what a worksheet calculates isn't shown, the rest is; nested worksheets show theirs again
 #worksheet[
   $a_w := 2$
-  #let hid = worksheet(hidden: true, inherit: true)[
+  #let hid = worksheet(hidden: true, scope: "inherit")[
     $b_w := 3 a_w =$
     ```solveng
     c_w := 4 [m]
@@ -207,24 +208,25 @@ e_2 := 2 [V] + 1 [s] =
     assert(measure(worksheet(hidden: true)[text $E = m c^2$]).width > 0pt, message: "hidden text and prose not shown")
     assert(measure(worksheet(hidden: true)[#worksheet($g_w := 1 =$)]).width > 0pt, message: "nested worksheet hidden")
   }
-  // content doesn't inherit by default, equations do; inherit: false calculates them on their own, and what they
-  // define comes back
+  // content is isolated by default, equations are shared; scope: "isolated" calculates them on their own, and what
+  // they define ends with them
   #worksheet[$a_w := 5$ #expect("a_w", 5)]
   #expect("a_w", 2) #undefined("b_w")
   #worksheet($k_w := a_w + 1$) #expect("k_w", 3)
-  #worksheet($m_w := 7$, inherit: false) #expect("m_w", 7)
-  #worksheet($n_w := a_w =$, inherit: false) #fails("'a_w' in 'n_w' isn't defined")
+  #worksheet($m_w := 7$, scope: "isolated") #undefined("m_w")
+  #worksheet($n_w := a_w =$, scope: "isolated") #fails("'a_w' in 'n_w' isn't defined")
+  #worksheet($o_w := a_w + 1 =$, scope: "inherit") #undefined("o_w") #expect("a_w", 2)
   #worksheet(hidden: true)[$a_w := 9$ #undefined("k_w")]
-  #worksheet(hidden: true, inherit: true)[#expect("k_w", 3)]
+  #worksheet(hidden: true, scope: "inherit")[#expect("k_w", 3)]
 ]
 
 // graph: curves written with := define what they name, as the same equation in a worksheet
 #worksheet[
   $X_g(x) := x^2 + 1$
   #graph($y_g := X_g(x)$)
-  #worksheet(inherit: true)[$x := 2$ $v := y_g$ #expect("v", 5)]
+  #worksheet(scope: "inherit")[$x := 2$ $v := y_g$ #expect("v", 5)]
   #graph($y_g := 2 y_g$)
-  #worksheet(inherit: true)[$x := 2$ $v := y_g$ #expect("v", 10)]
+  #worksheet(scope: "inherit")[$x := 2$ $v := y_g$ #expect("v", 10)]
   #graph($y_g(y_g) := X_g(y_g)$)
   $v_g := y_g(3)$ #expect("v_g", 10)
   // a parameter named like a value, and a constant: a line over it

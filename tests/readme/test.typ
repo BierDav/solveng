@@ -1,5 +1,6 @@
 // The examples of the README, compared with reference images.
 #import "/lib.typ": *
+#import units: *
 #set page(width: 16cm, height: auto, margin: 1cm)
 #set text(lang: "de")
 

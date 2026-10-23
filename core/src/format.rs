@@ -80,7 +80,6 @@ pub struct Cfg {
     pub units: IndexMap<String, UnitOpt>,
     #[serde(default = "d_true")]
     pub builtin_units: bool,
-    pub unit_layers: Vec<IndexMap<String, UnitOpt>>,
     /// The built-in overlay of function names: standard names reach operations by plain lookup.
     #[serde(default = "d_true")]
     pub builtin_functions: bool,
@@ -140,7 +139,6 @@ fn serde_json_like_default() -> Cfg {
         show_si: false,
         units: IndexMap::new(),
         builtin_units: true,
-        unit_layers: Vec::new(),
         builtin_functions: true,
         preferred_units: vec![],
         strict: false,
@@ -418,7 +416,7 @@ pub fn si_unit(u: &UnitExpr, units: &Units) -> bool {
     const SI: [&str; 21] = ["V", "A", "Ω", "Omega", "W", "J", "C", "F", "H", "S", "N", "Pa", "T", "Wb", "s", "m", "g", "K", "Hz", "mol", "cd"];
     u.0.iter().all(|(n, _)| {
         let base: String = if units.map.contains_key(n) { n.clone() } else { n.chars().skip(1).collect() };
-        SI.contains(&base.as_str())
+        SI.contains(&base.as_str()) && units.map.get(&base).is_some_and(|u| !u.own)
     })
 }
 

@@ -46,12 +46,11 @@ pub fn conversions(document: &str, context: &Context, offset: u32) -> Vec<Conver
     Vec::new()
 }
 
-/// A unit as math writes it: a quoted letter or exported name (`mA`, `kΩ`), else `unit("…")`.
+/// A unit as math writes it: a quoted name (`"mA"`, `"kΩ"`; bare names are Typst's), else `unit("…")`.
 fn math_unit(unit: &str) -> String {
     let u = spell_unit(unit.trim());
-    if u.chars().count() == 1 { return format!("\"{u}\""); }
-    let named = is_unit(&u) && u.chars().all(|c| is_letter(c) || "°%‰µΩ".contains(c));
-    if named { u } else { format!("unit(\"{u}\")") }
+    let named = u.chars().count() == 1 || is_unit(&u) && u.chars().all(|c| is_letter(c) || "°%‰µΩ".contains(c));
+    if named { format!("\"{u}\"") } else { format!("unit(\"{u}\")") }
 }
 
 /// A clause as math writes it: keywords as they are, units as names.
@@ -267,7 +266,7 @@ fn code_of(math: &str) -> Option<String> {
                 i = close + 1;
                 after_value = false;
             } else if crate::resolved_name(&w).chars().count() > 1 && is_unit(&w) {
-                // Typst resolves multi-letter exported unit bindings.
+                // a unit word, from `#import units: …` or a shorthand of one's own
                 unit(&mut out, &w, after_value);
                 after_value = true;
             } else {

@@ -102,9 +102,9 @@ fn completes_options_of_calls() {
 
 #[test]
 fn knows_the_documents_units() {
-    let doc = "#worksheet(units: (bar: \"100 kPa\", mbar: \"0.001 bar\"), evaluate: false)[]\n```solveng\np := 3 mbar = [bar]\n```";
+    let doc = "#show: worksheet.with(units: (bar: \"100 kPa\", mbar: \"0.001 bar\"), evaluate: false)\n```solveng\np := 3 mbar = [bar]\n```";
     assert!(found(doc).contains(&format!("mbar:{}", TokenKind::UNIT)));
-    let c = complete_at("#worksheet(units: (bar: \"100 kPa\", mbar: \"0.001 bar\"), evaluate: false)[]\n#worksheet(\"p := 3 |\")", &Context::default()).unwrap();
+    let c = complete_at("#show: worksheet.with(units: (bar: \"100 kPa\", mbar: \"0.001 bar\"), evaluate: false)\n#worksheet(\"p := 3 |\")", &Context::default()).unwrap();
     assert_eq!(c.items.iter().find(|i| i.label == "mbar").unwrap().detail, "defined · = 0.001 bar (bar = 100 kPa)");
     // The compiler's units count too, e.g. from a package.
     let context = Context::new("").with_report(
@@ -135,7 +135,7 @@ fn finds_unknown_units() {
     let problems = diagnostics("#lambdify(\"x\", \"x\", unit: \"furlong\")\n```solveng\nP := [5 Vv] I = [mW]\nQ := 3 = [parsec], digits(2)\n```", &Context::default());
     let words: Vec<_> = problems.iter().map(|p| p.message.split('\'').nth(1).unwrap().to_string()).collect();
     assert_eq!(words, vec!["Vv", "parsec", "furlong"]);
-    assert!(diagnostics("#worksheet(units: (bar: \"100 kPa\"), evaluate: false)[]\n#lambdify(\"p\", \"p\", unit: \"kbar\")", &Context::default()).is_empty());
+    assert!(diagnostics("#show: worksheet.with(units: (bar: \"100 kPa\"), evaluate: false)\n#lambdify(\"p\", \"p\", unit: \"kbar\")", &Context::default()).is_empty());
     // keywords aren't units
     assert!(diagnostics("```solveng\nx^2 = 4 -> solve(x)\nt = [h], digits(2), sci\n```", &Context::default()).is_empty());
     assert!(diagnostics("#show: worksheet\n$R := 7.2 kΩ$ $I := 3 \"mA\"$", &Context::default()).is_empty());
@@ -240,7 +240,7 @@ fn glues_names_with_empty_strings() {
 
 #[test]
 fn reads_base_units_and_numbers() {
-    let doc = "#show: worksheet\n#worksheet(units: (ü: auto, mü: \"10ü\", dozen: 12), evaluate: false)[]\n```solveng\nx := 3 ü\nn := 2 dozen\ny := 5 mü\n```\n";
+    let doc = "#show: worksheet.with(units: (ü: auto, mü: \"10ü\", dozen: 12))\n```solveng\nx := 3 ü\nn := 2 dozen\ny := 5 mü\n```\n";
     let at = |n: &str| doc[..doc.find(n).unwrap()].encode_utf16().count() as u32;
     let h = hover(doc, &Context::default(), at("ü\n")).unwrap();
     assert_eq!(h.markdown, "`ü` defined base unit: a dimension of its own");
@@ -253,7 +253,7 @@ fn reads_base_units_and_numbers() {
 #[test]
 fn completes_units_after_a_colon() {
     let ctx = Context::default();
-    let full = "#show: worksheet\n#worksheet(units: (über: auto), evaluate: false)[]\n";
+    let full = "#show: worksheet.with(units: (über: auto))\n";
     let only_units = |doc: &str| {
         let c = complete_at(&format!("{full}{doc}"), &ctx).unwrap();
         // and the types that aren't units, any and 1
@@ -340,7 +340,7 @@ fn pretty_code() {
 
 #[test]
 fn units_show_their_heritage() {
-    let doc = "#show: worksheet\n#worksheet(units: (bar: \"100 kPa\", mbar2: \"10 bar\"), evaluate: false)[]\n```solveng\np := 3 mbar2\nq := 2 mA\nr := 4 kg\n```\n";
+    let doc = "#show: worksheet.with(units: (bar: \"100 kPa\", mbar2: \"10 bar\"))\n```solveng\np := 3 mbar2\nq := 2 mA\nr := 4 kg\n```\n";
     let md = |w: &str| hover(doc, &Context::default(), u16len(&doc[..doc.find(w).unwrap()]) + 1).unwrap().markdown;
     assert_eq!(md("mbar2\n"), "`mbar2` defined unit\n\n`mbar2 = 10 bar` · `bar = 100 kPa` · `kPa = 10³ Pa` · `Pa = N/m² = kg·m⁻¹·s⁻²`");
     assert_eq!(md("mA\n"), "`mA` milliampere · built-in unit\n\n`mA = 10⁻³ A`");
@@ -349,8 +349,7 @@ fn units_show_their_heritage() {
 
 #[test]
 fn units_named_like_variables_hover_as_units() {
-    let doc = r#"#show: worksheet
-#worksheet(units: (über: auto), evaluate: false)[]
+    let doc = r#"#show: worksheet.with(units: (über: auto))
 $V := 4 "über"$
 $U(x: V) := f(x "as" V, x)$
 $W := V + 1 V$
@@ -366,7 +365,7 @@ $W := V + 1 V$
 
 #[test]
 fn completions_tell_built_in_and_defined_units() {
-    let doc = "#show: worksheet\n#worksheet(units: (bar: \"100 kPa\"), evaluate: false)[]\n```solveng\np := 3 |\n```";
+    let doc = "#show: worksheet.with(units: (bar: \"100 kPa\"))\n```solveng\np := 3 |\n```";
     let items = complete_at(doc, &Context::default()).unwrap().items;
     let detail = |l: &str| items.iter().find(|i| i.label == l).map(|i| i.detail.clone()).unwrap_or_default();
     assert_eq!(detail("bar"), "defined · = 100 kPa");
@@ -384,7 +383,7 @@ fn warns_about_definitions_made_again() {
 
 #[test]
 fn chains_define_with_their_last_step() {
-    let doc = "#show: worksheet\n#worksheet(units: (über: auto), evaluate: false)[]\n$V := 4 \"über\" = 2 \"A\"$\n$W := V$\n";
+    let doc = "#show: worksheet.with(units: (über: auto))\n$V := 4 \"über\" = 2 \"A\"$\n$W := V$\n";
     let h = hover(doc, &Context::default(), u16len(&doc[..doc.find("W := ").unwrap() + 5])).unwrap().markdown;
     assert_eq!(h, "```solveng units=über\nV: A = 2 A\n```");
 }
@@ -392,7 +391,7 @@ fn chains_define_with_their_last_step() {
 #[test]
 fn completes_quoted_units_with_the_whole_import() {
     let insert = |doc: &str, label: &str| complete_at(doc, &Context::default()).and_then(|c| c.items.into_iter().find(|i| i.label == label)).map(|i| i.insert);
-    let all = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet\n#worksheet(units: (über: auto), evaluate: false)[]\n";
+    let all = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet.with(units: (über: auto))\n";
     let some = "#import \"@preview/solveng:1.0.0\": worksheet\n#show: worksheet\n";
     assert_eq!(insert(&format!("{all}$I := 30 |$"), "mA").as_deref(), Some("\"mA\""));
     assert_eq!(insert(&format!("{all}$I := 30 |$"), "über").as_deref(), Some("\"über\""));
@@ -404,12 +403,12 @@ fn completes_quoted_units_with_the_whole_import() {
 
 #[test]
 fn assignments_statements_and_results() {
-    let doc = "#show: worksheet\n$I := 30 mA$\n$I = 0.03 A$\n```solveng\nR := 2 Ω\nR := 3 Ω\n```\n$U(x: V) := 2 x$\n$y := I R = mW$\n$x^2 = 4 -> solve(x)$\n";
+    let doc = "#show: worksheet\n$I := 30 \"mA\"$\n$I = 0.03 A$\n```solveng\nR := 2 Ω\nR := 3 Ω\n```\n$U(x: V) := 2 x$\n$y := I R = \"mW\"$\n$x^2 = 4 -> solve(x)$\n";
     // := highlights as one operator, in code and math; the = and -> showing a result bold
     let toks = found(doc);
     assert_eq!(toks.iter().filter(|t| t.starts_with(":=:")).count(), 5, "{toks:?}");
     assert!(toks.contains(&format!("=:{}", TokenKind::EVALUATE)) && toks.contains(&format!("->:{}", TokenKind::EVALUATE)), "{toks:?}");
-    assert!(toks.contains(&format!("mW:{}", TokenKind::UNIT)) && toks.contains(&format!("solve:{}", TokenKind::KEYWORD)), "{toks:?}");
+    assert!(toks.contains(&format!("\"mW\":{}", TokenKind::UNIT)) && toks.contains(&format!("solve:{}", TokenKind::KEYWORD)), "{toks:?}");
     // = states: no definition, no warning
     let warn: Vec<String> = diagnostics(doc, &Context::default()).into_iter().map(|p| p.message).collect();
     assert_eq!(warn.len(), 1, "{warn:?}");

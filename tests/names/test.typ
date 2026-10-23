@@ -1,5 +1,6 @@
 // Names: spelled Greek letters in code and math.
 #import "/tests/util.typ": *
+#import units: *
 
 // a spelled Greek letter alone or before an index is the letter, in code as in math; DeltaT is a name of its own
 #worksheet[

@@ -1,5 +1,6 @@
 // lambdify: expressions as plain functions.
 #import "/tests/util.typ": *
+#import functions: *
 
 #worksheet("R := 50 Ω", hidden: true)
 #context {

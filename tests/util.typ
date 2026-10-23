@@ -10,6 +10,7 @@
 /// tt update readme                              # accept changed output of the README examples
 /// python3 tests/examples.py                     # every example in README.md and docs/reference.md compiles on its own
 /// python3 tests/reference.py                    # docs/reference.md from the doc comments in src/ (--check: is it up to date?)
+/// python3 scripts/unit-words.py                # src/unit-words.typ (the units module) from the unit table (--check: is it up to date?)
 /// uv run --no-project --with sympy --with mpmath python tests/oracle/generate.py   # the reference results
 /// ```
 ///
@@ -44,4 +45,9 @@
 #let result(want) = context {
   let r = _st.get().at("last").result
   assert.eq(r, want, message: "result " + repr(r) + ", want " + repr(want))
+}
+// some problem reported in the document contains msg (problems with arguments have no line, so the whole document)
+#let reported(msg) = context {
+  let e = query(<solveng>).map(it => it.value).filter(x => x.kind == "error").map(x => x.message)
+  assert(e.any(m => m.contains(msg)), message: "no problem containing '" + msg + "' in " + repr(e))
 }

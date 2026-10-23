@@ -31,6 +31,8 @@
   form: ("auto", "decimal", "fraction", "input"), multiplication: ("dot", "times"), fractions: ("stacked", "slash"), steps: ("full", "formula", "result", "value", auto),
   layout: ("row", "column"), errors: ("document", "panic"),
   show-casts: ("no", "plain", "chip"), show-types: ("no", "plain", "chip"), defined-style: ("grid", "column", "inline", "list"),
+  // worksheet's scope, not an option
+  scope: ("isolated", "inherit", "shared"),
 )
 // allowed types per option
 #let _TY = (

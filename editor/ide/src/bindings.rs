@@ -1,6 +1,7 @@
-//! Local Typst bindings take precedence over worksheet unit names in unquoted math.
+//! Local Typst bindings take precedence over worksheet unit names in unquoted math: `#let km = unit("km")` and
+//! the shorthands imported from solveng's modules, `#import units: km` and `#import functions: tri`.
 
-use typst_syntax::{LinkedNode, SyntaxKind, ast::{AstNode, LetBinding}};
+use typst_syntax::{LinkedNode, SyntaxKind, ast::{self, AstNode, LetBinding, ModuleImport}};
 use crate::text::Doc;
 
 struct Binding {
@@ -12,6 +13,9 @@ struct Binding {
     operation: Option<String>,
     unit_name: Option<String>,
     value_range: Option<(usize, usize)>,
+    /// A shorthand from solveng's `units` or `functions` module, which follows `builtin-units` and
+    /// `builtin-functions` like any implicit name; explicit references (`unit("km")`, `math.op("tri")`) don't.
+    imported: bool,
 }
 
 /// A complete constructor in math that can display just its literal string contents.
@@ -43,6 +47,10 @@ impl Bindings {
         let root = LinkedNode::new(&syntax);
         let mut result = Self::default();
         visit(&root, &mut |node| {
+            if let Some(import) = node.get().cast::<ModuleImport>() {
+                result.import(node, import, doc);
+                return;
+            }
             let Some(binding) = node.get().cast::<LetBinding>() else { return };
             let scope_end = lexical_end(node, doc);
             let operation = binding.init().and_then(|value| {
@@ -67,7 +75,7 @@ impl Bindings {
             for name in binding.kind().bindings() {
                 visit(node, &mut |leaf| {
                     if std::ptr::eq(leaf.get(), name.to_untyped()) {
-                        result.definitions.push(Binding { name: name.as_str().into(), start: doc.of_byte(leaf.offset()), end: doc.of_byte(leaf.offset() + leaf.len()), visible: doc.of_byte(node.offset() + node.len()), scope_end, operation: operation.clone(), unit_name: unit_name.clone(), value_range });
+                        result.definitions.push(Binding { name: name.as_str().into(), start: doc.of_byte(leaf.offset()), end: doc.of_byte(leaf.offset() + leaf.len()), visible: doc.of_byte(node.offset() + node.len()), scope_end, operation: operation.clone(), unit_name: unit_name.clone(), value_range, imported: false });
                     }
                 });
             }
@@ -120,8 +128,51 @@ impl Bindings {
         result
     }
 
+    /// `#import units: km, mA as milli` or `#import functions: *`: shorthands, visible like other imports.
+    fn import(&mut self, node: &LinkedNode, import: ModuleImport, doc: &Doc) {
+        let module = match import.source() {
+            ast::Expr::Ident(ident) => ident.as_str().to_string(),
+            ast::Expr::FieldAccess(access) => access.field().as_str().to_string(),
+            _ => return,
+        };
+        let units = match module.as_str() { "units" => true, "functions" => false, _ => return };
+        let visible = doc.of_byte(node.offset() + node.len());
+        let scope_end = lexical_end(node, doc);
+        let mut push = |name: &str, original: &str, start: usize, end: usize| {
+            let (unit_name, operation) = if units {
+                (crate::units::shorthand(original).then(|| original.to_string()), None)
+            } else {
+                (None, crate::params::automatic_math(original).then(|| original.to_string()))
+            };
+            if unit_name.is_some() || operation.is_some() {
+                self.definitions.push(Binding { name: name.into(), start, end, visible, scope_end, operation, unit_name, value_range: None, imported: true });
+            }
+        };
+        match import.imports() {
+            // Not at a place in the text, so nothing there names them.
+            Some(ast::Imports::Wildcard) => {
+                let names = if units { crate::units::shorthands() } else { crate::params::automatic_names() };
+                for name in names { push(&name, &name, usize::MAX, usize::MAX); }
+            }
+            Some(ast::Imports::Items(items)) => {
+                for item in items.iter() {
+                    let bound = item.bound_name();
+                    let mut range = (usize::MAX, usize::MAX);
+                    visit_leaf(node, bound.to_untyped(), &mut |leaf| range = (doc.of_byte(leaf.offset()), doc.of_byte(leaf.offset() + leaf.len())));
+                    push(bound.as_str(), item.original_name().as_str(), range.0, range.1);
+                }
+            }
+            None => {}
+        }
+    }
+
     fn binding(&self, at: usize, name: &str) -> Option<usize> {
         self.definitions.iter().enumerate().filter(|(_, b)| b.name == name && b.visible <= at && at < b.scope_end).max_by_key(|(_, b)| b.visible).map(|(id, _)| id)
+    }
+
+    /// Whether the binding used at `at` is a shorthand imported from solveng's modules.
+    pub fn imported_at(&self, at: usize) -> bool {
+        self.uses.iter().find(|&&(s, e, _)| s <= at && at < e).is_some_and(|&(_, _, id)| self.definitions[id].imported)
     }
 
     pub fn operation(&self, at: usize) -> Option<&str> {
@@ -133,8 +184,9 @@ impl Bindings {
 
     pub fn operator_strings(&self) -> &[(usize, usize, String)] { &self.operators }
 
-    pub fn unit_uses(&self) -> impl Iterator<Item = (usize, usize, &str)> {
-        self.uses.iter().filter_map(|&(start, end, id)| self.definitions[id].unit_name.as_deref().map(|name| (start, end, name)))
+    /// Uses of unit shorthands: where, the unit, and whether it was imported (see [`Binding::imported`]).
+    pub fn unit_uses(&self) -> impl Iterator<Item = (usize, usize, &str, bool)> {
+        self.uses.iter().filter_map(|&(start, end, id)| self.definitions[id].unit_name.as_deref().map(|name| (start, end, name, self.definitions[id].imported)))
     }
 
     pub fn unit_shortcut(&self, at: usize) -> Option<(&str, &str, usize, usize)> {
@@ -155,8 +207,8 @@ impl Bindings {
             .filter_map(|(_, b)| b.unit_name.as_ref().map(|unit| (b.name.clone(), unit.clone()))).collect()
     }
 
-    pub fn operation_uses(&self) -> impl Iterator<Item = (usize, usize, &str)> {
-        self.uses.iter().filter_map(|&(start, end, id)| self.definitions[id].operation.as_deref().map(|name| (start, end, name)))
+    pub fn operation_uses(&self) -> impl Iterator<Item = (usize, usize, &str, bool)> {
+        self.uses.iter().filter_map(|&(start, end, id)| self.definitions[id].operation.as_deref().map(|name| (start, end, name, self.definitions[id].imported)))
     }
 
     pub fn operation_items(&self, at: usize) -> Vec<(String, String)> {
@@ -213,9 +265,9 @@ pub fn unit_fixes(document: &str, context: &crate::Context, offset: u32) -> Vec<
             || a.bindings.contains(start) { continue; }
         if !a.elements.iter().any(|element| element.math && a.active(element) && element.body_start <= start && end <= element.body_end) { continue; }
         let name = crate::resolved_name(&a.doc.sub(start, end));
-        if crate::units::visible(&name, &a.units_at(start)) && (name.chars().count() == 1 || !crate::units::bare(&name, &a.units_at(start)))
+        if crate::units::visible(&name, &a.units_at(start))
             && crate::definition(document, context, token.start).is_none() {
-            fixes.push(crate::Conversion { title: format!("Use \"{name}\" from the unit overlay"), start: token.start, end: token.start + token.length, text: format!("\"{name}\"") });
+            fixes.push(crate::Conversion { title: format!("Quote \"{name}\" as a unit"), start: token.start, end: token.start + token.length, text: format!("\"{name}\"") });
         }
     }
     fixes.extend(unresolved_units(&a).into_iter().filter(|&(start, end, _)| start <= at && at <= end).map(|(start, _, name)| crate::Conversion {
@@ -286,6 +338,11 @@ fn overlay_bindings(a: &crate::Analysis, at: usize) -> Vec<crate::Conversion> {
     let mut out = Vec::new();
     visit(&LinkedNode::new(&syntax), a, at, &mut out);
     out
+}
+
+fn visit_leaf(node: &LinkedNode, target: &typst_syntax::SyntaxNode, f: &mut impl FnMut(&LinkedNode)) {
+    if std::ptr::eq(node.get(), target) { f(node); }
+    for child in node.children() { visit_leaf(&child, target, f); }
 }
 
 fn lexical_end(node: &LinkedNode, doc: &Doc) -> usize {

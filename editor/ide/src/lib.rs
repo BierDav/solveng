@@ -530,6 +530,7 @@ pub(crate) struct Analysis<'a> {
     pub bindings: bindings::Bindings,
     unit_scopes: Vec<calls::Scope>,
     unit_context: Vec<units::Custom>,
+    reported_units: Vec<units::Custom>,
     around: OnceCell<Vec<Part>>,
 }
 
@@ -543,16 +544,15 @@ impl<'a> Analysis<'a> {
         units::custom_units(&context.text, &mut units);
         let unit_context = units.clone();
         units::custom_units(document, &mut units);
-        for u in &context.units {
-            if !units.iter().any(|c| c.name == u.name) {
-                units.push(units::Custom { name: u.name.clone(), value: u.value.clone() });
-            }
-        }
+        // The compiler's units the text doesn't define, e.g. from a package.
+        let reported_units: Vec<units::Custom> = context.units.iter().filter(|u| !units.iter().any(|c| c.name == u.name))
+            .map(|u| units::Custom { name: u.name.clone(), value: u.value.clone() }).collect();
+        units.extend(reported_units.iter().cloned());
         let math = wrapped(context, &context.path);
         let calculated = activity(&doc, &elements, &calls, &scopes, &context.reported_in(&context.path), math,
             &|| included_in_worksheet(context, &context.path));
         let bindings = bindings::Bindings::new(&doc);
-        Analysis { doc, context, elements, calculated, calls, units, bindings, unit_scopes: scopes, unit_context, around: OnceCell::new() }
+        Analysis { doc, context, elements, calculated, calls, units, bindings, unit_scopes: scopes, unit_context, reported_units, around: OnceCell::new() }
     }
 
     fn index(&self, e: &Element) -> Option<usize> {
@@ -610,11 +610,18 @@ impl<'a> Analysis<'a> {
             || calls::evaluates_at(&self.unit_scopes, at) == Some(true)
     }
 
+    /// The units in effect at `at`: the files around's and the compiler's, then each worksheet around from the
+    /// outside in. An isolated one starts over with only the built-in units (if `builtin-units` is still on).
+    /// `explicit`: for `unit("…")`, which still reaches names removed with `none`.
     fn local_units_at(&self, at: usize, explicit: bool) -> Vec<units::Custom> {
         let mut units = self.unit_context.clone();
+        units.extend(self.reported_units.iter().filter(|u| !self.unit_context.iter().any(|c| c.name == u.name)).cloned());
         let mut scopes = self.unit_scopes.iter().filter(|s| s.start <= at && at < s.end).collect::<Vec<_>>();
         scopes.sort_by_key(|s| s.start);
         for scope in scopes {
+            if scope.isolated {
+                units.retain(|u| u.name.is_empty());
+            }
             for unit in &scope.units {
                 if explicit && unit.value == "none" { continue; }
                 units.retain(|u| u.name != unit.name);
@@ -634,14 +641,7 @@ impl<'a> Analysis<'a> {
     pub fn unit_completion_context(&self, at: usize) -> Vec<units::Custom> { self.local_units_at(at, true) }
 
     pub fn units_at(&self, at: usize) -> Vec<units::Custom> {
-        let mut units = self.local_units_at(at, false);
-        for unit in self.units.iter().filter(|u| !u.name.is_empty() && u.value != "none" && !units::is_unit(&u.name)) {
-            if !units.iter().any(|u| u.name == unit.name) { units.push(unit.clone()); }
-        }
-        for unit in &self.context.units {
-            if !units.iter().any(|u| u.name == unit.name) { units.push(units::Custom { name: unit.name.clone(), value: unit.value.clone() }); }
-        }
-        units
+        self.local_units_at(at, false)
     }
 
     pub fn is_custom_unit(&self, word: &str) -> bool {

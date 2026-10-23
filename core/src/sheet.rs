@@ -104,7 +104,8 @@ impl<'a> Sheet<'a> {
 
     /// Calculates a line.
     pub fn run(mut self, src: &str) -> Out {
-        let calc = src.contains(":=") || src.contains('≔') || src.contains('⦅');
+        // solveng's own markup (keywords, unit references, unit words) is meant for it: problems aren't prose
+        let calc = src.contains(":=") || src.contains('≔') || src.contains(['⦅', '⦃', '⦗']);
         let line = {
             let env = &*self.env;
             let is_fn = |n: &str| env.funs.contains_key(n);

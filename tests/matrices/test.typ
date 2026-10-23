@@ -1,6 +1,7 @@
 // Matrices as Typst writes them: mat(…; …) with blocks, A^T and A^top, det, tr and norm, times; units per row and column.
 #import "/lib.typ": *
 #import "/tests/util.typ": expect, passes, fails, result
+#import functions: *
 #set page(width: 18cm, height: auto)
 #show: worksheet.with(errors: "panic")
 

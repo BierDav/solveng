@@ -251,6 +251,13 @@ pub(crate) fn automatic_math(name: &str) -> bool {
         .any(|line| line.split_once(" = ").is_some_and(|(binding, _)| binding == name))
 }
 
+/// The names solveng's `functions` module holds, for `#import functions: *`.
+pub(crate) fn automatic_names() -> Vec<String> {
+    include_str!("../../../src/builtins.typ").lines().filter_map(|line| line.strip_prefix("#let "))
+        .filter_map(|line| line.split_once(" = ").map(|(binding, _)| binding.trim().to_string()))
+        .filter(|name| !name.starts_with('_')).collect()
+}
+
 /// Documentation of a calculation operation, including its alternative spellings.
 pub(crate) fn builtin(name: &str) -> Option<&'static Function> {
     let name = match name { "arcsin" => "asin", "arccos" => "acos", "arctan" => "atan", name => name };

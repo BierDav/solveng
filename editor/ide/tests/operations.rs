@@ -2,7 +2,7 @@
 
 use solveng_ide::*;
 
-const DOC: &str = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet\n$N := 200$, $i := 0..N$\n$x[i] := tri(i/N)$\n$y := convolve(x, x, step: 2)$\n$f(x, n: 2) := x^n$, $a := f(3, n: 3) =$\n```solveng\nq := range(1, 10, step: 3)\nz := conv(x, x)\nw := x[2] + y[i]\nr := rect(0)\n```\n";
+const DOC: &str = "#import \"@preview/solveng:1.0.0\": *\n#import functions: *\n#show: worksheet\n$N := 200$, $i := 0..N$\n$x[i] := tri(i/N)$\n$y := convolve(x, x, step: 2)$\n$f(x, n: 2) := x^n$, $a := f(3, n: 3) =$\n```solveng\nq := range(1, 10, step: 3)\nz := conv(x, x)\nw := x[2] + y[i]\nr := rect(0)\n```\n";
 
 fn kind_of(doc: &str, word: &str, nth: usize) -> u8 {
     let at = doc.match_indices(word).nth(nth).unwrap().0;
@@ -23,8 +23,8 @@ fn named_arguments_are_parameters() {
     assert_eq!(kind_of(DOC, "n: 3", 0), TokenKind::PARAMETER);
     assert_eq!(kind_of(DOC, "n: 2", 0), TokenKind::PARAMETER);
     // a type stays a unit: f(I: mA)
-    let typed = "#show: worksheet\n$q(I: mA) := I$\n";
-    assert_eq!(kind_of(typed, "mA", 0), TokenKind::UNIT);
+    let typed = "#import units: mA\n#show: worksheet\n$q(I: mA) := I$\n";
+    assert_eq!(kind_of(typed, "mA", 1), TokenKind::UNIT);
 }
 
 #[test]

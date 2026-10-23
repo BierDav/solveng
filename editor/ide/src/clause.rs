@@ -54,7 +54,8 @@ pub(crate) fn marker(text: &[char], unit: &dyn Fn(&str) -> bool) -> Option<(usiz
         i += 1;
     }
     if let Some((s, e)) = arrow {
-        return clause_like(&sub(text, e, n), true, unit).then_some((s, e, true));
+        // Only a clause follows an arrow: its words are units, known or not.
+        return clause_like(&sub(text, e, n), true, &|_| true).then_some((s, e, true));
     }
     let (s, e) = equals?;
     clause_like(&sub(text, e, n), false, unit).then_some((s, e, false))
@@ -77,13 +78,14 @@ pub(crate) fn clause_like(tail: &str, arrow: bool, unit: &dyn Fn(&str) -> bool) 
         if arrow && p.is_empty() {
             return false;
         }
-        unit_like(p, unit)
+        unit_like(p, unit, arrow)
     })
 }
 
 /// A unit as written in a clause: unit words, powers, `/`, `*`, brackets, `unit("…")`; no numbers but exponents
-/// and a leading 1. Single-letter units need quotes; bare letters stay variables.
-fn unit_like(p: &str, unit: &dyn Fn(&str) -> bool) -> bool {
+/// and a leading 1. Single-letter units need quotes after `=`, where bare letters stay variables; after an arrow
+/// nothing else can follow, so `-> m` is metres.
+fn unit_like(p: &str, unit: &dyn Fn(&str) -> bool, arrow: bool) -> bool {
     if p.is_empty() {
         return false;
     }
@@ -115,8 +117,8 @@ fn unit_like(p: &str, unit: &dyn Fn(&str) -> bool) -> bool {
             }
             let w: String = c[start..i].iter().collect();
             let quoted = start > 0 && c[start - 1] == '"';
-            if crate::resolved_name(&w).chars().count() == 1 && !quoted && !p.contains('[') && w.chars().all(is_letter) { return false; }
-            named |= quoted;
+            if crate::resolved_name(&w).chars().count() == 1 && !quoted && !arrow && !p.contains('[') && w.chars().all(is_letter) { return false; }
+            named |= quoted || arrow;
             if w != "dot" && !crate::is_unit(&w) && !unit(&w) {
                 return false;
             }
@@ -160,6 +162,36 @@ pub(crate) fn solved(tail: &str) -> Vec<String> {
         .filter_map(|p| p.trim().strip_prefix("solve").map(str::trim).and_then(|r| r.strip_prefix('(')).map(|r| r.trim_end().trim_end_matches(')').to_string()))
         .flat_map(|args| split_top(&args).into_iter().map(|a| a.trim().to_string()).filter(|a| !a.is_empty()).collect::<Vec<_>>())
         .collect()
+}
+
+/// Inside `solve(…)` or `substitute(…)` of a clause the caret ends `line` in: where the marker starts (in
+/// characters of `line`), the keyword, and the names listed before the one being typed, as written.
+pub(crate) fn names_call(line: &str) -> Option<(usize, &'static str, Vec<String>)> {
+    at_clause(line).filter(|names| *names)?;
+    let c: Vec<char> = line.chars().collect();
+    let (mut depth, mut quoted, mut marker) = (0i32, false, None);
+    for (i, &ch) in c.iter().enumerate() {
+        if ch == '"' {
+            quoted = !quoted;
+        } else if quoted {
+        } else if "([{".contains(ch) {
+            depth += 1;
+        } else if ")]}".contains(ch) {
+            depth -= 1;
+        } else if depth == 0 && ch == '→' {
+            marker = Some((i, i + 1));
+        } else if depth == 0 && ch == '>' && i > 0 && c[i - 1] == '-' {
+            marker = Some((i - 1, i + 1));
+        } else if depth == 0 && ch == '=' && !":<>!=".contains(if i > 0 { c[i - 1] } else { ' ' }) && c.get(i + 1) != Some(&'=') {
+            marker = Some((i, i + 1));
+        }
+    }
+    let (start, end) = marker?;
+    let tail = sub(&c, end, c.len());
+    let (keyword, open) = NAMES.iter().filter_map(|k| tail.rfind(&format!("{k}(")).filter(|o| !tail[*o..].contains(')')).map(|o| (*k, o + k.len() + 1))).max_by_key(|(_, o)| *o)?;
+    let mut listed = split_top(&tail[open..]);
+    listed.pop();
+    Some((start, keyword, listed.into_iter().map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).collect()))
 }
 
 /// Whether the caret, at the end of `line`, is in a clause: after a top-level `->`, or after a top-level `=` that

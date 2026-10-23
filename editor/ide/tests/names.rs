@@ -220,7 +220,7 @@ fn function_definitions_calls_and_builtins_have_distinct_styles() {
     let code = "f(x) := sin(x) + cos(x)\ny := f(tri(1)) + rect(2)";
     for (source, tokens) in [
         (code.to_string(), tokens(code)),
-        (format!("#show: worksheet\n${}$", code.replace('\n', "$\n$")), document_tokens(&format!("#show: worksheet\n${}$", code.replace('\n', "$\n$")), &Context::default())),
+        (format!("#import functions: tri, rect\n#show: worksheet\n${}$", code.replace('\n', "$\n$")), document_tokens(&format!("#import functions: tri, rect\n#show: worksheet\n${}$", code.replace('\n', "$\n$")), &Context::default())),
         (format!("```solveng\n{code}\n```"), document_tokens(&format!("```solveng\n{code}\n```"), &Context::default())),
         (format!("#worksheet(\"{code}\")"), document_tokens(&format!("#worksheet(\"{code}\")"), &Context::default())),
     ] {

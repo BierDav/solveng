@@ -1,6 +1,7 @@
 #import "/lib.typ": *
 #import "/src/engine.typ": _p, _call, _env, _req-cfg
 #import "/src/api.typ": _st, _cf
+#import functions: *
 #set page(width: 18cm, height: auto)
 #show: worksheet
 

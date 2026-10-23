@@ -43,7 +43,7 @@ fn explicit_operators_complete_and_highlight_with_builtins_disabled() {
     assert_eq!(completed.to, Some(at(doc, "tri\"") + 3));
     let inactive = doc.replace("#show: worksheet.with(builtin-functions: false)", "#show: worksheet.with(evaluate: false)");
     assert!(document_tokens(&inactive, &Context::default()).iter().all(|t| t.kind != TokenKind::BUILTIN_FUNCTION));
-    let scoped = "#show: worksheet\n#let pulse = math.op(\"rect\")\n#worksheet(builtin-functions: false)[$a := tri(0)$ $b := pulse(0)$]\n$c := tri(0)$\n#let pulse = 3\n$d := pulse(0)$";
+    let scoped = "#import functions: tri\n#show: worksheet\n#let pulse = math.op(\"rect\")\n#worksheet(builtin-functions: false)[$a := tri(0)$ $b := pulse(0)$]\n$c := tri(0)$\n#let pulse = 3\n$d := pulse(0)$";
     let ts = document_tokens(scoped, &Context::default());
     for (needle, expected) in [("tri(0)$ $b", TokenKind::FUNCTION_CALL), ("pulse(0)$]", TokenKind::BUILTIN_FUNCTION), ("tri(0)$\n#let", TokenKind::BUILTIN_FUNCTION)] {
         assert_eq!(ts.iter().find(|t| t.start == at(scoped, needle)).unwrap().kind, expected, "{needle}");

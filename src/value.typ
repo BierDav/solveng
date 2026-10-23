@@ -7,6 +7,7 @@
 ///
 /// ```typ
 /// #show: worksheet
+/// #import units: kΩ, mA, mV
 /// $R := 4.7 kΩ$, $I := 2 mA$, $U := R I$, $f(x: Ω) := 2 x$
 /// The voltage is #value("U") (#value($U = mV$)), and #value("f(3 Ω)") for 3 Ω.
 /// ```

@@ -49,12 +49,13 @@ fn builtin_completions_carry_documentation_and_keep_math_snippets() {
 }
 
 #[test]
-fn worksheet_export_option_has_documentation_and_auto_default() {
+fn worksheet_scope_option_has_documentation_values_and_auto_default() {
     let worksheet = params::functions().iter().find(|f| f.name == "worksheet").unwrap();
-    let export = worksheet.named.iter().find(|p| p.name == "export").unwrap();
-    assert_eq!(export.default, "auto");
-    assert!(export.types.contains("bool"));
-    assert!(export.doc.contains("no for content blocks"));
+    assert!(!worksheet.named.iter().any(|p| p.name == "inherit" || p.name == "export"));
+    let scope = worksheet.named.iter().find(|p| p.name == "scope").unwrap();
+    assert_eq!(scope.default, "auto");
+    assert_eq!(scope.values, vec!["isolated", "inherit", "shared"]);
+    assert!(scope.doc.contains("isolated"));
 }
 
 #[test]

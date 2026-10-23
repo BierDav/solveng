@@ -81,7 +81,7 @@ fn spots(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Eleme
     for e in elements.iter().filter(|e| active(e)) {
         let body = &doc.c[e.body_start..e.body_end];
         let settings = units_at(e.body_start);
-        let toks = if e.math { math_tokens(body, &|w| crate::units::visible(w, &settings), &|w| crate::units::bare(w, &settings), &|_| false) } else { code_tokens(body, &unit) };
+        let toks = if e.math { math_tokens(body, &|w| crate::units::visible(w, &settings), &|_| false) } else { code_tokens(body, &unit) };
         let toks = toks.into_iter().filter(|(s, _, _)| !bindings.contains(e.body_start + s)).collect();
         uses(doc, e.body_start, toks, e.math, custom, &mut out);
     }

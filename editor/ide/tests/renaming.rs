@@ -27,7 +27,7 @@ fn applied(doc: &str, mut edits: Vec<Edit>) -> String {
     String::from_utf16(&u).unwrap()
 }
 
-const FULL: &str = "#show: worksheet\n";
+const FULL: &str = "#import units: *\n#show: worksheet\n";
 
 /// A solveng code block of `lines`.
 fn code(lines: &str) -> String {
@@ -168,7 +168,7 @@ fn parameters_stand_out_and_resolve() {
 
 #[test]
 fn functions_in_math() {
-    let doc = format!("{FULL}#worksheet(units: (ü: auto), evaluate: false)[]\n$ q(x) := x \"ü\" $\n{}", code("y := q(3)\nx := 5"));
+    let doc = format!("{FULL}#show: worksheet.with(units: (ü: auto))\n$ q(x) := x \"ü\" $\n{}", code("y := q(3)\nx := 5"));
     let d = definition(&doc, &Context::default(), u16_at(&doc, "q(3)")).unwrap();
     assert_eq!(d.start, u16_at(&doc, "q(x)"));
     // x is the parameter, not the variable defined below.
@@ -190,7 +190,7 @@ fn quoted_functions_in_math() {
 
 #[test]
 fn custom_units_are_found_and_renamed() {
-    let doc = "#show: worksheet\n#worksheet(units: (ü: auto, mü: \"10ü\", \"kq\": \"2 ü\"), evaluate: false)[]\n$ a := 3 \"ü\" $\n$ b := 2 \"kü\" $\n```solveng\nc := 4 ü\nd := a + c = [ü]\n```\n#lambdify(\"a\", \"a\", unit: \"ü\")\n";
+    let doc = "#show: worksheet.with(units: (ü: auto, mü: \"10ü\", \"kq\": \"2 ü\"))\n$ a := 3 \"ü\" $\n$ b := 2 \"kü\" $\n```solveng\nc := 4 ü\nd := a + c = [ü]\n```\n#lambdify(\"a\", \"a\", unit: \"ü\")\n";
     let at = u16_at(doc, "\"ü\" $") + 1;
     let d = definition(doc, &Context::default(), at).unwrap();
     assert_eq!(d.start, u16_at(doc, "ü: auto"));

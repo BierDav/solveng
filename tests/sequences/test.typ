@@ -1,4 +1,6 @@
 #import "/tests/util.typ": *
+#import units: *
+#import functions: *
 #set page(width: 18cm, height: auto)
 #show: worksheet
 
@@ -59,7 +61,7 @@ $q_1 := q[1] =$
 ]
 
 // Inline explicit references work with automatic names disabled, in both unit spacings.
-#worksheet(builtin-functions: false, builtin-units: false)[
+#worksheet(builtin-functions: false, builtin-units: false, units: (m: auto, km: "1000 m"))[
   $x := 1/2$
   $a := op("tri")(x) =$ #expect("a", 0.5)
   $b := 1unit("km") =$ #expect("b", 1000)

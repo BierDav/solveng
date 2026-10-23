@@ -8,19 +8,27 @@ fn kind(doc: &str, needle: &str) -> u8 {
 
 #[test]
 fn hidden_unit_names_are_variables_without_hiding_prefixes() {
-    let doc = "#show: worksheet.with(units: (s: none, mys: \"s\"))\n$x := 2s$\n$y := 2\"s\"$\n$z := 2ms$\n$t := 2\"mys\"$";
+    let doc = "#show: worksheet.with(units: (s: none, mys: \"s\"))\n$x := 2s$\n$y := 2\"s\"$\n$z := 2\"ms\"$\n$t := 2\"mys\"$";
     assert_eq!(kind(doc, "s$"), TokenKind::VARIABLE);
     assert_eq!(kind(doc, "\"s\"$"), TokenKind::VARIABLE);
-    assert_eq!(kind(doc, "ms$"), TokenKind::UNIT);
+    assert_eq!(kind(doc, "\"ms\"$"), TokenKind::UNIT);
     assert_eq!(kind(doc, "\"mys\"$"), TokenKind::UNIT);
 }
 
 #[test]
-fn builtin_visibility_can_be_disabled_and_selectively_restored() {
-    let doc = "#show: worksheet.with(builtin-units: false, units: (s: \"s\"))\n$x := 2s$\n$y := 2\"m\"$\n$z := 2ms$";
+fn builtin_units_off_leaves_only_the_documents_own() {
+    let doc = "#show: worksheet.with(builtin-units: false, units: (s: auto))\n$x := 2s$\n$y := 2\"m\"$\n$z := 2\"ms\"$\n$w := 2\"s\" -> \"min\"$\n$v := 2unit(\"km\")$";
     assert_eq!(kind(doc, "s$"), TokenKind::VARIABLE);
     assert_eq!(kind(doc, "\"m\"$"), TokenKind::VARIABLE);
-    assert_eq!(kind(doc, "ms$"), TokenKind::VARIABLE);
+    // prefixes still apply to its own units
+    assert_eq!(kind(doc, "\"ms\"$"), TokenKind::UNIT);
+    assert_eq!(kind(doc, "\"s\" ->"), TokenKind::UNIT);
+    assert_eq!(kind(doc, "\"min\"$"), TokenKind::VARIABLE);
+    // explicit references don't reach built-in units either
+    assert_eq!(kind(doc, "km\")$"), TokenKind::VARIABLE);
+    let c = complete(&doc.replace("2unit(\"km\")$", "2 $"), &Context::default(), at(doc, "2unit") + 2).unwrap();
+    let labels: Vec<_> = c.items.iter().filter(|i| i.kind == ItemKind::UNIT).map(|i| i.label.as_str()).collect();
+    assert_eq!(labels, ["s"]);
     let scoped = "#show: worksheet\n#worksheet(units: (s: none))[Text $x := 2s$]\n$y := 3s$";
     assert_eq!(kind(scoped, "s$]"), TokenKind::VARIABLE);
     assert_eq!(kind(scoped, "s$"), TokenKind::VARIABLE);
@@ -79,18 +87,18 @@ fn math_unit_completion_prefers_quotes_and_replaces_an_existing_hash() {
 
 #[test]
 fn explicit_single_letter_unit_references_have_a_fix_and_gray_hash() {
-    let doc = "#show: worksheet.with(builtin-units: false)\n#let s = unit(\"s\")\n😅 $z := 34s$";
+    let doc = "#show: worksheet.with(builtin-units: false, units: (s: auto))\n#let s = unit(\"s\")\n😅 $z := 34s$";
     let offset = at(doc, "s$");
     let fixes = unit_fixes(doc, &Context::default(), offset);
-    assert_eq!(fixes.len(), 1);
-    assert_eq!((fixes[0].start, fixes[0].end, fixes[0].text.as_str()), (offset, offset, "#"));
+    assert!(fixes.iter().any(|f| (f.start, f.end, f.text.as_str()) == (offset, offset, "#")), "{fixes:?}");
     assert!(diagnostics(doc, &Context::default()).iter().any(|p| p.start == offset && p.message.contains("#s")));
     let fixed = doc.replace("34s", "34#s");
     assert_eq!(kind(&fixed, "#s$"), TokenKind::UNIT_REFERENCE);
     assert!(unit_fixes(&fixed, &Context::default(), at(&fixed, "s$")).is_empty());
     assert!(!diagnostics(&fixed, &Context::default()).iter().any(|p| p.message.contains("bare single letters")));
     let number = doc.replace("unit(\"s\")", "5");
-    assert!(unit_fixes(&number, &Context::default(), at(&number, "s$")).is_empty());
+    // no binding to reference: only quoting the unit is left
+    assert!(unit_fixes(&number, &Context::default(), at(&number, "s$")).iter().all(|f| f.text == "\"s\""));
     let variable = doc.replace("😅 $z", "$s := 5$\n😅 $z");
     assert!(unit_fixes(&variable, &Context::default(), at(&variable, "s$")).is_empty());
 }

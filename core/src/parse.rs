@@ -23,7 +23,7 @@ pub enum Tok {
     Quoted(String),
     /// A unit name explicitly marked as a unit.
     UnitWord(String),
-    /// An exported Typst unit word, subject to worksheet visibility.
+    /// A unit word of the `units` module (⦗km⦘) or a unit symbol (°, %, ‰).
     ImplicitUnit(String),
     /// [5 V] in code.
     Bracket(String),
@@ -184,6 +184,10 @@ pub fn lex(s: &str, mode: Mode) -> Result<Vec<Tok>, String> {
                 out.push(Tok::Bracket(cs[st..i].iter().collect::<String>().trim().to_string()));
                 i += 1;
                 continue;
+            }
+            // Typst math writes the symbol at as @: at(v, 0) without the import of solveng's at
+            '@' if cs[i + 1..].iter().find(|c| !c.is_whitespace()) == Some(&'(') => {
+                return Err("'@(' – at(vector, index) needs solveng's at: #import functions: at (in math, at alone is the symbol @)".into());
             }
             '@' => {
                 let name = solveng_names::scan(&cs, i + 1).ok().flatten().map_or_else(|| "x".to_string(), |n| n.value);
@@ -426,7 +430,7 @@ impl Ctx<'_> {
     }
 
     fn named_unit(&self, name: &str) -> bool {
-        if self.mode == Mode::Math { self.units.bare(name) } else { self.units.visible(name) }
+        self.units.visible(name)
     }
 }
 
@@ -444,8 +448,9 @@ struct P<'a, 'b> {
 
 fn visible_tokens(source: &str, context: &Ctx) -> Result<Vec<Tok>, String> {
     lex(source, context.mode)?.into_iter().map(|token| match token {
-        Tok::ImplicitUnit(name) if context.units.bare(&name) => Ok(Tok::UnitWord(name)),
-        Tok::ImplicitUnit(name) => solveng_names::resolve(&name).map(Tok::Name),
+        // a unit word set to none (T: none) is a name; one the worksheet doesn't have is an unknown unit
+        Tok::ImplicitUnit(name) if context.units.known(&name) && !context.units.visible(&name) => solveng_names::resolve(&name).map(Tok::Name),
+        Tok::ImplicitUnit(name) => Ok(Tok::UnitWord(name)),
         // math.op of a name that is no operation (min, lim): a name like any other
         Tok::Builtin(name) if context.functions.explicit(&name).is_none() => Ok(Tok::Name(name)),
         token => Ok(token),
@@ -528,6 +533,9 @@ impl<'a, 'b> P<'a, 'b> {
                 continue;
             }
             let Some(u) = self.unit_at(k) else { break };
+            if matches!(&self.t[k], Tok::UnitWord(_)) && !self.c.units.known(&u) {
+                return Err(self.c.units.unknown(&u));
+            }
             if self.c.mode == Mode::Code {
                 if let Tok::Name(n) = &self.t[k] {
                     if (self.c.is_var)(n) {
@@ -839,7 +847,7 @@ impl<'a, 'b> P<'a, 'b> {
             }
             Tok::UnitWord(u) => {
                 if !self.c.units.known(&u) {
-                    return Err(format!("'{u}' is neither a unit nor a defined variable"));
+                    return Err(self.c.units.unknown(&u));
                 }
                 self.i -= 1;
                 let u = self.unit_run()?.unwrap();
@@ -1043,22 +1051,34 @@ fn split_trail(t: &[Tok], c: &Ctx) -> Result<(usize, Option<(Trail, Clause)>), S
         }
     }
     if let Some(i) = arrow {
-        let cl = clause(&t[i + 1..], c)?.ok_or("-> takes keywords and a unit: -> solve(x), -> simplify, -> digits(3)")?;
+        let Some(cl) = clause(&t[i + 1..], c, true)? else {
+            // a name that is no unit here: say which
+            let unknown = t[i + 1..].iter().find_map(|k| match k {
+                Tok::Name(n) | Tok::Quoted(n) | Tok::UnitWord(n) if !KEYWORDS.contains(&n.as_str()) && !c.units.visible(n) => Some(n),
+                _ => None,
+            });
+            return Err(match unknown {
+                Some(n) => format!("-> takes keywords and a unit: {}", c.units.unknown(n)),
+                None => "-> takes keywords and a unit: -> solve(x), -> simplify, -> digits(3)".into(),
+            });
+        };
         return Ok((i, Some((Trail::Sym, cl))));
     }
     if let Some(i) = eq {
         // = followed by more than a unit and keywords is a comparison
-        if let Some(cl) = clause(&t[i + 1..], c)? {
+        if let Some(cl) = clause(&t[i + 1..], c, false)? {
             return Ok((i, Some((Trail::Eval, cl))));
         }
     }
     Ok((t.len(), None))
 }
 
-/// Keywords and a unit, separated by commas; None if it isn't one (2000 mA is a value, not a clause).
-fn clause(t: &[Tok], c: &Ctx) -> Result<Option<Clause>, String> {
-    // keywords written with math.op (laplace) are keywords here
+/// Keywords and a unit, separated by commas; None if it isn't one (2000 mA is a value, not a clause). After ->
+/// (`arrow`) only a clause can follow, so a single letter that is a unit is the unit there.
+fn clause(t: &[Tok], c: &Ctx, arrow: bool) -> Result<Option<Clause>, String> {
+    // keywords written with math.op (laplace) are keywords here; math writes m/s as frac(m, s)
     let t: Vec<Tok> = t.iter().map(|k| match k { Tok::Builtin(n) => Tok::Name(n.clone()), k => k.clone() }).collect();
+    let t = unfrac(&t);
     let t = t.as_slice();
     let mut cl = Clause::default();
     if t.is_empty() {
@@ -1099,17 +1119,23 @@ fn clause(t: &[Tok], c: &Ctx) -> Result<Option<Clause>, String> {
                 continue;
             }
         }
-        // a unit: names (units only), powers, /, brackets; no numbers but exponents. A single letter is a unit only
-        // after a 1 (t = 1 h) or with a unit of more letters (km/h): alone it's a variable, t = h compares
+        // a unit: names (units only), powers, /, brackets; no numbers but exponents. After =, a single letter is a
+        // unit only after a 1 (t = 1 h) or with a unit of more letters (km/h): alone it's a variable, t = h compares
         let mut s = String::new();
         let mut prev_pow = false;
-        let mut named = matches!(g.first(), Some(Tok::Num(n)) if n == "1");
+        let mut named = arrow || matches!(g.first(), Some(Tok::Num(n)) if n == "1");
         for k in &g {
             match k {
                 Tok::Num(n) if prev_pow || n == "1" => s += n,
                 Tok::Num(_) => return Ok(None),
                 Tok::Name(n) | Tok::Quoted(n) | Tok::UnitWord(n) => {
-                    if !c.units.known(n) || (!matches!(k, Tok::UnitWord(_)) && !(if matches!(k, Tok::Name(_)) { c.expression_unit(n) } else { c.units.visible(n) })) {
+                    let unit = match k {
+                        Tok::UnitWord(_) => true,
+                        Tok::Name(_) if arrow => c.named_unit(n),
+                        Tok::Name(_) => c.expression_unit(n),
+                        _ => c.units.visible(n),
+                    };
+                    if !c.units.known(n) || !unit {
                         return Ok(None);
                     }
                     named |= !matches!(k, Tok::Name(_)) || n.chars().count() > 1;
@@ -1184,6 +1210,41 @@ fn clause(t: &[Tok], c: &Ctx) -> Result<Option<Clause>, String> {
         cl.unit = Some(c.units.parse(u, false)?.u);
     }
     Ok(Some(cl))
+}
+
+/// frac(a, b) as (a)/(b), at every depth.
+fn unfrac(t: &[Tok]) -> Vec<Tok> {
+    let mut out = vec![];
+    let mut i = 0;
+    while i < t.len() {
+        if matches!(&t[i], Tok::Name(n) if n == "frac") && t.get(i + 1) == Some(&Tok::Op("(")) {
+            let (mut depth, mut comma, mut j) = (0, None, i + 1);
+            while j < t.len() {
+                match &t[j] {
+                    Tok::Op("(") => depth += 1,
+                    Tok::Op(")") => {
+                        depth -= 1;
+                        if depth == 0 { break; }
+                    }
+                    Tok::Op(",") if depth == 1 && comma.is_none() => comma = Some(j),
+                    _ => {}
+                }
+                j += 1;
+            }
+            if let Some(c) = comma.filter(|_| j < t.len()) {
+                out.push(Tok::Op("("));
+                out.extend(unfrac(&t[i + 2..c]));
+                out.extend([Tok::Op(")"), Tok::Op("/"), Tok::Op("(")]);
+                out.extend(unfrac(&t[c + 1..j]));
+                out.push(Tok::Op(")"));
+                i = j + 1;
+                continue;
+            }
+        }
+        out.push(t[i].clone());
+        i += 1;
+    }
+    out
 }
 
 fn tok_text(t: &Tok) -> String {

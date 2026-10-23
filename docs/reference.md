@@ -90,10 +90,11 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 
 Calculates the math you write, like a Mathcad worksheet.
 
-`#show: worksheet` calculates the rest of the document, `#worksheet[…]` its content (whose definitions stay local unless `export: true`), and `#worksheet($…$)` single equations, also outside a worksheet.
+`#show: worksheet` calculates the rest of the document, `#worksheet[…]` its content (on its own unless `scope` says otherwise), and `#worksheet($…$)` single equations, also outside a worksheet.
 
 ```typ
 #show: worksheet
+#import units: mA, mAh
 The battery holds $Q_0 := 3450 mAh$ and the load draws $I := 30 mA$,
 so it lasts $t := Q_0 / I = 1 "h"$.
 ```
@@ -107,7 +108,7 @@ so it lasts $t := Q_0 / I = 1 "h"$.
 
 Keywords: `solve(x, …)`, `substitute(x, …)` (these variables' formulas put in, other names kept), `laplace`, `invlaplace` (optional input and output names), `simplify`, `frac` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
 
-**Units** are names: `$30 mA$`, `$4.7 kΩ$`, `$9.81 "m"/"s"^2$`, and `$3 "bar"$` for your own units (with `worksheet(units: …)`). Single-letter units require quotes: `$5 "V"$`, `$3 "h"$`, and `$t = 1 "h"$` shows t in hours. Anywhere else it's a variable, also alone after `=`: `$t = h$` compares t with a variable h, and `$3 dot h$` is 3 times h.
+**Units** are quoted names, `$9.81 "m"/"s"^2$`, `$3 "bar"$` for your own units (with `worksheet(units: …)`), or unit words imported from solveng's `units` module: after `#import units: mA, kΩ`, `$30 mA$`, `$4.7 kΩ$`; single letters need a hash, `#import units: V` then `$5#V$`. An unquoted single letter is a variable, also alone after `=`: `$t = h$` compares t with a variable h, and `$3 dot h$` is 3 times h; after `->` only a unit can follow, so `$t -> h$` shows t in hours.
 
 **Code.** Each line of a `solveng` code block is calculated the same way and shown with all its steps: `t := Q0/I = [h]`, `Q0/I =`, `x^2 = 4 -> solve(x)`; units in brackets, `;` separates the equations of a system, `//` starts a comment. Inline code and code with another language are left alone.
 
@@ -125,7 +126,7 @@ Keywords: `solve(x, …)`, `substitute(x, …)` (these variables' formulas put i
 ```typ
 #worksheet[
   $t := 5 "s"$
-  #worksheet(evaluate: false, inherit: true)[
+  #worksheet(evaluate: false, scope: "inherit")[
     $E = m c^2$ stays as written, and so does $t = 3 "s"$;
     #worksheet($t =$) is still calculated.
   ]
@@ -141,47 +142,42 @@ Keywords: `solve(x, …)`, `substitute(x, …)` (these variables' formulas put i
   ```solveng
   I := U/R
   ```
-  The current is #worksheet($I = mA$).
+  The current is #worksheet($I = "mA"$).
 ]
 ````
 
-**Scopes.** `inherit` brings the parent's definitions into the worksheet; `export` passes
-the worksheet's final definitions back when it ends. Both default to `auto`: true for
-expressions (including strings and code-block arguments), false for content blocks.
-A block containing only one equation or raw code block is the same content value as a direct
-expression argument in Typst; set `export: false` explicitly to keep that case local.
-Neither option is inherited by nested worksheets. Exported variables, functions and solved
-values replace existing names in the parent. Only definitions still present at the end
-are exported: `clear`, `clear-at` and `clear(all: true)` do not delete parent definitions.
-Configuration and units set inside the block stay scoped as before.
+**Scopes.** `scope` says what a worksheet sees and keeps: `"isolated"` starts empty and its definitions end with it; `"inherit"` sees the definitions made before, and its own end with it; `"shared"` sees them, and what it defines stays afterwards, replacing names of the same name (variables, functions and solved values alike). `auto`: isolated for content (`#worksheet[…]`, `#show: worksheet`), shared for equations, strings and code blocks passed to `worksheet`. Typst makes a content block holding only one equation or code block the same value as that equation, so `#worksheet[$x := 1$]` is shared; write `scope: "isolated"` to keep it local. Nested worksheets don't inherit the scope. Clearing never reaches outside: `clear`, `clear-at` and `clear(all: true)` don't delete the outer definitions.
+
+Units change what names mean, so `units` and `builtin-units` need an isolated scope, which starts a unit table of its own: its `units` over the built-in ones (none with `builtin-units: false`, which nested worksheets keep like every other option), never the outer worksheet's `units`. Other options are scoped as before.
 
 ```typ
 #show: worksheet
 $U := 12 "V"$
-#worksheet(inherit: true, export: true)[
+#worksheet(scope: "shared")[
   $R := 100 "Ω"$
-  $I := U/R = mA$
+  $I := U/R = "mA"$
 ]
-$I = mA$ // 120 mA, exported from the block
-#worksheet($U := 5 "V"$, export: false) // local to this call
+$I = "mA"$ // 120 mA, kept from the block
+#worksheet($U := 5 "V"$, scope: "inherit") // local to this call
 $U =$ // still 12 V
 ```
 
 **Editors.** Each equation and code block the worksheet sees leaves a `metadata` labelled `<solveng>` with its `location()`, whether it was calculated and whether math is evaluated there; each problem one with `kind: "error"`, its `message`, the `element` it's in (`none` for equations and code passed to `worksheet`) and the `source` statement (a code line; empty for math); at the end (and before each match of `clear-at`) one lists everything defined, with values, and the units. Editors like Typewright read them after compiling: `query(<solveng>)`.
 
-**Starting over.** `clear-at` clears every definition at each match; `#clear(all: true)` inside a worksheet does the same once: back to how it started (with `inherit: true` the outer definitions stay), and `#clear("x", "f")` forgets only those names. After a `#worksheet[…]` the outer definitions come back; with `export: true`, its final definitions are merged over them.
+**Starting over.** `clear-at` clears every definition at each match; `#clear(all: true)` inside a worksheet does the same once: back to how it started (with `scope: "inherit"` or `"shared"` the outer definitions stay), and `#clear("x", "f")` forgets only those names. After a `#worksheet[…]` the outer definitions come back; with `scope: "shared"`, its final definitions are merged over them.
 
 ```typ
 #show: worksheet.with(clear-at: heading)                    // every heading
 #show: worksheet.with(clear-at: heading.where(level: 1))    // only top-level ones
-#show: worksheet.with(clear-at: heading, inherit: true)     // keep the definitions made before
+#show: worksheet.with(clear-at: <exercise>)                 // every element labelled, = Task <exercise>
+#show: worksheet.with(clear-at: heading, scope: "inherit")  // keep the definitions made before
 ```
 
 **Options.** Every option defaults to `auto`, which keeps the current setting, so only what you pass changes. For the whole document: `#show: worksheet.with(digits: 3)`; for a part: `#worksheet(evaluate: false, steps: "result")[…]`; for equations or content it calculates: `#worksheet($R := U/I =$, digits: 2)`; or keep them in a dictionary: `#let opts = (digits: 2, separator: ",")`, then `#worksheet($P := U I =$, ..opts)`. `defined` and `graph` take the same options except `units`. Unknown options and values of the wrong type are shown as an error in the document.
 
 ```typ
 #show: worksheet.with(digits: 3, form: "fraction")   // your defaults, the whole document
-$U := 5 "V"$, $I := 30 mA$
+$U := 5 "V"$, $I := 30 "mA"$
 #worksheet($I/3 =$, digits: 2)                        // only this equation
 #worksheet(evaluate: false, multiplication: "times")[Prose and $E = m c^2$ stay as written.]
 ```
@@ -210,9 +206,8 @@ To reuse your defaults in many documents, keep a small file of your own:
 | parameter | type | default | |
 |---|---|---|---|
 | `..body` | content, str |  | The content, or equations to calculate: math, strings (code lines) and code blocks. |
-| `inherit` | auto, bool | `auto` | See the definitions made before the worksheet (also after each match of `clear-at`). `auto` (default): yes for equations, no for content. `inherit: false` with equations calculates them on their own; what they define still counts afterwards unless `export: false`, as what a `graph` defines does. |
-| `export` | auto, bool | `auto` | Pass the final definitions and solved values to the enclosing scope. `auto` (default): yes for expressions, strings and code-block arguments; no for content blocks. Independent of `inherit`. Exported names replace existing names; clearing a name inside does not remove it from the parent. |
-| `clear-at` | none, function, selector | `none` | Clear every definition at each match, e.g. `heading` (every heading) or `heading.where(level: 1)`: the definitions made since are forgotten, like `#clear(all: true)`. |
+| `scope` | auto, str | `auto` | What the worksheet sees and keeps: `"isolated"` (starts empty, its definitions end with it), `"inherit"` (sees the definitions made before, its own end with it) or `"shared"` (sees them, and its definitions stay afterwards, over the outer ones). `auto` (default): isolated for content, shared for equations, strings and code blocks. `units` and `builtin-units` need `"isolated"`. |
+| `clear-at` | none, function, selector, label | `none` | Clear every definition at each match: `heading` (every heading), `heading.where(level: n)` (headings of level n) or a label like `<exercise>` (every element with it, e.g. `= Task <exercise>`): the definitions made since are forgotten, like `#clear(all: true)`. |
 | `hidden` | bool | `false` | Calculate without showing what is calculated (only problems are shown): the equations, or the math and code blocks of the content. Not inherited by nested worksheets. |
 | `evaluate` | bool | `true` | Calculate the math in the content; `false`: only its code blocks and `#worksheet(…)` calls are. Not inherited by nested worksheets, and not for equations, which are always calculated. |
 | `steps` | auto, str | `auto` | Default for `steps` of `solve`: `"full"` (default), `"formula"`, `"result"` or `"value"`. |
@@ -230,8 +225,8 @@ inside the string. Only the unit string is highlighted in the declaration; evalu
 Hover identifies the binding as a unit shortcut and shows the target unit's definition.
 Inline references also work, with or without a space: `$y := 1unit("km")$`, `$y := 1 unit("km")$`.
 Completion and unit styling apply inside the string; the constructor collapses to the unit in the editor.
-The unit resolves through the overlays active at each use, not where the binding is declared.
-Explicit references can reach underlying units even when automatic lookup is disabled or a name is hidden.
+The unit resolves through the units of the worksheet at each use, not where the binding is declared.
+It also reaches a name hidden with `none` (`T: none`); with `builtin-units: false` only your own units exist.
 Multiletter bindings need no hash; single letters do: `#let i = unit("iwef")`, then `$1#i$`.
 `$1i$` stays multiplication by a worksheet variable. Complex numbers are unsupported; `i` is no imaginary constant.
 
@@ -312,7 +307,7 @@ Lists the definitions made so far, in order.
 
 ```typ
 #show: worksheet
-$R := 7.2 kΩ$, $U := 5 "V"$, $I := U/R$, $f(x) := x^2$
+$R := 7.2 "kΩ"$, $U := 5 "V"$, $I := U/R$, $f(x) := x^2$
 #defined()                                          // everything, in columns side by side
 #defined(included: "given")                         // only plain values (also "computed", "function")
 #defined(excluded: ("U", "function"))               // names and kinds
@@ -334,7 +329,7 @@ Styles (`style:` here, option `defined-style` for all of them):
 | `included` | str, regex, function, array | `"all"` | What to list. Default `"all"`. |
 | `excluded` | none, str, regex, function, array | `none` | What to leave out. |
 | `style` | auto, str | `auto` | `"grid"`, `"column"`, `"inline"` or `"list"`, see above. `auto`: the option `defined-style` (default `"grid"`). |
-| `digits`, `separator`, `form`, … | auto | `auto` | Every option of `worksheet` (except `units`) works here too, for this call only. See [Options](#options). |
+| `digits`, `separator`, `form`, … | auto | `auto` | Every option of `worksheet` (except `units` and `builtin-units`, which need a worksheet of their own) works here too, for this call only. See [Options](#options). |
 | `digits`, `separator`, … | auto | `auto` | Any [option](#options) for this call; `auto` keeps the current setting. |
 
 Returns content.
@@ -386,7 +381,7 @@ Uses `@preview/simple-plot:1.1.0`. Ticks use the document's decimal separator, a
 | `width` | auto, length, ratio, relative, fraction | `auto` | Width of the whole graph, labels included: `12cm`, `300pt` or a share like `100%`. `1fr` is the container's width – in a grid, the column's. `auto`: a plot area of 8 cm. |
 | `height` | auto, length, ratio, relative, fraction | `auto` | Like `width`; `auto`: a plot area of 5 cm. A share is of the container's height, or of the width when the page grows with its content. |
 | `colors` | array, color | `(blue, red.darken(10%), green.darken(25%), orange.darken(10%))` | Colors of the curves, e.g. `(gray, blue, rgb("#f98eff"))`. |
-| `digits`, `separator`, `form`, … | auto | `auto` | Every option of `worksheet` (except `units`) works here too, for this call only. See [Options](#options). |
+| `digits`, `separator`, `form`, … | auto | `auto` | Every option of `worksheet` (except `units` and `builtin-units`, which need a worksheet of their own) works here too, for this call only. See [Options](#options). |
 
 Returns content.
 
@@ -429,6 +424,7 @@ it leaves as they are.
 
 ```typ
 #show: worksheet
+#import units: kΩ, mA, mV
 $R := 4.7 kΩ$, $I := 2 mA$, $U := R I$, $f(x: Ω) := 2 x$
 The voltage is #value("U") (#value($U = mV$)), and #value("f(3 Ω)") for 3 Ω.
 ```
@@ -451,7 +447,7 @@ A value and a function share their name – defining one replaces the other – 
 
 ```typ
 #show: worksheet
-$I := 30 mA$, $f(x) := 2 x$, $U := 5 "V"$
+$I := 30 "mA"$, $f(x) := 2 x$, $U := 5 "V"$
 #clear("I", $f$)
 $I := 1 "A"$
 #clear(all: true)
@@ -803,8 +799,8 @@ Options of `worksheet`, and of `defined` and `graph` (except `units`). Each one 
 |---|---|---|---|
 | `prefixes` | auto, str, none, array | `"all"` | Prefixes picked for results: `"all"` (default: a f p n µ m k M G T; times from a minute on in min or h, not ks), `none` (base unit only) or an array like `("m", "k")` (`"u"` = µ). |
 | `show-si` | auto, bool | `false` | `defined` also shows the SI value (`Q₀ = 3450 mAh = 12420 C`). |
-| `builtin-units` | auto, bool | `true` | Enable automatic unit words and quoted built-in names, true by default. False disables their exposure; user overlays still work: `units: (s: "s")` restores `"s"`. Unit definitions can always refer to underlying built-ins. |
-| `units` | auto, dictionary | `(:)` | Add a user overlay of unit definitions: `(bar: "100 kPa", rpm: "1/min", dozen: 12)`. Each overlay falls back to lower overlays and underlying built-ins. Entries may refer to each other regardless of order; self references use lower overlays, so `(s: "2s")` doubles the previous second. Circular dependencies are rejected. `auto` creates a base unit; `none` hides a name. Use quoted names (`$1"ing"$`) or declare `#let ing = unit("ing")` for `$1ing$`; single-letter bindings need a hash (`#let i = unit("i")`, `$1#i$`). Explicit `unit` shortcuts complete inside their strings, show unit-shortcut hover documentation, and resolve through the overlays at each use. The editor action *Declare unit overlay bindings* generates these declarations; worksheet options cannot inject Typst lexical bindings. With content, overlays are scoped to the worksheet; a show rule applies them to remaining content. |
+| `builtin-units` | auto, bool | `true` | Whether solveng's built-in units exist, true by default. `false`: none at all – not quoted, not as unit words, not with `unit("km")`, not after `=` or `->` – only the units of the option `units`. Needs an isolated scope; nested worksheets keep it. |
+| `units` | auto, dictionary | `(:)` | Units of your own, a user overlay over the built-in ones: `(bar: "100 kPa", rpm: "1/min", dozen: 12, ü: auto)`. A value is an expression of units and numbers (`"10^3 m"`, `"1/min"`), a plain number (a factor without unit), `auto` (a base unit of its own) or `none` (hides a built-in name, `T: none`: `T` is then a variable, while `mT` and definitions still reach it). Entries may use each other in any order; a self reference is the built-in unit (`(s: "2s")` doubles the second), circular ones are errors. Prefixes work on your units too (`"mbar"`). Needs an isolated scope, which starts a unit table of its own: the units of the outer worksheet don't apply inside. Write them quoted (`$1 "bar"$`) or declare a shorthand, `#let bar = unit("bar")`, then `$1 bar$` (single letters with a hash, `$1#i$`). |
 | `preferred-units` | auto, str, array | `()` | Units for results and graph axes of their dimension, `("bar", "kWh")`, before input units and automatic SI prefixes. |
 | `strict` | auto, bool | `false` | Unit names can't be variable names, and units in math must be quoted (`$5 "V"$`), see *Units and variables*. |
 
@@ -812,7 +808,7 @@ Options of `worksheet`, and of `defined` and `graph` (except `units`). Each one 
 
 | option | type | default | |
 |---|---|---|---|
-| `builtin-functions` | auto, bool | `true` | Enable automatic built-in operation names, true by default. False disables automatic lookup in code and solveng's exported math names. Explicit `math.op("tri")` and `operation("convolve")` references always select the underlying operations. Quoted math names never select built-in operations. |
+| `builtin-functions` | auto, bool | `true` | Enable automatic built-in operation names, true by default. False disables automatic lookup in code and the math names imported from solveng's `functions`. Explicit `math.op("tri")` and `operation("convolve")` references always select the underlying operations. Quoted math names never select built-in operations. |
 
 ### Output
 
@@ -860,9 +856,14 @@ Options of `worksheet`, and of `defined` and `graph` (except `units`). Each one 
 
 ## Built-in operations
 
-Built-in operations work in worksheet math, calculation strings and graphs. Import solveng with `*`
-to bring its additional math names into scope. Write `$tri(t)$` or `#worksheet("tri(0) =")`.
-`builtin-functions: false` disables automatic operation names, including solveng's exported names.
+Built-in operations work in worksheet math, calculation strings and graphs. In strings and code their
+names work as they are: `#worksheet("tri(0) =")`. In math, Typst needs a binding for every name it doesn't
+know, and `#import "@preview/solveng:1.0.0": *` brings none: import the ones you use from solveng's
+`functions` module, `#import functions: tri, sgn` (or `#import functions: *`), then `$tri(t)$`. Like any
+import, it holds only where it's written, so no name appears in a document unasked. `at` needs it most:
+without the import, `$at(v, 0)$` is Typst's symbol @. Typst's own math names (`sin`, `sqrt`, `vec`, …)
+need no import.
+`builtin-functions: false` disables automatic operation names, including the names imported from `functions`.
 A worksheet's own functions take precedence over automatic names.
 
 Explicit references always select the underlying operation: `#let triangle = math.op("tri")`,
@@ -928,6 +929,7 @@ Three operators, and `=` keeps its meaning from maths:
 
 ````typ
 #show: worksheet
+#import units: cm
 $h := 5 z$, $z := 20 cm$, $h =$             // h ≔ 5z, z ≔ 20 cm, h = 1 m
 $U(x: m) := h x a ->$                      // U(x) ≔ h x a → 1 m · a x
 $g(x: m) := U(x)/a ->$                     // g(x) ≔ U(x)/a → 1 m · x
@@ -941,8 +943,9 @@ k := 2 m = 200 cm =                        // k = 1: the comparison holds
 
 ````typ
 #show: worksheet
+#import units: kΩ, A
 $R := 4.7 kΩ$                        // math: a number and a unit
-$I := frac(2, 4) A$, $Q_0 := 3450/2 mAh$, $U := (1+2) dot 1,5 "V"$, $A := 2^3 "m"^2$  // arithmetic in the number
+$I := frac(2, 4) #A$, $Q_0 := 3450/2 "mAh"$, $U := (1+2) dot 1,5 "V"$, $A := 2^3 "m"^2$  // arithmetic in the number
 ```solveng
 R2 := 2 R; Z := [5 V] / I            // code: units in brackets inside an equation
 U2 := R [1 mA]
@@ -950,13 +953,13 @@ Q := U2 [2 s] -> substitute(U2)     // U2's formula put in: Q ≔ U2 · 2 s → 
 ```
 ````
 
-- **Units:** SI base units (m kg s A K mol cd) and V A Ω W J C F H S Hz N Pa T Wb, min h Ah Wh As Ws eV l %, ‰, °, rad, °C (as a temperature *difference*), all SI prefixes; your own with the option `units`. Powers as `m^2`, `m²`, `s^-1`; quotients as `m/s^2`; products with spaces `kg m`.
-- **Typeable spellings:** `Omega` → Ω, with a prefix glued as in math: `k""Omega` → kΩ (`kOmega` is not a unit, like `DeltaT` is not ΔT); `u` → µ, `degC` → °C, `deg` → °. They are printed with the proper symbols (`[20 uA]` → 20 µA). In math, units are names (`$4.7 kΩ$`, `$20 µA$`), see [Units and variables](#units-and-variables).
+- **Units:** SI base units (m kg s A K mol cd) and V A Ω W J C F H S Hz N Pa T Wb, min h Ah Wh As Ws eV l %, ‰, °, rad, °C (as a temperature *difference*), all SI prefixes; your own with the option `units`. Powers as `m^2`, `m²`, `s^-1`; quotients as `m/s^2`; products with spaces `kg m`; numbers with powers in definitions, `"10^3 m"`.
+- **Typeable spellings:** `Omega` → Ω, with a prefix glued as in math: `k""Omega` → kΩ (`kOmega` is not a unit, like `DeltaT` is not ΔT); `u` → µ, `degC` → °C, `deg` → °. They are printed with the proper symbols (`[20 uA]` → 20 µA). In math, units are quoted (`$4.7 "kΩ"$`, `$20 "µA"$`) or imported unit words, see [Units and variables](#units-and-variables).
 - **Decimal comma:** `7,2 V` works; the output separator follows the document language (option `separator`).
 - **No e-notation:** numbers are written out (`$11200$`, or `$1.12 dot 10^4$`). `1.12e4` is the coefficient 1.12 times the variable `e4` (undefined unless defined; quote it, `$"e4"$`, for a name of several letters). Scientific notation is only how results are written (option `scientific`, keyword `sci`).
 - **Names:** the acute accent `´` and the backtick (`` ` ``) are literal name characters (`$x´ := 3$`), with no escaping needed. Digits continue a name: `t2` differs from `t_2` and keeps its digits on the baseline. Complete Latin letter runs normalize to Greek: `Delta2tau` → Δ2τ, while `Deltatau` stays unchanged. `""` joins name fragments: `Delta""tau` → Δτ and `t""2` → t2. Quotes only carry a name through Typst: `$"Delta2tau"$` names Δ2τ, and `$"Delta\"\"tau"$` names Δτ. Explicit subscripts may be grouped: `$R_(a b)$` names R_ab. Operators and whitespace end a name; a leading number remains a coefficient (`2t2` is 2 times t2).
 - **Sums:** `sum_(k=0)^10 k^2` or `sum(k^2, k, 0, 10)` sums over inclusive integer bounds. The index is local and case-sensitive. Parenthesize a summand containing addition. Small finite sums simplify exactly; infinite sums stay symbolic after `->` and are evaluated numerically for `=` and graphs. For example, `$s_2(t) := sum_(k=0)^infinity sigma(t-k+3/4)$` defines a function usable as `#graph("s_2(t)")` once `sigma` is defined. Piecewise linear signal sums are counted directly between their corners. Other numerical sums use at most 100000 terms and a shrinking-tail convergence estimate; slow or nonconvergent series report an error. Bounds and the index are unitless, while summands may carry units.
-- **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. The standard names are exported by solveng; a worksheet function such as `$Lambda(t) := tri(t)$` or `#let triangle = math.op("tri")` gives another name. Linear combinations simplify and can be solved; definite integrals split affine arguments at their boundaries. Distributional derivatives stay symbolic.
+- **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. In math, import the names from `functions` (`#import functions: rect, tri, sgn`); a worksheet function such as `$Lambda(t) := tri(t)$` or `#let triangle = math.op("tri")` gives another name. Linear combinations simplify and can be solved; definite integrals split affine arguments at their boundaries. Distributional derivatives stay symbolic.
 - **Ranges and elements:** `$i := 0..N$` (also `0 .. N`, `0...N`) is a range variable: the values from 0 to N in steps of 1, both included, counting down when N < 0; with units, use `range(start, end, step: …)`. `x[i]` and `A[i, j]` are elements, counted from 0, written right after the name without a space; a vector of indices selects several (`x[i]` with i a range is a vector). `$x[i] := …$` defines an element for each value of the range variable i, the body calculated with i standing for that value: `$t[i] := i Delta""t$`, `$x[i] := tri(t[i])$`. Elements not defined yet are 0; defining one past the end extends the vector, as in Mathcad. `A[i, j] := …` defines a matrix. In code, `x[i]` is an index and `R [1 mA]`, with a space, a value with a unit.
 - **Convolution:** `convolve(x, h)` of sequences and `convolve(f(τ), g(τ), τ, t)` of functions, see `convolve`. Sequences of values are convolved numerically (whole numbers exactly), so long sampled signals stay fast; functions exactly where they're piecewise polynomial.
 - **Operators:** `+ - * / ^ · ×`, implicit multiplication (`2 pi f C`), `sqrt exp ln log sin cos tan asin acos atan abs`, constants `pi e` (unless you define a variable with that name), your own functions.
@@ -965,13 +968,15 @@ Q := U2 [2 s] -> substitute(U2)     // U2's formula put in: Q ≔ U2 · 2 s → 
 
 Many engineering symbols are also units: `A` (area, ampere), `V` (volume, volt), `T` (period, tesla), `h` (height, hour), `C`, `F`, `W`, `m`, `s`, `l`, `L`, … solveng keeps them apart by *how* they are written, never by guessing:
 
-- **Math:** units are names, `$30 mA$`, `$4.7 kΩ$`, `$9.81 "m"/"s"^2$` (solveng brings every unit of several letters and every prefixed one, set upright); quoted names (`$3 "bar"$`) write other units, including your own. Single letters are variables, including after numbers (`$5 "V"$` multiplies by the variable V). Quote a unit (`$5"V"$`, `$3"h"$`), or use an explicit Typst binding (`$5#V$`). Parameter annotations such as `$f(x: A) := x$` accept unit names; calls must carry the dimension, as in `$f(1"A") =$`. Quoted text is a name of several letters (`$"tews" := 2$`), as Typst needs; `"as"` casts.
-- **Code:** a unit is read only where a value is written – right after a number (`I := 30 mA`) or in brackets (`[5 V]`, `[A]` for one ampere). Every other name in an equation is a variable. A value whose unit is also a defined variable (`t := 3 h` with `h` defined, `f := 1/T` with `T` defined) is refused, with a hint how to write either meaning: `[3 h]` for hours, `3*h` or `1/(T)` for the variable.
+- **Math:** units are quoted names, `$9.81 "m"/"s"^2$`, `$3 "bar"$` (your own too), or unit words: solveng's `units` module has every built-in unit and every prefixed one as a name, imported where you want them – `#import units: mA, kΩ, s`, or `#import units: *` – and then `$30 mA$`, `$4.7 kΩ$`, `$2#s$` (a single letter needs a hash, since Typst reads a lone letter in math as the letter). Typst's own names (`h`, `min`, `deg`, …) are left out. Nothing comes with `#import "@preview/solveng:1.0.0": *`: a shorthand in your document is one you imported or declared, so it's always clear where a name comes from, and like any import it holds only in its scope (a `#worksheet[…]` block, a file). A unit word means what the worksheet where it's used has under that name: your own unit if `units` redefines it, an error with `builtin-units: false` unless `units` defines it, a variable when `units` hides it (`T: none`). Unquoted single letters are variables, including after numbers (`$5 V$` multiplies by the variable V); after `->` only a unit can follow, so a single letter there is the unit: `$t -> h$` shows t in hours, `$v -> m/s$` in metres per second (after a trailing `=` it stays a variable: `$t = h$` compares). Parameter annotations such as `$f(x: A) := x$` accept unit names; calls must carry the dimension, as in `$f(1"A") =$`. Quoted text is a name of several letters (`$"tews" := 2$`), as Typst needs; `"as"` casts.
+- **Code:** a unit is read only where a value is written – right after a number (`I := 30 mA`), in brackets (`[5 V]`, `[A]` for one ampere) or after `->`. Every other name in an equation is a variable. A value whose unit is also a defined variable (`t := 3 h` with `h` defined, `f := 1/T` with `T` defined) is refused, with a hint how to write either meaning: `[3 h]` for hours, `3*h` or `1/(T)` for the variable.
 
 ````typ
 #show: worksheet
+#import units: Hz, ms
 $A := 12$, $x := A dot 2"A" =$        // x ≔ A · 2 A = 24 A
 $T := 2"s"$, $f := 1/T = Hz$          // f ≔ 1/T = 0.5 Hz
+$T -> ms$                             // 2000 ms
 ```solveng
 g := 1/T                             // error: 'T' in '1/T' is both a defined variable and a unit – …
 ```
@@ -979,22 +984,24 @@ g := 1/T                             // error: 'T' in '1/T' is both a defined va
 
 For documents where nothing may be read two ways, `#worksheet(strict: true)` (or `#show: worksheet.with(strict: true)`) also refuses unit names as variable names (`A := 3 m^2` → pick `A_1`, or remove the unit).
 
-**Unit overlays.** Lookup has separate layers: the underlying built-in units, the optional built-in overlay, then user overlays in order. The built-in overlay exposes quoted unit names and automatic unit words. `builtin-units: false` disables that exposure; it never deletes the underlying units. Each `units: (…)` adds a user overlay, scoped to its worksheet, which falls back through lower overlays to the underlying built-ins.
+**Units of your own.** `units: (…)` defines units over the built-in ones: an expression of units and numbers (`bar: "100 kPa"`, `km_old: "10^3 m"`, `rpm: "1/min"`), a plain number (`dozen: 12`, a factor without unit), `auto` (a base unit of its own, `bit: auto`) or `none`. Units change what names mean, so they belong to an isolated worksheet (`scope: "isolated"`, the default for content); each starts a unit table of its own, built-in units (unless `builtin-units: false`) and its `units`, never the outer worksheet's. `inherit` and `shared` worksheets and equations passed to `worksheet` use the table around them and can't set `units` or `builtin-units`.
 
-Definitions in one overlay can refer to each other regardless of their order: `(km: "m", tui: "km")` makes both units one metre. A self reference falls back to the next lower overlay: `(s: "2s")` doubles the lower overlay's second. Circular dependencies such as `(zu: "uz", uz: "zu")` are rejected. `none` hides only the exact name for automatic and quoted lookup: `(s: none)` hides `s`, while `ms`, definition expressions such as `(mys: "s")`, still work.
+Definitions can refer to each other regardless of their order: `(km: "m", tui: "km")` makes both units one metre. A self reference is the built-in unit: `(s: "2s")` doubles the second. Circular dependencies such as `(zu: "uz", uz: "zu")` are rejected. A name defined anew is that unit everywhere, also where it would read as a prefix: with `(km: "s")`, `km` is a second and results are never shown in "km" for kilometres. `none` hides only the exact name: `(s: none)` makes `s` a variable, while `ms` and definition expressions such as `(mys: "s")` still work.
 
-Overlay unit names support the same symbols as variable names. `(alpha: "m")` defines the unit `α`: `$34"alpha"$` and `$34"α"$` agree, and completion inserts `"α"`. With explicit Typst unit bindings, `$34alpha$` and `$34#α$` work too: `#let alpha = unit("alpha")` and `#let α = unit("alpha")`. The editor collapses spelled names to `α` in equations.
+`builtin-units: false` leaves no built-in unit at all – not quoted, not as unit words, not with `unit("km")`, not after `=` or `->`: only what `units` defines exists, built from `auto` base units and numbers (`units: (m: auto, km: "1000 m", s: auto, min: "60 s")`). Prefixes still apply to your units (`mm`, `ms` above). Nested worksheets keep the setting, like every option.
 
-A user overlay provides quoted lookup, not Typst bindings. With `builtin-units: false, units: (s: "s")`, `$34"s"$` is a quantity, but `$34s$` multiplies by an unresolved math symbol. A worksheet variable with that quoted name takes precedence over the unit. Completion inserts quoted units, and can replace `#s` with `"s"` after a number.
+Unit names support the same symbols as variable names. `(alpha: "m")` defines the unit `α`: `$34"alpha"$` and `$34"α"$` agree, and completion inserts `"α"`. With explicit Typst unit bindings, `$34alpha$` and `$34#α$` work too: `#let alpha = unit("alpha")` and `#let α = unit("alpha")`. The editor collapses spelled names to `α` in equations.
+
+Your own units have no unit words: write them quoted, `$34"s"$`, or declare a shorthand. A worksheet variable with that quoted name takes precedence over the unit. Completion inserts quoted units, and can replace `#s` with `"s"` after a number.
 
 An explicit unit shortcut uses `unit`: `#let ing = unit("ing")`, used as `$1ing$`. A single letter
-needs an explicit reference: `#let i = unit("i")`, `$1#i$`. The unit name resolves through the active overlays
-at use, so the same binding can denote different units in nested worksheets. Completion is available inside
+needs an explicit reference: `#let i = unit("i")`, `$1#i$`. The unit name resolves through the units of the
+worksheet where it's used, so the same binding can denote different units in nested worksheets. Completion is available inside
 the string; hover identifies the binding as a unit shortcut. Plain string bindings are not detected as unit shortcuts.
 `$1i$` stays multiplication
 by a worksheet variable. Complex numbers are unsupported; `i` is not a built-in imaginary constant.
 Typst options cannot create lexical bindings. Use the editor action *Declare unit overlay bindings* to
-insert declarations for an overlay's names, or write them directly.
+insert declarations for an option's names, or write them directly.
 
 ```typ
 #show: worksheet.with(units: (ing: "km", i: "km"))
@@ -1006,9 +1013,14 @@ $c := 1"i" =$
 ```
 
 ```typ
-#show: worksheet.with(units: (bar: "100 kPa", rpm: "1/min", t: "1000 kg", T: none))
+#show: worksheet.with(units: (bar: "100 kPa", rpm: "1/min", t: "1000 kg", T: none, km_old: "10^3 m"))
 $p := 3 "bar"$, $n := 3000 "rpm"$          // prefixes work too: "mbar"
-#worksheet(preferred-units: ("bar",))[$p/2 =$]      // results with these dimensions are shown in these units
+#worksheet(preferred-units: ("bar",), scope: "inherit")[$p/2 =$]   // results of this dimension in bar
+```
+
+```typ
+#show: worksheet.with(builtin-units: false, units: (m: auto, km: "1000 m", s: auto, min: "60 s"))
+$d := 3 "km"$, $t := 90 "s" -> min$, $v := d/t -> "km"/"min"$   // "h", "g", "V": no units here
 ```
 
 ## How it solves
@@ -1027,6 +1039,7 @@ A solved definition keeps its solutions: `circle(x, r) := x^2 + b^2 = r^2 -> sol
 - **Domains:** only real numbers; `(-8)^(1/3)` is −2, `sqrt(-1)` an error.
 - **°C** is a temperature difference (no 273.15 offset); temperatures in formulas like `p V = n R T` need K. New base dimensions (bit, €) can be added with `units: (bit: auto)`, at most 8.
 - **Prefixes:** a lone `m` before a unit is metre: `"m s"`, `$"m" Omega$` are m·s and Ω·m; write `"ms"`, `$"m"Omega$` for milli.
+- **Unit expressions** in `units` take whole-number powers (`"10^3 m"`, `"10^(-3) m"`, `"m^2"`); fractional ones (`"m^(1/2)"`) aren't read.
 - **Functions** can't call themselves.
 - **Ranges** have at most 100000 values, and their bounds and steps need values when they're defined. In math an index follows its name directly, so `a[b + c]` is an element of a – write `a dot [b + c]` or `a (b + c)` for a product.
 - **Convolution** of functions is exact for piecewise polynomials with numeric breakpoints (rect, tri, sgn, abs, cases with affine conditions, polynomials); exponentials, trigonometric functions, symbolic shifts and integrals that diverge stay the integral, evaluated numerically.
@@ -1056,6 +1069,7 @@ tt run                                        # units, solving, names, lambdify 
 tt update readme                              # accept changed output of the README examples
 python3 tests/examples.py                     # every example in README.md and docs/reference.md compiles on its own
 python3 tests/reference.py                    # docs/reference.md from the doc comments in src/ (--check: is it up to date?)
+python3 scripts/unit-words.py                # src/unit-words.typ (the units module) from the unit table (--check: is it up to date?)
 uv run --no-project --with sympy --with mpmath python tests/oracle/generate.py   # the reference results
 ```
 

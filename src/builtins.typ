@@ -1,8 +1,13 @@
 /// ## Built-in operations
 ///
-/// Built-in operations work in worksheet math, calculation strings and graphs. Import solveng with `*`
-/// to bring its additional math names into scope. Write `$tri(t)$` or `#worksheet("tri(0) =")`.
-/// `builtin-functions: false` disables automatic operation names, including solveng's exported names.
+/// Built-in operations work in worksheet math, calculation strings and graphs. In strings and code their
+/// names work as they are: `#worksheet("tri(0) =")`. In math, Typst needs a binding for every name it doesn't
+/// know, and `#import "@preview/solveng:1.0.0": *` brings none: import the ones you use from solveng's
+/// `functions` module, `#import functions: tri, sgn` (or `#import functions: *`), then `$tri(t)$`. Like any
+/// import, it holds only where it's written, so no name appears in a document unasked. `at` needs it most:
+/// without the import, `$at(v, 0)$` is Typst's symbol @. Typst's own math names (`sin`, `sqrt`, `vec`, …)
+/// need no import.
+/// `builtin-functions: false` disables automatic operation names, including the names imported from `functions`.
 /// A worksheet's own functions take precedence over automatic names.
 ///
 /// Explicit references always select the underlying operation: `#let triangle = math.op("tri")`,
@@ -54,7 +59,16 @@
 /// $c := cases(0 & b < 0, b & "otherwise") =$
 /// ```
 
-#import "operation.typ": operation, _op-call
+// math.op(name) followed by its arguments, as Typst writes a call: what the worksheet reads as an explicit
+// reference ⦇name⦈(…), selecting an underlying operation
+#let _op-call(name, args, implicit: false) = {
+  // the colon of a named argument as a class of its own: no parameter type to show as a chip
+  let parts = args.pos() + args.named().pairs().map(((k, v)) => [#k] + math.class("normal", [:]) + h(0.25em) + v)
+  let o = if implicit { [#math.op(name)<solveng-function>] } else { math.op(name) }
+  // a comma and a space between arguments: 1, 10 (without the space, 1,10 reads as a decimal comma)
+  let body = parts.join(math.class("punctuation", [,]) + h(0.17em))
+  $#o (#body)$.body
+}
 
 /// Rectangular pulse: `rect(x)` is 1 for |x| < ½, ½ at x = ±½, and 0 otherwise.
 ///

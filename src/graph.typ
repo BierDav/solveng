@@ -46,17 +46,17 @@
 /// - width (auto, length, ratio, relative, fraction): Width of the whole graph, labels included: `12cm`, `300pt` or a share like `100%`. `1fr` is the container's width – in a grid, the column's. `auto`: a plot area of 8 cm.
 /// - height (auto, length, ratio, relative, fraction): Like `width`; `auto`: a plot area of 5 cm. A share is of the container's height, or of the width when the page grows with its content.
 /// - colors (array, color): Colors of the curves, e.g. `(gray, blue, rgb("#f98eff"))`.
-/// - digits, separator, form, … (auto): Every option of `worksheet` (except `units`) works here too, for this call only.
+/// - digits, separator, form, … (auto): Every option of `worksheet` (except `units` and `builtin-units`, which need a worksheet of their own) works here too, for this call only.
 /// -> content
 #let graph(
   equation, ..args, xrange: auto, yrange: auto, mark: none, xmark: (), ymark: (), samples: 400,
   width: auto, height: auto, colors: (blue, red.darken(10%), green.darken(25%), orange.darken(10%)),
   digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto,
-  max-denominator: auto, fractions: auto, prefixes: auto, show-si: auto, builtin-units: auto, builtin-functions: auto, preferred-units: auto, strict: auto, steps: auto,
+  max-denominator: auto, fractions: auto, prefixes: auto, show-si: auto, builtin-functions: auto, preferred-units: auto, strict: auto, steps: auto,
   layout: auto, implies: auto, approximate: auto, block: auto, max-solutions: auto, defined-style: auto, errors: auto, show-casts: auto, show-types: auto,
   words: auto, chips: auto, unit-style: auto, unit-separator: auto,
 ) = _mine(context {
-  let lc = _check(_given((digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions, prefixes: prefixes, show-si: show-si, builtin-units: builtin-units, builtin-functions: builtin-functions, preferred-units: preferred-units, strict: strict, steps: steps, layout: layout, implies: implies, approximate: approximate, block: block, max-solutions: max-solutions, defined-style: defined-style, errors: errors, show-casts: show-casts, show-types: show-types, words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator)))
+  let lc = _check(_given((digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions, prefixes: prefixes, show-si: show-si, builtin-functions: builtin-functions, preferred-units: preferred-units, strict: strict, steps: steps, layout: layout, implies: implies, approximate: approximate, block: block, max-solutions: max-solutions, defined-style: defined-style, errors: errors, show-casts: show-casts, show-types: show-types, words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator)))
   if _E(lc) { return _errc("graph: " + lc.err, _cf.get(), wide: true) }
   let cf = _cf.get() + lc
   let fail(m) = _errc("graph: " + m, cf, wide: true)
@@ -65,7 +65,7 @@
   let eqs = (equation,)
   if args.pos().any(a => type(a) == array) { return fail("the x range is named: xrange: " + repr(args.pos().find(a => type(a) == array))) }
   // options graph had: what replaces them
-  let gone = (x: "x is the one variable of the curves that isn't defined", xunit: "x's unit comes from a function parameter with a unit (q(I: mA)), xrange or the marks", yunit: "y's unit comes from the curves; preferred-units: (\"mW\",) picks another")
+  let gone = (x: "x is the one variable of the curves that isn't defined", xunit: "x's unit comes from a function parameter with a unit (q(I: mA)), xrange or the marks", yunit: "y's unit comes from the curves; preferred-units: (\"mW\",) picks another", builtin-units: "units change what names mean, so they belong to a worksheet with scope: \"isolated\" around the graph", units: "units change what names mean, so they belong to a worksheet with scope: \"isolated\" around the graph")
   let old = args.named().keys().find(k => k in gone)
   if old != none { return fail(old + ": is gone – " + gone.at(old)) }
   let args = arguments(..args.pos().filter(a => type(a) not in (str, content)), ..args.named())

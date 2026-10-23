@@ -100,10 +100,11 @@
 
 /// Calculates the math you write, like a Mathcad worksheet.
 ///
-/// `#show: worksheet` calculates the rest of the document, `#worksheet[…]` its content (whose definitions stay local unless `export: true`), and `#worksheet($…$)` single equations, also outside a worksheet.
+/// `#show: worksheet` calculates the rest of the document, `#worksheet[…]` its content (on its own unless `scope` says otherwise), and `#worksheet($…$)` single equations, also outside a worksheet.
 ///
 /// ```typ
 /// #show: worksheet
+/// #import units: mA, mAh
 /// The battery holds $Q_0 := 3450 mAh$ and the load draws $I := 30 mA$,
 /// so it lasts $t := Q_0 / I = 1 "h"$.
 /// ```
@@ -117,7 +118,7 @@
 ///
 /// Keywords: `solve(x, …)`, `substitute(x, …)` (these variables' formulas put in, other names kept), `laplace`, `invlaplace` (optional input and output names), `simplify`, `frac` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
 ///
-/// **Units** are names: `$30 mA$`, `$4.7 kΩ$`, `$9.81 "m"/"s"^2$`, and `$3 "bar"$` for your own units (with `worksheet(units: …)`). Single-letter units require quotes: `$5 "V"$`, `$3 "h"$`, and `$t = 1 "h"$` shows t in hours. Anywhere else it's a variable, also alone after `=`: `$t = h$` compares t with a variable h, and `$3 dot h$` is 3 times h.
+/// **Units** are quoted names, `$9.81 "m"/"s"^2$`, `$3 "bar"$` for your own units (with `worksheet(units: …)`), or unit words imported from solveng's `units` module: after `#import units: mA, kΩ`, `$30 mA$`, `$4.7 kΩ$`; single letters need a hash, `#import units: V` then `$5#V$`. An unquoted single letter is a variable, also alone after `=`: `$t = h$` compares t with a variable h, and `$3 dot h$` is 3 times h; after `->` only a unit can follow, so `$t -> h$` shows t in hours.
 ///
 /// **Code.** Each line of a `solveng` code block is calculated the same way and shown with all its steps: `t := Q0/I = [h]`, `Q0/I =`, `x^2 = 4 -> solve(x)`; units in brackets, `;` separates the equations of a system, `//` starts a comment. Inline code and code with another language are left alone.
 ///
@@ -135,7 +136,7 @@
 /// ```typ
 /// #worksheet[
 ///   $t := 5 "s"$
-///   #worksheet(evaluate: false, inherit: true)[
+///   #worksheet(evaluate: false, scope: "inherit")[
 ///     $E = m c^2$ stays as written, and so does $t = 3 "s"$;
 ///     #worksheet($t =$) is still calculated.
 ///   ]
@@ -151,47 +152,42 @@
 ///   ```solveng
 ///   I := U/R
 ///   ```
-///   The current is #worksheet($I = mA$).
+///   The current is #worksheet($I = "mA"$).
 /// ]
 /// ````
 ///
-/// **Scopes.** `inherit` brings the parent's definitions into the worksheet; `export` passes
-/// the worksheet's final definitions back when it ends. Both default to `auto`: true for
-/// expressions (including strings and code-block arguments), false for content blocks.
-/// A block containing only one equation or raw code block is the same content value as a direct
-/// expression argument in Typst; set `export: false` explicitly to keep that case local.
-/// Neither option is inherited by nested worksheets. Exported variables, functions and solved
-/// values replace existing names in the parent. Only definitions still present at the end
-/// are exported: `clear`, `clear-at` and `clear(all: true)` do not delete parent definitions.
-/// Configuration and units set inside the block stay scoped as before.
+/// **Scopes.** `scope` says what a worksheet sees and keeps: `"isolated"` starts empty and its definitions end with it; `"inherit"` sees the definitions made before, and its own end with it; `"shared"` sees them, and what it defines stays afterwards, replacing names of the same name (variables, functions and solved values alike). `auto`: isolated for content (`#worksheet[…]`, `#show: worksheet`), shared for equations, strings and code blocks passed to `worksheet`. Typst makes a content block holding only one equation or code block the same value as that equation, so `#worksheet[$x := 1$]` is shared; write `scope: "isolated"` to keep it local. Nested worksheets don't inherit the scope. Clearing never reaches outside: `clear`, `clear-at` and `clear(all: true)` don't delete the outer definitions.
+///
+/// Units change what names mean, so `units` and `builtin-units` need an isolated scope, which starts a unit table of its own: its `units` over the built-in ones (none with `builtin-units: false`, which nested worksheets keep like every other option), never the outer worksheet's `units`. Other options are scoped as before.
 ///
 /// ```typ
 /// #show: worksheet
 /// $U := 12 "V"$
-/// #worksheet(inherit: true, export: true)[
+/// #worksheet(scope: "shared")[
 ///   $R := 100 "Ω"$
-///   $I := U/R = mA$
+///   $I := U/R = "mA"$
 /// ]
-/// $I = mA$ // 120 mA, exported from the block
-/// #worksheet($U := 5 "V"$, export: false) // local to this call
+/// $I = "mA"$ // 120 mA, kept from the block
+/// #worksheet($U := 5 "V"$, scope: "inherit") // local to this call
 /// $U =$ // still 12 V
 /// ```
 ///
 /// **Editors.** Each equation and code block the worksheet sees leaves a `metadata` labelled `<solveng>` with its `location()`, whether it was calculated and whether math is evaluated there; each problem one with `kind: "error"`, its `message`, the `element` it's in (`none` for equations and code passed to `worksheet`) and the `source` statement (a code line; empty for math); at the end (and before each match of `clear-at`) one lists everything defined, with values, and the units. Editors like Typewright read them after compiling: `query(<solveng>)`.
 ///
-/// **Starting over.** `clear-at` clears every definition at each match; `#clear(all: true)` inside a worksheet does the same once: back to how it started (with `inherit: true` the outer definitions stay), and `#clear("x", "f")` forgets only those names. After a `#worksheet[…]` the outer definitions come back; with `export: true`, its final definitions are merged over them.
+/// **Starting over.** `clear-at` clears every definition at each match; `#clear(all: true)` inside a worksheet does the same once: back to how it started (with `scope: "inherit"` or `"shared"` the outer definitions stay), and `#clear("x", "f")` forgets only those names. After a `#worksheet[…]` the outer definitions come back; with `scope: "shared"`, its final definitions are merged over them.
 ///
 /// ```typ
 /// #show: worksheet.with(clear-at: heading)                    // every heading
 /// #show: worksheet.with(clear-at: heading.where(level: 1))    // only top-level ones
-/// #show: worksheet.with(clear-at: heading, inherit: true)     // keep the definitions made before
+/// #show: worksheet.with(clear-at: <exercise>)                 // every element labelled, = Task <exercise>
+/// #show: worksheet.with(clear-at: heading, scope: "inherit")  // keep the definitions made before
 /// ```
 ///
 /// **Options.** Every option defaults to `auto`, which keeps the current setting, so only what you pass changes. For the whole document: `#show: worksheet.with(digits: 3)`; for a part: `#worksheet(evaluate: false, steps: "result")[…]`; for equations or content it calculates: `#worksheet($R := U/I =$, digits: 2)`; or keep them in a dictionary: `#let opts = (digits: 2, separator: ",")`, then `#worksheet($P := U I =$, ..opts)`. `defined` and `graph` take the same options except `units`. Unknown options and values of the wrong type are shown as an error in the document.
 ///
 /// ```typ
 /// #show: worksheet.with(digits: 3, form: "fraction")   // your defaults, the whole document
-/// $U := 5 "V"$, $I := 30 mA$
+/// $U := 5 "V"$, $I := 30 "mA"$
 /// #worksheet($I/3 =$, digits: 2)                        // only this equation
 /// #worksheet(evaluate: false, multiplication: "times")[Prose and $E = m c^2$ stay as written.]
 /// ```
@@ -218,9 +214,8 @@
 /// ```
 ///
 /// - ..body (content, str): The content, or equations to calculate: math, strings (code lines) and code blocks.
-/// - inherit (auto, bool): See the definitions made before the worksheet (also after each match of `clear-at`). `auto` (default): yes for equations, no for content. `inherit: false` with equations calculates them on their own; what they define still counts afterwards unless `export: false`, as what a `graph` defines does.
-/// - export (auto, bool): Pass the final definitions and solved values to the enclosing scope. `auto` (default): yes for expressions, strings and code-block arguments; no for content blocks. Independent of `inherit`. Exported names replace existing names; clearing a name inside does not remove it from the parent.
-/// - clear-at (none, function, selector): Clear every definition at each match, e.g. `heading` (every heading) or `heading.where(level: 1)`: the definitions made since are forgotten, like `#clear(all: true)`.
+/// - scope (auto, str): What the worksheet sees and keeps: `"isolated"` (starts empty, its definitions end with it), `"inherit"` (sees the definitions made before, its own end with it) or `"shared"` (sees them, and its definitions stay afterwards, over the outer ones). `auto` (default): isolated for content, shared for equations, strings and code blocks. `units` and `builtin-units` need `"isolated"`.
+/// - clear-at (none, function, selector, label): Clear every definition at each match: `heading` (every heading), `heading.where(level: n)` (headings of level n) or a label like `<exercise>` (every element with it, e.g. `= Task <exercise>`): the definitions made since are forgotten, like `#clear(all: true)`.
 /// - hidden (bool): Calculate without showing what is calculated (only problems are shown): the equations, or the math and code blocks of the content. Not inherited by nested worksheets.
 /// - evaluate (bool): Calculate the math in the content; `false`: only its code blocks and `#worksheet(…)` calls are. Not inherited by nested worksheets, and not for equations, which are always calculated.
 /// - digits (auto, int): Significant digits of computed values, 1…15. Default `4`: `57.5 h`, `123500`.
@@ -235,9 +230,9 @@
 /// - fractions (auto, str): How fractions are written: `"stacked"` (default) or `"slash"` (`1/2`).
 /// - prefixes (auto, str, none, array): Prefixes picked for results: `"all"` (default: a f p n µ m k M G T; times from a minute on in min or h, not ks), `none` (base unit only) or an array like `("m", "k")` (`"u"` = µ).
 /// - show-si (auto, bool): `defined` also shows the SI value (`Q₀ = 3450 mAh = 12420 C`). Default `false`.
-/// - builtin-units (auto, bool): Enable automatic unit words and quoted built-in names, true by default. False disables their exposure; user overlays still work: `units: (s: "s")` restores `"s"`. Unit definitions can always refer to underlying built-ins.
-/// - units (auto, dictionary): Add a user overlay of unit definitions: `(bar: "100 kPa", rpm: "1/min", dozen: 12)`. Each overlay falls back to lower overlays and underlying built-ins. Entries may refer to each other regardless of order; self references use lower overlays, so `(s: "2s")` doubles the previous second. Circular dependencies are rejected. `auto` creates a base unit; `none` hides a name. Use quoted names (`$1"ing"$`) or declare `#let ing = unit("ing")` for `$1ing$`; single-letter bindings need a hash (`#let i = unit("i")`, `$1#i$`). Explicit `unit` shortcuts complete inside their strings, show unit-shortcut hover documentation, and resolve through the overlays at each use. The editor action *Declare unit overlay bindings* generates these declarations; worksheet options cannot inject Typst lexical bindings. With content, overlays are scoped to the worksheet; a show rule applies them to remaining content.
-/// - builtin-functions (auto, bool): Enable automatic built-in operation names, true by default. False disables automatic lookup in code and solveng's exported math names. Explicit `math.op("tri")` and `operation("convolve")` references always select the underlying operations. Quoted math names never select built-in operations.
+/// - builtin-units (auto, bool): Whether solveng's built-in units exist, true by default. `false`: none at all – not quoted, not as unit words, not with `unit("km")`, not after `=` or `->` – only the units of the option `units`. Needs an isolated scope; nested worksheets keep it.
+/// - units (auto, dictionary): Units of your own, a user overlay over the built-in ones: `(bar: "100 kPa", rpm: "1/min", dozen: 12, ü: auto)`. A value is an expression of units and numbers (`"10^3 m"`, `"1/min"`), a plain number (a factor without unit), `auto` (a base unit of its own) or `none` (hides a built-in name, `T: none`: `T` is then a variable, while `mT` and definitions still reach it). Entries may use each other in any order; a self reference is the built-in unit (`(s: "2s")` doubles the second), circular ones are errors. Prefixes work on your units too (`"mbar"`). Needs an isolated scope, which starts a unit table of its own: the units of the outer worksheet don't apply inside. Write them quoted (`$1 "bar"$`) or declare a shorthand, `#let bar = unit("bar")`, then `$1 bar$` (single letters with a hash, `$1#i$`).
+/// - builtin-functions (auto, bool): Enable automatic built-in operation names, true by default. False disables automatic lookup in code and the math names imported from solveng's `functions`. Explicit `math.op("tri")` and `operation("convolve")` references always select the underlying operations. Quoted math names never select built-in operations.
 /// - preferred-units (auto, str, array): Units for results and graph axes of their dimension, `("bar", "kWh")`, before input units and automatic SI prefixes.
 /// - strict (auto, bool): Unit names can't be variable names, and units in math must be quoted (`$5 "V"$`), see *Units and variables*.
 /// - steps (auto, str): Default for `steps` of `solve`: `"full"` (default), `"formula"`, `"result"` or `"value"`.
@@ -257,7 +252,7 @@
 /// -> content
 #let worksheet(
   ..body,
-  inherit: auto, export: auto, clear-at: none, hidden: false, evaluate: true,
+  scope: auto, clear-at: none, hidden: false, evaluate: true,
   digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto, max-denominator: auto, fractions: auto,
   prefixes: auto, show-si: auto, builtin-units: auto, units: auto, preferred-units: auto, strict: auto,
   builtin-functions: auto,
@@ -268,7 +263,8 @@
   let pos = body.pos()
   if body.named().len() > 0 {
     let k = body.named().keys().first()
-    return _err-now("unknown argument '" + k + "' for worksheet (arguments: inherit, export, clear-at, hidden, evaluate and the options " + _DEF.keys().join(", ") + ")")
+    if k in ("inherit", "export") { return _err-now(k + " was replaced by scope: \"isolated\" | \"inherit\" | \"shared\" (inherit: true is scope: \"inherit\", inherit and export: true is scope: \"shared\")") }
+    return _err-now("unknown argument '" + k + "' for worksheet (arguments: scope, clear-at, hidden, evaluate and the options " + _DEF.keys().join(", ") + ")")
   }
   let lc = _check(_given((
     digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions,
@@ -280,58 +276,58 @@
   if _E(lc) { return _err-now(lc.err) }
   if type(hidden) != bool { return _err-now("hidden: true or false, got " + _tn(hidden)) }
   if type(evaluate) != bool { return _err-now("evaluate: true or false, got " + _tn(evaluate)) }
-  if inherit != auto and type(inherit) != bool { return _err-now("inherit: auto, true or false, got " + _tn(inherit)) }
-  if export != auto and type(export) != bool { return _err-now("export: auto, true or false, got " + _tn(export)) }
+  if scope != auto and scope not in _CH.scope { return _err-now("scope: auto, \"isolated\", \"inherit\" or \"shared\", got " + repr(scope)) }
   let eqs = pos.len() > 0 and pos.all(x => type(x) == str or (type(x) == content and x.func() in (math.equation, raw)))
-  let exports = if export == auto { eqs } else { export }
+  let scope = if scope != auto { scope } else if eqs { "shared" } else { "isolated" }
+  // units change what names mean, so only a scope of its own can change them
+  let unit-opts = ("units", "builtin-units").filter(k => k in lc)
+  if scope != "isolated" and unit-opts.len() > 0 { return _err-now(unit-opts.join(" and ") + " need scope: \"isolated\": units change what names mean, so the definitions made with other units can't be seen or kept (got scope: " + repr(scope) + (if eqs { ", the default for equations" } else { "" }) + ")") }
   let finish(d) = {
     let outer = d.at("^")
-    if exports { outer + (env: _p.merge(_env(outer), _env(d))) + if "last" in d { (last: d.last) } else { (:) } } else { outer }
+    // what the last line gave stays readable afterwards, whatever the scope
+    let last = if "last" in d { (last: d.last) } else { (:) }
+    if scope == "shared" { outer + (env: _p.merge(_env(outer), _env(d))) + last } else { outer + last }
   }
   let out = if eqs {
     if clear-at != none { return _err-now("clear-at is for a worksheet's content, #worksheet[…]") }
     if not evaluate { return _err-now("evaluate: false is for a worksheet's content, #worksheet(evaluate: false)[…]; equations passed to worksheet are always calculated") }
     let code(s, block) = _call(_p.statements, s, "code").map(l => _line(l, block, quiet: hidden)).filter(l => l != none).join()
     let shown = pos.map(x => if type(x) == str { code(x, true) } else if x.func() == raw { code(x.text, x.block) } else { _math-def(x, quiet: hidden) }).join()
-    if inherit != false and exports { shown } else {
-      _st.update(d => { let inner = if inherit != false { d } else { (:) }; inner.insert("^", d); inner })
+    if scope == "shared" { shown } else {
+      _st.update(d => { let inner = if scope == "inherit" { d } else { (:) }; inner.insert("^", d); inner })
       shown
       _st.update(finish)
     }
   } else {
     let b = pos.at(0, default: [])
     if pos.len() != 1 or type(b) != content { return _err-now("worksheet takes content, #worksheet[…], or equations, #worksheet($U := 5 V$)") }
-    if type(clear-at) not in (type(none), function, selector, label) { return _err-now("clear-at: none or where to clear the definitions, like heading or heading.where(level: 1), got " + _tn(clear-at)) + b }
+    let level = if type(clear-at) == selector { repr(clear-at).match(regex("^heading\\.where\\(level: (\\d+)\\)$")) } else { none }
+    if not (clear-at == none or clear-at == heading or type(clear-at) == label or (type(clear-at) == selector and (repr(clear-at) == "heading" or (level != none and int(level.captures.first()) > 0)))) {
+      return _err-now("clear-at: none, heading, heading.where(level: n) or a label like <exercise>, got " + repr(clear-at)) + b
+    }
     // "^": the state outside, restored at the end; "^0": the state at the start, for clear-at and clear(all: true)
-    _st.update(d => { let n = if inherit == true { d } else { (:) }; n.insert("^", d); n.insert("^0", n); n })
+    _st.update(d => { let n = if scope == "isolated" { (:) } else { d }; n.insert("^", d); n.insert("^0", n); n })
     _cf.update(c => c + ("#blocks": _blocks(c) + 1, "#evaluate": (evaluate,) + c.at("#evaluate", default: ())))
     _rules(b, clear-at, hidden)
     _block-note
     _cf.update(c => c + ("#blocks": _blocks(c) - 1, "#evaluate": c.at("#evaluate").slice(1)))
     _st.update(finish)
   }
-  if lc.len() == 0 { out } else {
-    // units add to the ones set before (none removes one); ones the engine can't read are left out, with a note
-    let unit-config(c) = {
-      let layers = c.at("#unit-layers", default: if c.units.len() == 0 { () } else { (c.units,) })
-      c + (units: c.units + lc.units, "#unit-layers": layers + (lc.units,))
-    }
+  if lc.len() == 0 and scope != "isolated" { out } else {
+    // an isolated scope starts a unit table of its own: its units (or none) over the built-in ones; units the
+    // engine can't read are left out, with a note
+    let own = lc.at("units", default: (:))
+    let check(c) = if own.len() == 0 { none } else { _call(_p.check_units, _req-cfg(c + lc + (units: own, separator: "."))) }
     let up(c) = {
       let c2 = c + lc + ("^": c)
-      if "units" in lc {
-        let m = _call(_p.check_units, _req-cfg(unit-config(c) + (separator: ".",)))
-        if m == none {
-          c2.units = c.units + lc.units
-          c2.insert("#unit-layers", unit-config(c).at("#unit-layers"))
-        } else { c2.units = c.units }
-      }
+      if scope == "isolated" { c2.units = if check(c) == none { own } else { (:) } }
       c2
     }
-    if "units" in lc {
+    if own.len() > 0 {
       context {
         let c = _cf.get()
-        let m = _call(_p.check_units, _req-cfg(unit-config(c) + (separator: ".",)))
-        if m != none { _errc(m, c, wide: true) }
+        let m = check(c)
+        if m != none { _err-now(m) }
       }
     }
     _cf.update(up)

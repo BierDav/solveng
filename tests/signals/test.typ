@@ -1,5 +1,6 @@
 #import "/lib.typ": *
 #import "/tests/util.typ": expect, passes
+#import functions: *
 #set page(width: 18cm, height: auto)
 #show: worksheet
 $f(t) := rect(t) ⋅ tri(t) * sgn(t)$

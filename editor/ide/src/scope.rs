@@ -14,8 +14,8 @@ use crate::text::Doc;
 /// Structure of a file that decides what's visible, at character positions.
 #[derive(Clone, Debug)]
 enum Mark {
-    /// A `worksheet` starts; `clear_at` is `heading` (None) or `heading.where(level: n)`.
-    Start { inherit: bool, export: bool, clear_at: Option<Option<usize>> },
+    /// A `worksheet` starts; `clear_at` is where it starts over.
+    Start { inherit: bool, export: bool, clear_at: Option<ClearAt> },
     End,
     /// `#clear(all: true)`.
     Reset,
@@ -23,8 +23,43 @@ enum Mark {
     Clear(Vec<String>),
     /// A heading of this level.
     Heading(usize),
+    /// An element with this label (`<exercise>`, without the brackets).
+    Label(String),
     /// `#include "path"`, as written.
     Include(String),
+}
+
+/// What `clear-at` takes: `heading`, `heading.where(level: n)` or a label.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum ClearAt {
+    Heading(Option<usize>),
+    Label(String),
+}
+
+impl ClearAt {
+    /// `clear-at`'s value as written; None for `none` and anything solveng rejects.
+    pub(crate) fn parse(value: &str) -> Option<ClearAt> {
+        let value = value.trim();
+        if value == "heading" {
+            return Some(ClearAt::Heading(None));
+        }
+        if let Some(m) = LEVEL.captures(value) {
+            return m[1].parse().ok().filter(|l| *l > 0).map(|l| ClearAt::Heading(Some(l)));
+        }
+        let label = value.strip_prefix('<')?.strip_suffix('>')?;
+        (!label.is_empty() && label.chars().all(|c| c.is_alphanumeric() || "_-.:".contains(c))).then(|| ClearAt::Label(label.into()))
+    }
+}
+
+/// What a worksheet's `scope` makes of the definitions around it: (sees the outer ones, they keep its own).
+pub(crate) fn scope_flags(scope: Option<&str>, expression: bool) -> (bool, bool) {
+    match scope.map(|s| s.trim().trim_matches('"')) {
+        Some("isolated") => (false, false),
+        Some("inherit") => (true, false),
+        Some("shared") => (true, true),
+        _ if expression => (true, true),
+        _ => (false, false),
+    }
 }
 
 static LEVEL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^heading\s*\.\s*where\s*\(\s*level\s*:\s*(\d+)\s*\)$").unwrap());
@@ -43,18 +78,11 @@ fn named(args: &LinkedNode, name: &str) -> Option<String> {
     named_args(args).find(|(n, _)| n == name).map(|(_, v)| v)
 }
 
-/// Scope options for worksheet content (`auto` means false for inherit and export).
-fn options(args: Option<LinkedNode>) -> (bool, bool, Option<Option<usize>>) {
-    let (mut inherit, mut export, mut reset) = (false, false, None);
-    for (name, value) in args.iter().flat_map(named_args) {
-        match name.as_str() {
-            "inherit" => inherit = value == "true",
-            "export" => export = value == "true",
-            "clear-at" if value == "heading" => reset = Some(None),
-            "clear-at" => reset = LEVEL.captures(&value).and_then(|m| m[1].parse().ok()).map(Some),
-            _ => {}
-        }
-    }
+/// Scope options for worksheet content: `scope` (isolated by default) and `clear-at`.
+fn options(args: Option<LinkedNode>) -> (bool, bool, Option<ClearAt>) {
+    let scope = args.as_ref().and_then(|a| named(a, "scope"));
+    let (inherit, export) = scope_flags(scope.as_deref(), false);
+    let reset = args.as_ref().and_then(|a| named(a, "clear-at")).and_then(|v| ClearAt::parse(&v));
     (inherit, export, reset)
 }
 
@@ -71,7 +99,7 @@ fn clear_key(arg: &LinkedNode) -> Option<String> {
 
 /// A content block whose only emitted content is one expression collapses to
 /// that expression in Typst. Spaces are meaningful content; comments are not.
-fn expression_block(body: &LinkedNode) -> bool {
+pub(crate) fn expression_block(body: &LinkedNode) -> bool {
     if !body.children().any(|c| c.kind() == SyntaxKind::RightBracket) { return false; }
     let Some(markup) = body.children().find(|c| c.kind() == SyntaxKind::Markup) else { return false; };
     let mut children = markup.children().filter(|c| !matches!(c.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment));
@@ -100,24 +128,27 @@ impl Reader<'_> {
                         if let Some(body) = body {
                             let expression = expression_block(&body);
                             let (inherit, export, reset) = if expression {
-                                let inherit = args.as_ref().and_then(|a| named(a, "inherit"));
-                                let export = args.as_ref().and_then(|a| named(a, "export"));
-                                if export.as_deref().is_none_or(|value| value == "auto") {
+                                let scope = args.as_ref().and_then(|a| named(a, "scope"));
+                                if scope.as_deref().is_none_or(|value| value == "auto") {
                                     self.warnings.push(crate::Problem {
                                         start: self.doc.to16(self.at(body.offset())),
                                         end: self.doc.to16(self.at(body.offset() + body.len())),
-                                        message: "this worksheet block contains only one expression, so Typst treats it as an expression argument: export: auto will export any definitions to the parent scope – set export: false to keep them local, or export: true to make this explicit".into(),
+                                        message: "this worksheet block contains only one expression, so Typst passes it as an equation: scope: auto shares its definitions with the outer scope – set scope: \"isolated\" to keep them local, or scope: \"shared\" to make this explicit".into(),
                                         severity: "warning",
                                     });
                                 }
-                                (inherit.as_deref() != Some("false"), export.as_deref() != Some("false"), None)
+                                let (inherit, export) = scope_flags(scope.as_deref(), true);
+                                (inherit, export, None)
                             } else { options(args) };
                             self.out.push((self.at(body.offset() + 1), Mark::Start { inherit, export, clear_at: reset }));
                             self.out.push((self.at(body.offset() + body.len()).saturating_sub(1), Mark::End));
-                        } else if let Some(args) = args.as_ref().filter(|a| ["inherit", "export"].iter().any(|key| named(a, key).as_deref() == Some("false"))) {
-                            // Expression calls inherit and export by default; either direction can be disabled.
-                            self.out.push((self.at(args.offset()), Mark::Start { inherit: named(args, "inherit").as_deref() != Some("false"), export: named(args, "export").as_deref() != Some("false"), clear_at: None }));
-                            self.out.push((self.at(args.offset() + args.len()), Mark::End));
+                        } else if let Some(args) = args.as_ref() {
+                            // Equations passed to a worksheet share its scope unless `scope` says otherwise.
+                            let (inherit, export) = scope_flags(named(args, "scope").as_deref(), true);
+                            if !(inherit && export) {
+                                self.out.push((self.at(args.offset()), Mark::Start { inherit, export, clear_at: None }));
+                                self.out.push((self.at(args.offset() + args.len()), Mark::End));
+                            }
                         }
                     }
                     Some("clear") => {
@@ -138,6 +169,10 @@ impl Reader<'_> {
             SyntaxKind::Heading => {
                 let level = node.children().find(|c| c.kind() == SyntaxKind::HeadingMarker).map_or(1, |m| m.len());
                 self.out.push((self.at(node.offset()), Mark::Heading(level)));
+            }
+            SyntaxKind::Label => {
+                let name = node.get().leaf_text().trim_start_matches('<').trim_end_matches('>').to_string();
+                self.out.push((self.at(labelled(node).offset()), Mark::Label(name)));
             }
             SyntaxKind::ModuleInclude => {
                 if let Some(path) = node.children().find(|c| c.kind() == SyntaxKind::Str) {
@@ -174,6 +209,19 @@ impl Reader<'_> {
         self.out.push((self.at(node.offset() + node.len()), Mark::Start { inherit, export, clear_at: reset }));
         self.out.push((self.at(end), Mark::End));
     }
+}
+
+/// The element a label in markup labels: the heading it ends, else the element before it.
+fn labelled<'a>(label: &LinkedNode<'a>) -> LinkedNode<'a> {
+    let heading = label.parent().and_then(|markup| markup.parent()).filter(|p| p.kind() == SyntaxKind::Heading);
+    if let Some(heading) = heading {
+        return heading.clone();
+    }
+    let mut previous = label.prev_sibling();
+    while let Some(p) = previous.clone().filter(|p| matches!(p.kind(), SyntaxKind::Space | SyntaxKind::Parbreak)) {
+        previous = p.prev_sibling();
+    }
+    previous.unwrap_or_else(|| label.clone())
 }
 
 fn structure(doc: &Doc) -> Vec<(usize, Mark)> {
@@ -227,6 +275,8 @@ enum Event {
     Define(usize),
     /// A name, by its index in the file's names.
     Use(usize),
+    /// Where the caret is: what's visible there is kept.
+    Probe,
 }
 
 /// The events of a file in order. At one position a block ends before anything else and starts after it; a
@@ -281,7 +331,7 @@ pub(crate) fn resolve(reference: &str, from: &str) -> String {
 struct Frame {
     outer: HashMap<String, usize>,
     start: HashMap<String, usize>,
-    reset: Option<Option<usize>>,
+    reset: Option<ClearAt>,
     export: bool,
 }
 
@@ -295,9 +345,30 @@ struct Run<'f, 'a> {
     out: Vec<Occurrence>,
     statements: Vec<(usize, usize)>,
     replaced: Vec<((usize, usize), (usize, usize))>,
+    /// The document's index and the caret in it, for [`visible_at`].
+    document: usize,
+    probe: Option<usize>,
+    probed: Option<HashMap<String, usize>>,
 }
 
 impl Run<'_, '_> {
+    fn new<'f, 'a>(files: &'f [File<'a>], document: usize, probe: Option<usize>) -> Run<'f, 'a> {
+        Run {
+            files,
+            events: vec![None; files.len()],
+            visiting: Vec::new(),
+            reached: vec![false; files.len()],
+            visible: HashMap::new(),
+            stack: Vec::new(),
+            out: Vec::new(),
+            statements: Vec::new(),
+            replaced: Vec::new(),
+            document,
+            probe,
+            probed: None,
+        }
+    }
+
     fn restart(&mut self) {
         self.visible = self.stack.last().map_or_else(HashMap::new, |f| f.start.clone());
     }
@@ -308,7 +379,12 @@ impl Run<'_, '_> {
         }
         self.visiting.push(index);
         self.reached[index] = true;
-        let events = self.events[index].get_or_insert_with(|| events(&self.files[index])).clone();
+        let mut events = self.events[index].get_or_insert_with(|| events(&self.files[index])).clone();
+        if let Some(at) = self.probe.filter(|_| index == self.document) {
+            // after marks at the caret, before definitions ending there
+            let i = events.partition_point(|(p, rank, _)| (*p, *rank) <= (at, 1));
+            events.insert(i, (at, 1, Event::Probe));
+        }
         let file = &self.files[index];
         for (_, _, event) in events {
             match event {
@@ -330,8 +406,18 @@ impl Run<'_, '_> {
                     }
                 }
                 Event::Mark(Mark::Heading(level)) => {
-                    if self.stack.iter().any(|f| f.reset.is_some_and(|r| r.is_none_or(|l| l == level))) {
+                    if self.stack.iter().any(|f| matches!(f.reset, Some(ClearAt::Heading(r)) if r.is_none_or(|l| l == level))) {
                         self.restart();
+                    }
+                }
+                Event::Mark(Mark::Label(label)) => {
+                    if self.stack.iter().any(|f| f.reset.as_ref() == Some(&ClearAt::Label(label.clone()))) {
+                        self.restart();
+                    }
+                }
+                Event::Probe => {
+                    if index == self.document {
+                        self.probed = Some(self.visible.clone());
                     }
                 }
                 Event::Mark(Mark::Include(path)) => {
@@ -373,17 +459,7 @@ impl Run<'_, '_> {
 /// `"allow"` every function.
 pub(crate) fn occurrences(files: &[File], document: usize, main: Option<usize>, implicit: String) -> (Vec<Occurrence>, Params) {
     let run = |start: usize| {
-        let mut run = Run {
-            files,
-            events: vec![None; files.len()],
-            visiting: Vec::new(),
-            reached: vec![false; files.len()],
-            visible: HashMap::new(),
-            stack: Vec::new(),
-            out: Vec::new(),
-            statements: Vec::new(),
-            replaced: Vec::new(),
-        };
+        let mut run = Run::new(files, document, None);
         run.file(start);
         (run.out, run.reached[document], run.statements, run.replaced)
     };
@@ -400,6 +476,19 @@ pub(crate) fn occurrences(files: &[File], document: usize, main: Option<usize>, 
     params.statements = statements;
     params.replaced = replaced;
     (out, params)
+}
+
+/// The definitions visible at character `at` of the document, as the compile sees them: (file index, start) of
+/// each, and per file whether the run read it (definitions of files it didn't read can't be judged). None when
+/// the document isn't reached.
+pub(crate) fn visible_at(files: &[File], document: usize, main: Option<usize>, at: usize) -> Option<(Vec<(usize, usize)>, Vec<bool>)> {
+    let run = |start: usize| {
+        let mut run = Run::new(files, document, Some(at));
+        run.file(start);
+        let probed = run.probed.take()?;
+        Some((probed.values().map(|&id| (run.out[id].file, run.out[id].start)).collect(), run.reached))
+    };
+    main.and_then(run).or_else(|| run(document))
 }
 
 /// Functions' parameters: every occurrence that is one or a use of one, and per function (file, start of its

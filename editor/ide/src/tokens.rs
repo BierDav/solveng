@@ -79,14 +79,24 @@ fn called_subscripted(math: &[char], start: usize) -> Option<usize> {
 }
 
 /// The tokens of a clause, `start..end` after its marker: keywords, the names `solve` and `substitute` take, units.
+/// Units Typst's math already names, so math may write them bare.
+const TYPST_MATH_UNITS: &[&str] = &["min", "deg"];
+
 fn clause_tokens(text: &[char], start: usize, end: usize, unit: &dyn Fn(&str) -> bool) -> Vec<Tok> {
+    clause_tokens_with(text, start, end, unit, unit)
+}
+
+/// A clause's tokens; `unit` decides for bare words, `quoted` for quoted ones.
+fn clause_tokens_with(text: &[char], start: usize, end: usize, unit: &dyn Fn(&str) -> bool, quoted: &dyn Fn(&str) -> bool) -> Vec<Tok> {
     let mut out = Vec::new();
     let (mut i, mut solve, mut in_solve) = (start, false, false);
     while i < end {
         let c = text[i];
         if c == '"' {
             let close = (i + 1..end).find(|&j| text[j] == '"').map_or(end, |j| j + 1);
-            out.push((i, close - i, K::UNIT));
+            // a unit, unless it's a name solve(…) or substitute(…) takes, or a unit not in effect here
+            let inner = sub(text, i + 1, close.saturating_sub(1).max(i + 1));
+            out.push((i, close - i, if !in_solve && quoted(&inner) { K::UNIT } else { K::VARIABLE }));
             i = close;
         } else if solveng_names::is_start(c) || solveng_names::numeric_start(text, i) || "°%‰µΩ".contains(c) {
             let mut j = name_end(text, i).min(end);
@@ -102,7 +112,7 @@ fn clause_tokens(text: &[char], start: usize, end: usize, unit: &dyn Fn(&str) ->
                 K::KEYWORD
             } else if word == "dot" {
                 K::OPERATOR
-            } else if crate::is_unit(&word) || unit(&word) {
+            } else if unit(&word) {
                 K::UNIT
             } else {
                 K::VARIABLE
@@ -167,7 +177,7 @@ fn tokens_of(code: &[char], unit: &dyn Fn(&str) -> bool, values: bool, visible: 
         if let Some(&(s, e, end)) = markers.iter().find(|m| m.0 == i) {
             // the = or -> showing a result, then its clause
             emit(s, e, K::EVALUATE);
-            for (ts, tl, k) in clause_tokens(code, e, end, unit) {
+            for (ts, tl, k) in clause_tokens(code, e, end, &|w| (crate::is_unit(w) || unit(w)) && visible(w)) {
                 emit(ts, ts + tl, k);
             }
             i = end;
@@ -361,7 +371,7 @@ fn quoted_name(math: &[char], start: usize, end: usize, unit: &dyn Fn(&str) -> b
     let name = sub(math, start, end);
     let Ok(inner) = solveng_names::resolve(&name) else { return true; };
     if defined(&inner) { return true; }
-    if math.get(end) == Some(&'_') || inner.contains('_') { return true; }
+    if math.get(end) == Some(&'_') { return true; }
     !unit(&inner)
 }
 
@@ -369,10 +379,12 @@ fn quoted_name(math: &[char], start: usize, end: usize, unit: &dyn Fn(&str) -> b
 const MATH_OPERATORS: &[&str] = &["dot", "times", "div", "approx", "plus", "minus", "eq", "lt", "gt", "arrow", "dif", "integral", "sum"];
 
 /// Tokens of one equation's body, coloured like solveng code: numbers, quoted units, variables, functions.
-pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool, bare: &dyn Fn(&str) -> bool, defined: &dyn Fn(&str) -> bool) -> Vec<Tok> {
+/// Unquoted unit words are Typst names in math: only a `#let` shorthand makes them units (see `bindings`), except
+/// single letters a parameter's type (`f(x: A)`) or a clause after `->` takes.
+pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool, defined: &dyn Fn(&str) -> bool) -> Vec<Tok> {
     let spans = crate::text::equation_ranges(math, false);
     if spans.len() > 1 {
-        return spans.into_iter().flat_map(|(s, e)| math_tokens(&math[s..e], unit, bare, defined).into_iter().map(move |(a, l, k)| (s + a, l, k))).collect();
+        return spans.into_iter().flat_map(|(s, e)| math_tokens(&math[s..e], unit, defined).into_iter().map(move |(a, l, k)| (s + a, l, k))).collect();
     }
     let mut out = Vec::new();
     let mut emit = |start: usize, end: usize, kind: u8| {
@@ -392,7 +404,11 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool, bare: &dyn
         if let Some((s, e, _)) = marker.filter(|m| m.0 == i) {
             // the = or -> showing a result, then its clause
             emit(s, e, K::EVALUATE);
-            for (ts, tl, k) in clause_tokens(math, e, n, unit) {
+            // Bare words are Typst's names in math: units only as single letters or Typst's own words (min, deg);
+            // shorthands come from their bindings.
+            let bare = |w: &str| unit(w) && (crate::resolved_name(w).chars().count() == 1 || TYPST_MATH_UNITS.contains(&w));
+            let quoted = |w: &str| unit(w);
+            for (ts, tl, k) in clause_tokens_with(math, e, n, &bare, &quoted) {
                 emit(ts, ts + tl, k);
             }
             i = n;
@@ -464,7 +480,7 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool, bare: &dyn
                     if depth == 0 { break; }
                     end += 1;
                 }
-                for (s, l, k) in math_tokens(&math[i + 2..end], unit, bare, defined) { emit(i + 2 + s, i + 2 + s + l, k); }
+                for (s, l, k) in math_tokens(&math[i + 2..end], unit, defined) { emit(i + 2 + s, i + 2 + s + l, k); }
                 i = (end + 1).min(n);
                 continue;
             }
@@ -524,13 +540,7 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool, bare: &dyn
                 K::FUNCTION
             } else if MATH_OPERATORS.contains(&base) {
                 K::OPERATOR
-            } else if unit_mode && bare(&word) && (word.chars().count() > 1 || annotation) {
-                K::UNIT
-            } else if defined(&word) {
-                // a variable that spells a unit: km := 23
-                K::VARIABLE
-            } else if word.chars().count() > 1 && bare(&word) {
-                // solveng's names of units: 4 mA, x "as" kΩ
+            } else if unit_mode && annotation && word.chars().count() == 1 && unit(&word) {
                 K::UNIT
             } else if CONSTANTS.iter().any(|(name, _)| crate::resolved_name(name) == word) {
                 K::KEYWORD
@@ -565,7 +575,7 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool, bare: &dyn
             unit_mode = false;
             i = end;
         } else if UNIT_CHARS.contains(c) {
-            emit(i, i + 1, if bare(&c.to_string()) { K::UNIT } else { K::VARIABLE });
+            emit(i, i + 1, if unit(&c.to_string()) { K::UNIT } else { K::VARIABLE });
             i += 1;
         } else if "/^ \t\nΩ".contains(c) {
             if c == 'Ω' && unit_mode {

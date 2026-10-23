@@ -1,5 +1,6 @@
 // Units and variables: what is a unit, what is a variable, and what is refused as unclear.
 #import "/tests/util.typ": *
+#import units: *
 
 // code: a unit right after a number or in brackets, names in equations are variables
 #worksheet[
@@ -44,7 +45,7 @@
   #def("w := 3000 rpm") #expect("w", 50)
   #def("w2 := w = [Hz]") #expect("w2", 50, u: "Hz")
   #def("p2 := 2 mbar") #expect("p2", 200)
-  #worksheet(inherit: true, preferred-units: ("bar",))[
+  #worksheet(scope: "inherit", preferred-units: ("bar",))[
     #def("p3 := 2 p") #expect("p3", 6e5, u: "bar")
   ]
   #def("p4 := 2 p") #expect("p4", 6e5, u: "bar") // the unit of the inputs

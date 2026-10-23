@@ -47,8 +47,12 @@ fn function_styles(a: &Analysis, tokens: &mut [Token], defs: &[crate::complete::
         let (text, _) = crate::text::unescape(&doc.c[start..end]);
         let name = crate::resolved_name(&text.iter().collect::<String>());
         let quoted = doc.c.get(start) == Some(&'"');
-        let op = a.bindings.operation(start).is_some_and(|op| FUNCTIONS.contains(&op))
-            || !a.bindings.contains(start) && !quoted && (a.builtin_functions_at(start) || a.elements.iter().any(|e| e.math && e.body_start <= start && start < e.body_end) && !crate::params::automatic_math(&name)) && FUNCTIONS.contains(&name.as_str());
+        let op = a.bindings.operation(start).is_some_and(|op| FUNCTIONS.contains(&op)) && (!a.bindings.imported_at(start) || a.builtin_functions_at(start))
+            || !a.bindings.contains(start) && !quoted && FUNCTIONS.contains(&name.as_str()) && {
+                // In math Typst needs the name: its own math operators, or a shorthand imported from `functions`.
+                let math = a.elements.iter().any(|e| e.math && e.body_start <= start && start < e.body_end);
+                if math { !crate::params::automatic_math(&name) } else { a.builtin_functions_at(start) }
+            };
         token.kind = if op && !defs.iter().any(|d| d.function && d.base() == name) {
             K::BUILTIN_FUNCTION
         } else { K::FUNCTION_CALL };
@@ -143,7 +147,7 @@ pub fn tokens_with_units(code: &str, units: &[String]) -> Vec<Token> {
 
 /// Tokens of one equation's body.
 pub fn math_tokens_of(math: &str) -> Vec<Token> {
-    local(math, math_toks(&chars(math), &crate::is_unit, &crate::is_unit, &|_| false), true)
+    local(math, math_toks(&chars(math), &crate::is_unit, &|_| false), true)
 }
 
 /// Tokens of the equations solveng reads (in a `worksheet` that evaluates them, or passed to one),
@@ -155,7 +159,7 @@ pub fn math_tokens(document: &str, context: &Context) -> Vec<Token> {
     let mut out = Vec::new();
     for e in a.elements.iter().filter(|e| e.math && a.active(e)) {
         let units = a.units_at(e.body_start);
-        out.extend(utf16(&a.doc, e.body_start, math_toks(&a.doc.c[e.body_start..e.body_end], &|w| units::visible(w, &units), &|w| units::bare(w, &units), &defined)));
+        out.extend(utf16(&a.doc, e.body_start, math_toks(&a.doc.c[e.body_start..e.body_end], &|w| units::visible(w, &units), &defined)));
     }
     out.extend(call_tokens(&a).into_iter().filter(|token| a.elements.iter().any(|e|
         e.math && a.active(e) && a.doc.to16(e.body_start) <= token.start && token.start + token.length <= a.doc.to16(e.body_end))));
@@ -183,14 +187,18 @@ fn reference_tokens(a: &Analysis, out: &mut Vec<Token>) {
     }
 }
 
-/// A unit string's tokens: every word is a unit, as after `->`.
+/// A unit string's tokens: every word is a unit, as after `->`, if it's one in effect there.
 fn unit_tokens(code: &[char], custom: &[Custom]) -> Vec<Tok> {
     let mut with: Vec<char> = "-> ".chars().collect();
     with.extend_from_slice(code);
     code_tokens(&with, &|w| custom.iter().any(|u| u.name == w))
         .into_iter()
         .filter(|t| t.0 >= 3)
-        .map(|(s, l, k)| (s - 3, l, if k == K::NUMBER { K::NUMBER } else { K::UNIT }))
+        .map(|(s, l, k)| {
+            let word: String = with[s..s + l].iter().collect();
+            let unit = k == K::UNIT && word.chars().all(|c| c.is_ascii_digit()) || units::known(&word, custom);
+            (s - 3, l, if k == K::NUMBER { K::NUMBER } else if unit { K::UNIT } else { K::VARIABLE })
+        })
         .collect()
 }
 
@@ -208,12 +216,16 @@ fn call_tokens(a: &Analysis) -> Vec<Token> {
                 let lead = text.chars().take_while(|c| c.is_whitespace()).count();
                 vec![(lead, trimmed.chars().count(), kind)]
             };
-            let settings = a.units_at(t.start);
+            let mut settings = a.units_at(t.start);
+            // a worksheet's units may use the ones it defines next to them
+            for (name, value) in call.args.iter().filter(|(n, _)| n.as_deref() == Some("units")) {
+                units::custom_units(&format!("{}: {value}", name.as_deref().unwrap_or_default()), &mut settings);
+            }
             let toks = match t.role {
                 // A graph's curves are formulas.
                 Role::Code if call.is_curve(t) => formula_tokens(code, &unit),
                 Role::Code => visible_code_tokens(code, &unit, &|w| units::visible(w, &settings)),
-                Role::Unit => unit_tokens(code, &a.units),
+                Role::Unit => unit_tokens(code, &settings),
                 Role::Name if !trimmed.is_empty() => whole(K::VARIABLE),
                 Role::Choice => {
                     let param = call.function.named.iter().find(|p| Some(&p.name) == t.param.as_ref());
@@ -240,7 +252,7 @@ pub fn document_tokens(document: &str, context: &Context) -> Vec<Token> {
     for e in a.elements.iter().filter(|e| a.shown(e)) {
         let body = &a.doc.c[e.body_start..e.body_end];
         let units = a.units_at(e.body_start);
-        let toks = if e.math { math_toks(body, &|w| units::visible(w, &units), &|w| units::bare(w, &units), &defined) } else {
+        let toks = if e.math { math_toks(body, &|w| units::visible(w, &units), &defined) } else {
             let units = a.units_at(e.body_start);
             visible_code_tokens(body, &unit, &|w| units::visible(w, &units))
         };
@@ -258,16 +270,18 @@ pub fn document_tokens(document: &str, context: &Context) -> Vec<Token> {
         if a.bindings.contains(a.doc.from16(token.start as usize)) { token.kind = K::VARIABLE; }
     }
     function_styles(&a, &mut out, &defs);
-    for (start, end, name) in a.bindings.operation_uses() {
+    for (start, end, name, imported) in a.bindings.operation_uses() {
         if a.elements.iter().any(|e| e.math && a.active(e) && e.body_start <= start && end <= e.body_end)
-            && FUNCTIONS.contains(&name) {
+            && FUNCTIONS.contains(&name) && (!imported || a.builtin_functions_at(start)) {
             let from = a.doc.to16(start);
             out.retain(|t| t.start != from);
             out.push(Token { start: from, length: a.doc.to16(end) - from, kind: K::BUILTIN_FUNCTION });
         }
     }
-    for (start, end, _) in a.bindings.unit_uses() {
-        if a.elements.iter().any(|e| e.math && a.active(e) && e.body_start <= start && end <= e.body_end) {
+    for (start, end, unit, imported) in a.bindings.unit_uses() {
+        let units = a.units_at(start);
+        let exists = if imported { units::visible(unit, &units) } else { units::known(unit, &units) };
+        if exists && a.elements.iter().any(|e| e.math && a.active(e) && e.body_start <= start && end <= e.body_end) {
             let from = a.doc.to16(start);
             out.retain(|t| t.start != from);
             out.push(Token { start: from, length: a.doc.to16(end) - from, kind: K::UNIT });

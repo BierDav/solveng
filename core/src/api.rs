@@ -51,7 +51,13 @@ pub fn show_value(env: &Env, req: &LineReq) -> Result<String, String> {
     let run = |src: &str| line(&mut env.clone(), &LineReq { src: src.into(), listed: false, ..req.clone() });
     // as written when it shows a result (t = min, x ->), else its value
     let written = run(src);
-    let out = if written.mark.is_some() || !written.defined.is_empty() { written } else { run(&format!("{src} =")) };
+    // with a trailing = or -> of its own, its problems are its own: "U = mV" with U unknown is about U, not a
+    // comparison with a variable mV
+    let units = Units::configured(&req.cfg)?;
+    let functions = crate::builtins::Functions::configured(&req.cfg)?;
+    let ctx = Ctx { units: &units, functions: &functions, mode: req.mode, is_fn: &|n| env.funs.contains_key(n), is_var: &|n| env.vars.contains_key(n), strict: req.cfg.strict };
+    let trailing = parse::parse_line(src, &ctx).is_ok_and(|l| l.trail.is_some());
+    let out = if written.mark.is_some() || !written.defined.is_empty() || trailing { written } else { run(&format!("{src} =")) };
     if !out.defined.is_empty() {
         let n = &out.defined[0];
         return Err(format!("nothing can be defined here – define {n} in the worksheet with :=, then #value(\"{n}\") shows it"));

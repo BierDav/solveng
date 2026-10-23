@@ -64,8 +64,8 @@ fn context_enables_included_math() {
 
 #[test]
 fn joins_only_numbers_and_recognized_units_in_injected_regions() {
-    check("#show: worksheet\n$ t:=-2 \"s\" + 3 mA + 4 x$\n#worksheet(evaluate: false)[$-2 \"s\"$]",
-          "#show: worksheet\n$t := -2\"s\" + 3mA + 4 x$\n#worksheet(evaluate: false)[$-2 \"s\"$]");
+    check("#show: worksheet\n$ t:=-2 \"s\" + 3 \"mA\" + 4 x$\n#worksheet(evaluate: false)[$-2 \"s\"$]",
+          "#show: worksheet\n$t := -2\"s\" + 3\"mA\" + 4 x$\n#worksheet(evaluate: false)[$-2 \"s\"$]");
     check("```solveng\nx:=2 s + 3 mA + 4 unknown\n```",
           "```solveng\nx := 2s + 3mA + 4 unknown\n```");
     check("#show: worksheet\n$x:=2 s + 3 \"ms\"$",

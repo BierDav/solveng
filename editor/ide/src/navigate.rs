@@ -87,8 +87,8 @@ pub(crate) fn math_name_of(math: &[char]) -> Option<(String, usize, usize)> {
     let text: String = math.iter().collect();
     let doc = Doc::new(&text);
     let mut out = Vec::new();
-    math_names(&doc, 0, math_tokens(math, &crate::is_unit, &crate::is_unit, &|_| false), &mut out);
-    let toks = math_tokens(math, &crate::is_unit, &crate::is_unit, &|_| false);
+    math_names(&doc, 0, math_tokens(math, &crate::is_unit, &|_| false), &mut out);
+    let toks = math_tokens(math, &crate::is_unit, &|_| false);
     // Nothing but the name: no units, numbers or operators around it.
     let covered = |t: &Tok| out.first().is_some_and(|n| n.start <= t.0 && t.0 + t.1 <= n.end);
     if out.len() != 1 || !toks.iter().all(covered) || out[0].key.is_empty() {
@@ -108,7 +108,7 @@ fn names(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Eleme
         let body = &doc.c[e.body_start..e.body_end];
         if e.math {
             let units = units_at(e.body_start);
-            math_names(doc, e.body_start, math_tokens(body, &|w| crate::units::visible(w, &units), &|w| crate::units::bare(w, &units), defined), &mut out);
+            math_names(doc, e.body_start, math_tokens(body, &|w| crate::units::visible(w, &units), defined), &mut out);
         } else {
             code_names(doc, e.body_start, code_tokens(body, unit), &mut out);
         }
@@ -138,6 +138,8 @@ fn names(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Eleme
     let references: Vec<_> = bindings.operator_strings().iter().map(|(s, e, _)| (*s, *e))
         .chain(calls.iter().filter(|c| c.function.name == "unit").flat_map(|c| c.texts.iter().map(|t| (t.start, t.end)))).collect();
     out.retain(|n| !references.iter().any(|&(s, e)| n.start < e + 1 && s.saturating_sub(1) < n.end));
+    // Typst bindings (`#let km = unit("km")`, `#import units: km`) are Typst's: solveng sees their values.
+    out.retain(|n| !bindings.contains(n.start));
     out.sort_by_key(|n| n.start);
     out
 }
@@ -289,8 +291,77 @@ fn resolved<'a>(a: &'a Analysis) -> (Vec<File<'a>>, Vec<Occurrence>) {
     (files, occurrences)
 }
 
+/// The definitions visible at character `at` of the document: by file (None for the document) and start, and the
+/// files the compile order reached (others' definitions can't be judged). None when that can't be told.
+pub(crate) fn visible_at(a: &Analysis, at: usize) -> Option<(Vec<(Option<String>, usize)>, Vec<Option<String>>)> {
+    let files = files(a);
+    let main = a.context.main.as_ref().and_then(|m| files.iter().position(|f| f.path == *m));
+    let (visible, reached) = scope::visible_at(&files, 0, main, at)?;
+    let path = |f: usize| (f != 0).then(|| files[f].path.clone());
+    Some((visible.into_iter().map(|(f, start)| (path(f), start)).collect(), reached.iter().enumerate().filter(|(_, r)| **r).map(|(f, _)| path(f)).collect()))
+}
+
+/// The names a `solve(…)` or `substitute(…)` (`keyword`) of a clause can take, for the statement whose head (what's
+/// before the marker) is `head` in characters of the document, with `listed` (the keys already given) left out.
+/// `substitute` puts in variables' formulas: the variables named in the head and, through the ones listed, those
+/// their formulas name, transitively. `solve` takes the names in the head that aren't functions or parameters,
+/// undefined ones first. Each with the definition it means (by file, None for the document, and start).
+pub(crate) fn clause_names(a: &Analysis, keyword: &str, head: (usize, usize), listed: &[String]) -> Vec<(String, Option<(Option<String>, usize)>)> {
+    let (files, occurrences, graphed, params) = resolved_all(a);
+    let parameter = |id: usize| params.uses.contains(&id) || params.locals.contains(&id) || graphed.contains(&id);
+    // A definition occurrence of a variable.
+    let variable = |id: usize| {
+        let o = &occurrences[id];
+        o.definition == Some(id) && !parameter(id) && files[o.file].definitions.iter().any(|d| d.start == o.start && !d.function)
+    };
+    let calls = |o: &Occurrence| files[o.file].doc.c[o.end..].iter().find(|c| !c.is_whitespace()) == Some(&'(');
+    // The names used in a stretch of a file, with what they mean.
+    let used = |file: usize, (start, end): (usize, usize)| -> Vec<(String, Option<usize>)> {
+        occurrences.iter().enumerate()
+            .filter(|(i, o)| o.file == file && start <= o.start && o.end <= end && o.definition != Some(*i) && !parameter(*i) && !calls(o))
+            .map(|(_, o)| (o.key.clone(), o.definition.filter(|d| !parameter(*d))))
+            .collect()
+    };
+    let mut out: Vec<(String, Option<usize>)> = Vec::new();
+    let push = |key: String, definition: Option<usize>, out: &mut Vec<(String, Option<usize>)>| {
+        if !out.iter().any(|(k, _)| *k == key) { out.push((key, definition)); }
+    };
+    if keyword == "substitute" {
+        let mut queue: Vec<(String, Option<usize>)> = used(0, head).into_iter().filter(|(_, d)| d.is_some_and(variable)).collect();
+        while let Some((key, definition)) = (!queue.is_empty()).then(|| queue.remove(0)) {
+            if out.iter().any(|(k, _)| *k == key) { continue; }
+            push(key.clone(), definition, &mut out);
+            // A listed variable's formula is put in, so the variables it names can be too.
+            let Some(id) = definition.filter(|_| listed.contains(&key)) else { continue };
+            let o = &occurrences[id];
+            let Some(d) = files[o.file].definitions.iter().find(|d| d.start == o.start) else { continue };
+            queue.extend(used(o.file, (d.end, d.statement_end)).into_iter().filter(|(_, d)| d.is_some_and(variable)));
+        }
+    } else {
+        let names = used(0, head);
+        for (key, definition) in names.iter().filter(|(_, d)| d.is_none()).chain(names.iter().filter(|(_, d)| d.is_some())) {
+            push(key.clone(), *definition, &mut out);
+        }
+    }
+    let path = |f: usize| (f != 0).then(|| files[f].path.clone());
+    out.into_iter()
+        .filter(|(k, _)| !listed.contains(k))
+        .map(|(k, d)| (k, d.map(|d| (path(occurrences[d].file), occurrences[d].start))))
+        .collect()
+}
+
 /// [`resolved`], which occurrences a graph plots against, and functions' parameters.
 fn resolved_all<'a>(a: &'a Analysis) -> (Vec<File<'a>>, Vec<Occurrence>, Vec<usize>, scope::Params) {
+    let files = files(a);
+    let main = a.context.main.as_ref().and_then(|m| files.iter().position(|f| f.path == *m));
+    let implicit = crate::implicit_parameters(&a.doc.s).or_else(|| crate::implicit_parameters(&a.context.text)).unwrap_or_else(|| "no".into());
+    let (mut occurrences, params) = scope::occurrences(&files, 0, main, implicit);
+    let graphed = graphed(&files, &mut occurrences);
+    (files, occurrences, graphed, params)
+}
+
+/// The document and the files around, the document first.
+fn files<'a>(a: &'a Analysis) -> Vec<File<'a>> {
     let unit = |w: &str| a.is_custom_unit(w);
     let named = |n: Vec<Name>| n.into_iter().map(|n| (n.key, n.start, n.end)).collect::<Vec<_>>();
     let defs = definitions(&a.doc, &a.elements, &a.calls, &|e| a.active(e));
@@ -333,11 +404,7 @@ fn resolved_all<'a>(a: &'a Analysis) -> (Vec<File<'a>>, Vec<Occurrence>, Vec<usi
             locals: locals(&part.doc, &part.elements, &part.calls, &|e| part.active(e)),
         });
     }
-    let main = a.context.main.as_ref().and_then(|m| files.iter().position(|f| f.path == *m));
-    let implicit = crate::implicit_parameters(&a.doc.s).or_else(|| crate::implicit_parameters(&a.context.text)).unwrap_or_else(|| "no".into());
-    let (mut occurrences, params) = scope::occurrences(&files, 0, main, implicit);
-    let graphed = graphed(&files, &mut occurrences);
-    (files, occurrences, graphed, params)
+    files
 }
 
 /// The occurrence of a name at a UTF-16 offset of the document.

@@ -69,7 +69,8 @@ div.solveng-error { border-left: 3px solid #b3261e; padding: 0.4em 0.7em; margin
     else { box(fill: rgb("#fdecea"), inset: (x: 3pt, y: 1pt), outset: (y: 2pt), radius: 2pt, t) }
   }
 }
-#let _err-now(msg) = context _errc(msg, _cf.get(), wide: true)
+// a problem with a call's arguments, also for editors (no element of its own, like equations passed to worksheet)
+#let _err-now(msg) = context _errc(msg, _cf.get(), wide: true) + [#metadata((kind: "error", element: none, message: msg, source: ""))<solveng>]
 // output of the package: its equations are not read as definitions by worksheet's math rule
 #let _busy = state("solveng-busy", 0)
 #let _mine(body) = _busy.update(n => n + 1) + body + _busy.update(n => n - 1)

@@ -183,16 +183,16 @@ fn redefinitions_split_usages() {
 #[test]
 fn inherits_only_when_asked() {
     let c = Context::new("");
-    let doc = "#show: worksheet\n$x := 1$\n#worksheet(inherit: true)[ $a := x$ ]\n#worksheet[ $b := x$ ]\n#worksheet[ $x := 9$ ]\n$c := x$\n";
+    let doc = "#show: worksheet\n$x := 1$\n#worksheet(scope: \"inherit\")[ $a := x$ ]\n#worksheet[ $b := x$ ]\n#worksheet[ $x := 9$ ]\n$c := x$\n";
     assert_eq!(definition(doc, &c, nth(doc, "x", 1)).unwrap().start, nth(doc, "x", 0));
     assert_eq!(definition(doc, &c, nth(doc, "x", 2)), None);
     // After a worksheet the outer definitions come back.
     assert_eq!(definition(doc, &c, nth(doc, "x", 4)).unwrap().start, nth(doc, "x", 0));
-    // Equations export even when inherit is false.
-    let doc = "#show: worksheet\n$x := 1$\n#worksheet($a := x$)\n#worksheet($x := 9$, $b := x$, inherit: false)\n$c := x$\n";
+    // Equations share the scope by default; isolated ones neither see nor keep.
+    let doc = "#show: worksheet\n$x := 1$\n#worksheet($a := x$)\n#worksheet($x := 9$, $b := x$, scope: \"isolated\")\n$c := x$\n";
     assert_eq!(definition(doc, &c, nth(doc, "x", 1)).unwrap().start, nth(doc, "x", 0));
     assert_eq!(definition(doc, &c, nth(doc, "x", 3)).unwrap().start, nth(doc, "x", 2));
-    assert_eq!(definition(doc, &c, nth(doc, "x", 4)).unwrap().start, nth(doc, "x", 2));
+    assert_eq!(definition(doc, &c, nth(doc, "x", 4)).unwrap().start, nth(doc, "x", 0));
 }
 
 /// A chapter at `chapters/one.typ`, compiled from `main` at `main.typ`.
@@ -280,34 +280,51 @@ fn backslashes_separate_definitions_and_result_markers() {
 }
 
 #[test]
-fn worksheet_export_is_independent_of_inherit() {
+fn worksheet_scope_decides_what_is_seen_and_kept() {
     let ctx = Context::default();
-    for (inherit, export) in [(false, false), (false, true), (true, false), (true, true)] {
-        let doc = format!("#show: worksheet\n$x := 1$\n#worksheet(inherit: {inherit}, export: {export})[$before := x$ $x := 2$ $inside := x$]\n$after := x$");
+    // (scope, sees the outer x, keeps its own)
+    for (scope, inherit, export) in [("isolated", false, false), ("inherit", true, false), ("shared", true, true)] {
+        let doc = format!("#show: worksheet\n$x := 1$\n#worksheet(scope: \"{scope}\")[$before := x$ $x := 2$ $inside := x$]\n$after := x$");
         let before = definition(&doc, &ctx, nth(&doc, "x$", 0));
-        assert_eq!(before.map(|d| d.start), inherit.then(|| nth(&doc, "$x", 0) + 1), "{inherit}, {export}");
+        assert_eq!(before.map(|d| d.start), inherit.then(|| nth(&doc, "$x", 0) + 1), "{scope}");
         assert_eq!(definition(&doc, &ctx, nth(&doc, "x$", 1)).unwrap().start, nth(&doc, "$x", 1) + 1);
-        assert_eq!(definition(&doc, &ctx, nth(&doc, "x$", 2)).unwrap().start, nth(&doc, "$x", if export { 1 } else { 0 }) + 1, "{inherit}, {export}");
+        assert_eq!(definition(&doc, &ctx, nth(&doc, "x$", 2)).unwrap().start, nth(&doc, "$x", if export { 1 } else { 0 }) + 1, "{scope}");
     }
 }
 
 #[test]
-fn worksheet_expression_exports_default_to_true_and_can_be_disabled() {
+fn worksheet_expressions_share_by_default() {
     let ctx = Context::default();
-    for (options, export) in [("", true), (", export: auto", true), (", export: false", false), (", inherit: false", true), (", inherit: false, export: false", false)] {
+    for (options, export) in [("", true), (", scope: auto", true), (", scope: \"shared\"", true), (", scope: \"inherit\"", false), (", scope: \"isolated\"", false)] {
         let doc = format!("#show: worksheet\n$x := 1$\n#worksheet($x := 2${options})\n$after := x$");
         assert_eq!(definition(&doc, &ctx, u16_at(&doc, "x$")).unwrap().start, nth(&doc, "$x", if export { 1 } else { 0 }) + 1, "{options}");
     }
 }
 
 #[test]
-fn worksheet_export_merges_final_definitions_into_only_the_immediate_parent() {
+fn shared_worksheets_keep_definitions_in_only_the_immediate_parent() {
     let ctx = Context::default();
-    let doc = "#show: worksheet\n$x := 1$\n#worksheet[ #worksheet(export: true)[$x := 2$] $inside := x$ ]\n$outside := x$\n#worksheet(inherit: true, export: true)[#clear(\"x\") $y := 3$]\n$final := x+y$";
+    let doc = "#show: worksheet\n$x := 1$\n#worksheet[ #worksheet(scope: \"shared\")[$x := 2$] $inside := x$ ]\n$outside := x$\n#worksheet(scope: \"shared\")[#clear(\"x\") $y := 3$]\n$final := x+y$";
     assert_eq!(definition(doc, &ctx, nth(doc, "x$", 0)).unwrap().start, nth(doc, "$x", 1) + 1);
     assert_eq!(definition(doc, &ctx, nth(doc, "x$", 1)).unwrap().start, nth(doc, "$x", 0) + 1);
     assert_eq!(definition(doc, &ctx, u16_at(doc, "x+y")).unwrap().start, nth(doc, "$x", 0) + 1);
     assert_eq!(definition(doc, &ctx, u16_at(doc, "y$")).unwrap().start, u16_at(doc, "$y") + 1);
+}
+
+#[test]
+fn clear_at_labels_restart_at_the_labelled_element() {
+    let ctx = Context::default();
+    let doc = "#show: worksheet.with(clear-at: <exercise>)\n= A <exercise>\n$y := 1$\n$a := y$\n= Notes\n$b := y$\n= B <exercise>\n$c := y$\n$y := 2$ <exercise>\n$d := y$";
+    assert_eq!(definition(doc, &ctx, u16_at(doc, "y$\n= Notes")).unwrap().start, nth(doc, "$y", 0) + 1);
+    // other headings don't clear
+    assert_eq!(definition(doc, &ctx, u16_at(doc, "y$\n= B")).unwrap().start, nth(doc, "$y", 0) + 1);
+    assert_eq!(definition(doc, &ctx, u16_at(doc, "y$\n$y := 2")), None);
+    // a labelled equation clears before itself and then defines
+    let last = doc.rfind("y$").unwrap();
+    assert_eq!(definition(doc, &ctx, doc[..last].encode_utf16().count() as u32).unwrap().start, nth(doc, "$y", 1) + 1);
+    // anything else isn't a place to clear at
+    let other = doc.replace("clear-at: <exercise>", "clear-at: \"exercise\"");
+    assert_eq!(definition(&other, &ctx, u16_at(&other, "y$\n$y := 2")).unwrap().start, nth(&other, "$y", 0) + 1);
 }
 
 #[test]
@@ -316,6 +333,6 @@ fn single_equation_blocks_follow_expression_defaults_in_navigation() {
     let doc = "#show: worksheet\n$x := 1$\n#worksheet[$x := x+1$]\n$after := x$";
     assert_eq!(definition(doc, &ctx, u16_at(doc, "x+1")).unwrap().start, nth(doc, "$x", 0) + 1);
     assert_eq!(definition(doc, &ctx, u16_at(doc, "x$")).unwrap().start, nth(doc, "$x", 1) + 1);
-    let doc = "#show: worksheet\n$x := 1$\n#worksheet(export: false)[$x := 2$]\n$after := x$";
+    let doc = "#show: worksheet\n$x := 1$\n#worksheet(scope: \"isolated\")[$x := 2$]\n$after := x$";
     assert_eq!(definition(doc, &ctx, u16_at(doc, "x$")).unwrap().start, nth(doc, "$x", 0) + 1);
 }

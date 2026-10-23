@@ -206,7 +206,7 @@ fn completes_units_where_a_value_is_written() {
     assert!(units.contains(&"mA".into()) && units.contains(&"kΩ".into()) && units.contains(&"h".into()));
     assert!(labels("```solveng\nP := [5 |] I\n```").contains(&"A".into()));
     assert!(labels("```solveng\ng := 9.81 m/|\n```").contains(&"s".into()));
-    assert!(labels("#worksheet(units: (bar: \"100 kPa\"), evaluate: false)[]\n```solveng\np := 3 |\n```").contains(&"bar".into()));
+    assert!(labels("#show: worksheet.with(units: (bar: \"100 kPa\"), evaluate: false)\n```solveng\np := 3 |\n```").contains(&"bar".into()));
     assert!(!labels("```solveng\nU := 2 I |\n```").contains(&"mA".into()));
     // The word being typed is replaced.
     assert_eq!(complete_at("```solveng\nI := 30 mA|\n```").unwrap().from, "```solveng\nI := 30 ".len() as u32);
@@ -218,8 +218,11 @@ fn completes_clauses() {
     assert!(after.contains(&"mW".into()) && after.contains(&"digits".into()) && after.contains(&"solve".into()));
     assert!(labels("```solveng\nt = h, d|\n```").contains(&"digits".into()));
     // inside solve(…) the names
-    let doc = "```solveng\nI := 2 A\nx^2 = 4 -> solve(|)\n```";
-    assert!(labels(doc).iter().any(|l| name(l) == "I") && !labels(doc).contains(&"mA".into()));
+    // inside solve(…) the names of the equation, not every defined one
+    let doc = "```solveng\nI := 2 A\nR := 3\nx^2 = 4 I -> solve(|)\n```";
+    let solve = labels(doc);
+    assert!(solve.iter().any(|l| name(l) == "x") && solve.iter().any(|l| name(l) == "I") && !solve.iter().any(|l| name(l) == "R") && !solve.contains(&"mA".into()), "{solve:?}");
+    assert_eq!(name(&solve[0]), "x", "undefined first");
     let c = complete_at("#show: worksheet\n$t := 3 h$ $t = |$").unwrap();
     assert!(c.exclusive && c.items.iter().any(|i| i.label == "min") && c.items.iter().any(|i| i.insert == "digits($0)"));
 }
@@ -256,12 +259,12 @@ fn completes_in_math() {
 
 #[test]
 fn colors_math_like_code() {
-    let doc = "#show: worksheet\n$I := 30 mA dot R_\"load\" + sqrt(x) = 1 \"A\"$";
+    let doc = "#show: worksheet\n$I := 30 \"mA\" dot R_\"load\" + sqrt(x) = 1 \"A\"$";
     let found: Vec<String> = math_tokens(doc, &ctx("")).iter().map(|x| format!("{}:{}", slice(doc, x.start, x.length), x.kind)).collect();
     assert_eq!(
         found,
         vec![
-            t("I", TokenKind::VARIABLE), t(":=", TokenKind::OPERATOR), t("30", TokenKind::NUMBER), t("mA", TokenKind::UNIT),
+            t("I", TokenKind::VARIABLE), t(":=", TokenKind::OPERATOR), t("30", TokenKind::NUMBER), t("\"mA\"", TokenKind::UNIT),
             t("dot", TokenKind::OPERATOR), t("R", TokenKind::VARIABLE), t("\"load\"", TokenKind::VARIABLE), t("sqrt", TokenKind::BUILTIN_FUNCTION),
             t("x", TokenKind::VARIABLE), t("=", TokenKind::EVALUATE), t("1", TokenKind::NUMBER), t("\"A\"", TokenKind::UNIT),
         ]
@@ -270,10 +273,10 @@ fn colors_math_like_code() {
     let doc = "#show: worksheet\n$t = A$";
     let found: Vec<String> = math_tokens(doc, &ctx("")).iter().map(|x| format!("{}:{}", slice(doc, x.start, x.length), x.kind)).collect();
     assert_eq!(found, vec![t("t", TokenKind::VARIABLE), t("=", TokenKind::OPERATOR), t("A", TokenKind::VARIABLE)]);
-    // solveng's names of units are units anywhere in math, "…" too
-    let doc = "#show: worksheet.with(units: (bar: \"100 kPa\"))\n$x := U \"as\" kΩ + \"bar\"$";
+    // quoted units are units anywhere in math; bare words are Typst's names
+    let doc = "#show: worksheet.with(units: (bar: \"100 kPa\"))\n$x := U \"as\" \"kΩ\" + \"bar\" + kΩ$";
     let found: Vec<String> = math_tokens(doc, &ctx("")).iter().map(|x| format!("{}:{}", slice(doc, x.start, x.length), x.kind)).collect();
-    assert!(found.contains(&t("kΩ", TokenKind::UNIT)) && found.contains(&t("\"bar\"", TokenKind::UNIT)));
+    assert!(found.contains(&t("\"kΩ\"", TokenKind::UNIT)) && found.contains(&t("\"bar\"", TokenKind::UNIT)) && found.contains(&t("kΩ", TokenKind::VARIABLE)), "{found:?}");
     assert!(math_tokens("#worksheet(evaluate: false)[$x = 1$]", &ctx("")).is_empty());
 }
 
@@ -331,7 +334,7 @@ fn converts_math_to_code_and_back() {
     assert!(convert(&format!("{i}$a => b|$")).is_empty());
     assert_eq!(
         convert(&format!("{i}```solveng\nR := U/I = [mA] // load\n|x^2 = 4 -> solve(x)\n```")),
-        vec![format!("{i}$R := U/I = mA$ // load\n\n$x^2 = 4 -> solve(x)$")]
+        vec![format!("{i}$R := U/I = \"mA\"$ // load\n\n$x^2 = 4 -> solve(x)$")]
     );
     assert_eq!(convert(&format!("{i}```solveng\nx| := A [A]; p := 3 [bar]\n```")), vec![format!("{i}$x := A unit(\"A\"), p := 3 unit(\"bar\")$")]);
 }
@@ -343,7 +346,7 @@ fn reads_the_files_around() {
         vec!["defaults.typ", "ch/1.typ"]
     );
     // A chapter of a main file that sets everything up.
-    let main = ctx("#show: worksheet\n#worksheet(units: (bar: \"100 kPa\"), evaluate: false)[]\n$U := 5 V$");
+    let main = ctx("#show: worksheet.with(units: (bar: \"100 kPa\"))\n$U := 5 V$");
     assert!(evaluates("text", &main));
     let chapter = "```solveng\nP := U |\n```";
     let c = complete(&chapter.replace('|', ""), &main, chapter.find('|').unwrap() as u32).unwrap();

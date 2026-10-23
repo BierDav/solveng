@@ -51,6 +51,8 @@ pub(crate) struct Scope {
     pub evaluate: bool,
     pub units: Vec<crate::units::Custom>,
     pub builtin_functions: Option<bool>,
+    /// `scope: "isolated"` (content's default): the outer definitions and units don't reach in.
+    pub isolated: bool,
 }
 
 /// Whether the math at `at` is calculated as the innermost worksheet around says; None outside every one.
@@ -65,11 +67,13 @@ pub(crate) struct Wrapper {
     pub evaluate: bool,
     pub units: Vec<Custom>,
     pub builtin_functions: Option<bool>,
+    /// `scope: …` as written, without quotes.
+    pub scope: Option<String>,
 }
 
 impl Default for Wrapper {
     fn default() -> Wrapper {
-        Wrapper { evaluate: true, units: Vec::new(), builtin_functions: None }
+        Wrapper { evaluate: true, units: Vec::new(), builtin_functions: None, scope: None }
     }
 }
 
@@ -85,6 +89,9 @@ impl Wrapper {
                 if let Some((name, value)) = source.split_once(':') {
                     if name.trim() == "builtin-functions" {
                         wrapper.builtin_functions = value.trim().parse().ok();
+                    }
+                    if name.trim() == "scope" {
+                        wrapper.scope = Some(value.trim().trim_matches('"').to_string()).filter(|s| s != "auto");
                     }
                 }
             }
@@ -229,7 +236,8 @@ fn role(function: &str, param: Option<&str>, index: usize) -> Option<Role> {
     };
     Some(match param {
         "unit" | "preferred-units" => Role::Unit,
-        "units" if function == "lambdify" => Role::Unit,
+        // a worksheet's own units are unit expressions too: `bar: "100 kPa"`
+        "units" if matches!(function, "lambdify" | "worksheet") => Role::Unit,
         "units" | "guess" | "xrange" | "yrange" | "ymark" => Role::Code,
         "unknown" => Role::Name,
         "mark" | "xmark" => Role::Mark,
@@ -310,7 +318,7 @@ impl Reader<'_> {
         };
         let wrapper = base.with(args.as_ref());
         let end = node.parent().map_or(self.doc.c.len(), |p| self.chars(p).1);
-        self.scopes.push(Scope { start: self.chars(node).1, end, evaluate: wrapper.evaluate, units: wrapper.units, builtin_functions: wrapper.builtin_functions });
+        self.scopes.push(Scope { start: self.chars(node).1, end, evaluate: wrapper.evaluate, isolated: !crate::scope::scope_flags(wrapper.scope.as_deref(), false).0, units: wrapper.units, builtin_functions: wrapper.builtin_functions });
     }
 
     fn call(&mut self, node: &LinkedNode) {
@@ -345,7 +353,9 @@ impl Reader<'_> {
                     if function.name == "worksheet" {
                         let (start, end) = self.chars(&arg);
                         let wrapper = base.with(Some(&args));
-                        self.scopes.push(Scope { start, end, evaluate: wrapper.evaluate, units: wrapper.units, builtin_functions: wrapper.builtin_functions });
+                        // A block of one equation is that equation to Typst, which shares by default.
+                        let expression = crate::scope::expression_block(&arg);
+                        self.scopes.push(Scope { start, end, evaluate: wrapper.evaluate, isolated: !crate::scope::scope_flags(wrapper.scope.as_deref(), expression).0, units: wrapper.units, builtin_functions: wrapper.builtin_functions });
                     }
                 }
                 SyntaxKind::LeftParen | SyntaxKind::RightParen | SyntaxKind::Comma => {}

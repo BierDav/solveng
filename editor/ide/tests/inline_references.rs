@@ -24,14 +24,14 @@ fn inline_reference_completion_preserves_constructor_quotes_and_arguments() {
         ("$y := op(\"tr|", "tri", "$y := op(\"tri"),
         ("$y := 1unit(\"k|", "km", "$y := 1unit(\"km"),
     ] {
-        let prefix = "#show: worksheet.with(builtin-functions: false, builtin-units: false)\n";
+        let prefix = "#show: worksheet.with(builtin-functions: false)\n";
         assert_eq!(apply(&format!("{prefix}{source}"), label), format!("{prefix}{expected}"));
     }
 }
 
 #[test]
 fn inline_reference_tokens_color_only_string_contents_without_overlap() {
-    let doc = "#show: worksheet.with(builtin-functions: false, builtin-units: false)\n😅 $y := op(\"tri\")(x)$\n$y := 1unit(\"km\")$\n$y := 1 unit(\"ms\")$";
+    let doc = "#show: worksheet.with(builtin-functions: false)\n😅 $y := op(\"tri\")(x)$\n$y := 1unit(\"km\")$\n$y := 1 unit(\"ms\")$";
     for tokens in [document_tokens(doc, &Context::default()), math_tokens(doc, &Context::default())] {
         for (name, kind) in [("tri", TokenKind::BUILTIN_FUNCTION), ("km", TokenKind::UNIT), ("ms", TokenKind::UNIT)] {
             let start = at(doc, &format!("\"{name}\"")) + 1;
@@ -79,7 +79,7 @@ fn collapsed_in(doc: &str, context: &Context) -> String {
 
 #[test]
 fn inline_constructors_collapse_to_contents_and_share_an_editing_range() {
-    let prefix = "#show: worksheet.with(builtin-functions: false, builtin-units: false)\n";
+    let prefix = "#show: worksheet.with(builtin-functions: false)\n";
     for (source, expected) in [
         ("$y := op(\"tri\")(x)$", "$y := tri(x)$"),
         ("$y := 1unit(\"km\")$", "$y := 1km$"),

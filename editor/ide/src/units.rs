@@ -146,7 +146,7 @@ fn items(custom: &[Custom], implicit: bool) -> Vec<Item> {
         if spelling != u.name { item.filter = Some(format!("{} {spelling}", u.name)); }
         items.push(item);
     }
-    for (u, name) in PREFIXABLE {
+    for (u, name) in PREFIXABLE.iter().filter(|_| builtin(custom)) {
         let mut item = Item::new(u, ItemKind::UNIT, &format!("{name} · built-in"), u);
         item.filter = Some(unit_filter(u, "", name));
         items.push(item);
@@ -161,14 +161,14 @@ fn items(custom: &[Custom], implicit: bool) -> Vec<Item> {
             items.push(item);
         }
     }
-    for (u, name) in PLAIN {
+    for (u, name) in PLAIN.iter().filter(|_| builtin(custom)) {
         let mut item = Item::new(u, ItemKind::UNIT, &format!("{name} · built-in"), u);
         item.filter = Some(unit_filter(u, "", name));
         items.push(item);
     }
     let mut seen = std::collections::HashSet::new();
     items.retain(|i| seen.insert(i.label.clone()));
-    if implicit { items.retain(|item| visible(&item.insert, custom)); }
+    if implicit { items.retain(|item| visible(&item.insert, custom)); } else { items.retain(|item| known(&item.insert, custom)); }
     // Common engineering units precede uncommon prefixes; custom overlays stay first.
     const COMMON: &[&str] = &["m", "s", "kg", "A", "K", "V", "Ω", "W", "Hz", "N", "Pa", "J", "C", "F", "H", "mol", "cd", "mm", "cm", "km", "ms", "mA", "mV", "kΩ", "kW", "kHz", "MHz", "µA", "uA", "nF", "µF", "uF", "pF", "h", "min", "°C", "L", "l", "mAh", "Wh", "kWh", "%", "rad", "°"];
     items.sort_by_key(|item| {
@@ -288,15 +288,22 @@ pub(crate) fn describe(word: &str, custom: &[Custom]) -> Option<String> {
     Some(if lines.is_empty() { title } else { format!("{title}\n\n{}", lines.iter().map(|l| format!("`{l}`")).collect::<Vec<_>>().join(" · ")) })
 }
 
-/// Whether solveng reads `word` as a unit: one of its table or the document's, or any prefix and one.
+/// Whether the built-in units are on: `builtin-units: false` leaves only the document's own.
+pub(crate) fn builtin(custom: &[Custom]) -> bool {
+    custom.iter().rfind(|u| u.name.is_empty()).is_none_or(|u| u.value != "false")
+}
+
+/// Whether solveng reads `word` as a unit: one of its table (unless `builtin-units: false`) or the document's, or
+/// any prefix and one.
 pub(crate) fn known(word: &str, custom: &[Custom]) -> bool {
     let normalized = crate::resolved_name(word);
     let word = normalized.as_str();
     if word.contains("\"\"") {
         return known(&crate::resolved_name(word), custom);
     }
+    let builtin = builtin(custom);
     let table = |w: &str| {
-        lookup(PREFIXABLE, w).is_some() || lookup(PLAIN, w).is_some() || lookup(SPELLINGS, w).is_some() || w == "\u{2126}"
+        (builtin && (lookup(PREFIXABLE, w).is_some() || lookup(PLAIN, w).is_some() || lookup(SPELLINGS, w).is_some() || w == "\u{2126}"))
             || custom.iter().any(|u| u.name == w && u.value != "none")
     };
     if table(word) {
@@ -326,19 +333,32 @@ pub(crate) fn unknown_words(expr: &str, custom: &[Custom]) -> Vec<(usize, usize,
     out
 }
 
-/// A hidden name remains available to explicit unit references and definition expressions.
+/// A unit name in effect: known, and not removed with `none`.
 pub(crate) fn visible(word: &str, custom: &[Custom]) -> bool {
     let normalized = crate::resolved_name(word);
     let word = normalized.as_str();
-    if custom.iter().any(|u| u.name == word && u.value == "none") { return false; }
-    let builtin = custom.iter().find(|u| u.name.is_empty()).is_none_or(|u| u.value != "false");
-    known(word, custom) && (builtin || !is_unit(word) || custom.iter().any(|u| u.name == word && u.value != "none"))
+    !custom.iter().any(|u| u.name == word && u.value == "none") && known(word, custom)
 }
 
-/// User overlays do not create Typst bindings for bare names.
-pub(crate) fn bare(word: &str, custom: &[Custom]) -> bool {
-    let normalized = crate::resolved_name(word);
-    let word = normalized.as_str();
-    is_unit(word) && custom.iter().find(|u| u.name.is_empty()).is_none_or(|u| u.value != "false")
-        && !custom.iter().any(|u| u.name == word && u.value == "none")
+/// Whether solveng's `units` module holds a shorthand for `name`: built-in units, prefixed or not, that are Typst
+/// identifiers and don't shadow Typst's own globals (`h` is spacing).
+pub(crate) fn shorthand(name: &str) -> bool {
+    is_unit(name) && typst_syntax::is_ident(name) && !TYPST_GLOBALS.contains(&name)
+}
+
+/// One-letter globals of Typst's standard library a glob import must not shadow.
+const TYPST_GLOBALS: &[&str] = &["h", "v"];
+
+/// Every name of solveng's `units` module, for `#import units: *`.
+pub(crate) fn shorthands() -> Vec<String> {
+    let mut out = Vec::new();
+    for (u, _) in PREFIXABLE.iter().chain(PLAIN) {
+        out.push(u.to_string());
+        if PREFIXABLE.iter().any(|(p, _)| p == u) {
+            out.extend(PREFIXES.iter().map(|(p, _)| format!("{p}{u}")));
+        }
+    }
+    out.retain(|n| shorthand(n));
+    out.dedup();
+    out
 }

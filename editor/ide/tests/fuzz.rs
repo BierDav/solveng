@@ -31,7 +31,7 @@ fn n() -> usize {
 const PIECES: &[&str] = &[
     "#show: worksheet\n",
     "#import \"@preview/solveng:1.0.0\": *\n",
-    "#worksheet(units: (bar: \"100 kPa\", ü: auto), evaluate: false)[]\n",
+    "#show: worksheet.with(units: (bar: \"100 kPa\", ü: auto), evaluate: false)\n",
     "$U := 5 V$ ",
     "$I := U / (2 Omega) = mA$ ",
     "$R_\"load\"(x: Ω) := 2 x$ ",

@@ -1,35 +1,32 @@
 #import "/lib.typ": *
-#import "/tests/util.typ": expect, undefined, passes
+#import "/tests/util.typ": expect, undefined, passes, fails, reported
 #set page(width: 18cm, height: auto)
-#show: worksheet.with(errors: "panic")
+#show: worksheet
 
-// Auto exports expressions and keeps blocks local.
+// auto: equations are shared, content is isolated
 $x := 10$
-#worksheet($a := x+1$, export: auto)
+#worksheet($a := x+1$)
 #expect("a", 11)
-#worksheet(export: auto)[$x := 99$ $"local" := 1$]
+#worksheet[#undefined("x") $x := 99$ $"local" := 1$]
 #expect("x", 10) #undefined("local")
+#worksheet(scope: auto)[#undefined("x")]
 
-// Read from and write to the parent independently.
-#worksheet(inherit: true, export: false)[$x := x+1$ #expect("x", 11)]
-#expect("x", 10)
-#worksheet(inherit: true, export: true)[$x := x+2$ $b := a+1$]
+// inherit: sees the outer definitions, its own end with it
+#worksheet(scope: "inherit")[$x := x+1$ #expect("x", 11) $"own" := 1$]
+#expect("x", 10) #undefined("own")
+#worksheet($x := 40$, "temporary := x+1", scope: "inherit") #expect("x", 10) #undefined("temporary")
+// shared: sees them, and what it defines stays, over the outer ones
+#worksheet(scope: "shared")[$x := x+2$ $b := a+1$]
 #expect("x", 12) #expect("b", 12)
-#worksheet(inherit: false, export: true)[#undefined("x") $x := 20$]
-#expect("x", 20) #expect("a", 11)
-#worksheet(inherit: false, export: false)[#undefined("x") $x := 30$]
-#expect("x", 20)
+#worksheet("y_s := x + 1", scope: "shared") #expect("y_s", 13)
+// isolated: starts empty, its definitions end with it
+#worksheet(scope: "isolated")[#undefined("x") $x := 30$ #expect("x", 30)]
+#expect("x", 12)
+#worksheet("x := 50", "iso := 2", scope: "isolated") #expect("x", 12) #undefined("iso")
+#worksheet("z_i := x =", scope: "isolated") #fails("'x' in 'z_i' isn't defined")
 
-// Expression calls can also be isolated in either direction.
-#worksheet($x := 40$, "temporary := x+1", export: false)
-#expect("x", 20) #undefined("temporary")
-#worksheet("x := 50", inherit: false, export: false)
-#expect("x", 20)
-#worksheet("from_call := 7", inherit: false, export: auto)
-#expect("from_call", 7)
-
-// Export functions, solved values, code and graph definitions as well as variables.
-#worksheet(export: true, hidden: true)[
+// shared keeps functions, solved values, code and graph definitions as well as variables
+#worksheet(scope: "shared", hidden: true)[
   $U := 12 "V"$
   $R := 100 "Ω"$
   $U = I R -> solve(I)$
@@ -43,43 +40,100 @@ $x := 10$
 $y := f(3) =$ #expect("y", 10)
 $z := g(3) =$ #expect("z", 5)
 
-// Export reaches only the immediate parent; nested worksheets keep their own defaults.
+// shared reaches only the immediate parent; nested worksheets have their own defaults
 #worksheet[
-  #worksheet(export: true)[$"nested" := 2$]
+  #worksheet(scope: "shared")[$"nested" := 2$]
   #expect("nested", 2)
 ]
 #undefined("nested")
-#worksheet(export: true)[
+#worksheet(scope: "shared")[
   #worksheet[Local calculation: $"private" := 3$]
   #undefined("private")
-  #worksheet(export: true)[$"nested" := 4$]
+  #worksheet(scope: "shared")[$"nested" := 4$]
 ]
 #expect("nested", 4) #undefined("private")
 
-// Clearing names or restarting a child does not delete definitions in the parent.
-#worksheet(inherit: true, export: true)[
+// clearing goes back to the worksheet's start, the outer definitions included for inherit and shared; the parent
+// keeps what was cleared
+#worksheet(scope: "shared")[
   #clear("x")
+  #undefined("x")
   $"retained" := 6$
 ]
-#expect("x", 20) #expect("retained", 6)
-#worksheet(export: true, clear-at: heading)[
+#expect("x", 12) #expect("retained", 6)
+#worksheet(scope: "shared", clear-at: heading)[
   = First
   $"discarded" := 1$
   = Second
+  #expect("x", 12) #undefined("discarded")
   $"kept" := 2$
 ]
 #undefined("discarded") #expect("kept", 2)
-#worksheet(export: true)[$"discarded" := 3$ #clear(all: true) $"kept_after_clear" := 4$]
-#undefined("discarded") #expect("kept_after_clear", 4)
+#worksheet(scope: "inherit")[$"discarded" := 3$ #clear(all: true) #expect("x", 12) #undefined("discarded")]
+#worksheet(scope: "isolated")[$"discarded" := 3$ #clear(all: true) #undefined("x") #undefined("discarded")]
 
-// An exported definition can change a name from a variable to a function and back.
-#worksheet(export: true)[$x(t) := 2t$]
+// a shared definition can change a name from a variable to a function and back
+#worksheet(scope: "shared")[$x(t) := 2t$]
 $"function_value" := x(3) =$ #expect("function_value", 6)
-#worksheet(export: true)[$x := 60$]
+#worksheet(scope: "shared")[$x := 60$]
 #expect("x", 60)
 
-// Typst collapses a single-expression content block; explicit false keeps it local.
+// Typst collapses a content block of one equation into the equation: shared, unless scope says otherwise
 #worksheet[$"collapsed" := 1$]
 #expect("collapsed", 1)
-#worksheet(export: false)[$"collapsed" := 2$]
+#worksheet(scope: "isolated")[$"collapsed" := 2$]
 #expect("collapsed", 1)
+
+// clear-at: every heading, headings of one level, or every element with a label
+#worksheet(clear-at: heading.where(level: 1))[
+  = One
+  $p := 1$
+  == Two
+  #expect("p", 1)
+  = Three
+  #undefined("p")
+]
+#worksheet(clear-at: <exercise>)[
+  = Task <exercise>
+  $y := 2$
+  = Notes
+  #expect("y", 2)
+  = Task <exercise>
+  #undefined("y")
+  $"yt" := 3$
+  #block[Part] <exercise>
+  #undefined("yt")
+]
+#worksheet(clear-at: selector(heading))[
+  = A
+  $q := 1$
+  = B
+  #undefined("q")
+]
+
+// what was replaced or isn't a scope
+#worksheet(inherit: true)[]
+#reported("inherit was replaced by scope: \"isolated\" | \"inherit\" | \"shared\"")
+#worksheet($e_x := 1$, export: false)
+#reported("export was replaced by scope")
+#undefined("e_x")
+#worksheet(scope: "local")[]
+#reported("scope: auto, \"isolated\", \"inherit\" or \"shared\", got \"local\"")
+#worksheet(scope: true)[]
+#reported("got true")
+
+// units change what names mean: only an isolated scope can set them
+#worksheet(scope: "inherit", units: (bar: "100 kPa"))[]
+#reported("units need scope: \"isolated\"")
+#worksheet(scope: "shared", builtin-units: false)[]
+#reported("builtin-units need scope: \"isolated\"")
+#worksheet($u_x := 1$, units: (bar: "100 kPa"))
+#reported("the default for equations")
+#undefined("u_x")
+#worksheet($u_i := 2 "bar" =$, scope: "isolated", units: (bar: "100 kPa")) #passes() #undefined("u_i")
+
+// clear-at takes exactly these forms
+#for (bad, shown) in ((par, "par"), (heading.where(outlined: false), "heading.where(outlined: false)"), (heading.where(level: 0), "heading.where(level: 0)"), ("exercise", "\"exercise\""), (heading.where(level: 1).or(par), "selector.or")) {
+  worksheet(clear-at: bad)[]
+  reported("clear-at: none, heading, heading.where(level: n) or a label like <exercise>, got " + shown)
+}

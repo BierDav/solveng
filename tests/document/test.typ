@@ -1,5 +1,6 @@
 // The first example of the README: a worksheet without a single call.
 #import "/lib.typ": *
+#import units: *
 #set page(width: 13cm, height: auto, margin: 0.6cm)
 #show: worksheet
 
