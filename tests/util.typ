@@ -10,9 +10,10 @@
 /// tt update readme                              # accept changed output of the README examples
 /// python3 tests/examples.py                     # every example in README.md and docs/reference.md compiles on its own
 /// python3 tests/reference.py                    # docs/reference.md from the doc comments in src/ (--check: is it up to date?)
+/// uv run --no-project --with sympy --with mpmath python tests/oracle/generate.py   # the reference results
 /// ```
 ///
-/// `cargo test` includes a fuzzer (`core/tests/fuzz.rs`): random nonlinear equations, polynomials, systems, physics formulas with random prefixes and random numbers to format, checked against direct calculation (`FUZZ_N=5000 cargo test --release fuzz` for more cases). `TYPST=…` picks another compiler for the examples, e.g. the oldest supported version.
+/// `cargo test` includes a fuzzer (`core/tests/fuzz.rs`): random nonlinear equations, polynomials, systems, physics formulas with random prefixes and random numbers to format, checked against direct calculation (`FUZZ_N=5000 cargo test --release fuzz` for more cases). `core/tests/oracle.rs` checks families of matrices, integrals, series, simplifications and equations against SymPy and mpmath (the results are in `core/tests/oracle/`, so `cargo test` needs neither); what the engine can't do yet is listed in `core/tests/oracle/known.txt`, which only shrinks: a listed case that passes fails the test until `ORACLE_BLESS=1 cargo test --test oracle` updates the list. `TYPST=…` picks another compiler for the examples, e.g. the oldest supported version.
 
 #import "/lib.typ": *
 #import "/src/api.typ": _rows, _st, _cf, _line

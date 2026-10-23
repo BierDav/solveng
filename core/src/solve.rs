@@ -584,7 +584,11 @@ fn lin(e: &Expr, xs: &[String], known: &dyn Fn(&str) -> Option<Dim>, cons: &mut 
                 Some(k(Dim::ONE))
             }
         }
-        Expr::Vector(_) => return Err("solving requires scalar equations, not a vector".into()),
+        Expr::Vector(_) | Expr::Matrix(_) => return Err("solving requires scalar equations, not a vector or matrix".into()),
+        Expr::Op(_, args) => {
+            for a in args { lin(a, xs, known, cons)?; }
+            None
+        }
         Expr::Cmp(v, _) => {
             let ls: Vec<Option<Lin>> = v.iter().map(|x| lin(x, xs, known, cons)).collect::<Result<_, _>>()?;
             for w in ls.windows(2) {

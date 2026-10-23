@@ -72,6 +72,16 @@ The acute accent `´` and the backtick (`` ` ``) are literal name characters: `$
 
 Use `$t^2 -> laplace$` for 2/s³ and `$1/(s+1) -> invlaplace$` for exp(−t). The defaults are t → s and s → t; `laplace(x, p)` and `invlaplace(p, x)` after the arrow choose other variables. Callable forms such as `$F(p) := laplace(exp(-t), t, p)$` also work. Common polynomial, exponential, trigonometric, and rational transforms are supported; unsupported forms report an error. See [Laplace transforms](docs/reference.md#laplace) for the supported rules.
 
+Matrices are Typst's: `mat(1, 2; 3, 4)`, rows separated by semicolons, `vec(a, b)` for a column, and matrices as blocks of a bigger one (`mat(A, b)`, `mat(A; B)`). Products keep their order (`A B`, `A v`, `v^T A`; `v dot w` of two vectors is the dot product), `A^(-1)` inverts, `A^T` or `A^top` transposes, `|A|` and `det(A)` give the determinant, `norm(v)` the length and `a times b` the cross product; `A^(-1) b` solves the system without forming the inverse. `tr`, `rank`, `identity(n)`, `rows`, `cols` and `at(A, i, j)` complete the set. Matrices of exact numbers stay exact, names give formulas (`$det(mat(a, b; c, d)) ->$` is a d − b c), and units follow the rows and columns, so a resistance matrix solves to currents. A matrix equation solves element by element:
+
+```typ
+#import "@preview/solveng:1.0.0": *
+#show: worksheet
+$R := mat(2 Ω, 1 Ω; 1 Ω, 3 Ω)$, $U := vec(1 V, 2 V)$
+$I := R^(-1) U =$, $det(R) =$, $R^(-1) =$
+$R vec(I_1, I_2) = U -> solve(I_1, I_2)$
+```
+
 See [Built-in operations](docs/reference.md#built-in-operations) for syntax, domains, units, and examples.
 
 Signal functions `rect`, `tri`, and `sgn` are available directly in strings and math after importing solveng. `rect(x)` is 1 inside ±½, ½ at its endpoints, and 0 outside; `tri(x)` is max(1 − |x|, 0); `sgn(0)` is 0. Linear combinations simplify and solve normally; numerical integrals split shifted/scaled signals at their corners. Distributional derivatives remain symbolic.

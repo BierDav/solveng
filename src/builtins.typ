@@ -16,6 +16,8 @@
 /// | `arcsin(x)`, `arccos(x)`, `arctan(x)` | Inverse trigonometric functions; also spelled `asin`, `acos`, `atan`, documented below. |
 /// | `sinh(x)`, `cosh(x)`, `tanh(x)` | Hyperbolic functions of a unitless argument. |
 /// | `vec(a, b, …)` | Column vector. Use `at(vector, index)` to select a component, starting at 0. |
+/// | `mat(a, b; c, d)` | Matrix, rows separated by semicolons, blocks allowed: `mat(A, b)`, `mat(A; B)`. `A B` multiplies, `A^(-1)` inverts, `A^T` transposes, `a times b` is the cross product. Use `at(matrix, row, column)` for an element. |
+/// | `det(A)`, `tr(A)`, `norm(v)` | Determinant and trace of a square matrix; length of a vector (‖v‖). |
 /// | `cases(value, condition, …, default)` | First matching branch; conditions are unitless, and only the selected value is evaluated. The final default is optional. In math use `cases(0 & t < 0, 1 & "otherwise")`. |
 /// | `laplace(expression, variable, result-variable)`, `invlaplace(expression, variable, result-variable)` | Symbolic unilateral transforms, also used after `->`. Defaults: t → s and s → t. See their entries below for supported forms. |
 /// | `sum(expression, index, lower, upper)` | Sum over inclusive integer bounds; the index is local and unitless. In math use `sum_(k=0)^10 k^2`. Small finite sums simplify exactly; infinite sums stay symbolic with `->` and are evaluated for `=` and graphs. |
@@ -106,14 +108,16 @@
 /// -> expression or value
 #let integrate = math.op("integrate")
 
-/// Selects a vector component with a zero-based index: `at(vector, index)`.
+/// Selects a vector component with a zero-based index: `at(vector, index)`, or a matrix
+/// element: `at(matrix, row, column)`.
 ///
 /// `$at(vec(3, 5), 0) =$` gives 3. The index must be a nonnegative integer smaller
 /// than the number of components. This also selects a solution from a function that
 /// returns several solutions as a vector. The selected component keeps its unit.
 ///
-/// - vector (expression): A vector, including the result of a function returning a vector.
-/// - index (int): Component number, starting at 0.
+/// - vector (expression): A vector or matrix, including the result of a function returning a vector.
+/// - index (int): Component number, or the row of a matrix, starting at 0.
+/// - column (int): Column of a matrix element, starting at 0.
 /// -> expression or value
 #let at = math.op("at")
 
@@ -303,3 +307,63 @@
 /// - result-variable (name): Output variable, t by default.
 /// -> expression
 #let invlaplace = math.op("invlaplace")
+
+/// Matrix: `mat(a, b; c, d)`, commas between the elements of a row and semicolons between rows.
+///
+/// Elements can carry units and names. A matrix of one column is a vector, the same as `vec(…)`.
+/// Elements that are matrices are blocks: `mat(A, b)` puts A and b side by side, `mat(A; B)`
+/// puts B below A, `mat(A, 0; 0, B)` builds a block diagonal from scalars and blocks.
+///
+/// Everything else is Typst's math notation. `+` and `−` work element by element (a scalar is
+/// added to every element); products follow the written order: `A B` is the matrix product,
+/// `A v` a matrix times a vector, `v dot w` or `v w` the dot product of two vectors, `v^T A` a row
+/// times a matrix, and `a times b` the cross product of two vectors of 3 components. `A^n` is a
+/// whole power of a square matrix, `A^(-1)` its inverse, `A^T` or `A^top` its transpose, `|A|` its
+/// determinant; `|v|` and `norm(v)` are the length of a vector. `A^(-1) b` solves the system
+/// A x = b without forming the inverse, and `A vec(x, y) = b -> solve(x, y)` solves a matrix
+/// equation element by element.
+///
+/// Determinants, inverses and systems are exact for exact numbers and formulas for names. With
+/// units, every row and column needs a unit of its own (element = row unit · column unit), as in
+/// physical matrices: a resistance matrix inverts to conductances. Names without a value are
+/// scalars until they get one.
+/// - ..rows (expression): Elements or blocks, row by row.
+// @builtin mat
+
+/// Determinant of a square matrix: `det(A)`, also written `|A|`.
+///
+/// Exact for exact numbers, a formula for names: `$det(mat(a, b; c, d)) ->$` gives a d − b c.
+/// With units, the determinant has the product of the row and column units.
+/// - matrix (expression): A square matrix.
+// @builtin det
+
+/// Trace of a square matrix: `tr(A)`, the sum of its diagonal.
+/// - matrix (expression): A square matrix.
+// @builtin tr
+
+/// Norm: `norm(v)`, written ‖v‖, is the length of a vector and the Frobenius norm of a matrix
+/// (the root of the sum of its squared elements); of a number, its absolute value.
+/// - x (expression): A vector, matrix or number.
+// @builtin norm
+
+/// Rank of a matrix: `rank(A)`, the number of independent rows.
+///
+/// Exact for exact numbers; floats count as zero within rounding of the largest element.
+/// - matrix (expression): A vector or matrix.
+/// -> integer
+#let rank = math.op("rank")
+
+/// Identity matrix: `identity(n)` has n rows and columns, ones on the diagonal.
+/// - n (int): Number of rows and columns, 1 or more.
+/// -> matrix
+#let identity = math.op("identity")
+
+/// Number of rows of a vector or matrix: `rows(A)`.
+/// - matrix (expression): A vector or matrix.
+/// -> integer
+#let rows = math.op("rows")
+
+/// Number of columns of a vector or matrix: `cols(A)`; a vector has 1.
+/// - matrix (expression): A vector or matrix.
+/// -> integer
+#let cols = math.op("cols")

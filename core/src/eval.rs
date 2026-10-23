@@ -49,6 +49,9 @@ pub fn value(e: &Expr) -> Result<Val, NoValue> {
     if !free.is_empty() {
         return Err(NoValue::Unknown(free));
     }
+    if let Some(m) = crate::linalg::problem(&s) {
+        return Err(NoValue::Error(m));
+    }
     let (x, d) = eval_d(&s).map_err(NoValue::Error)?;
     Ok(Val::new(Num::F(x), d))
 }
@@ -69,6 +72,8 @@ pub fn eval_d(e: &Expr) -> Result<(f64, Dim), String> {
             return Err("no cases condition matches here".into());
         }
         Expr::Vector(_) => return Err("a vector has several components – select one with at(vector, index), starting at 0".into()),
+        Expr::Matrix(_) => return Err("a matrix has several elements – select one with at(matrix, row, column), starting at 0".into()),
+        Expr::Op(..) => return Err(crate::linalg::problem(e).unwrap_or_else(|| "this matrix operation has no value here".into())),
         Expr::C(v) => (v.v.f(), v.d),
         Expr::Pi => (std::f64::consts::PI, Dim::ONE),
         Expr::E => (std::f64::consts::E, Dim::ONE),
@@ -207,7 +212,7 @@ pub fn eval_f(e: &Expr, vars: &dyn Fn(&str) -> Option<f64>) -> Option<f64> {
             }
             return eval_f(selected?, vars);
         }
-        Expr::Vector(_) => return None,
+        Expr::Vector(_) | Expr::Matrix(_) | Expr::Op(..) => return None,
         Expr::C(v) => v.v.f(),
         Expr::Pi => std::f64::consts::PI,
         Expr::E => std::f64::consts::E,
@@ -280,8 +285,8 @@ pub fn dim_of(e: &Expr, sd: &dyn Fn(&str) -> Option<Dim>) -> Result<Option<Dim>,
             }
             result.or(Some(Dim::ONE))
         }
-        Expr::Vector(v) => {
-            for e in v { dim_of(e, sd)?; }
+        Expr::Vector(_) | Expr::Matrix(_) | Expr::Op(..) => {
+            for e in e.children() { dim_of(e, sd)?; }
             None
         }
         Expr::C(v) => Some(v.d),

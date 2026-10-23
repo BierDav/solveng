@@ -9,6 +9,7 @@ pub mod eval;
 pub mod expr;
 pub mod format;
 pub mod graph;
+pub mod linalg;
 pub mod num;
 pub mod parse;
 pub mod poly;

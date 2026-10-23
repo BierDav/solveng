@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::dim::Dim;
+use crate::linalg::{self, Op};
 use crate::num::{Num, Rat};
 use crate::parse::Rel;
 use crate::units::UnitExpr;
@@ -197,6 +198,10 @@ pub enum Expr {
     Pi,
     E,
     Vector(Vec<Expr>),
+    /// A matrix of more than one column, row by row (one column is a `Vector`).
+    Matrix(Vec<Vec<Expr>>),
+    /// A matrix operation, evaluated once its arguments are matrices: det(A), A^T, lsolve(A, b).
+    Op(Op, Vec<Expr>),
     Add(Vec<Expr>),
     Mul(Vec<Expr>),
     Pow(Box<Expr>, Box<Expr>),
@@ -277,7 +282,8 @@ impl Expr {
     pub fn children(&self) -> Vec<&Expr> {
         match self {
             Expr::Cases(v) => v.iter().flat_map(|(value, condition)| [value, condition]).collect(),
-            Expr::Vector(v) | Expr::Add(v) | Expr::Mul(v) | Expr::Cmp(v, _) | Expr::Call(_, v) => v.iter().collect(),
+            Expr::Vector(v) | Expr::Add(v) | Expr::Mul(v) | Expr::Cmp(v, _) | Expr::Call(_, v) | Expr::Op(_, v) => v.iter().collect(),
+            Expr::Matrix(rs) => rs.iter().flatten().collect(),
             Expr::Pow(a, b) | Expr::Subs(a, _, b) | Expr::InverseLaplace(a, _, b) => vec![a, b],
             Expr::Integral(body, _, lo, hi) | Expr::Sum(body, _, lo, hi) => vec![body, lo, hi],
             Expr::F(_, a) | Expr::Cast(a, ..) | Expr::Derivative(a, _) => vec![a],
@@ -289,6 +295,8 @@ impl Expr {
             Expr::Cases(v) => Expr::Cases(v.iter().map(|(value, condition)| (f(value), f(condition))).collect()),
             Expr::Call(n, v) => Expr::Call(n.clone(), v.iter().map(&mut *f).collect()),
             Expr::Vector(v) => Expr::Vector(v.iter().map(&mut *f).collect()),
+            Expr::Matrix(rs) => Expr::Matrix(rs.iter().map(|r| r.iter().map(&mut *f).collect()).collect()),
+            Expr::Op(op, v) => Expr::Op(*op, v.iter().map(&mut *f).collect()),
             Expr::Add(v) => Expr::Add(v.iter().map(&mut *f).collect()),
             Expr::Mul(v) => Expr::Mul(v.iter().map(&mut *f).collect()),
             Expr::Cmp(v, r) => Expr::Cmp(v.iter().map(&mut *f).collect(), r.clone()),
@@ -415,7 +423,7 @@ impl Expr {
         simp(&self.d(x))
     }
     fn d(&self, x: &str) -> Expr {
-        if let Expr::Vector(v) = self { return Expr::Vector(v.iter().map(|e| e.d(x)).collect()); }
+        if let Expr::Vector(_) | Expr::Matrix(_) = self { return self.map(&mut |e| e.d(x)); }
         if !self.has(x) {
             return int(0);
         }
@@ -435,7 +443,7 @@ impl Expr {
                     mul(vec![self.clone(), add(vec![mul(vec![b.d(x), func(Func::Ln, (**a).clone())]), mul(vec![(**b).clone(), a.d(x), pow((**a).clone(), int(-1))])])])
                 }
             }
-            Expr::Call(..) | Expr::Cases(..) | Expr::Derivative(..) | Expr::Subs(..) | Expr::InverseLaplace(..) => return Expr::Derivative(Box::new(self.clone()), x.into()),
+            Expr::Call(..) | Expr::Op(..) | Expr::Cases(..) | Expr::Derivative(..) | Expr::Subs(..) | Expr::InverseLaplace(..) => return Expr::Derivative(Box::new(self.clone()), x.into()),
             Expr::F(f, a) => {
                 let a0 = (**a).clone();
                 let inner = match f {
@@ -635,8 +643,10 @@ pub fn simp(e: &Expr) -> Expr {
         Expr::Sum(a, v, lo, hi) => crate::calculus::sum(simp(a), v.clone(), simp(lo), simp(hi)),
         Expr::Integral(a, v, lo, hi) => crate::calculus::integral(simp(a), v.clone(), simp(lo), simp(hi)),
         Expr::Vector(v) => Expr::Vector(v.iter().map(simp).collect()),
+        Expr::Matrix(rs) => linalg::matrix(rs.iter().map(|r| r.iter().map(simp).collect()).collect()),
+        Expr::Op(op, v) => linalg::apply(*op, v.iter().map(simp).collect()),
         Expr::Add(v) => simp_add(v.iter().map(simp).collect()),
-        Expr::Mul(v) => simp_mul(v.iter().map(simp).collect()),
+        Expr::Mul(v) => simp_mul(linalg::factors(v)),
         Expr::Pow(a, b) => simp_pow(simp(a), simp(b)),
         Expr::F(f, a) => simp_f(*f, simp(a)),
         Expr::Cmp(v, r) => simp_cmp(v.iter().map(simp).collect(), r.clone()),
@@ -657,6 +667,9 @@ fn simp_add(v: Vec<Expr>) -> Expr {
             Expr::Add(ts) => flat.extend(ts),
             t => flat.push(t),
         }
+    }
+    if flat.iter().any(linalg::is_array) {
+        return linalg::add(flat);
     }
     // like terms: equal rest, coefficients of one dimension
     let mut groups: Vec<(Option<Expr>, Val)> = vec![];
@@ -691,6 +704,10 @@ fn simp_mul(v: Vec<Expr>) -> Expr {
             Expr::Mul(fs) => flat.extend(fs),
             f => flat.push(f),
         }
+    }
+    // arrays don't commute: they're multiplied in their order before anything is sorted
+    if flat.iter().any(linalg::is_array) {
+        return linalg::mul(flat);
     }
     let mut coef = Val::int(1);
     // base → exponent
@@ -753,6 +770,9 @@ fn simp_mul(v: Vec<Expr>) -> Expr {
 }
 
 fn simp_pow(b: Expr, x: Expr) -> Expr {
+    if linalg::is_array(&b) {
+        return linalg::pow(b, x);
+    }
     if x.is_zero() {
         return int(1);
     }
@@ -807,6 +827,9 @@ fn simp_pow(b: Expr, x: Expr) -> Expr {
 }
 
 fn simp_f(f: Func, a: Expr) -> Expr {
+    if linalg::is_array(&a) {
+        return linalg::func(f, a);
+    }
     // inverse pairs: exp(ln x) = x, ln(exp x) = x
     if let Expr::F(g, inner) = &a {
         if (f == Func::Exp && *g == Func::Ln) || (f == Func::Ln && *g == Func::Exp) {

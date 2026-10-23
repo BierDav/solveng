@@ -430,6 +430,7 @@ fn code_items(a: &Analysis, line: &str, at: usize) -> Vec<Item> {
             let insert = match *f {
                 "at" => "at(${1:vector}, ${2:0})$0".into(),
                 "vec" => "vec(${1:first}, ${2:second})$0".into(),
+                "mat" => "mat(${1:a}, ${2:b}; ${3:c}, ${4:d})$0".into(),
                 "cases" => "cases(${1:0}, ${2:t < 0}, ${3:1})$0".into(),
                 "laplace" => "laplace(${1:expression}, ${2:t}, ${3:s})$0".into(),
                 "invlaplace" => "invlaplace(${1:expression}, ${2:s}, ${3:t})$0".into(),

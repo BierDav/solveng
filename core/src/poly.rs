@@ -379,6 +379,10 @@ pub fn cancel_expr(e: &Expr) -> Option<Expr> {
 /// The simplest of the forms solveng knows: as it is (canonical), with fractions cancelled, multiplied out.
 pub fn simplify(e: &Expr) -> Expr {
     let a = simp(&e.map(&mut simplify));
+    // arrays are simplified element by element (above); as polynomial atoms they would commute
+    if a.contains(&crate::linalg::is_array) {
+        return a;
+    }
     let mut best = a.clone();
     let mut cands = vec![];
     if let Some(b) = cancel_expr(&a) {

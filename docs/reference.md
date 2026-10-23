@@ -25,6 +25,10 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 - [`laplace`](#laplace)
 - [`invlaplace`](#invlaplace)
 - [`at`](#at)
+- [`rank`](#rank)
+- [`identity`](#identity)
+- [`rows`](#rows)
+- [`cols`](#cols)
 - [`asin`](#asin)
 - [`acos`](#acos)
 - [`atan`](#atan)
@@ -63,7 +67,11 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 | [`integrate`](#integrate) | Definite integral: `integrate(expression, variable, lower, upper)`. |
 | [`laplace`](#laplace) | Unilateral Laplace transform: `laplace(expression, variable, result-variable)`. |
 | [`invlaplace`](#invlaplace) | Inverse unilateral Laplace transform: `invlaplace(expression, variable, result-variable)`. |
-| [`at`](#at) | Selects a vector component with a zero-based index: `at(vector, index)`. |
+| [`at`](#at) | Selects a vector component with a zero-based index: `at(vector, index)`, or a matrix element: `at(matrix, row, column)`. |
+| [`rank`](#rank) | Rank of a matrix: `rank(A)`, the number of independent rows. |
+| [`identity`](#identity) | Identity matrix: `identity(n)` has n rows and columns, ones on the diagonal. |
+| [`rows`](#rows) | Number of rows of a vector or matrix: `rows(A)`. |
+| [`cols`](#cols) | Number of columns of a vector or matrix: `cols(A)`; a vector has 1. |
 | [`asin`](#asin) | Inverse sine, also spelled `arcsin`: `asin(x)` returns an angle in radians from −π/2 to π/2. |
 | [`acos`](#acos) | Inverse cosine, also spelled `arccos`: `acos(x)` returns an angle in radians from 0 to π. |
 | [`atan`](#atan) | Inverse tangent, also spelled `arctan`: `atan(x)` returns an angle in radians between −π/2 and π/2. |
@@ -523,7 +531,8 @@ Returns expression.
 
 ## `at`
 
-Selects a vector component with a zero-based index: `at(vector, index)`.
+Selects a vector component with a zero-based index: `at(vector, index)`, or a matrix
+element: `at(matrix, row, column)`.
 
 `$at(vec(3, 5), 0) =$` gives 3. The index must be a nonnegative integer smaller
 than the number of components. This also selects a solution from a function that
@@ -531,10 +540,53 @@ returns several solutions as a vector. The selected component keeps its unit.
 
 | parameter | type | default | |
 |---|---|---|---|
-| `vector` | expression |  | A vector, including the result of a function returning a vector. |
-| `index` | int |  | Component number, starting at 0. |
+| `vector` | expression |  | A vector or matrix, including the result of a function returning a vector. |
+| `index` | int |  | Component number, or the row of a matrix, starting at 0. |
+| `column` | int |  | Column of a matrix element, starting at 0. |
 
 Returns expression or value.
+
+## `rank`
+
+Rank of a matrix: `rank(A)`, the number of independent rows.
+
+Exact for exact numbers; floats count as zero within rounding of the largest element.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `matrix` | expression |  | A vector or matrix. |
+
+Returns integer.
+
+## `identity`
+
+Identity matrix: `identity(n)` has n rows and columns, ones on the diagonal.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `n` | int |  | Number of rows and columns, 1 or more. |
+
+Returns matrix.
+
+## `rows`
+
+Number of rows of a vector or matrix: `rows(A)`.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `matrix` | expression |  | A vector or matrix. |
+
+Returns integer.
+
+## `cols`
+
+Number of columns of a vector or matrix: `cols(A)`; a vector has 1.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `matrix` | expression |  | A vector or matrix. |
+
+Returns integer.
 
 ## `asin`
 
@@ -700,6 +752,8 @@ The following operations use Typst's existing math names or syntax:
 | `arcsin(x)`, `arccos(x)`, `arctan(x)` | Inverse trigonometric functions; also spelled `asin`, `acos`, `atan`, documented below. |
 | `sinh(x)`, `cosh(x)`, `tanh(x)` | Hyperbolic functions of a unitless argument. |
 | `vec(a, b, …)` | Column vector. Use `at(vector, index)` to select a component, starting at 0. |
+| `mat(a, b; c, d)` | Matrix, rows separated by semicolons, blocks allowed: `mat(A, b)`, `mat(A; B)`. `A B` multiplies, `A^(-1)` inverts, `A^T` transposes, `a times b` is the cross product. Use `at(matrix, row, column)` for an element. |
+| `det(A)`, `tr(A)`, `norm(v)` | Determinant and trace of a square matrix; length of a vector (‖v‖). |
 | `cases(value, condition, …, default)` | First matching branch; conditions are unitless, and only the selected value is evaluated. The final default is optional. In math use `cases(0 & t < 0, 1 & "otherwise")`. |
 | `laplace(expression, variable, result-variable)`, `invlaplace(expression, variable, result-variable)` | Symbolic unilateral transforms, also used after `->`. Defaults: t → s and s → t. See their entries below for supported forms. |
 | `sum(expression, index, lower, upper)` | Sum over inclusive integer bounds; the index is local and unitless. In math use `sum_(k=0)^10 k^2`. Small finite sums simplify exactly; infinite sums stay symbolic with `->` and are evaluated for `=` and graphs. |
@@ -804,6 +858,7 @@ A solved definition keeps its solutions: `circle(x, r) := x^2 + b^2 = r^2 -> sol
 - **°C** is a temperature difference (no 273.15 offset); temperatures in formulas like `p V = n R T` need K. New base dimensions (bit, €) can be added with `units: (bit: auto)`, at most 8.
 - **Prefixes:** a lone `m` before a unit is metre: `"m s"`, `$"m" Omega$` are m·s and Ω·m; write `"ms"`, `$"m"Omega$` for milli.
 - **Functions** can't call themselves.
+- **Matrices:** names without a value are scalars, so they commute in products until they get a value (define matrices before multiplying them, or pass them to a function). Symbolic elimination treats an entry as zero only when it simplifies to 0, so entries that vanish by an identity like sin² + cos² = 1 count as nonzero. Floats count as zero within 10⁻¹³ of the largest element (times the size). Unknowns of `solve` are scalars: write a vector of unknowns as `vec(x, y)`.
 - **Math in a worksheet:** an equation with `=` and only known names is checked, so a formula meant as plain text that happens to use defined names (`$a^2 + b^2 = c^2$` after defining a, b and c) must hold. Put those outside the worksheet or use `#worksheet(evaluate: false)[…]` around them.
 
 ## Errors
@@ -829,6 +884,7 @@ tt run                                        # units, solving, names, lambdify 
 tt update readme                              # accept changed output of the README examples
 python3 tests/examples.py                     # every example in README.md and docs/reference.md compiles on its own
 python3 tests/reference.py                    # docs/reference.md from the doc comments in src/ (--check: is it up to date?)
+uv run --no-project --with sympy --with mpmath python tests/oracle/generate.py   # the reference results
 ```
 
-`cargo test` includes a fuzzer (`core/tests/fuzz.rs`): random nonlinear equations, polynomials, systems, physics formulas with random prefixes and random numbers to format, checked against direct calculation (`FUZZ_N=5000 cargo test --release fuzz` for more cases). `TYPST=…` picks another compiler for the examples, e.g. the oldest supported version.
+`cargo test` includes a fuzzer (`core/tests/fuzz.rs`): random nonlinear equations, polynomials, systems, physics formulas with random prefixes and random numbers to format, checked against direct calculation (`FUZZ_N=5000 cargo test --release fuzz` for more cases). `core/tests/oracle.rs` checks families of matrices, integrals, series, simplifications and equations against SymPy and mpmath (the results are in `core/tests/oracle/`, so `cargo test` needs neither); what the engine can't do yet is listed in `core/tests/oracle/known.txt`, which only shrinks: a listed case that passes fails the test until `ORACLE_BLESS=1 cargo test --test oracle` updates the list. `TYPST=…` picks another compiler for the examples, e.g. the oldest supported version.

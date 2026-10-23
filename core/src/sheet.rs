@@ -15,6 +15,7 @@ use crate::env::{Env, Fun, Kind, Lower, Var};
 use crate::eval::{NoValue, dim_of, value};
 use crate::expr::{self, Expr, Val, simp};
 use crate::format::{self, Cfg, Shown, name, pick, shown};
+use crate::linalg::{self, Array};
 use crate::num::{Num, close};
 use crate::parse::{self, Ast, Clause, Ctx, Head, Line, Mode, Param, ParamType, Rel, Stmt, Trail};
 use crate::poly::simplify;
@@ -38,6 +39,9 @@ pub struct Out {
     pub prose: bool,
     /// What the line defined.
     pub defined: Vec<String>,
+    /// The solutions of a solve, each the values of its unknowns in SI (NaN where one is symbolic).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub solutions: Vec<Vec<f64>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -355,6 +359,7 @@ impl<'a> Sheet<'a> {
         if body.contains(&|e| matches!(e, Expr::Call(name, _) if name == n)) || (body.has(n) && !ps.iter().any(|p| p.name == n)) {
             return Err(format!("{n} is used in its own definition – functions can't call themselves"));
         }
+        let written = (clause.solve.is_none() && body.contains(&|e| matches!(e, Expr::Mul(_)))).then(|| body.clone());
         let body = if sym { simplify(&body) } else { simp(&body) };
         let pd: BTreeMap<String, Dim> = ps
             .iter()
@@ -371,7 +376,7 @@ impl<'a> Sheet<'a> {
         } else {
             None
         };
-        let f = Fun { params: ps.clone(), body: body.clone(), ast: if clause.solve.is_some() { None } else { Some(rhs.clone()) }, src: match &clause.solve { Some(xs) => format!("{src} -> solve({})", xs.join(", ")), None => src.to_string() }, ret };
+        let f = Fun { params: ps.clone(), body: body.clone(), written, ast: if clause.solve.is_some() { None } else { Some(rhs.clone()) }, src: match &clause.solve { Some(xs) => format!("{src} -> solve({})", xs.join(", ")), None => src.to_string() }, ret };
         self.env.define_fun(n, f, self.listed);
         self.out.defined.push(n.to_string());
         let lhs = self.fn_head(n, &ps, cfg);
@@ -547,9 +552,13 @@ impl<'a> Sheet<'a> {
 
     fn eval_markup(&self, e: &Expr, unit: Option<&UnitExpr>, cfg: &Cfg) -> Result<(String, bool), NoValue> {
         let s = simp(e);
-        if let Expr::Vector(v) = &s {
-            let parts = v.iter().map(|e| self.eval_markup(e, unit, cfg)).collect::<Result<Vec<_>, _>>()?;
-            return Ok((format!("vec({})", parts.iter().map(|p| p.0.clone()).collect::<Vec<_>>().join(", ")), parts.iter().all(|p| p.1)));
+        if let Some(m) = linalg::problem(&s) {
+            return Err(NoValue::Error(m));
+        }
+        if let Some(a) = Array::of(&s) {
+            let parts = a.a.iter().map(|e| self.eval_markup(e, unit, cfg)).collect::<Result<Vec<_>, _>>()?;
+            let exact = parts.iter().all(|p| p.1);
+            return Ok((array_markup(&a, parts.into_iter().map(|p| p.0).collect()), exact));
         }
         let v = value(&s)?;
         let hint = self.hint_expr(e, &v.d);
@@ -559,9 +568,12 @@ impl<'a> Sheet<'a> {
     /// A symbolic result as markup: exact; a value once nothing unknown is left, in the unit asked for.
     fn sym_markup(&self, e: &Expr, unit: Option<&UnitExpr>, cfg: &Cfg) -> Result<String, String> {
         let s = simplify(e);
-        if let Expr::Vector(v) = &s {
-            let parts = v.iter().map(|e| self.sym_markup(e, unit, cfg)).collect::<Result<Vec<_>, _>>()?;
-            return Ok(format!("vec({})", parts.join(", ")));
+        if let Some(m) = linalg::problem(&s) {
+            return Err(m);
+        }
+        if let Some(a) = Array::of(&s) {
+            let parts = a.a.iter().map(|e| self.sym_markup(e, unit, cfg)).collect::<Result<Vec<_>, _>>()?;
+            return Ok(array_markup(&a, parts));
         }
         if let (Expr::C(v), true) = (&s, unit.is_some() || cfg.form == "decimal" || cfg.scientific == Some((0, 1))) {
             return Ok(self.show_val(v, unit, None, cfg)?.0);
@@ -673,6 +685,26 @@ impl<'a> Sheet<'a> {
 
     // ---------- solving ----------
 
+    /// An equation of vectors or matrices as the equations of its elements (with the known values put in), a
+    /// scalar side standing for every element; None for an equation of scalars.
+    fn elementwise(&self, e: &Expr, xs: &[String]) -> Result<Option<Vec<Expr>>, String> {
+        let Expr::Cmp(v, rs) = e else { return Ok(None) };
+        if v.len() != 2 || !v.iter().any(|x| x.contains(&linalg::is_array) || x.contains(&|x| matches!(x, Expr::Sym(_)))) {
+            return Ok(None);
+        }
+        let keep: BTreeSet<String> = xs.iter().cloned().collect();
+        let side = |x: &Expr| -> Result<Expr, String> { Ok(simp(&self.env.bind_with_units(x, &keep, &self.units)?)) };
+        let (l, r) = (side(&v[0])?, side(&v[1])?);
+        let (a, b) = match (Array::of(&l), Array::of(&r)) {
+            (None, None) => return Ok(None),
+            (Some(a), Some(b)) if (a.rows, a.cols) != (b.rows, b.cols) => return Err(format!("an equation of {} and {}: their sizes must match", a.describe(), b.describe())),
+            (Some(a), Some(b)) => (a.a, b.a),
+            (Some(a), None) => { let n = a.a.len(); (a.a, vec![r; n]) }
+            (None, Some(b)) => { let n = b.a.len(); (vec![l; n], b.a) }
+        };
+        Ok(Some(a.into_iter().zip(b).map(|(x, y)| Expr::Cmp(vec![x, y], rs.clone())).collect()))
+    }
+
     fn solve(&mut self, stmts: &[Stmt], xs: &[String], clause: &Clause, cfg: &Cfg) -> Result<(), String> {
         let mut unique = BTreeSet::new();
         if xs.iter().any(|x| !unique.insert(x)) { return Err("each solve variable must be different".into()); }
@@ -682,7 +714,13 @@ impl<'a> Sheet<'a> {
         for s in stmts {
             let Stmt::Expr(a) = s else { return Err("put a solved definition on its own line".into()); };
             let body = self.lower(a, xs, false)?;
-            let bodies = match body { Expr::Vector(v) => v, e => vec![e] };
+            let (bodies, split) = match body {
+                Expr::Vector(v) => (v, false),
+                e => match self.elementwise(&e, xs)? {
+                    Some(v) => (v, true),
+                    None => (vec![e], false),
+                },
+            };
             for body in bodies {
                 let Expr::Cmp(v, rs) = body else {
                     return Err(format!("'{}' isn't an equation – solve(…) needs one with =, like x^2 = 4", ast_text(a)));
@@ -690,7 +728,7 @@ impl<'a> Sheet<'a> {
                 if rs.len() != 1 || v.len() != 2 || v.iter().any(|e| e.contains(&|e| matches!(e, Expr::Cmp(..)))) {
                     return Err("one relation per equation; a relation function already contains =".into());
                 }
-                let markup = if matches!(a, Ast::Cmp(..)) { self.r(cfg, false).ast(a, &|_| None).0 } else {
+                let markup = if matches!(a, Ast::Cmp(..)) && !split { self.r(cfg, false).ast(a, &|_| None).0 } else {
                     format!("{} {} {}", self.r(cfg, false).expr(&v[0]).0, render::rel(rs[0]), self.r(cfg, false).expr(&v[1]).0)
                 };
                 eq_m.push(markup);
@@ -856,6 +894,7 @@ impl<'a> Sheet<'a> {
             let Some(slope) = slope else { return Err(format!("can't tell on which side of its boundary {x} satisfies the inequality")) };
             rel = Some(if slope > 0.0 { r0 } else { r0.flip() });
         }
+        self.out.solutions = sols.iter().map(|s| s.iter().map(|(_, sol)| match sol { Sol::Value(v) => v.v.f(), Sol::Symbolic(_) => f64::NAN }).collect()).collect();
         // which solution is kept: the only all-positive one, else the first
         let pick_i = {
             let pos: Vec<usize> = (0..sols.len())
@@ -1051,9 +1090,15 @@ fn subst_ast(a: &Ast, m: &BTreeMap<String, Ast>) -> Ast {
         Ast::Div(x, y) => Ast::Div(s(x), s(y)),
         Ast::Pow(x, y) => Ast::Pow(s(x), s(y)),
         Ast::Call(n, args) => Ast::Call(n.clone(), args.iter().map(|x| subst_ast(x, m)).collect()),
+        Ast::Matrix(rs) => Ast::Matrix(rs.iter().map(|r| r.iter().map(|x| subst_ast(x, m)).collect()).collect()),
         Ast::Cmp(f, rest) => Ast::Cmp(s(f), rest.iter().map(|(r, x)| (*r, subst_ast(x, m))).collect()),
         _ => a.clone(),
     }
+}
+
+/// A vector or matrix from the markup of its elements.
+fn array_markup(a: &Array, parts: Vec<String>) -> String {
+    if a.cols == 1 { format!("vec({})", parts.join(", ")) } else { render::mat(parts.chunks(a.cols).map(<[String]>::to_vec).collect()) }
 }
 
 /// A value written out: 7.2 kΩ, -3, [5 V].
@@ -1061,6 +1106,9 @@ fn literal(a: &Ast) -> bool {
     match a {
         Ast::Num(..) | Ast::Qty(..) | Ast::Unit(..) => true,
         Ast::Neg(x) => literal(x),
+        // vectors and matrices of values
+        Ast::Matrix(rs) => rs.iter().flatten().all(literal),
+        Ast::Call(n, args) if n == "vec" => args.iter().all(literal),
         _ => false,
     }
 }
@@ -1091,6 +1139,7 @@ pub(crate) fn ast_names(a: &Ast, out: &mut Vec<String>) {
             for bound in &args[2..] { ast_names(bound, out); }
         }
         Ast::Call(_, args) => args.iter().for_each(|x| ast_names(x, out)),
+        Ast::Matrix(rs) => rs.iter().flatten().for_each(|x| ast_names(x, out)),
         Ast::Cmp(f, rest) => {
             ast_names(f, out);
             rest.iter().for_each(|r| ast_names(&r.1, out));
@@ -1125,6 +1174,7 @@ pub fn ast_text(a: &Ast) -> String {
             Ast::Pow(x, y) => (format!("{}^{}", p(x, 9), p(y, 9)), 5),
             Ast::Call(n, args) => (format!("{n}({})", args.iter().map(|x| t(x).0).collect::<Vec<_>>().join(", ")), 9),
             Ast::Abs(x) => (format!("|{}|", t(x).0), 9),
+            Ast::Matrix(rs) => (format!("mat({})", rs.iter().map(|r| r.iter().map(|x| t(x).0).collect::<Vec<_>>().join(", ")).collect::<Vec<_>>().join("; ")), 9),
             Ast::Cmp(f, rest) => {
                 let mut s = p(f, 1);
                 for (r, x) in rest {

@@ -1,6 +1,7 @@
 //! Expressions as Typst math markup: symbolic results, formulas as written, values put in.
 
 use crate::expr::{self, Expr, Func, Val, base_exp, strip_coef};
+use crate::linalg::Op;
 use crate::format::{self, Cfg, frac_markup, name, number, pick, shown, unit};
 use crate::num::Num;
 use crate::parse::{Ast, MulOp, Rel};
@@ -8,7 +9,7 @@ use crate::units::{UnitExpr, Units};
 
 /// Precedences: what binds how tightly, for parentheses.
 fn function(name: &str) -> String {
-    if matches!(name, "rect" | "tri" | "sgn" | "floor" | "factorial") { format!("op({})", format::q(name)) }
+    if matches!(name, "rect" | "tri" | "sgn" | "floor" | "factorial") || crate::linalg::Op::of(name).is_some_and(|op| !matches!(op, Op::Det | Op::Trace | Op::Norm | Op::At)) { format!("op({})", format::q(name)) }
     else { name.into() }
 }
 
@@ -17,6 +18,21 @@ fn cases(branches: Vec<(String, String)>) -> String {
         if condition == "\"1\"" { format!("{value} & upright(\"otherwise\")") }
         else { format!("{value} & upright(\"if\") {condition}") }
     }).collect::<Vec<_>>().join(", "))
+}
+
+/// A matrix from the markup of its rows.
+pub fn mat(rows: Vec<Vec<String>>) -> String {
+    format!("mat({})", rows.into_iter().map(|r| r.join(", ")).collect::<Vec<_>>().join("; "))
+}
+
+/// A matrix operation from the markup of its arguments: A^T, det(A), a × b.
+fn matrix_op(op: Op, args: Vec<(String, u8)>) -> (String, u8) {
+    match op {
+        Op::Transpose => (format!("{}^(T)", wrap(args[0].clone(), P_ATOM)), P_POW),
+        Op::Cross => (format!("{} times {}", wrap(args[0].clone(), P_POW), wrap(args[1].clone(), P_POW)), P_PROD),
+        Op::Det | Op::Trace | Op::Norm => (format!("{}({})", op.name(), args[0].0), P_ATOM),
+        op => (format!("{}({})", function(op.name()), args.into_iter().map(|a| a.0).collect::<Vec<_>>().join(", ")), P_ATOM),
+    }
 }
 
 pub const P_REL: u8 = 0;
@@ -89,6 +105,8 @@ impl R<'_> {
         match e {
             Expr::Cases(v) => (cases(v.iter().map(|(value, condition)| (self.expr(value).0, self.expr(condition).0)).collect()), P_ATOM),
             Expr::Vector(v) => (format!("vec({})", v.iter().map(|e| self.expr(e).0).collect::<Vec<_>>().join(", ")), P_ATOM),
+            Expr::Matrix(rs) => (mat(rs.iter().map(|r| r.iter().map(|e| self.expr(e).0).collect()).collect()), P_ATOM),
+            Expr::Op(op, args) => matrix_op(*op, args.iter().map(|a| self.expr(a)).collect()),
             Expr::C(v) => self.val(v),
             Expr::Sym(n) => self.sub.and_then(|f| f(n)).unwrap_or_else(|| (name(n), P_ATOM)),
             Expr::Call(n, args) => (format!("{}({})", name(n), args.iter().map(|a| self.expr(a).0).collect::<Vec<_>>().join(", ")), P_ATOM),
@@ -273,11 +291,14 @@ impl R<'_> {
                     "sqrt" => (format!("sqrt({})", a.join(", ")), P_ATOM),
                     "abs" => (format!("abs({})", a.join(", ")), P_ATOM),
                     "exp" => (format!("e^({})", a.join(", ")), P_POW),
+                    "det" | "tr" | "vec" | "at" | "norm" => (format!("{n}({})", a.join(", ")), P_ATOM),
+                    n if crate::linalg::FUNCTIONS.contains(&n) => (format!("{}({})", function(n), a.join(", ")), P_ATOM),
                     n if Func::of(n).is_some() => (format!("{}({})", function(Func::of(n).unwrap().name()), a.join(", ")), P_ATOM),
                     n => (format!("{}({})", name(n), a.join(", ")), P_ATOM),
                 }
             }
             Ast::Abs(x) => (format!("abs({})", self.ast(x, sub).0), P_ATOM),
+            Ast::Matrix(rs) => (mat(rs.iter().map(|r| r.iter().map(|x| self.ast(x, sub).0).collect()).collect()), P_ATOM),
             Ast::Cmp(first, rest) => {
                 let mut s = wrap(self.ast(first, sub), P_SUM);
                 for (r, x) in rest {

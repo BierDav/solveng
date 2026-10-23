@@ -35,7 +35,7 @@ const OPS: &[(&str, &str)] = &[
     (":=", ":="), ("≔", ":="), ("->", "->"), ("→", "->"), ("<=", "≤"), (">=", "≥"), ("!=", "≠"), ("≤", "≤"), ("≥", "≥"),
     ("≠", "≠"), ("=", "="), ("<", "<"), (">", ">"), ("+", "+"), ("-", "-"), ("−", "-"), ("*", "*"), ("∗", "*"),
     ("·", "·"), ("⋅", "·"), ("×", "×"), ("/", "/"), ("^", "^"), ("(", "("), (")", ")"), ("[", "("), ("]", ")"),
-    (",", ","), (";", ";"), (":", ":"), ("..", ".."), ("…", ".."), ("|", "|"), ("±", "±"),
+    (",", ","), (";", ";"), (":", ":"), ("..", ".."), ("…", ".."), ("|", "|"), ("‖", "‖"), ("±", "±"),
 ];
 
 pub use solveng_names::GREEK;
@@ -104,6 +104,12 @@ pub fn lex(s: &str, mode: Mode) -> Result<Vec<Tok>, String> {
         match c {
             '∞' => {
                 out.push(Tok::Name("infinity".into()));
+                i += 1;
+                continue;
+            }
+            // A^⊤: the transpose
+            '⊤' | '⊺' => {
+                out.push(Tok::Name("⊤".into()));
                 i += 1;
                 continue;
             }
@@ -283,6 +289,8 @@ pub enum Ast {
     Div(Box<Ast>, Box<Ast>),
     Pow(Box<Ast>, Box<Ast>),
     Call(String, Vec<Ast>),
+    /// mat(a, b; c, d): the rows of a matrix.
+    Matrix(Vec<Vec<Ast>>),
     Abs(Box<Ast>),
     /// a = b < c: a chain of comparisons, 1 where all hold.
     Cmp(Box<Ast>, Vec<(Rel, Ast)>),
@@ -348,8 +356,10 @@ const BUILTIN_FNS: &[&str] = &[
     "sqrt", "exp", "ln", "log", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "abs", "arcsin",
     "arccos", "arctan", "cot", "sec", "csc", "diff", "integrate", "laplace", "invlaplace", "sum", "vec", "at", "rect", "tri", "sgn", "floor", "factorial", "cases",
 ];
+/// Names that can't be defined again. The matrix functions (det, rows, identity, …) can: a worksheet's own
+/// function of that name replaces it.
 pub fn is_builtin(n: &str) -> bool {
-    BUILTIN_FNS.contains(&n)
+    BUILTIN_FNS.contains(&n) || n == "mat"
 }
 const KEYWORDS: &[&str] = &["solve", "simplify", "laplace", "invlaplace", "digits", "sci", "eng", "frac"];
 
@@ -385,6 +395,10 @@ fn s_op(t: Option<&Tok>) -> Option<&'static str> {
 }
 
 impl<'a, 'b> P<'a, 'b> {
+    /// A built-in that applies to what follows without parentheses: sin x, det A (not rows x: rows may be a name).
+    fn applies_bare(&self, n: &str) -> bool {
+        BUILTIN_FNS.contains(&n) || matches!(n, "det" | "tr") && !(self.c.is_fn)(n)
+    }
     fn peek(&self) -> Option<&Tok> {
         self.t.get(self.i)
     }
@@ -604,7 +618,7 @@ impl<'a, 'b> P<'a, 'b> {
     fn starts_factor(&self) -> bool {
         match self.peek() {
             None => false,
-            Some(Tok::Op(o)) => matches!(*o, "(" | "|"),
+            Some(Tok::Op(o)) => matches!(*o, "(" | "|" | "‖"),
             Some(Tok::Quoted(q)) => q != "as",
             Some(Tok::Kw(_)) => false,
             Some(Tok::Name(n)) => n != "as" && n != "dif",
@@ -625,8 +639,8 @@ impl<'a, 'b> P<'a, 'b> {
                     let a = collapse(std::mem::take(&mut fs));
                     fs.push((MulOp::Implicit, Ast::Div(Box::new(a), Box::new(b))));
                 }
-                // | ends an absolute value here
-                Some("|") if self.abs_depth > 0 => break,
+                // | ends an absolute value here, ‖ a norm
+                Some("|" | "‖") if self.abs_depth > 0 => break,
                 _ if self.starts_factor() => fs.push((MulOp::Implicit, self.unary()?)),
                 _ => break,
             }
@@ -683,6 +697,27 @@ impl<'a, 'b> P<'a, 'b> {
             return Ok(args);
         }
     }
+    /// The rows of mat(a, b; c, d), after its opening parenthesis.
+    fn rows(&mut self) -> Result<Vec<Vec<Ast>>, String> {
+        let mut rows: Vec<Vec<Ast>> = vec![vec![]];
+        loop {
+            rows.last_mut().unwrap().push(self.cmp()?);
+            if self.eat(",") {
+                continue;
+            }
+            if self.eat(";") {
+                if self.eat(")") {
+                    break;
+                }
+                rows.push(vec![]);
+                continue;
+            }
+            self.expect(")", "after the elements of mat – a comma between elements, a semicolon between rows")?;
+            break;
+        }
+        // rows of blocks may differ in their number of elements; the sizes are checked once the blocks are known
+        Ok(rows)
+    }
     fn atom(&mut self) -> Result<Ast, String> {
         let t = self.peek().cloned().ok_or("unexpected end of the expression")?;
         self.i += 1;
@@ -736,6 +771,14 @@ impl<'a, 'b> P<'a, 'b> {
                 self.abs_depth -= 1;
                 self.expect("|", "closing the absolute value")?;
                 Ok(Ast::Abs(Box::new(e)))
+            }
+            // ‖v‖, as Typst writes norm(v)
+            Tok::Op("‖") => {
+                self.abs_depth += 1;
+                let e = self.sum()?;
+                self.abs_depth -= 1;
+                self.expect("‖", "closing the norm")?;
+                Ok(Ast::Call("norm".into(), vec![e]))
             }
             Tok::Op(o) => Err(format!("unexpected '{o}'")),
             Tok::Kw(k) => Err(format!("unexpected keyword '{k}'")),
@@ -791,13 +834,20 @@ impl<'a, 'b> P<'a, 'b> {
             let d = a.pop().unwrap();
             return Ok(Ast::Div(Box::new(a.pop().unwrap()), Box::new(d)));
         }
+        if n == "mat" && self.op() == Some("(") {
+            self.i += 1;
+            let x = std::mem::take(&mut self.in_exp);
+            let rows = self.rows();
+            self.in_exp = x;
+            return Ok(Ast::Matrix(rows?));
+        }
         if self.op() == Some("(") {
             self.i += 1;
             let args = self.args(&n)?;
             return Ok(Ast::Call(n, args));
         }
         // sin x: a built-in function applies to what follows
-        if is_builtin(&n) && self.starts_factor() {
+        if self.applies_bare(&n) && self.starts_factor() {
             let a = self.power()?;
             return Ok(Ast::Call(n, vec![a]));
         }

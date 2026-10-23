@@ -89,6 +89,7 @@
 /// - **°C** is a temperature difference (no 273.15 offset); temperatures in formulas like `p V = n R T` need K. New base dimensions (bit, €) can be added with `units: (bit: auto)`, at most 8.
 /// - **Prefixes:** a lone `m` before a unit is metre: `"m s"`, `$"m" Omega$` are m·s and Ω·m; write `"ms"`, `$"m"Omega$` for milli.
 /// - **Functions** can't call themselves.
+/// - **Matrices:** names without a value are scalars, so they commute in products until they get a value (define matrices before multiplying them, or pass them to a function). Symbolic elimination treats an entry as zero only when it simplifies to 0, so entries that vanish by an identity like sin² + cos² = 1 count as nonzero. Floats count as zero within 10⁻¹³ of the largest element (times the size). Unknowns of `solve` are scalars: write a vector of unknowns as `vec(x, y)`.
 /// - **Math in a worksheet:** an equation with `=` and only known names is checked, so a formula meant as plain text that happens to use defined names (`$a^2 + b^2 = c^2$` after defining a, b and c) must hold. Put those outside the worksheet or use `#worksheet(evaluate: false)[…]` around them.
 
 #import "display.typ": *
@@ -153,6 +154,13 @@
     let parts = c.children.map(x => _src(x))
     let error = parts.find(_E)
     return if error != none { error } else { "vec(" + parts.join(", ") + ")" }
+  }
+  if f == math.mat {
+    // Typst pads shorter rows (of blocks) with empty cells
+    let trim(row) = { while row.len() > 1 and row.last() == "" { row = row.slice(0, -1) }; row }
+    let rows = c.rows.map(row => trim(row.map(x => _src(x))))
+    let error = rows.flatten().find(_E)
+    return if error != none { error } else { "mat(" + rows.map(row => row.join(", ")).join("; ") + ")" }
   }
   if f == math.cases {
     let branches = ()
@@ -273,6 +281,11 @@
     if normalized != none { return _m(normalized, cf) }
   }
   if f == math.vec { return math.vec(..c.children.map(x => _restyle(x, letters, cf))) }
+  if f == math.mat {
+    let fields = c.fields()
+    let rows = fields.remove("rows")
+    return math.mat(..fields, ..rows.map(row => row.map(x => _restyle(x, letters, cf))))
+  }
   if f == math.cases {
     let fields = c.fields()
     let children = fields.remove("children")

@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::dim::Dim;
 use crate::expr::{self, Expr, Func, Val, simp};
+use crate::linalg::Op;
 use crate::num::{Num, Rat};
-use crate::parse::{Ast, Param, ParamType, Rel};
+use crate::parse::{Ast, MulOp, Param, ParamType, Rel};
 use crate::units::{UnitExpr, Units};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,6 +42,10 @@ pub struct Fun {
     pub params: Vec<Param>,
     /// The body with the parameters as symbols.
     pub body: Expr,
+    /// The body in the order it was written, before the canonical form sorted its products: for calls with
+    /// matrices, whose products don't commute.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub written: Option<Expr>,
     /// As written, unless solving produced the body.
     pub ast: Option<Ast>,
     pub src: String,
@@ -234,14 +239,24 @@ impl<'a> Lower<'a> {
                 expr::add(v)
             }
             Ast::Mul(fs) => {
-                let mut v = vec![];
-                for (_, f) in fs {
-                    v.push(self.raw(f)?);
+                let mut v: Vec<Expr> = vec![];
+                for (op, f) in fs {
+                    let x = self.raw(f)?;
+                    // × is the cross product (of scalars, their product)
+                    match (op, v.pop()) {
+                        (MulOp::Times, Some(l)) => v.push(Expr::Op(Op::Cross, vec![l, x])),
+                        (_, l) => v.extend(l.into_iter().chain([x])),
+                    }
                 }
                 expr::mul(v)
             }
             Ast::Div(x, y) => expr::div(self.raw(x)?, self.raw(y)?),
+            // A^⊤ transposes, and A^T unless T is a name with a value and A isn't a matrix
+            Ast::Pow(x, y) if matches!(&**y, Ast::Name(t) if t == "⊤") || matches!(&**y, Ast::Name(t) if t == "T") && (!self.params.contains("T") && !self.env.vars.contains_key("T") || self.is_array(x)?) => {
+                Expr::Op(Op::Transpose, vec![self.raw(x)?])
+            }
             Ast::Pow(x, y) => expr::pow(self.raw(x)?, self.raw(y)?),
+            Ast::Matrix(rs) => Expr::Matrix(rs.iter().map(|r| r.iter().map(|a| self.raw(a)).collect::<Result<_, _>>()).collect::<Result<_, _>>()?),
             Ast::Abs(x) => expr::func(Func::Abs, self.raw(x)?),
             Ast::Cmp(first, rest) => {
                 let mut v = vec![self.raw(first)?];
@@ -262,6 +277,12 @@ impl<'a> Lower<'a> {
             },
             Ast::Call(n, args) => self.call(n, args)?,
         })
+    }
+
+    /// Whether what's written is a vector or matrix with the values known now.
+    fn is_array(&mut self, a: &Ast) -> Result<bool, String> {
+        let e = self.raw(a)?;
+        Ok(crate::linalg::is_array(&simp(&self.env.bind_with_units(&e, &self.params, self.units)?)))
     }
 
     fn unit(&self, u: &UnitExpr) -> Result<(Num, Dim), String> {
@@ -294,13 +315,18 @@ impl<'a> Lower<'a> {
             return Ok(Expr::Cases(branches));
         }
         if n == "vec" { return Ok(Expr::Vector(args.iter().map(|a| self.raw(a)).collect::<Result<_, _>>()?)); }
-        if n == "at" {
-            if args.len() != 2 { return Err("at takes a vector and a zero-based index".into()); }
-            let v = simp(&self.expr(&args[0])?);
-            let i = simp(&self.expr(&args[1])?);
-            let Some(i) = i.as_num().and_then(|n| n.as_int()).filter(|i| *i >= 0) else { return Err("at needs a nonnegative integer index, starting at 0".into()); };
-            let Expr::Vector(v) = v else { return Err("at needs a vector".into()); };
-            return usize::try_from(i).ok().and_then(|i| v.get(i)).cloned().ok_or_else(|| format!("index {i} is outside a vector with {} components", v.len()));
+        if let Some(op) = Op::of(n).filter(|_| !self.env.funs.contains_key(n)) {
+            if !op.arity().contains(&args.len()) {
+                return Err(op.usage());
+            }
+            let args = args.iter().map(|a| self.raw(a)).collect::<Result<Vec<_>, _>>()?;
+            // what can't be done with the values known now is an error now; a name may still become a matrix
+            let e = Expr::Op(op, args);
+            let bound = simp(&if self.bind { self.env.bind_with_units(&e, &self.params, self.units)? } else { e.clone() });
+            if let Some(m) = crate::linalg::problem(&bound) {
+                return Err(m);
+            }
+            return Ok(e);
         }
         if n == "laplace" || n == "invlaplace" {
             if !(1..=3).contains(&args.len()) { return Err(format!("{n} takes an expression and up to two variable names")); }
@@ -363,12 +389,17 @@ impl<'a> Lower<'a> {
         if args.len() != f.params.len() {
             return Err(format!("{n} takes {} arguments, got {}", f.params.len(), args.len()));
         }
+        let arrays = args.iter().any(|a| a.contains(&crate::linalg::is_array));
         let mut m = BTreeMap::new();
         for (p, mut x) in f.params.iter().zip(args) {
             if let Some(ParamType::Unit(u)) = &p.ty { x = self.typed(x, u, n, &p.name)?; }
             m.insert(p.name.clone(), x);
         }
-        Ok(f.body.subst_all(&m))
+        let body = match &f.written {
+            Some(w) if arrays => w,
+            _ => &f.body,
+        };
+        Ok(body.subst_all(&m))
     }
 
     /// An argument for a parameter with a unit: a plain number gets the unit (f(2) is f(2 mA)), a value must
