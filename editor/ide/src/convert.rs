@@ -49,8 +49,7 @@ pub fn conversions(document: &str, context: &Context, offset: u32) -> Vec<Conver
 /// A unit as math writes it: a quoted name (`"mA"`, `"kΩ"`; bare names are Typst's), else `unit("…")`.
 fn math_unit(unit: &str) -> String {
     let u = spell_unit(unit.trim());
-    let named = u.chars().count() == 1 || is_unit(&u) && u.chars().all(|c| is_letter(c) || "°%‰µΩ".contains(c));
-    if named { format!("\"{u}\"") } else { format!("unit(\"{u}\")") }
+    format!("unit(\"{u}\")")
 }
 
 /// A clause as math writes it: keywords as they are, units as names.
@@ -197,7 +196,7 @@ pub fn from_math(math: &str) -> Option<String> {
 }
 
 /// Math before a clause as solveng code: units after a value bare, elsewhere in brackets; quoted text is a name.
-fn code_of(math: &str) -> Option<String> {
+pub(crate) fn code_of(math: &str) -> Option<String> {
     let m = chars(math);
     let n = m.len();
     let mut out = String::new();

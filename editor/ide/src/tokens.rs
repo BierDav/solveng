@@ -20,12 +20,6 @@ pub(crate) fn visible_code_tokens(code: &[char], unit: &dyn Fn(&str) -> bool, vi
     transported_tokens(code, unit, true, visible)
 }
 
-/// Tokens of a formula, like a graph's curve: a word after a number is a variable (`12 A` is 12 times A), units
-/// are written in brackets (`12 [A]`).
-pub(crate) fn formula_tokens(code: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok> {
-    transported_tokens(code, unit, false, &|_| true)
-}
-
 fn transported_tokens(code: &[char], unit: &dyn Fn(&str) -> bool, values: bool, visible: &dyn Fn(&str) -> bool) -> Vec<Tok> {
     let (decoded, offsets) = crate::text::unescape(code);
     tokens_of(&decoded, unit, values, visible).into_iter().map(|(s, l, k)| (offsets[s], offsets[s + l] - offsets[s], k)).collect()
@@ -366,15 +360,6 @@ fn mark_named(out: &mut [Tok], text: &[char], colons: &[usize]) {
     }
 }
 
-/// Quoted names prefer worksheet variables; other strings are units only when visible.
-fn quoted_name(math: &[char], start: usize, end: usize, unit: &dyn Fn(&str) -> bool, defined: &dyn Fn(&str) -> bool) -> bool {
-    let name = sub(math, start, end);
-    let Ok(inner) = solveng_names::resolve(&name) else { return true; };
-    if defined(&inner) { return true; }
-    if math.get(end) == Some(&'_') { return true; }
-    !unit(&inner)
-}
-
 /// Words math writes for operators.
 const MATH_OPERATORS: &[&str] = &["dot", "times", "div", "approx", "plus", "minus", "eq", "lt", "gt", "arrow", "dif", "integral", "sum"];
 
@@ -407,7 +392,7 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool, defined: &
             // Bare words are Typst's names in math: units only as Typst's own words (min, deg); single letters
             // are variables, shorthands come from their bindings.
             let bare = |w: &str| unit(w) && TYPST_MATH_UNITS.contains(&w);
-            let quoted = |w: &str| unit(w);
+            let quoted = |_: &str| false;
             for (ts, tl, k) in clause_tokens_with(math, e, n, &bare, &quoted) {
                 emit(ts, ts + tl, k);
             }
@@ -456,16 +441,9 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool, defined: &
                 i = end;
                 continue;
             }
-            // Quoted text is a unit, except in a subscript (R_"load") and a name no unit spells ("tews", "x"_"in");
-            let named = sub(math, 0, i).trim_end().ends_with("unit(");
-            let name = !named && (sub_ || quoted_name(math, i, end, unit, defined));
             let call = math[end..].iter().find(|c| !c.is_whitespace()) == Some(&'(');
-            emit(i, end, if !name { K::UNIT } else if call { K::FUNCTION } else { K::VARIABLE });
-            if !name {
-                unit_mode = true;
-            } else if !sub_ {
-                unit_mode = false;
-            }
+            emit(i, end, if call { K::FUNCTION } else { K::VARIABLE });
+            if !sub_ { unit_mode = false; }
             i = end;
         } else if c == '_' && math.get(i + 1) == Some(&'(') {
             // A sum's lower attachment contains an index declaration and a bound,

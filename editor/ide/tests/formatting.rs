@@ -64,12 +64,12 @@ fn context_enables_included_math() {
 
 #[test]
 fn joins_only_numbers_and_recognized_units_in_injected_regions() {
-    check("#show: worksheet\n$ t:=-2 \"s\" + 3 \"mA\" + 4 x$\n#worksheet(evaluate: false)[$-2 \"s\"$]",
-          "#show: worksheet\n$t := -2\"s\" + 3\"mA\" + 4 x$\n#worksheet(evaluate: false)[$-2 \"s\"$]");
+    check("#show: worksheet\n$ t:=-2 unit(\"s\") + 3 unit(\"mA\") + 4 x$\n#worksheet(evaluate: false)[$-2 unit(\"s\")$]",
+          "#show: worksheet\n$t := -2 unit(\"s\") + 3 unit(\"mA\") + 4 x$\n#worksheet(evaluate: false)[$-2 unit(\"s\")$]");
     check("```solveng\nx:=2 s + 3 mA + 4 unknown\n```",
           "```solveng\nx := 2s + 3mA + 4 unknown\n```");
-    check("#show: worksheet\n$x:=2 s + 3 \"ms\"$",
-          "#show: worksheet\n$x := 2 s + 3\"ms\"$");
+    check("#show: worksheet\n$x:=2 s + 3 unit(\"ms\")$",
+          "#show: worksheet\n$x := 2 s + 3 unit(\"ms\")$");
     check("```solveng\nx:=0,95 s\nf(1,2)=\n```",
           "```solveng\nx := 0,95s\nf(1,2) =\n```");
 }
@@ -77,8 +77,8 @@ fn joins_only_numbers_and_recognized_units_in_injected_regions() {
 #[test]
 fn formats_injected_call_strings_and_preserves_escaping() {
     check(r#"#worksheet("x:=f( a :V,b ) + 2 s")"#,
-          r#"#worksheet("x := f(a: V, b) + 2s")"#);
+          r#"#worksheet("x:=f( a :V,b ) + 2 s")"#);
     check(r#"#worksheet("x:=-2 \"s\" // a:=b")"#,
-          r#"#worksheet("x := -2\"s\" // a:=b")"#);
+          r#"#worksheet("x:=-2 \"s\" // a:=b")"#);
     check(r#"#let prose = "x:=f( a,b )""#, r#"#let prose = "x:=f( a,b )""#);
 }

@@ -22,7 +22,7 @@ fn shows_the_result_alone_in_code_and_math() {
         // a clause of its own picks the unit
         assert!(value("U = mV").unwrap().contains("9400"), "{:?}", value("U = mV"));
         assert_eq!(value("U / 2").unwrap(), "\"4.7\" thin upright(\"V\")");
-        assert!(value("f(2 \"Ω\")").unwrap().contains("4"), "{:?}", value("f(2 \"Ω\")"));
+        assert!(value("f(2 ⦃Ω⦄)").unwrap().contains("4"), "{:?}", value("f(2 ⦃Ω⦄)"));
         // a function alone is its body; a symbolic result shows as one
         assert!(value("g").unwrap().contains('a'), "{:?}", value("g"));
         assert!(value("g(2) ->").unwrap().contains('a'), "{:?}", value("g(2) ->"));

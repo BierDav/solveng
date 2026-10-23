@@ -8,22 +8,22 @@ fn kind(doc: &str, needle: &str) -> u8 {
 
 #[test]
 fn hidden_unit_names_are_variables_without_hiding_prefixes() {
-    let doc = "#show: worksheet.with(units: (s: none, mys: \"s\"))\n$x := 2s$\n$y := 2\"s\"$\n$z := 2\"ms\"$\n$t := 2\"mys\"$";
+    let doc = "#show: worksheet.with(units: (s: none, mys: $s$))\n$x := 2s$\n$y := 2unit(\"s\")$\n$z := 2unit(\"ms\")$\n$t := 2unit(\"mys\")$";
     assert_eq!(kind(doc, "s$"), TokenKind::VARIABLE);
-    assert_eq!(kind(doc, "\"s\"$"), TokenKind::VARIABLE);
-    assert_eq!(kind(doc, "\"ms\"$"), TokenKind::UNIT);
-    assert_eq!(kind(doc, "\"mys\"$"), TokenKind::UNIT);
+    assert_eq!(kind(doc, "s\")$"), TokenKind::UNIT);
+    assert_eq!(kind(doc, "ms\")$"), TokenKind::UNIT);
+    assert_eq!(kind(doc, "mys\")$"), TokenKind::UNIT);
 }
 
 #[test]
 fn builtin_units_off_leaves_only_the_documents_own() {
-    let doc = "#show: worksheet.with(builtin-units: false, units: (s: auto))\n$x := 2s$\n$y := 2\"m\"$\n$z := 2\"ms\"$\n$w := 2\"s\" -> \"min\"$\n$v := 2unit(\"km\")$";
+    let doc = "#show: worksheet.with(builtin-units: false, units: (s: auto))\n$x := 2s$\n$y := 2unit(\"m\")$\n$z := 2unit(\"ms\")$\n$w := 2unit(\"s\") -> unit(\"min\")$\n$v := 2unit(\"km\")$";
     assert_eq!(kind(doc, "s$"), TokenKind::VARIABLE);
-    assert_eq!(kind(doc, "\"m\"$"), TokenKind::VARIABLE);
+    assert_eq!(kind(doc, "m\")$"), TokenKind::VARIABLE);
     // prefixes still apply to its own units
-    assert_eq!(kind(doc, "\"ms\"$"), TokenKind::UNIT);
-    assert_eq!(kind(doc, "\"s\" ->"), TokenKind::UNIT);
-    assert_eq!(kind(doc, "\"min\"$"), TokenKind::VARIABLE);
+    assert_eq!(kind(doc, "ms\")$"), TokenKind::UNIT);
+    assert_eq!(kind(doc, "s\") ->"), TokenKind::UNIT);
+    assert_eq!(kind(doc, "min\")$"), TokenKind::VARIABLE);
     // explicit references don't reach built-in units either
     assert_eq!(kind(doc, "km\")$"), TokenKind::VARIABLE);
     let c = complete(&doc.replace("2unit(\"km\")$", "2 $"), &Context::default(), at(doc, "2unit") + 2).unwrap();
@@ -39,18 +39,18 @@ fn builtin_units_off_leaves_only_the_documents_own() {
 
 #[test]
 fn typst_bindings_take_precedence_only_for_unquoted_names() {
-    let doc = "#show: worksheet.with(units: (to: \"10km\"))\n#let to = unit(\"m\")\n$\"km\" := 23to$\n$x := 2\"to\"$\n$y := 2\"km\"$";
+    let doc = "#show: worksheet.with(units: (to: $10km$))\n#let to = unit(\"m\")\n$\"km\" := 23to$\n$x := 2unit(\"to\")$\n$y := 2unit(\"km\")$";
     let context = Context::default();
     assert_eq!(kind(doc, "to$"), TokenKind::UNIT);
-    assert_eq!(kind(doc, "\"to\"$"), TokenKind::UNIT);
-    assert_eq!(kind(doc, "\"km\"$"), TokenKind::VARIABLE);
+    assert_eq!(kind(doc, "to\")$"), TokenKind::UNIT);
+    assert_eq!(kind(doc, "km\")$"), TokenKind::UNIT);
     // Typst's language server owns the binding and its refactoring.
     let bare = at(doc, "to$");
     assert!(definition(doc, &context, bare).is_none());
     assert!(hover(doc, &context, bare).unwrap().markdown.contains("unit shortcut"));
     assert!(rename_target(doc, &context, bare).is_none());
     assert!(rename(doc, &context, bare, "other").is_empty());
-    let unit = at(doc, "\"to\"$") + 1;
+    let unit = at(doc, "to\")$") + 1;
     assert_eq!(definition(doc, &context, unit).unwrap().start, at(doc, "to:"));
     assert!(rename(doc, &context, unit, "other").iter().all(|e| e.start != bare));
 }
@@ -60,9 +60,9 @@ fn quoted_parameter_types_do_not_resolve_typst_bindings() {
     let doc = "#show: worksheet\n#let second = unit(\"s\")\n$f(\"xaef\": second) := \"xaef\"$\n$g(\"xaef\": \"second\") := \"xaef\"$";
     assert_eq!(kind(doc, "second)"), TokenKind::UNIT);
     assert_eq!(kind(doc, "\"second\""), TokenKind::VARIABLE);
-    let with_unit = doc.replace("#show: worksheet", "#show: worksheet.with(units: (second: \"s\"))");
+    let with_unit = doc.replace("#show: worksheet", "#show: worksheet.with(units: (second: $s$))");
     assert_eq!(kind(&with_unit, "second)"), TokenKind::UNIT);
-    assert_eq!(kind(&with_unit, "\"second\""), TokenKind::UNIT);
+    assert_eq!(kind(&with_unit, "\"second\""), TokenKind::VARIABLE);
 }
 
 fn applied_completion(marked: &str, label: &str) -> String {
@@ -77,11 +77,11 @@ fn applied_completion(marked: &str, label: &str) -> String {
 }
 
 #[test]
-fn single_letter_units_complete_quoted_even_with_a_shorthand() {
+fn single_letter_units_complete_with_hash_bindings() {
     for typed in ["34s|", "34#s|", "34 #s|"] {
         let doc = format!("#show: worksheet.with(builtin-units: false, units: (s: auto))\n#let s = unit(\"s\")\n$z := {typed}$");
         let result = applied_completion(&doc, "s");
-        assert!(result.ends_with("34\"s\"$") || result.ends_with("34 \"s\"$"), "{result}");
+        assert!(result.ends_with("34#s$") || result.ends_with("34 #s$"), "{result}");
     }
 }
 
@@ -98,56 +98,56 @@ fn explicit_single_letter_unit_references_have_a_fix_and_gray_hash() {
     assert!(!diagnostics(&fixed, &Context::default()).iter().any(|p| p.message.contains("bare single letters")));
     let number = doc.replace("unit(\"s\")", "5");
     // no binding to reference: only quoting the unit is left
-    assert!(unit_fixes(&number, &Context::default(), at(&number, "s$")).iter().all(|f| f.text == "\"s\""));
+    assert!(unit_fixes(&number, &Context::default(), at(&number, "s$")).iter().all(|f| f.text == "unit(\"s\")"));
     let variable = doc.replace("😅 $z", "$s := 5$\n😅 $z");
     assert!(unit_fixes(&variable, &Context::default(), at(&variable, "s$")).is_empty());
 }
 
 #[test]
 fn greek_unit_names_share_lookup_completion_and_concealing() {
-    let doc = "#show: worksheet.with(units: (alpha: \"m\"))\n#let α = unit(\"alpha\")\n$x := 34\"alpha\"$\n$y := 34\"α\"$\n$z := 34#α$";
-    assert_eq!(kind(doc, "\"alpha\"$"), TokenKind::UNIT);
-    assert_eq!(kind(doc, "\"α\"$"), TokenKind::UNIT);
+    let doc = "#show: worksheet.with(units: (alpha: $m$))\n#let α = unit(\"alpha\")\n$x := 34unit(\"alpha\")$\n$y := 34unit(\"α\")$\n$z := 34#α$";
+    assert_eq!(kind(doc, "alpha\")$"), TokenKind::UNIT);
+    assert_eq!(kind(doc, "α\")$"), TokenKind::UNIT);
     assert_eq!(kind(doc, "#α$"), TokenKind::UNIT_REFERENCE);
-    let target = definition(doc, &Context::default(), at(doc, "alpha\"$")).unwrap();
+    let target = definition(doc, &Context::default(), at(doc, "alpha\")$")).unwrap();
     assert_eq!(target.start, at(doc, "alpha:"));
-    for needle in ["alpha\")", "alpha\"$"] {
+    for needle in ["alpha\")$"] {
         let offset = at(doc, needle);
         assert!(conceals(doc, &Context::default()).iter().any(|c| c.start == offset && c.length == 5 && c.character == 'α' as u32), "{needle}");
     }
-    let completed = applied_completion("#show: worksheet.with(units: (alpha: \"m\"))\n$x := 34alp|$", "α");
-    assert!(completed.ends_with("34\"α\"$"), "{completed}");
+    let completed = applied_completion("#show: worksheet.with(units: (alpha: $m$))\n$x := 34alp|$", "α");
+    assert!(completed.ends_with("34unit(\"α\")$"), "{completed}");
 }
 
 #[test]
 fn uppercase_greek_units_share_lookup_completion_and_concealing() {
     for (name, symbol) in [("Alpha", 'Α'), ("Beta", 'Β'), ("Upsilon", 'Υ'), ("Omicron", 'Ο')] {
-        let doc = format!("#show: worksheet.with(units: ({name}: 1))\n#let custom = unit(\"{name}\")\n$t := 5custom =$\n$x := 5\"{symbol}\"$");
-        assert_eq!(kind(&doc, &format!("\"{symbol}\"$")), TokenKind::UNIT);
-        let offset = at(&doc, &format!("{name}\")"));
+        let doc = format!("#show: worksheet.with(units: ({name}: 1))\n#let custom = unit(\"{name}\")\n$t := 5unit(\"{name}\") =$\n$x := 5unit(\"{symbol}\")$");
+        assert_eq!(kind(&doc, &format!("{symbol}\")$")), TokenKind::UNIT);
+        let offset = at(&doc, &format!("{name}\") ="));
         assert!(conceals(&doc, &Context::default()).iter().any(|c| c.start == offset && c.length == name.len() as u32 && c.character == symbol as u32));
-        let marked = format!("#show: worksheet.with(units: ({name}: 1))\n$t := 5\"{name}|\"$");
-        assert!(applied_completion(&marked, &symbol.to_string()).ends_with(&format!("5\"{symbol}\"$")));
+        let marked = format!("#show: worksheet.with(units: ({name}: 1))\n$t := 5unit(\"{name}|\")$");
+        assert!(applied_completion(&marked, &symbol.to_string()).ends_with(&format!("5unit(\"{symbol}\")$")));
     }
 }
 
 #[test]
 fn unit_call_completion_uses_local_overlays_without_validating_future_uses() {
-    let early = "#let α = unit(\"|\")\n#show: worksheet.with(units: (alpha: \"m\"))\n$x := 34#α$";
+    let early = "#let α = unit(\"|\")\n#show: worksheet.with(units: (alpha: $m$))\n$x := 34#α$";
     let caret = early.find('|').unwrap();
     let doc = early.replacen('|', "", 1);
     let result = complete(&doc, &Context::default(), early[..caret].encode_utf16().count() as u32).unwrap();
     assert!(!result.items.iter().any(|item| item.label == "α"));
     assert!(result.items.iter().any(|item| item.label == "s"));
-    let local = "#show: worksheet.with(units: (alpha: \"m\"))\n#let α = unit(\"alp|\")";
+    let local = "#show: worksheet.with(units: (alpha: $m$))\n#let α = unit(\"alp|\")";
     assert!(applied_completion(local, "α").ends_with("unit(\"α\")"));
-    let future = "#let α = unit(\"alpha\")\n#show: worksheet.with(units: (alpha: \"m\"))\n$x := 34#α$";
+    let future = "#let α = unit(\"alpha\")\n#show: worksheet.with(units: (alpha: $m$))\n$x := 34#α$";
     assert!(!diagnostics(future, &Context::default()).iter().any(|p| p.message.contains("unknown unit")));
 }
 
 #[test]
 fn constructor_completion_does_not_leak_nested_overlays() {
-    let marked = "#worksheet(units: (alpha: \"m\"))[\n#worksheet(units: (beta: \"s\"))[Text]\n#let α = unit(\"|\")\n]";
+    let marked = "#worksheet(units: (alpha: $m$))[\n#worksheet(units: (beta: $s$))[Text]\n#let α = unit(\"|\")\n]";
     let caret = marked.find('|').unwrap();
     let doc = marked.replacen('|', "", 1);
     let result = complete(&doc, &Context::default(), marked[..caret].encode_utf16().count() as u32).unwrap();
@@ -157,21 +157,21 @@ fn constructor_completion_does_not_leak_nested_overlays() {
 
 #[test]
 fn quoted_unit_fix_is_available_without_a_typst_binding() {
-    let document = "#show: worksheet.with(builtin-units: false, units: (alpha: \"m\"))\n$x := 34alpha$";
+    let document = "#show: worksheet.with(builtin-units: false, units: (alpha: $m$))\n$x := 34alpha$";
     let fix = unit_fixes(document, &Context::default(), at(document, "alpha$")).remove(0);
-    assert_eq!(fix.text, "\"α\"");
+    assert_eq!(fix.text, "unit(\"α\")");
     assert_eq!(fix.end - fix.start, 5);
 }
 
 #[test]
 fn single_letter_units_require_quotes_outside_annotations() {
-    let doc = "#show: worksheet\n$f(x: A) := x$\n$f(1A) =$\n$f(1\"A\") =$";
+    let doc = "#show: worksheet\n$f(x: A) := x$\n$f(1A) =$\n$f(1unit(\"A\")) =$";
     assert_eq!(kind(doc, "A) :="), TokenKind::UNIT);
     assert_eq!(kind(doc, "A) ="), TokenKind::VARIABLE);
-    assert_eq!(kind(doc, "\"A\""), TokenKind::UNIT);
+    assert_eq!(kind(doc, "A\")"), TokenKind::UNIT);
     let fix = unit_fixes(doc, &Context::default(), at(doc, "A) =")).remove(0);
-    assert_eq!(fix.text, "\"A\"");
-    let defined = doc.replace("$f(1A)", "$A := 2\"A\"$\n$f(1A)");
+    assert_eq!(fix.text, "unit(\"A\")");
+    let defined = doc.replace("$f(1A)", "$A := 2unit(\"A\")$\n$f(1A)");
     assert!(unit_fixes(&defined, &Context::default(), at(&defined, "A) =")).is_empty());
 }
 
@@ -191,12 +191,12 @@ fn common_builtin_units_rank_before_uncommon_prefixes() {
 fn conversions_preserve_single_letter_variables_and_units() {
     assert_eq!(from_math("f(1A) =").as_deref(), Some("f(1*A) ="));
     assert_eq!(from_math("f(1\"A\") =").as_deref(), Some("f(1A) ="));
-    assert_eq!(to_math("f(1 A) =").as_deref(), Some("f(1 \"A\") ="));
+    assert_eq!(to_math("f(1 A) =").as_deref(), Some("f(1 unit(\"A\")) ="));
 }
 
 #[test]
 fn bare_math_cast_has_a_quote_fix() {
-    let doc = "#show: worksheet\n😅 $x := U as \"A\"$";
+    let doc = "#show: worksheet\n😅 $x := U as unit(\"A\")$";
     let offset = at(doc, "as ");
     let fixes = unit_fixes(doc, &Context::default(), offset);
     let fix = fixes.iter().find(|fix| fix.text == "\"as\"").unwrap();
@@ -215,8 +215,8 @@ fn bare_math_cast_has_a_quote_fix() {
 #[test]
 fn overlay_declarations_are_generated_in_the_lexical_scope() {
     for doc in [
-        "#show: worksheet.with(units: (ing: \"km\", i: \"km\"))\n$t := 1ing$",
-        "#worksheet(units: (ing: \"km\", i: \"km\"))[$t := 1ing$]",
+        "#show: worksheet.with(units: (ing: $km$, i: $km$))\n$t := 1ing$",
+        "#worksheet(units: (ing: $km$, i: $km$))[$t := 1ing$]",
     ] {
         let fixes = unit_fixes(doc, &Context::default(), at(doc, "ing:"));
         let fix = fixes.iter().find(|f| f.title == "Declare unit overlay bindings").expect("declaration action");
@@ -232,7 +232,7 @@ fn overlay_declarations_are_generated_in_the_lexical_scope() {
 
 #[test]
 fn shortcut_declarations_color_only_the_string_and_explain_the_detection() {
-    let doc = "#show: worksheet.with(units: (iwef: \"km\"))\n#let cusom = unit(\"iwef\")\n$t := 1cusom$";
+    let doc = "#show: worksheet.with(units: (iwef: $km$))\n#let cusom = unit(\"iwef\")\n$t := 1cusom$";
     let tokens = document_tokens(doc, &Context::default());
     let begin = at(doc, "#let");
     let end = at(doc, "$t");
@@ -250,7 +250,7 @@ fn shortcut_declarations_color_only_the_string_and_explain_the_detection() {
 
 #[test]
 fn plain_strings_are_not_detected_as_unit_shortcuts() {
-    let doc = "#show: worksheet.with(units: (iwef: \"km\"))\n#let cusom = \"iwef\"\n$t := 1cusom$";
+    let doc = "#show: worksheet.with(units: (iwef: $km$))\n#let cusom = \"iwef\"\n$t := 1cusom$";
     let from = at(doc, "#let");
     let to = at(doc, "$t");
     assert!(document_tokens(doc, &Context::default()).iter().all(|t| t.start < from || t.start >= to));

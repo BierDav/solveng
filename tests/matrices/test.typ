@@ -20,8 +20,8 @@ $e := at(S, 2, 1) =$ #expect("e", 8)
 $A vec(u, v) = b -> solve(u, v)$ #expect("u", 0.8) #expect("v", 1.4)
 
 // units: a unit per row and per column
-$R := mat(2 "Ω", 1 "Ω"; 1 "Ω", 3 "Ω")$
-$i := R^(-1) vec(1 "V", 2 "V") =$ #passes()
+$R := mat(2 unit("Ω"), 1 unit("Ω"); 1 unit("Ω"), 3 unit("Ω"))$
+$i := R^(-1) vec(1 unit("V"), 2 unit("V")) =$ #passes()
 $i_1 := at(i, 0) =$ #expect("i_1", 0.2, u: "mA")
 
 $K := mat(A, b; 0, 0, 1) =$ #result("mat(\"2\", \"1\", \"3\"; \"1\", \"3\", \"5\"; \"0\", \"0\", \"1\")")

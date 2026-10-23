@@ -33,9 +33,9 @@
 
 // Plots
 #worksheet[
-  #worksheet("R := 50 Ω", "P0 := 2 W", "U0 := 10 V", hidden: true)
-  #graph("P(U: V) = U^2/R", ymark: "P0")
-  #graph("P(..) = U0^2/R_L", xrange: ("10 Ω", "1 kΩ"), width: 10cm)
+  #worksheet(raw("R := 50 Ω"), raw("P0 := 2 W"), raw("U0 := 10 V"), hidden: true)
+  #graph($P(U: unit("V")) = U^2/R$, ymark: $"P0"$)
+  #graph($P(..) = "U0"^2/R_L$, xrange: ($10 unit("Ω")$, $1 unit("kΩ")$), width: 10cm)
 ]
 
 // Options

@@ -48,7 +48,7 @@ fn solved_definitions_support_single_roots_systems_and_units() {
         run(&mut env, "roots := z^2 = 4 -> solve(z)", mode);
         assert!(matches!(env.vars["roots"].expr, Expr::Vector(_)));
         run(&mut env, "radius(x: m, r: m) := x^2 + b^2 = r^2 -> solve(b)", mode);
-        let out = run(&mut env, "radius(3 \"m\", 5 \"m\") =", mode);
+        let out = run(&mut env, "radius(3 ⦃m⦄, 5 ⦃m⦄) =", mode);
         assert!(out.result.unwrap().contains("upright(\"m\")"));
     }
 }

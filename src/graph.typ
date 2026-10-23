@@ -5,43 +5,34 @@
 // ---------- plotting (simple-plot) ----------
 /// Plots an equation with `simple-plot`: ranges, nice ticks, axis labels and units are picked automatically.
 ///
-/// One string or math holds the curves, separated by a backslash: an expression (`"cos(w)"`), or a function of
-/// what it's plotted against, named in the legend and on the axis: `"U(x: A) = x * [2 Ω]"`, with
-/// the parameter's unit for the x axis, or `"P(..) = U^2/R"`, where `..` takes the one variable
-/// that isn't defined (with its unit from the range or the marks). Like every function, a curve
-/// may use only its parameters and defined variables. With `:=` the curve also defines what it names, as the same equation in a worksheet does: `#graph($y := X(x)$)` plots y over x and defines y as X(x), with x left free; `#graph($y := 2 y$)` plots and defines twice that; `#graph($y(t) := X(t)$)` defines the function y. All curves share x. Where two cross is marked:
-/// `#graph("cos(w) \\ w", mark: auto)` shows the solution of cos(w) = w. `xrange:` / `yrange:` list values that must be visible;
-/// without them the x range is picked around the marks, else around the interesting part
-/// (roots, extrema, poles, intersections). Marked values are always visible too.
+/// Math holds the curves, separated by a backslash: `$cos(w) \ w$`, or a function such as
+/// `$P(U: V) = U^2/R$`. A parameter annotation supplies the axis unit; `..` takes the one undefined variable.
+/// With `:=`, curves also define their names for later calculations. Curves share the same x axis.
 ///
 /// ```typ
-/// #worksheet("R := 50 Ω", "P0 := 2 W", "U0 := 10 V", hidden: true)
-/// #graph("P(U: V) = U^2/R", ymark: "P0")                    // where P reaches P0
-/// #graph("P(..) = U0^2/R_L", xrange: ("10 Ω", "1 kΩ"))       // R_L, in Ω from the range
-/// #graph("cos(w) \\ w", mark: auto)                          // range picked, crossing marked
-/// #graph("y(x) = x^2 \\ y(x) = 2x + 3", xrange: (-3, 5))     // several curves
-/// #graph("P(R_L: Ω) = U0^2/R_L", xrange: (0, "2 R"), mark: ("R", "extrema"))
-/// #worksheet("tau := vec(0, 1, 2, 3) * 1 s", "y := vec(0, 2, 1, 3) * 1 V", hidden: true)
-/// #graph("y(tau) \\ 1 V/s * tau", mark: "crossings")         // data over tau and a line
+/// #worksheet($R := 50 unit("Ω")$, $P_0 := 2 unit("W")$, hidden: true)
+/// #graph($P(U: V) = U^2/R$, ymark: $P_0$)
+/// #graph($cos(w) \ w$, mark: auto)
+/// #graph($y(x) = x^2 \ y(x) = 2x + 3$, xrange: (-3, 5))
 /// ```
 ///
 /// Uses `@preview/simple-plot:1.1.0`. Ticks use the document's decimal separator, axis labels read `U / V`; curves of the same unit share one graph, with a legend.
 ///
-/// **Ranges:** values and expressions in `xrange` / `yrange` must have the axis unit (`$f(20) Omega$` and `"f(20) Ω"` are fine) – `xrange: ("10 Ω", "f(20)")` with a unitless `f(20)` is an error, since it isn't clear what was meant. Without a range: around the marks; else around what's interesting – roots, extrema, poles, edges of the domain (√, ln) and, above all, where curves cross – rounded to nice ticks, starting at 0 when everything interesting is positive. With `ymark`, the y range is around the marked values (steep curves leave the picture). **Units** follow from what's plotted: y's from the curves (shown in the SI unit with a fitting prefix; `preferred-units` picks others), x's from the curve's parameter (`U(I: mA) = …`) or a function x is passed to whose parameter has one (`$q(I: mA) := I R$`, then `#graph("U(I) = q(I)")` is over I in mA), else from the units in `xrange` and the marks, else from the curve and the units of the y values (`P(..) = U0^2/R2` with `ymark: "2 W"`: R₂ in Ω).
+/// **Ranges:** values and expressions in `xrange` / `yrange` must have the axis unit (`$f(20) Omega$` and `"f(20) Ω"` are fine) – `xrange: ("10 Ω", "f(20)")` with a unitless `f(20)` is an error, since it isn't clear what was meant. Without a range: around the marks; else around what's interesting – roots, extrema, poles, edges of the domain (√, ln) and, above all, where curves cross – rounded to nice ticks, starting at 0 when everything interesting is positive. With `ymark`, the y range is around the marked values (steep curves leave the picture). **Units** follow from what's plotted: y's from the curves (shown in the SI unit with a fitting prefix; `preferred-units` picks others), x's from the curve's parameter (`U(I: mA) = …`) or a function x is passed to whose parameter has one (`$q(I: mA) := I R$`, then `#graph($U(I) = q(I)$)` is over I in mA), else from the units in `xrange` and the marks, else from the curve and the units of the y values (`P(..) = U0^2/R2` with `ymark: "2 W"`: R₂ in Ω).
 ///
-/// **Data:** a vector of values is plotted as the points through its elements, joined in index order (with a dot at each when there are at most 30): `#graph("y")` against the zero-based index k (as in `at(y, k)`), `#graph("y(tau)")` over the vector `tau` of the same length – or over any expression without free names that is one, `y(2 tau)`. Units come from the elements (each vector needs one unit for all its elements; every element must have a value). Function curves can go alongside: `#graph("y(tau) \\ c(tau)")` with a function `c`, or an expression in `tau` (`"2 tau"`), where `tau` stands for the x axis and the function is sampled over it; the x range is from the data's first to last x value unless `xrange` says otherwise, and the units of x and y must agree. Marks work on data too, with linear interpolation between the points: x values, `"roots"` and `"crossings"` (with data and with functions) where the values change sign, `"extrema"` as the local extreme points, and `ymark`. A vector with a free name is several curves instead, one per element (`"vec(t, t^2)"`).
+/// **Data:** a vector of values is plotted as the points through its elements, joined in index order (with a dot at each when there are at most 30): `#graph($y$)` against the zero-based index k (as in `at(y, k)`), `#graph($y(τ)$)` over the vector `tau` of the same length – or over any expression without free names that is one, `y(2 tau)`. Units come from the elements (each vector needs one unit for all its elements; every element must have a value). Function curves can go alongside: `#graph($y(τ) \ c(τ)$)` with a function `c`, or an expression in `tau` (`"2 tau"`), where `tau` stands for the x axis and the function is sampled over it; the x range is from the data's first to last x value unless `xrange` says otherwise, and the units of x and y must agree. Marks work on data too, with linear interpolation between the points: x values, `"roots"` and `"crossings"` (with data and with functions) where the values change sign, `"extrema"` as the local extreme points, and `ymark`. A vector with a free name is several curves instead, one per element (`"vec(t, t^2)"`).
 ///
 /// **Marks** default to none. Requested marks are always visible – the ranges grow to show them. Combine them in an array, `(auto, "R1")`.
 ///
 /// **Size:** `width` / `height` are the whole graph, labels included; `auto` makes the plot area 8 × 5 cm. Any other named argument goes straight to simple-plot's `plot` (e.g. `show-grid: false`), other positional ones (series from simple-plot) are added as they are. For full control, plot with simple-plot directly.
 ///
-/// - equation (str, content): Curves separated by a backslash; strings also accept complete equations on separate lines.
+/// - equation (content): Math curves separated by a backslash.
 /// - ..args (any): Named options passed on to simple-plot's `plot` (e.g. `show-grid: false`).
-/// - xrange (auto, array, str, content, int, float): x values that must be visible: numbers in the x axis's unit (`(1, 2)`), values (`("10 Ω", "1 kΩ")`) or expressions of defined variables (`(0, "2 R")`, math works too). Two or more give the range from the smallest to the largest; a single one widens the picked range. `auto`: around the marked x values, else picked from the curves.
-/// - yrange (auto, array, str, content, int, float): y values that must be visible, like `xrange` (numbers in the y axis's SI unit). Two or more give the exact y range. `auto`: fitted to the curves.
-/// - mark (none, auto, array, str, content, int, float): What to mark, with both coordinates written on the axes: x values like `xrange` (`"R"`, `2`, `"5 V"`; a point with guide lines on every curve, the range grows to show it), `"crossings"`, `"roots"`, `"extrema"` (searched within the range) and `auto`: where two curves cross. An array combines them: `(auto, "R1")`. `()` or `none` (default): no marks.
+/// - xrange (auto, array, content, int, float): x values that must be visible: numbers in the x axis's unit (`(1, 2)`), values (`("10 Ω", "1 kΩ")`) or expressions of defined variables (`(0, "2 R")`, math works too). Two or more give the range from the smallest to the largest; a single one widens the picked range. `auto`: around the marked x values, else picked from the curves.
+/// - yrange (auto, array, content, int, float): y values that must be visible, like `xrange` (numbers in the y axis's SI unit). Two or more give the exact y range. `auto`: fitted to the curves.
+/// - mark (none, auto, array, content, int, float): What to mark, with both coordinates written on the axes: x values like `xrange` (`"R"`, `2`, `"5 V"`; a point with guide lines on every curve, the range grows to show it), `"crossings"`, `"roots"`, `"extrema"` (searched within the range) and `auto`: where two curves cross. An array combines them: `(auto, "R1")`. `()` or `none` (default): no marks.
 /// - xmark (none, array, str, content, int, float): Like `mark`, but only the x value is written on the axis.
-/// - ymark (none, array, str, content, int, float): y values to mark, like `yrange`: every point where a curve reaches one, with guide lines; the value is written on the y axis.
+/// - ymark (none, array, content, int, float): y values to mark, like `yrange`: every point where a curve reaches one, with guide lines; the value is written on the y axis.
 /// - samples (int): Number of sample points.
 /// - width (auto, length, ratio, relative, fraction): Width of the whole graph, labels included: `12cm`, `300pt` or a share like `100%`. `1fr` is the container's width – in a grid, the column's. `auto`: a plot area of 8 cm.
 /// - height (auto, length, ratio, relative, fraction): Like `width`; `auto`: a plot area of 5 cm. A share is of the container's height, or of the width when the page grows with its content.
@@ -62,15 +53,14 @@
   let fail(m) = _errc("graph: " + m, cf, wide: true)
   // types
   if args.pos().len() > 0 { return fail("pass curves in one equation, separated by a backslash") }
+  if type(equation) != content or equation.func() != math.equation { return fail("pass curves as math equations") }
   let eqs = (equation,)
   if args.pos().any(a => type(a) == array) { return fail("the x range is named: xrange: " + repr(args.pos().find(a => type(a) == array))) }
   // options graph had: what replaces them
   let gone = (x: "x is the one variable of the curves that isn't defined", xunit: "x's unit comes from a function parameter with a unit (q(I: mA)), xrange or the marks", yunit: "y's unit comes from the curves; preferred-units: (\"mW\",) picks another", builtin-units: "units change what names mean, so they belong to a worksheet with scope: \"isolated\" around the graph", units: "units change what names mean, so they belong to a worksheet with scope: \"isolated\" around the graph")
   let old = args.named().keys().find(k => k in gone)
   if old != none { return fail(old + ": is gone – " + gone.at(old)) }
-  let args = arguments(..args.pos().filter(a => type(a) not in (str, content)), ..args.named())
-  if eqs.len() == 0 { return fail("nothing to plot – pass an equation like \"P = U^2/R\"") }
-  let XV = (str, content, int, float)
+  let XV = (content, int, float)
   let list(v) = if v == auto or v == none { () } else if type(v) == array { v } else { (v,) }
   let (rng, yrng) = (list(xrange), list(yrange))
   for (n, r) in (xrange: rng, yrange: yrng) { if r.any(v => type(v) not in XV) { return fail(n + ": values to show, like (1, 2), (\"10 Ω\", \"1 kΩ\") or (0, \"2 R\")") } }
@@ -80,7 +70,7 @@
   let KW = ("crossings", "roots", "extrema")
   let ms(v) = if v == none or v == false { () } else if v == true { (auto,) } else if type(v) == array { v } else { (v,) }
   let ents = ms(mark).map(m => (m, true)) + ms(xmark).map(m => (m, false))
-  if ents.any(((m, _)) => m != auto and type(m) not in XV) { return fail("mark / xmark: auto, x values like \"R\" or 2, \"crossings\", \"roots\", \"extrema\", or an array of these; () for none") }
+  if ents.any(((m, _)) => m != auto and type(m) not in XV and m not in ("crossings", "roots", "extrema")) { return fail("mark / xmark: auto, x values like \"R\" or 2, \"crossings\", \"roots\", \"extrema\", or an array of these; () for none") }
   let iskw(m) = type(m) == str and m in KW
   let kws = ents.filter(((m, _)) => iskw(m))
   let autos = ents.filter(((m, _)) => m == auto).map(e => e.at(1))
@@ -94,8 +84,8 @@
   if type(colors) == content { return fail("colors: square brackets make content – write an array with parentheses: (gray, blue, rgb(\"#f98eff\"))") }
   if type(colors) != array or colors.len() == 0 or colors.any(c => type(c) not in (color, gradient)) { return fail("colors: a color or an array of colors like (gray, blue, rgb(\"#f98eff\"))") }
 
-  // what the engine reads: math as written for it, strings as code
-  let src(q) = if type(q) == content and q.func() == math.equation { let m = _src(q.body); (src: if _E(m) { "?" } else { m }, mode: "math", label: _src(q.body)) } else { (src: _plain(q), mode: "code", label: none) }
+  // Serialize math with its explicit unit and operation substitutions.
+  let src(q) = if type(q) == content and q.func() == math.equation { let m = _src(q.body); (src: if _E(m) { "?" } else { m }, mode: "math", label: _src(q.body)) } else { panic("solveng: graph: values must be numbers or math equations") }
   let v(a) = if type(a) in (int, float) { float(a) } else { src(a) }
   let mk(m) = if m == auto { "auto" } else if type(m) == str and m in KW { m } else { v(m) }
   let req = (

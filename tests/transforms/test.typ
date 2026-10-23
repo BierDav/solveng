@@ -56,7 +56,7 @@ $"trianglezero" := g_2(1) =$
 #passes() #expect("trianglezero", 0)
 $"trianglelater" := g_2(2.75) =$
 #passes() #expect("trianglelater", 0.5)
-#graph("g_2(t)", xrange: (-0.5, 3))
+#graph($g_2(t)$, xrange: (-0.5, 3))
 #passes()
 
 // General recurrence with multiple delays and complex continuous poles.
@@ -64,12 +64,12 @@ $r(t) := invlaplace((2*s+1+exp(-s))/(s^2+2*s+5+(s+1)*exp(-s)+exp(-2*s)), s, t) -
 #passes()
 $"rzero" := r(0) =$
 #passes() #expect("rzero", 2)
-#graph("r(t)", xrange: (0, 3))
+#graph($r(t)$, xrange: (0, 3))
 #passes()
 
 // the keyword forms were removed: they say what to write instead
 #worksheet(errors: "document")[
   $x := t^2 -> laplace$ #fails("-> laplace was removed: write laplace(f, t, s) (in math with #import functions: laplace)")
   $y := 1/(s+1) -> invlaplace(s, u)$ #fails("-> invlaplace was removed: write invlaplace(F, s, t)")
-  #worksheet("z := t -> laplace(t, p)") #fails("-> laplace was removed")
+  #worksheet(raw("z := t -> laplace(t, p)")) #fails("-> laplace was removed")
 ]

@@ -14,27 +14,27 @@ $x := 10$
 // inherit: sees the outer definitions, its own end with it
 #worksheet(scope: "inherit")[$x := x+1$ #expect("x", 11) $"own" := 1$]
 #expect("x", 10) #undefined("own")
-#worksheet($x := 40$, "temporary := x+1", scope: "inherit") #expect("x", 10) #undefined("temporary")
+#worksheet($x := 40$, raw("temporary := x+1"), scope: "inherit") #expect("x", 10) #undefined("temporary")
 // shared: sees them, and what it defines stays, over the outer ones
 #worksheet(scope: "shared")[$x := x+2$ $b := a+1$]
 #expect("x", 12) #expect("b", 12)
-#worksheet("y_s := x + 1", scope: "shared") #expect("y_s", 13)
+#worksheet(raw("y_s := x + 1"), scope: "shared") #expect("y_s", 13)
 // isolated: starts empty, its definitions end with it
 #worksheet(scope: "isolated")[#undefined("x") $x := 30$ #expect("x", 30)]
 #expect("x", 12)
-#worksheet("x := 50", "iso := 2", scope: "isolated") #expect("x", 12) #undefined("iso")
-#worksheet("z_i := x =", scope: "isolated") #fails("'x' in 'z_i' isn't defined")
+#worksheet(raw("x := 50"), raw("iso := 2"), scope: "isolated") #expect("x", 12) #undefined("iso")
+#worksheet(raw("z_i := x ="), scope: "isolated") #fails("'x' in 'z_i' isn't defined")
 
 // shared keeps functions, solved values, code and graph definitions as well as variables
 #worksheet(scope: "shared", hidden: true)[
-  $U := 12 "V"$
-  $R := 100 "Ω"$
+  $U := 12 unit("V")$
+  $R := 100 unit("Ω")$
   $U = I R -> solve(I)$
   $f(t) := t^2+1$
   ```solveng
   coded := 8
   ```
-  #graph("g(t) := t+2", xrange: (0, 1))
+  #graph($g(t) := t+2$, xrange: (0, 1))
 ]
 #expect("I", 0.12) #expect("coded", 8)
 $y := f(3) =$ #expect("y", 10)
@@ -123,14 +123,14 @@ $"function_value" := x(3) =$ #expect("function_value", 6)
 #reported("got true")
 
 // units change what names mean: only an isolated scope can set them
-#worksheet(scope: "inherit", units: (bar: "100 kPa"))[]
+#worksheet(scope: "inherit", units: (bar: $100 unit("kPa")$))[]
 #reported("units need scope: \"isolated\"")
 #worksheet(scope: "shared", builtin-units: false)[]
 #reported("builtin-units need scope: \"isolated\"")
-#worksheet($u_x := 1$, units: (bar: "100 kPa"))
+#worksheet($u_x := 1$, units: (bar: $100 unit("kPa")$))
 #reported("the default for equations")
 #undefined("u_x")
-#worksheet($u_i := 2 "bar" =$, scope: "isolated", units: (bar: "100 kPa")) #passes() #undefined("u_i")
+#worksheet($u_i := 2 unit("bar") =$, scope: "isolated", units: (bar: $100 unit("kPa")$)) #passes() #undefined("u_i")
 
 // clear-at takes exactly these forms
 #for (bad, shown) in ((par, "par"), (heading.where(outlined: false), "heading.where(outlined: false)"), (heading.where(level: 0), "heading.where(level: 0)"), ("exercise", "\"exercise\""), (heading.where(level: 1).or(par), "selector.or")) {

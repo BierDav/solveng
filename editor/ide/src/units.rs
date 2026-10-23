@@ -73,25 +73,52 @@ pub(crate) struct Custom {
     pub value: String,
 }
 
-static UNITS_ARG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"units\s*:\s*\(").unwrap());
-static UNIT_ENTRY: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"([\p{L}][\p{L}\p{N}_]*|"[^"]+")\s*:\s*("[^"]*"|none|auto|[\d.]+)"#).unwrap());
+pub(crate) struct Entry {
+    pub name: String,
+    pub start: usize,
+    pub end: usize,
+    pub value_start: usize,
+    pub value_end: usize,
+    pub value: String,
+}
 
-/// Units a text adds with `worksheet(units: (bar: "100 kPa", ü: auto, dozen: 12, …))`, later ones winning.
+pub(crate) fn entries(text: &str) -> Vec<Entry> {
+    use typst_syntax::{LinkedNode, SyntaxKind};
+    fn visit(node: &LinkedNode, out: &mut Vec<Entry>) {
+        if node.kind() == SyntaxKind::Named {
+            let parts: Vec<_> = node.children().filter(|n| !n.kind().is_trivia() && n.kind() != SyntaxKind::Colon).collect();
+            if parts.first().is_some_and(|n| n.get().leaf_text() == "units") {
+                if let Some(dict) = parts.get(1).filter(|n| n.kind() == SyntaxKind::Dict) {
+                    for entry in dict.children().filter(|n| matches!(n.kind(), SyntaxKind::Named | SyntaxKind::Keyed)) {
+                        let parts: Vec<_> = entry.children().filter(|n| !n.kind().is_trivia() && n.kind() != SyntaxKind::Colon).collect();
+                        let [key, value] = parts.as_slice() else { continue };
+                        if value.kind() == SyntaxKind::Str { continue; }
+                        let name = key.get().clone().full_text();
+                        let quoted = usize::from(name.starts_with('"'));
+                        out.push(Entry { value_start: value.offset(), value_end: value.offset() + value.len(), name: crate::resolved_name(name.trim_matches('"')), start: key.offset() + quoted, end: key.offset() + key.len() - quoted, value: value.get().clone().full_text().trim_matches('$').trim().to_string() });
+                    }
+                }
+            }
+        }
+        for child in node.children() { visit(&child, out); }
+    }
+    let root = typst_syntax::parse(text);
+    let mut out = Vec::new();
+    visit(&LinkedNode::new(&root), &mut out);
+    out
+}
+
+/// Units from math definitions, with later definitions winning.
 pub(crate) fn custom_units(text: &str, out: &mut Vec<Custom>) {
     static BUILTIN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"builtin-units\s*:\s*(true|false)").unwrap());
     for c in BUILTIN.captures_iter(text) {
         out.retain(|u| !u.name.is_empty());
         out.push(Custom { name: String::new(), value: c[1].into() });
     }
-    for m in UNITS_ARG.find_iter(text) {
-        let start = m.end();
-        let end = text[start..].find(')').map_or(text.len(), |i| start + i);
-        for c in UNIT_ENTRY.captures_iter(&text[start..end]) {
-            let name = crate::resolved_name(c[1].trim_matches('"'));
-            out.retain(|u| u.name != name);
-            out.push(Custom { name, value: c[2].trim_matches('"').to_string() });
-        }
+    let source = if text.trim_start().starts_with("units:") { format!("#let _ = ({text})") } else { text.to_string() };
+    for entry in entries(&source) {
+        out.retain(|u| u.name != entry.name);
+        out.push(Custom { name: entry.name, value: entry.value });
     }
 }
 

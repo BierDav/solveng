@@ -6,7 +6,7 @@
 #show: worksheet
 
 // sampled data: a signal over a time axis, and a vector against its index
-#worksheet("tau := vec(0, 1, 2, 3, 4, 5, 6) * 1 ms", "y := vec(0, 1.5, 2.5, 2, 0.5, -1, -0.5) * 1 V", "c(t: s) := 0.4 V/ms * t", hidden: true)
+#worksheet(raw("tau := vec(0, 1, 2, 3, 4, 5, 6) * 1 ms"), raw("y := vec(0, 1.5, 2.5, 2, 0.5, -1, -0.5) * 1 V"), raw("c(t: s) := 0.4 V/ms * t"), hidden: true)
 
 // what the engine gives the graph: the data's points, in its units
 #context {
@@ -25,11 +25,11 @@
   assert(g.points.any(p => p.x == 2 and p.y == 2.5) and g.points.any(p => p.x == 5 and p.y == -1))
 }
 
-#graph("y(tau)", mark: ("roots", "extrema"), errors: "panic")
+#graph($y(τ)$, mark: ("roots", "extrema"), errors: "panic")
 #graph($y(tau) \ c(tau)$, mark: "crossings", errors: "panic")
-#graph("y \\ 1 V", errors: "panic")
-#graph("y(tau) \\ 2 V * sin(tau / (1 ms))", xrange: (-1, 8), mark: (3.5, "crossings"), errors: "panic")
+#graph($y \ 1 unit("V")$, errors: "panic")
+#graph($y(τ) \ 2 unit("V") dot sin(τ / (1 unit("ms")))$, xrange: (-1, 8), mark: (3.5, "crossings"), errors: "panic")
 
 // a long vector: a line without dots
-#worksheet("n := vec(" + range(200).map(k => str(calc.round(calc.sin(k / 10) * calc.exp(-k / 80), digits: 4))).join(", ") + ")", hidden: true)
-#graph("n", ymark: 0.5, errors: "panic")
+#worksheet(raw("n := vec(" + range(200).map(k => str(calc.round(calc.sin(k / 10) * calc.exp(-k / 80), digits: 4))).join(", ") + ")"), hidden: true)
+#graph($n$, ymark: 0.5, errors: "panic")

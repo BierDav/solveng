@@ -1,4 +1,4 @@
-//! Completions: names, functions, constants and units in solveng code, math and call strings; the options of
+//! Completions: names, functions, constants and units in solveng code, math and substitutions; the options of
 //! solveng's functions; language tags after ```` ``` ````.
 
 use std::collections::HashSet;
@@ -137,8 +137,8 @@ fn code_definitions(doc: &Doc, start: usize, end: usize, found: &mut Vec<Definit
 }
 
 /// Names defined in a text, in order: math equations and solveng code that `active` says are calculated, and
-/// `worksheet` strings.
-pub(crate) fn definitions(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Element) -> bool) -> Vec<Definition> {
+/// equations passed to calls.
+pub(crate) fn definitions(doc: &Doc, elements: &[Element], _calls: &[Call], active: &dyn Fn(&Element) -> bool) -> Vec<Definition> {
     let mut found = Vec::new();
     let equations: Vec<Element> = elements.iter().filter(|e| active(e)).flat_map(|e| {
         if !e.math { return vec![e.clone()]; }
@@ -168,14 +168,15 @@ pub(crate) fn definitions(doc: &Doc, elements: &[Element], calls: &[Call], activ
         let end = (lead..left).rev().find(|&k| !c[k].is_whitespace()).map_or(lead, |k| k + 1);
         // Quotes go, except empty ones gluing a name (Delta""r_R).
         let unquote = |t: String| t.replace("\"\"", "\u{0}").replace('"', "").replace('\u{0}', "\"\"");
-        let plain = unquote(crate::text::sub(c, relation, c.len()));
+        let source = crate::text::sub(c, relation, c.len());
+        let plain = crate::convert::code_of(&source).unwrap_or_else(|| unquote(source));
         let plain = if assign { format!(":={}", plain.trim_start_matches(['=', '≔'])) } else { plain };
         // A function: q(x) = x "ü"; its name is what's defined, its parameters are its own.
         let lhs = crate::text::sub(c, lead, end);
         let lhs_chars = chars(&lhs);
         let function_name = solveng_names::scan(&lhs_chars, 0).ok().flatten().filter(|name| lhs_chars.get(name.end.wrapping_sub(1)) != Some(&'_') && lhs_chars[name.end..].iter().find(|c| !c.is_whitespace()) == Some(&'('));
         if let Some(name) = function_name {
-            if let Some(mut d) = definition(&SPACES.replace_all(&format!("{lhs} {plain}"), " ")) {
+            if let Some(mut d) = definition(&SPACES.replace_all(&format!("{} {plain}", crate::convert::code_of(&lhs).unwrap_or(lhs.clone())), " ")) {
                 d.start = e.body_start + lead;
                 d.end = d.start + name.end;
                 d.written = d.end - d.start;
@@ -202,11 +203,6 @@ pub(crate) fn definitions(doc: &Doc, elements: &[Element], calls: &[Call], activ
             d.written = end - lead;
             d.statement_end = e.body_end;
             found.push(d);
-        }
-    }
-    for call in calls.iter().filter(|c| c.function.name == "worksheet") {
-        for t in call.texts.iter().filter(|t| t.param.is_none() && t.role == Role::Code) {
-            code_definitions(doc, t.start, t.end, &mut found);
         }
     }
     found.sort_by_key(|d| d.start);
@@ -406,18 +402,15 @@ fn clause_items(a: &Analysis, names: bool, math: bool, at: usize, line_start: us
     items
 }
 
-/// The units math can write at `at`. Built-in units longer than a letter go by their shorthand: one in scope there
-/// (`#let km = unit("km")`, `#import units: km`) comes first, else solveng's, imported along (`#import units: km`)
-/// when its import is in scope and the name isn't taken. Single letters (`"s"`), the document's own units and the
-/// rest are quoted, as math needs them. `explicit`: typed after `#`, which the insert replaces.
+/// Prefer lexical unit bindings, importing built-ins when possible; single letters use `#`, others use constructors.
 fn math_unit_items(a: &Analysis, at: usize, explicit: bool) -> Vec<Item> {
     let units = a.units_at(at);
     let long = |name: &str| crate::resolved_name(name).chars().count() > 1;
     let shorthands: Vec<(String, String)> = a.bindings.unit_items(at).into_iter()
-        .filter(|(name, unit)| !unit.is_empty() && long(name) && units::known(unit, &units)).collect();
-    let hash = |text: &str| if explicit { format!("#{text}") } else { text.to_string() };
+        .filter(|(_, unit)| !unit.is_empty() && units::known(unit, &units)).collect();
+    let hash = |text: &str| if explicit || !long(text) { format!("#{text}") } else { text.to_string() };
     let mut items: Vec<Item> = shorthands.iter().map(|(name, unit)| {
-        let mut item = Item::new(name, ItemKind::UNIT, &format!("shorthand for {unit}"), name);
+        let mut item = Item::new(name, ItemKind::UNIT, &format!("shorthand for {unit}"), &hash(name));
         item.filter = Some(format!("{} {}", hash(name), hash(unit)));
         item
     }).collect();
@@ -427,15 +420,16 @@ fn math_unit_items(a: &Analysis, at: usize, explicit: bool) -> Vec<Item> {
         let filter = u.filter.take().unwrap_or_else(|| u.insert.clone());
         u.filter = Some(hash(&filter));
         let name = u.insert.clone();
-        let builtin = long(&name) && units::shorthand(&name) && !units.iter().any(|c| c.name == name);
+        let builtin = units::shorthand(&name) && !units.iter().any(|c| c.name == name);
         let edits = builtin.then(|| a.bindings.bound(at, &name).is_none()).unwrap_or(false)
             .then(|| a.bindings.import_edits(&a.doc, at, true, &name)).flatten();
         match edits {
             Some(edits) => {
                 if !edits.is_empty() { u.detail = format!("{} · imports units: {name}", u.detail); }
                 u.edits = edits;
+                u.insert = hash(&name);
             }
-            None => u.insert = format!("\"{name}\""),
+            None => u.insert = format!("unit(\"{name}\")"),
         }
         items.push(u);
     }
@@ -567,7 +561,7 @@ pub fn complete(document: &str, context: &Context, offset: u32) -> Option<Comple
     let start = a.doc.from16(result.from as usize);
     let math = a.elements.iter().any(|e| e.math && e.body_start <= at && at <= e.body_end);
     let string = a.calls.iter().flat_map(|c| &c.texts).find(|t| t.start <= at && at <= t.end);
-    let name_context = string.is_none_or(|t| matches!(t.role, Role::Code | Role::Mark | Role::Name));
+    let name_context = string.is_none_or(|t| matches!(t.role, Role::Name));
     // In `op("…")` and `unit("…")` the names are written as they are.
     if !name_context || a.reference_strings().iter().any(|(s, e)| *s <= at && at <= *e) { return Some(result); }
     let prefix = a.doc.sub(start, at);
@@ -668,7 +662,7 @@ fn complete_at(document: &str, context: &Context, offset: u32) -> Option<Complet
     done(from, code_items(&a, &line, line_start, at), true)
 }
 
-/// In math: units in the quotes after a number (`30 "m|"`), else the defined names next to Typst's.
+/// Unit bindings and constructors after numbers, otherwise defined names alongside Typst completions.
 fn complete_math(a: &Analysis, e: &Element, from: usize) -> Option<Completions> {
     let explicit = from > e.body_start && a.doc.c[from - 1] == '#';
     let before_ = a.doc.sub(e.body_start, from - usize::from(explicit));
@@ -730,10 +724,6 @@ fn string_completions(a: &Analysis, call: &Call, t: &crate::calls::Text, at: usi
     let c = &a.doc.c;
     let from = word_start(c, at, t.start);
     let items = match t.role {
-        Role::Code => {
-            let line_start = t.start.max(last_index_of_char(c, '\n', from).map_or(0, |i| i + 1));
-            code_items(a, &a.doc.sub(line_start, from), line_start, at)
-        }
         Role::Unit if call.function.name == "unit" => units::explicit_items(&a.unit_completion_context(at)),
         Role::Unit => {
             let mut settings = a.units_at(at);
@@ -743,11 +733,7 @@ fn string_completions(a: &Analysis, call: &Call, t: &crate::calls::Text, at: usi
             units::explicit_items(&settings)
         }
         Role::Name => definition_items(a, &mut HashSet::new(), false, false, Some(at)),
-        Role::Mark => {
-            let mut items: Vec<Item> = MARKS.iter().map(|(m, d)| Item::new(m, ItemKind::VALUE, d, m)).collect();
-            items.extend(code_items(a, &a.doc.sub(t.start, from), t.start, at));
-            items
-        }
+        Role::Mark => MARKS.iter().map(|(m, d)| Item::new(m, ItemKind::VALUE, d, m)).collect(),
         Role::Choice => {
             let param = call.function.named.iter().find(|p| Some(&p.name) == t.param.as_ref())?;
             let mut items: Vec<Item> = param.values.iter().map(|v| Item::new(v, ItemKind::VALUE, &param.types, v)).collect();

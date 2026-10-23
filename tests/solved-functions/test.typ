@@ -15,9 +15,9 @@ $L := "lower"(3, 5) =$
 #expect("L", -4)
 $U := "upper"(3, 5) =$
 #expect("U", 4)
-#worksheet("circle(x, r) := pytagoras(x, b, r) -> solve(b)")
+#worksheet(raw("circle(x, r) := pytagoras(x, b, r) -> solve(b)"))
 #passes()
-#worksheet("circle(3, 5) =")
+#worksheet(raw("circle(3, 5) ="))
 #passes() #result("vec(\"−4\", \"4\")")
 $"pair"(a) := vec(u + v = a, u - v = 2) -> solve(u, v)$
 #passes()

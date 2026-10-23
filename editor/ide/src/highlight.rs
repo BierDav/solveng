@@ -3,7 +3,7 @@
 use crate::calls::Role;
 use crate::complete::{FUNCTIONS, defined, definitions};
 use crate::text::{Doc, chars, is_letter_or_digit};
-use crate::tokens::{CONSTANTS, Tok, code_tokens, visible_code_tokens, formula_tokens, math_tokens as math_toks};
+use crate::tokens::{CONSTANTS, Tok, code_tokens, visible_code_tokens, math_tokens as math_toks};
 use crate::units::{self, Custom};
 use crate::{Analysis, Context, Hover, Problem, Region, Token, TokenKind as K};
 
@@ -202,10 +202,8 @@ fn unit_tokens(code: &[char], custom: &[Custom]) -> Vec<Tok> {
         .collect()
 }
 
-/// Tokens of what the strings of solveng's calls hold: code lines in `#worksheet("…")`, curves in `#graph` and
-/// `#lambdify`, units in `unit:`, names in `x:`, the values of options like `steps:`.
+/// Tokens of unit substitutions, names and option values.
 fn call_tokens(a: &Analysis) -> Vec<Token> {
-    let unit = |w: &str| a.is_custom_unit(w);
     let mut out = Vec::new();
     for call in &a.calls {
         for t in &call.texts {
@@ -222,9 +220,6 @@ fn call_tokens(a: &Analysis) -> Vec<Token> {
                 units::custom_units(&format!("{}: {value}", name.as_deref().unwrap_or_default()), &mut settings);
             }
             let toks = match t.role {
-                // A graph's curves are formulas.
-                Role::Code if call.is_curve(t) => formula_tokens(code, &unit),
-                Role::Code => visible_code_tokens(code, &unit, &|w| units::visible(w, &settings)),
                 Role::Unit => unit_tokens(code, &settings),
                 Role::Name if !trimmed.is_empty() => whole(K::VARIABLE),
                 Role::Choice => {
@@ -232,7 +227,6 @@ fn call_tokens(a: &Analysis) -> Vec<Token> {
                     if param.is_some_and(|p| p.values.iter().any(|v| v == trimmed)) { whole(K::KEYWORD) } else { Vec::new() }
                 }
                 Role::Mark if ["crossings", "roots", "extrema"].contains(&trimmed) => whole(K::KEYWORD),
-                Role::Mark => code_tokens(code, &unit),
                 _ => Vec::new(),
             };
             out.extend(utf16(&a.doc, t.start, toks.into_iter().filter(|t| t.1 > 0).collect()));
@@ -271,7 +265,7 @@ pub fn document_tokens(document: &str, context: &Context) -> Vec<Token> {
     }
     function_styles(&a, &mut out, &defs);
     for (start, end, name, imported) in a.bindings.operation_uses() {
-        if a.elements.iter().any(|e| e.math && a.active(e) && e.body_start <= start && end <= e.body_end)
+        if a.elements.iter().any(|e| e.math && a.shown(e) && e.body_start <= start && end <= e.body_end)
             && FUNCTIONS.contains(&name) && (!imported || a.builtin_functions_at(start)) {
             let from = a.doc.to16(start);
             out.retain(|t| t.start != from);
@@ -281,7 +275,7 @@ pub fn document_tokens(document: &str, context: &Context) -> Vec<Token> {
     for (start, end, unit, imported) in a.bindings.unit_uses() {
         let units = a.units_at(start);
         let exists = if imported { units::visible(unit, &units) } else { units::known(unit, &units) };
-        if exists && a.elements.iter().any(|e| e.math && a.active(e) && e.body_start <= start && end <= e.body_end) {
+        if exists && a.elements.iter().any(|e| e.math && a.shown(e) && e.body_start <= start && end <= e.body_end) {
             let from = a.doc.to16(start);
             out.retain(|t| t.start != from);
             out.push(Token { start: from, length: a.doc.to16(end) - from, kind: K::UNIT });
@@ -333,7 +327,7 @@ pub fn diagnostics(document: &str, context: &Context) -> Vec<Problem> {
             out.push(Problem {
                 start: a.doc.to16(base + s),
                 end: a.doc.to16(base + e),
-                message: format!("unknown unit '{word}' – define it with the units option, worksheet(units: ({word}: \"…\"))"),
+                message: format!("unknown unit '{word}' – define it with the units option, worksheet(units: ({word}: $…$))"),
                 severity: "warning",
             });
         }
@@ -388,35 +382,13 @@ pub fn diagnostics(document: &str, context: &Context) -> Vec<Problem> {
             i = line_end + 1;
         }
     };
-    for e in a.elements.iter().filter(|e| a.active(e)) {
-        if e.math {
-            // A quoted unit after a number: 30 "mA"; "k"Omega joins the prefix to what follows.
-            let c = &a.doc.c;
-            let mut i = e.body_start;
-            while i < e.body_end {
-                if c[i] == '"' {
-                    let close = (i + 1..e.body_end).find(|&j| c[j] == '"').unwrap_or(e.body_end);
-                    let before = c[e.body_start..i].iter().rev().find(|ch| !ch.is_whitespace());
-                    let next = c.get(close + 1).copied().unwrap_or(' ');
-                    if before.is_some_and(|b| b.is_ascii_digit()) && !next.is_alphabetic()
-                        && solveng_names::resolve(&a.doc.sub(i, (close + 1).min(e.body_end))).is_ok() {
-                        let text: String = c[i + 1..close].iter().collect();
-                        report(i + 1, &text);
-                    }
-                    i = close + 1;
-                } else {
-                    i += 1;
-                }
-            }
-        } else {
-            code(e.body_start, e.body_end, &mut report);
-        }
+    for e in a.elements.iter().filter(|e| !e.math && a.active(e)) {
+        code(e.body_start, e.body_end, &mut report);
     }
     for call in &a.calls {
         for t in &call.texts {
             match t.role {
-                Role::Unit if call.function.name != "unit" => report(t.start, &a.doc.sub(t.start, t.end)),
-                Role::Code => code(t.start, t.end, &mut report),
+                Role::Unit if call.function.name != "unit" || a.evaluates_at(t.start) => report(t.start, &a.doc.sub(t.start, t.end)),
                 _ => {}
             }
         }

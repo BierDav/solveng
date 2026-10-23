@@ -12,7 +12,7 @@ $"origin" := sgn(0) =$
 #passes() #expect("origin", 0)
 $rect(t) + 2 rect(t) ->$
 #passes()
-#worksheet("a*rect(0) + b*tri(0) = 5; a*rect(1) + b*tri(0.5) = 1 -> solve(a,b)")
+#worksheet(raw("a*rect(0) + b*tri(0) = 5; a*rect(1) + b*tri(0.5) = 1 -> solve(a,b)"))
 #passes() #expect("a", 3) #expect("b", 2)
 $"area" := integral_(-2)^2 rect(t) dif t =$
 #passes() #expect("area", 1)

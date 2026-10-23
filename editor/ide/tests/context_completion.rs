@@ -73,7 +73,7 @@ fn substitute_offers_what_the_expression_names() {
 
 #[test]
 fn units_follow_the_scope_at_the_caret() {
-    let doc = "#show: worksheet.with(units: (km: \"s\", kmold: \"10^3m\"))\n$x := 1 |$\n#worksheet(builtin-units: false)[Text $y := 1 $]";
+    let doc = "#show: worksheet.with(units: (km: $s$, kmold: $10^3m$))\n$x := 1 |$\n#worksheet(builtin-units: false)[Text $y := 1 $]";
     let outer = units(doc);
     assert!(outer.iter().any(|(l, _)| l == "kmold") && outer.iter().any(|(l, _)| l == "min"));
     let inner = units(&doc.replace("$x := 1 |$", "$x := 1$").replace("$y := 1 $", "$y := 1 |$"));
@@ -81,7 +81,7 @@ fn units_follow_the_scope_at_the_caret() {
     // an isolated worksheet starts over with the built-in units, without the outer ones
     let fresh = units(&doc.replace("$x := 1 |$", "$x := 1$").replace("builtin-units: false", "digits: 3").replace("$y := 1 $", "$y := 1 |$"));
     assert!(fresh.iter().any(|(l, _)| l == "min") && !fresh.iter().any(|(l, _)| l == "kmold"), "{fresh:?}");
-    let isolated = "#show: worksheet.with(units: (km: \"s\", kmold: \"10^3m\"))\n#worksheet(units: (ü: auto))[Text $y := 1 |$]";
+    let isolated = "#show: worksheet.with(units: (km: $s$, kmold: $10^3m$))\n#worksheet(units: (ü: auto))[Text $y := 1 |$]";
     let found = units(isolated);
     assert!(found.iter().any(|(l, _)| l == "ü") && !found.iter().any(|(l, _)| l == "kmold"), "{found:?}");
 }
@@ -91,14 +91,14 @@ fn shorthands_are_preferred_over_quoted_units() {
     let found = units("#import units: km\n#let sec = unit(\"s\")\n#let s = unit(\"s\")\n#show: worksheet\n$x := 1 |$");
     assert_eq!(found[0].1, "km");
     // a shorthand stands for its unit: no quoted copy; single letters stay quoted
-    assert!(!found.iter().any(|(_, i)| i == "\"km\""), "{found:?}");
-    assert!(found.iter().any(|(l, i)| l == "s" && i == "\"s\"") && found.iter().any(|(l, i)| l == "sec" && i == "sec"));
+    assert!(!found.iter().any(|(_, i)| i == "unit(\"km\")"), "{found:?}");
+    assert!(found.iter().any(|(l, i)| l == "s" && i == "#s") && found.iter().any(|(l, i)| l == "sec" && i == "sec"));
     // others are added to the import in scope
     let items = complete_marked("#import units: km\n#show: worksheet\n$x := 1 |$");
     let ma = items.iter().find(|i| i.label == "mA").unwrap();
     assert_eq!((ma.insert.as_str(), ma.edits.iter().map(|e| e.text.as_str()).collect::<Vec<_>>()), ("mA", vec![", mA"]));
     // without solveng's import nothing can be imported along
-    assert!(units("#show: worksheet\n$x := 1 |$").iter().any(|(l, i)| l == "mA" && i == "\"mA\""));
+    assert!(units("#show: worksheet\n$x := 1 |$").iter().any(|(l, i)| l == "mA" && i == "unit(\"mA\")"));
     // with it, a new import follows it
     let items = complete_marked("#import \"@preview/solveng:1.0.0\": worksheet\n#show: worksheet\n$x := 1 |$");
     let ma = items.iter().find(|i| i.label == "mA").unwrap();
@@ -107,7 +107,7 @@ fn shorthands_are_preferred_over_quoted_units() {
     assert!(units("#import units: km as kilo\n#show: worksheet\n$x := 1 |$").iter().any(|(l, i)| l == "kilo" && i == "kilo"));
     // shorthands are lexical: not outside the block importing them
     let found = units("#show: worksheet\n#[#import units: km\n]\n$x := 1 |$");
-    assert!(found.iter().any(|(_, i)| i == "\"km\""), "{found:?}");
+    assert!(found.iter().any(|(_, i)| i == "unit(\"km\")"), "{found:?}");
 }
 
 #[test]
@@ -122,7 +122,7 @@ fn operations_need_their_shorthand_in_math() {
 
 #[test]
 fn reported_documents_highlight_their_units() {
-    let doc = "#import \"@solveng/solveng:1.0.0\": *\n#import units: km, m\n#show: worksheet.with(units: (km: \"s\", kmold: \"10^3m\"))\n$1#km -> min$\n$1unit(\"km\") -> min$\n$1\"kmold\" -> \"m\"$\n$2\"kmold\" -> m$\n#worksheet(builtin-units: false)[\n  $2#km -> min$\n  $2unit(\"km\") -> min$\n]";
+    let doc = "#import \"@solveng/solveng:1.0.0\": *\n#import units: km, m\n#show: worksheet.with(units: (km: $s$, kmold: $10^3m$))\n$1#km -> min$\n$1unit(\"km\") -> min$\n$1unit(\"kmold\") -> unit(\"m\")$\n$2unit(\"kmold\") -> m$\n#worksheet(builtin-units: false)[\n  $2#km -> min$\n  $2unit(\"km\") -> min$\n]";
     let tokens = document_tokens(doc, &Context::default());
     let kind = |needle: &str, nth: usize| {
         let at = doc[..doc.match_indices(needle).nth(nth).unwrap().0].encode_utf16().count() as u32;
@@ -131,8 +131,8 @@ fn reported_documents_highlight_their_units() {
     assert_eq!(kind("#km ->", 0), Some(TokenKind::UNIT_REFERENCE));
     assert_eq!(kind("km ->", 0), Some(TokenKind::UNIT));
     assert_eq!(kind("km\")", 0), Some(TokenKind::UNIT));
-    assert_eq!(kind("\"kmold\"", 0), Some(TokenKind::UNIT));
-    assert_eq!(kind("\"m\"$", 0), Some(TokenKind::UNIT));
+    assert_eq!(kind("kmold\")", 0), Some(TokenKind::UNIT));
+    assert_eq!(kind("m\")$", 0), Some(TokenKind::UNIT));
     // a bare letter is a variable, even imported: `#m` reaches the shorthand
     assert_eq!(kind("m$", 0), Some(TokenKind::VARIABLE));
     assert_eq!(kind("min", 0), Some(TokenKind::UNIT));

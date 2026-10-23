@@ -27,7 +27,7 @@ fn errors(doc: &str, context: &Context) -> Vec<(String, String)> {
         .collect()
 }
 
-const DOC: &str = "#show: worksheet\n$U := 5 V$\n$t := U + 2 s =$\n```solveng\nR := 2 Ω\nx := R + U =\ny := 3\n```\n#worksheet(\"z := q + 1 =\")\n";
+const DOC: &str = "#show: worksheet\n$U := 5 V$\n$t := U + 2 s =$\n```solveng\nR := 2 Ω\nx := R + U =\ny := 3\n```\n#worksheet(`z := q + 1 =`)\n";
 
 fn reported() -> Context {
     context(vec![
@@ -115,9 +115,9 @@ fn name_validation_errors_target_only_the_invalid_name() {
             let c = context(vec![error(&doc, &element, source, &message)]);
             assert_eq!(errors(&doc, &c), vec![(name.into(), message.clone())], "{doc}");
         }
-        let escaped = expression.replace('"', "\\\"");
-        let doc = format!("#worksheet(\"{escaped}\")");
+        let escaped = expression.clone();
+        let doc = format!("#worksheet(`{escaped}`)");
         let c = context(vec![error(&doc, "", &expression, &message)]);
-        assert_eq!(errors(&doc, &c), vec![(name.replace('"', "\\\""), message)]);
+        assert_eq!(errors(&doc, &c), vec![(name.to_string(), message)]);
     }
 }

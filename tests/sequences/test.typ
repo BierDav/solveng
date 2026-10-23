@@ -8,9 +8,9 @@
 $N := 200$, $Delta""t := 10 ms$
 $i := 0..N$
 #passes()
-$t[i] := -1 "s" + i Delta""t$
+$t[i] := -1 unit("s") + i Delta""t$
 #passes()
-$x[i] := tri(t[i] / (1 "s"))$
+$x[i] := tri(t[i] / (1 unit("s")))$
 #passes()
 $x_a := x[100] =$
 #expect("x_a", 1)
@@ -23,7 +23,7 @@ $y := convolve(x, x, step: Delta""t)$
 $y_m := y[200] =$
 #expect("y_m", 0.6667, u: none)
 $k := 0 .. 2 N$
-$tau[k] := -2 "s" + k Delta""t$
+$tau[k] := -2 unit("s") + k Delta""t$
 #passes()
 
 // the continuous one, exact
@@ -35,8 +35,8 @@ $r(t) := convolve(rect(t), rect(t), t) ->$
 #passes()
 
 // the sampled result over the exact one (the data's unit: s, as the step's)
-$c_(s) (t) := c(t / (1 "s")) dot 1 "s"$
-#graph("y(tau) \\ c_s(tau)", errors: "panic")
+$c_(s) (t) := c(t / (1 unit("s"))) dot 1 unit("s")$
+#graph($y(tau) \ c_s(tau)$, errors: "panic")
 
 // Typst's range: the end left out; in code it stays Typst's
 $q := range(1, 10, step: 3) =$
@@ -61,7 +61,7 @@ $q_1 := q[1] =$
 ]
 
 // Inline explicit references work with automatic names disabled, in both unit spacings.
-#worksheet(builtin-functions: false, builtin-units: false, units: (m: auto, km: "1000 m"))[
+#worksheet(builtin-functions: false, builtin-units: false, units: (m: auto, km: $1000 unit("m")$))[
   $x := 1/2$
   $a := op("tri")(x) =$ #expect("a", 0.5)
   $b := 1unit("km") =$ #expect("b", 1000)

@@ -8,7 +8,7 @@ use regex::Regex;
 use crate::calls::{Call, Role};
 use crate::elements::Element;
 use crate::text::{Doc, char_index};
-use crate::tokens::{code_tokens, formula_tokens, math_tokens};
+use crate::tokens::{code_tokens, math_tokens};
 use crate::units::{Custom, PREFIXES};
 use crate::{Analysis, Edit, Location, RenameTarget, TokenKind as K};
 
@@ -22,25 +22,13 @@ struct Spot {
     bare_math: bool,
 }
 
-static UNITS_ARG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"units\s*:\s*\(").unwrap());
-static KEY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?:^|[(,])\s*([\p{L}][\p{L}\p{N}_-]*|"[^"]+")\s*:"#).unwrap());
 // `_` belongs to a unit's name: `km_old` is one
 static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\p{L}_°%‰µΩ]+").unwrap());
 
 /// The keys of `units: (…)` dictionaries.
 fn definitions(doc: &Doc, out: &mut Vec<Spot>) {
-    let text = &doc.s;
-    for m in UNITS_ARG.find_iter(text) {
-        let start = m.end();
-        let end = text[start..].find(')').map_or(text.len(), |i| start + i);
-        // `(` back in so the first key matches like the others.
-        let inner = &text[start - 1..end];
-        for c in KEY.captures_iter(inner) {
-            let k = c.get(1).unwrap();
-            let quoted = k.as_str().starts_with('"');
-            let (s, e) = (start - 1 + k.start() + quoted as usize, start - 1 + k.end() - quoted as usize);
-            out.push(Spot { key: crate::resolved_name(&text[s..e]), start: char_index(text, s), end: char_index(text, e), bare_math: false });
-        }
+    for entry in crate::units::entries(&doc.s) {
+        out.push(Spot { key: entry.name, start: char_index(&doc.s, entry.start), end: char_index(&doc.s, entry.end), bare_math: false });
     }
 }
 
@@ -78,6 +66,14 @@ fn spots(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Eleme
     let unit = |w: &str| crate::units::visible(w, custom);
     let mut out = Vec::new();
     definitions(doc, &mut out);
+    for entry in crate::units::entries(&doc.s) {
+        for word in WORD.find_iter(&doc.s[entry.value_start..entry.value_end]) {
+            let Some((key, skip)) = resolve(word.as_str(), custom) else { continue };
+            let start = char_index(&doc.s, entry.value_start + word.start()) + skip;
+            let end = char_index(&doc.s, entry.value_start + word.end());
+            out.push(Spot { key, start, end, bare_math: false });
+        }
+    }
     let bindings = crate::bindings::Bindings::new(doc);
     for e in elements.iter().filter(|e| active(e)) {
         let body = &doc.c[e.body_start..e.body_end];
@@ -97,8 +93,6 @@ fn spots(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Eleme
             }
             let custom = own(&settings);
             let toks = match t.role {
-                Role::Code if call.is_curve(t) => formula_tokens(code, &unit),
-                Role::Code | Role::Mark => code_tokens(code, &unit),
                 // Every word of a unit argument is a unit, as after `->`.
                 Role::Unit => {
                     let mut with: Vec<char> = "-> ".chars().collect();
@@ -191,7 +185,7 @@ pub(crate) fn rename(a: &Analysis, offset: u32, name: &str) -> Option<Vec<Edit>>
             let text = if is_key(doc, s) && !quoted && !IDENT.is_match(name) {
                 format!("\"{name}\"")
             } else if s.bare_math && name.chars().count() > 1 {
-                format!("\"{name}\"")
+                format!("unit(\"{name}\")")
             } else {
                 name.to_string()
             };

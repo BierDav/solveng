@@ -122,9 +122,9 @@ fn deferred_calls_still_validate_arity_recursion_and_units() {
         let bad = api::line(&mut env, &LineReq { src: "q(x) := f(x)".into(), mode, cfg: Cfg::default(), listed: true });
         assert!(!bad.errors.is_empty());
         run(&mut env, "q(x: m) := x", mode);
-        run(&mut env, "answer := f(2 \"m\") =", mode);
+        run(&mut env, "answer := f(2 ⦃m⦄) =", mode);
         assert_eq!(value(&env.vars["answer"].expr).unwrap().d, solveng_core::units::Units::default().dim(&solveng_core::units::UnitExpr::one("m")).unwrap());
-        let bad = api::line(&mut env, &LineReq { src: "f(2 \"s\") =".into(), mode, cfg: Cfg::default(), listed: true });
+        let bad = api::line(&mut env, &LineReq { src: "f(2 ⦃s⦄) =".into(), mode, cfg: Cfg::default(), listed: true });
         assert!(bad.errors.iter().any(|e| e.contains("takes x in")), "{bad:?}");
     }
 }
@@ -150,7 +150,7 @@ fn deferred_calls_use_custom_parameter_units_in_values_and_reports() {
         let mut cfg = Cfg::default();
         cfg.units.insert("span".into(), UnitOpt::Str("2 m".into()));
         let mut env = Env::default();
-        for src in ["f(x) := q(x)", "a := f(3 \"span\")", "q(x: \"span\") := x", "answer := a ="] {
+        for src in ["f(x) := q(x)", "a := f(3 ⦃span⦄)", "q(x: ⦃span⦄) := x", "answer := a ="] {
             let out = api::line(&mut env, &LineReq { src: src.into(), mode, cfg: cfg.clone(), listed: true });
             assert!(out.errors.is_empty(), "{src}: {out:?}");
         }
@@ -165,23 +165,23 @@ fn typed_function_arguments_require_explicit_dimensions() {
     for mode in [Mode::Math, Mode::Code] {
         let mut env = Env::default();
         run(&mut env, "f(x: A) := x", mode);
-        for source in ["f(1) =", "f(1 + 2) =", "f(1\"s\") ="] {
+        for source in ["f(1) =", "f(1 + 2) =", "f(1⦃s⦄) ="] {
             let out = api::line(&mut env, &LineReq { src: source.into(), mode, cfg: Cfg::default(), listed: true });
             assert!(out.errors.iter().any(|error| error.contains("takes x in A")), "{source}: {out:?}");
         }
-        let out = run(&mut env, "answer := f(1\"A\") =", mode);
+        let out = run(&mut env, "answer := f(1⦃A⦄) =", mode);
         assert_eq!(out.result.as_deref(), Some("\"1\" thin upright(\"A\")"));
         let answer = value(&env.vars["answer"].expr).unwrap();
         assert_eq!(answer.v.f(), 1.0);
         assert_eq!(answer.d, solveng_core::units::Units::default().dim(&solveng_core::units::UnitExpr::one("A")).unwrap());
         run(&mut env, "g(y) := f(y)", mode);
-        run(&mut env, "answer := g(2\"A\") =", mode);
+        run(&mut env, "answer := g(2⦃A⦄) =", mode);
     }
     let mut env = Env::default();
     run(&mut env, "f(x: A) := x", Mode::Math);
     let out = api::line(&mut env, &LineReq { src: "f(1A) =".into(), mode: Mode::Math, cfg: Cfg::default(), listed: true });
     assert!(out.errors.iter().any(|error| error.contains("A")), "{out:?}");
-    run(&mut env, "A := 2\"A\"", Mode::Math);
+    run(&mut env, "A := 2⦃A⦄", Mode::Math);
     run(&mut env, "answer := f(1A) =", Mode::Math);
     assert_eq!(value(&env.vars["answer"].expr).unwrap().v.f(), 2.0);
 }

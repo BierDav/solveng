@@ -113,16 +113,16 @@
 ///
 /// - `:=` defines (shown as ≔), symbolically: `$I := 30 mA$`, `$P := U I$`, `$f(x) := x^2 + 1$`. Names not defined yet stay names until they are, see *Calculating like Mathcad*.
 /// - `=` inside an expression compares, 1 or 0: `$M := 1 = 2 =$` is 0.
-/// - `=` at the end shows the value, with a bold =: `$t =$` → t **=** 115 h, `$t := Q_0/I =$` defines and shows it. What follows it is the unit and keywords: `$t = 1 "h"$`, `$t = min, digits(2)$`.
+/// - `=` at the end shows the value, with a bold =: `$t =$` → t **=** 115 h, `$t := Q_0/I =$` defines and shows it. What follows it is the unit and keywords: `$t = 1 unit("h")$`, `$t = min, digits(2)$`.
 /// - `->` at the end shows the symbolic result, the known values put in, exactly: `$f := (x^2 - 1)/(x - 1) -> simplify$`. With `solve(x)` it solves an equation for x (and defines it when the solution is a value): `$Q_0/2 = I t -> solve(t)$`, `$x^2 - 4 = 0 -> solve(x)$`, `$x + y = 3, x - y = 1 -> solve(x, y)$`, `$R <= U/I -> solve(R)$`.
 ///
 /// Keywords: `solve(x, …)`, `substitute(x, …)` (these variables' formulas put in, other names kept), `simplify`, `frac` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
 ///
-/// **Units** are quoted names, `$9.81 "m"/"s"^2$`, `$3 "bar"$` for your own units (with `worksheet(units: …)`), or unit words imported from solveng's `units` module: after `#import units: mA, kΩ`, `$30 mA$`, `$4.7 kΩ$`; single letters need a hash, `#import units: V` then `$5#V$`. An unquoted single letter is a variable, also alone after `=`: `$t = h$` compares t with a variable h, and `$3 dot h$` is 3 times h; after `->` it's an error, so write `$t -> "h"$`.
+/// **Units** use constructors such as `$9.81 unit("m")/unit("s")^2$`, or imported shortcuts: `#import units: mA, s`, then `$30 mA$` and `$2#s$`. A single letter needs a hash in math. Quoted text names worksheet variables; it never escapes a unit or operation.
 ///
 /// **Code.** Each line of a `solveng` code block is calculated the same way and shown with all its steps: `t := Q0/I = [h]`, `Q0/I =`, `x^2 = 4 -> solve(x)`; units in brackets, `;` separates the equations of a system, `//` starts a comment. Inline code and code with another language are left alone.
 ///
-/// **Calls.** `#worksheet($U := 5 "V"$, $I := U/R =$)` calculates its equations (and strings, read like a code line) where it stands, with the definitions made before. A code block passed to it is calculated line by line, like a `solveng` code block but without the tag. Its options are for these only; with content, for the content.
+/// **Calls.** `#worksheet($U := 5 unit("V")$, $I := U/R =$)` calculates its equations  where it stands, with the definitions made before. A code block passed to it is calculated line by line, like a `solveng` code block but without the tag. Its options are for these only; with content, for the content.
 ///
 /// **Evaluate.** `#worksheet(evaluate: false)[…]` leaves its math alone: only its `solveng` code blocks and `#worksheet(…)` calls are calculated. Nested worksheets don't inherit it, so a `#worksheet[…]` or `#worksheet($t =$)` inside calculates its math again.
 ///
@@ -156,7 +156,7 @@
 /// ]
 /// ````
 ///
-/// **Scopes.** `scope` says what a worksheet sees and keeps: `"isolated"` starts empty and its definitions end with it; `"inherit"` sees the definitions made before, and its own end with it; `"shared"` sees them, and what it defines stays afterwards, replacing names of the same name (variables, functions and solved values alike). `auto`: isolated for content (`#worksheet[…]`, `#show: worksheet`), shared for equations, strings and code blocks passed to `worksheet`. Typst makes a content block holding only one equation or code block the same value as that equation, so `#worksheet[$x := 1$]` is shared; write `scope: "isolated"` to keep it local. Nested worksheets don't inherit the scope. Clearing never reaches outside: `clear`, `clear-at` and `clear(all: true)` don't delete the outer definitions.
+/// **Scopes.** `scope` says what a worksheet sees and keeps: `"isolated"` starts empty and its definitions end with it; `"inherit"` sees the definitions made before, and its own end with it; `"shared"` sees them, and what it defines stays afterwards, replacing names of the same name (variables, functions and solved values alike). `auto`: isolated for content (`#worksheet[…]`, `#show: worksheet`), shared for equations and code blocks passed to `worksheet`. Typst makes a content block holding only one equation or code block the same value as that equation, so `#worksheet[$x := 1$]` is shared; write `scope: "isolated"` to keep it local. Nested worksheets don't inherit the scope. Clearing never reaches outside: `clear`, `clear-at` and `clear(all: true)` don't delete the outer definitions.
 ///
 /// Units change what names mean, so `units` and `builtin-units` need an isolated scope, which starts a unit table of its own: its `units` over the built-in ones (none with `builtin-units: false`, which nested worksheets keep like every other option), never the outer worksheet's `units`. Other options are scoped as before.
 ///
@@ -213,8 +213,8 @@
 /// #show: setup
 /// ```
 ///
-/// - ..body (content, str): The content, or equations to calculate: math, strings (code lines) and code blocks.
-/// - scope (auto, str): What the worksheet sees and keeps: `"isolated"` (starts empty, its definitions end with it), `"inherit"` (sees the definitions made before, its own end with it) or `"shared"` (sees them, and its definitions stay afterwards, over the outer ones). `auto` (default): isolated for content, shared for equations, strings and code blocks. `units` and `builtin-units` need `"isolated"`.
+/// - ..body (content): The content, or equations to calculate: math, code blocks.
+/// - scope (auto, str): What the worksheet sees and keeps: `"isolated"` (starts empty, its definitions end with it), `"inherit"` (sees the definitions made before, its own end with it) or `"shared"` (sees them, and its definitions stay afterwards, over the outer ones). `auto` (default): isolated for content, shared for equations and code blocks. `units` and `builtin-units` need `"isolated"`.
 /// - clear-at (none, function, selector, label): Clear every definition at each match: `heading` (every heading), `heading.where(level: n)` (headings of level n) or a label like `<exercise>` (every element with it, e.g. `= Task <exercise>`): the definitions made since are forgotten, like `#clear(all: true)`.
 /// - hidden (bool): Calculate without showing what is calculated (only problems are shown): the equations, or the math and code blocks of the content. Not inherited by nested worksheets.
 /// - evaluate (bool): Calculate the math in the content; `false`: only its code blocks and `#worksheet(…)` calls are. Not inherited by nested worksheets, and not for equations, which are always calculated.
@@ -230,11 +230,11 @@
 /// - fractions (auto, str): How fractions are written: `"stacked"` (default) or `"slash"` (`1/2`).
 /// - prefixes (auto, str, none, array): Prefixes picked for results: `"all"` (default: a f p n µ m k M G T; times from a minute on in min or h, not ks), `none` (base unit only) or an array like `("m", "k")` (`"u"` = µ).
 /// - show-si (auto, bool): `defined` also shows the SI value (`Q₀ = 3450 mAh = 12420 C`). Default `false`.
-/// - builtin-units (auto, bool): Whether solveng's built-in units exist, true by default. `false`: none at all – not quoted, not as unit words, not with `unit("km")`, not after `=` or `->` – only the units of the option `units`. Needs an isolated scope; nested worksheets keep it.
-/// - units (auto, dictionary): Units of your own, a user overlay over the built-in ones: `(bar: "100 kPa", rpm: "1/min", dozen: 12, ü: auto)`. A value is an expression of units and numbers (`"10^3 m"`, `"1/min"`), a plain number (a factor without unit), `auto` (a base unit of its own) or `none` (hides a built-in name, `T: none`: `T` is then a variable, while `mT` and definitions still reach it). Entries may use each other in any order; a self reference is the built-in unit (`(s: "2s")` doubles the second), circular ones are errors. Prefixes work on your units too (`"mbar"`). Needs an isolated scope, which starts a unit table of its own: the units of the outer worksheet don't apply inside. Write them quoted (`$1 "bar"$`) or declare a shorthand, `#let bar = unit("bar")`, then `$1 bar$` (single letters with a hash, `$1#i$`).
+/// - builtin-units (auto, bool): Whether solveng's built-in units exist, true by default. `false`: none at all – not as unit words, not with `unit("km")`, not after `=` or `->` – only the units of the option `units`. Needs an isolated scope; nested worksheets keep it.
+/// - units (auto, dictionary): Units of your own, a user overlay over the built-in ones: `(inch: $2.54 unit("cm")$, rpm: $1/unit("min")$, dozen: 12, ü: auto)`. Values are math expressions of units and numbers, plain numbers, `auto` for a new base unit, or `none` to hide a name. Definitions may refer to each other in any order; a self reference means the built-in unit. Circular definitions are errors. Prefixes apply to custom units too. Needs an isolated scope. Use `unit("inch")` or declare `#let inch = unit("inch")` to reference one in math.
 /// - builtin-functions (auto, bool): Enable automatic built-in operation names, true by default. False disables automatic lookup in code and the math names imported from solveng's `functions`. Explicit `math.op("tri")` and `operation("convolve")` references always select the underlying operations. Quoted math names never select built-in operations.
 /// - preferred-units (auto, str, array): Units for results and graph axes of their dimension, `("bar", "kWh")`, before input units and automatic SI prefixes.
-/// - strict (auto, bool): Unit names can't be variable names, and units in math must be quoted (`$5 "V"$`), see *Units and variables*.
+/// - strict (auto, bool): Unit names can't be variable names, and units in math must use constructors or bindings (`$5 unit("V")$`), see *Units and variables*.
 /// - steps (auto, str): Default for `steps` of `solve`: `"full"` (default), `"formula"`, `"result"` or `"value"`.
 /// - layout (auto, str): Default for `layout` of `solve`: `"row"` (default) or `"column"`.
 /// - implies (auto, content, symbol, str): What is written between steps, e.g. `sym.arrow.r.long` or `[and]`; ⇒ by default.
@@ -244,7 +244,7 @@
 /// - defined-style (auto, str): How `defined` looks: `"grid"` (default: columns side by side, aligned at `=`), `"column"`, `"inline"` or `"list"`.
 /// - errors (auto, str): `"document"` (default): problems are shown as red notes · `"panic"`: stop the compilation.
 /// - show-casts (auto, str): How casts (`U as A`) are shown in the steps and results and in the equations as written: `"chip"` (default): as an amber chip, since a cast isn't maths · `"plain"`: as written, U as A · `"no"`: left out (`$I = U "as" A$` shows as I = U).
-/// - show-types (auto, str): How types (`f(I: mA)`) are shown in the steps and in the equations as written: `"chip"` (default): as a blue chip · `"plain"`: as written, f(I: mA) · `"no"`: left out (`$f(I: "mA") = 2 I$` shows as f(I) = 2 I).
+/// - show-types (auto, str): How types (`f(I: mA)`) are shown in the steps and in the equations as written: `"chip"` (default): as a blue chip · `"plain"`: as written, f(I: mA) · `"no"`: left out (`$f(I: unit("mA")) = 2 I$` shows as f(I) = 2 I).
 /// - words (auto, dictionary): The words shown for casts and any-unit types, for documents in other languages: `(cast: "als", any: "beliebig")`. What you type stays `as` and `any`.
 /// - chips (auto, dictionary, function): The colours of the chips per kind, `(cast: (fill: …, mark: …, ink: …), type: (…))` (`mark` is the colour of `as` and `:`, `ink` the unit's), or a function `(kind, mark, unit) => content` drawing them, with `kind` `"cast"` or `"type"` and `mark` and `unit` as content.
 /// - unit-style (auto, function): A function given every shown unit as content, `u => text(fill: blue, u)`.
@@ -277,7 +277,7 @@
   if type(hidden) != bool { return _err-now("hidden: true or false, got " + _tn(hidden)) }
   if type(evaluate) != bool { return _err-now("evaluate: true or false, got " + _tn(evaluate)) }
   if scope != auto and scope not in _CH.scope { return _err-now("scope: auto, \"isolated\", \"inherit\" or \"shared\", got " + repr(scope)) }
-  let eqs = pos.len() > 0 and pos.all(x => type(x) == str or (type(x) == content and x.func() in (math.equation, raw)))
+  let eqs = pos.len() > 0 and pos.all(x => type(x) == content and x.func() in (math.equation, raw))
   let scope = if scope != auto { scope } else if eqs { "shared" } else { "isolated" }
   // units change what names mean, so only a scope of its own can change them
   let unit-opts = ("units", "builtin-units").filter(k => k in lc)
@@ -292,7 +292,7 @@
     if clear-at != none { return _err-now("clear-at is for a worksheet's content, #worksheet[…]") }
     if not evaluate { return _err-now("evaluate: false is for a worksheet's content, #worksheet(evaluate: false)[…]; equations passed to worksheet are always calculated") }
     let code(s, block) = _call(_p.statements, s, "code").map(l => _line(l, block, quiet: hidden)).filter(l => l != none).join()
-    let shown = pos.map(x => if type(x) == str { code(x, true) } else if x.func() == raw { code(x.text, x.block) } else { _math-def(x, quiet: hidden) }).join()
+    let shown = pos.map(x => if x.func() == raw { code(x.text, x.fields().at("block", default: false)) } else { _math-def(x, quiet: hidden) }).join()
     if scope == "shared" { shown } else {
       _st.update(d => { let inner = if scope == "inherit" { d } else { (:) }; inner.insert("^", d); inner })
       shown

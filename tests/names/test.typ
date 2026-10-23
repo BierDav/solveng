@@ -28,12 +28,12 @@
   ```
   #def("c := Delta\"\"Gamma\"\"Omega")
   #expect("Δr_R", 0.05) #expect("ΔΓΩ", 2) #expect("a", 0.1) #expect("c", 2)
-  #context assert(calc.abs(lambdify("Delta\"\"r_R * k", "k")(2) - 0.1) < 1e-12)
+  #context assert(calc.abs(lambdify($"Δr"_R dot k$, "k")(2) - 0.1) < 1e-12)
 ]
 
 // names of more letters are quoted in math, as typst needs them to be; so are long subscripts, which may be grouped
 #worksheet[
-  $"tews" := 23 "V"$
+  $"tews" := 23 unit("V")$
   $"test"_("test" Delta) := 3$
   $"x"_"in" := 2$
   $R_(a b) := 4$

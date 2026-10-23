@@ -13,8 +13,6 @@ use crate::ContextFile;
 /// What a string argument holds.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Role {
-    /// An equation or expression: `"R = U/I"`.
-    Code,
     /// A unit: `unit: "mA"`.
     Unit,
     /// A variable's name: `x: "U"`.
@@ -227,18 +225,17 @@ pub(crate) fn callee(node: &SyntaxNode) -> Option<String> {
 fn role(function: &str, param: Option<&str>, index: usize) -> Option<Role> {
     let Some(param) = param else {
         return match function {
-            "worksheet" | "graph" | "value" => Some(Role::Code),
+            "worksheet" | "graph" | "value" => None,
             "unit" => Some(Role::Unit),
-            "lambdify" => Some(if index == 0 { Role::Code } else { Role::Name }),
+            "lambdify" => (index > 0).then_some(Role::Name),
             "clear" => Some(Role::Name),
             _ => None,
         };
     };
     Some(match param {
         "unit" | "preferred-units" => Role::Unit,
-        // a worksheet's own units are unit expressions too: `bar: "100 kPa"`
-        "units" if matches!(function, "lambdify" | "worksheet") => Role::Unit,
-        "units" | "guess" | "xrange" | "yrange" | "ymark" => Role::Code,
+        "units" if function == "lambdify" => Role::Unit,
+        "units" | "guess" | "xrange" | "yrange" | "ymark" => return None,
         "unknown" => Role::Name,
         "mark" | "xmark" => Role::Mark,
         _ => {
@@ -380,7 +377,7 @@ impl Reader<'_> {
                 }
                 _ => {
                     let code = arg.kind() == SyntaxKind::Raw && function.name == "worksheet";
-                    if (arg.kind() == SyntaxKind::Equation || code) && role(&function.name, None, index) == Some(Role::Code) {
+                    if (arg.kind() == SyntaxKind::Equation || code) && (function.name == "worksheet" || index == 0 && matches!(function.name.as_str(), "value" | "graph" | "lambdify")) {
                         let (s, e) = self.chars(&arg);
                         call.maths.push((s, e));
                     }
@@ -394,28 +391,28 @@ impl Reader<'_> {
                 }
             }
         }
-        if function.name == "graph" {
-            call.texts = call.texts.into_iter().flat_map(|t| {
-                if t.param.is_some() || t.role != Role::Code { return vec![t]; }
-                let (decoded, offsets) = crate::text::unescape(&self.doc.c[t.start..t.end]);
-                crate::text::equation_ranges(&decoded, true).into_iter().map(|(a, b)| Text {
-                    start: t.start + offsets[a], end: t.start + offsets[b], ..t.clone()
-                }).collect()
-            }).collect();
-        }
         self.calls.push(call);
     }
 }
 
 impl Call {
-    /// The strings that are a graph's curves: `"q = 12 A"`, read as formulas.
-    pub(crate) fn curves(&self) -> impl Iterator<Item = &Text> {
-        self.texts.iter().filter(move |t| self.function.name == "graph" && t.param.is_none() && t.role == Role::Code)
+    /// The equations passed as graph curves, split at math line breaks.
+    pub(crate) fn curves(&self, doc: &Doc) -> impl Iterator<Item = (usize, usize)> {
+        let mut curves = Vec::new();
+        if self.function.name == "graph" {
+            for &(s, e) in &self.maths {
+                let start = s + 1;
+                let end = e.saturating_sub(usize::from(doc.c.get(e.saturating_sub(1)) == Some(&'$')));
+                let Some(body) = doc.c.get(start..end) else { continue };
+                for (a, b) in crate::text::equation_ranges(body, false) {
+                    curves.push((start + a, start + b));
+                }
+            }
+        }
+        curves.into_iter()
     }
 
-    pub(crate) fn is_curve(&self, t: &Text) -> bool {
-        self.function.name == "graph" && t.param.is_none() && t.role == Role::Code
-    }
+
 }
 
 fn unit_settings(args: &LinkedNode) -> Vec<crate::units::Custom> {

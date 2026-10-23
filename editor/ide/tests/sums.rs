@@ -24,7 +24,7 @@ fn notation_scopes_the_index_to_the_summand_in_math_code_and_strings() {
     for expression in [
         "$answer := sum_(k=k)^(k+10) (k^2) + k$\n$after := k$".to_string(),
         "```solveng\nanswer := sum_(k=k)^(k+10) (k^2) + k\nafter := k\n```".to_string(),
-        "#worksheet(\"answer := sum_(k=k)^(k+10) (k^2) + k\")\n$after := k$".to_string(),
+        "#worksheet(`answer := sum_(k=k)^(k+10) (k^2) + k`)\n$after := k$".to_string(),
     ] {
         let doc = format!("#show: worksheet\n$k := 100$\n{expression}");
         def(&doc, "k^2", "k=k");
@@ -74,13 +74,13 @@ fn independent_sums_and_case_sensitive_indices_do_not_share_bindings() {
 
 #[test]
 fn rename_preserves_utf16_and_escaped_name_carriers() {
-    let doc = "😀 #worksheet(\"answer := sum_(k=0)^10 k^2\")";
+    let doc = "😀 #worksheet(`answer := sum_(k=0)^10 k^2`)";
     let renamed = apply(doc, rename(doc, &Context::default(), at(doc, "k^2"), "counter"));
     assert!(renamed.contains("sum_(counter=0)^10 counter^2"), "{renamed}");
     let edits = rename(doc, &Context::default(), at(doc, "k^2"), "2\"\"k");
     let renamed = apply(doc, edits);
-    assert!(renamed.contains("sum_(2\\\"\\\"k=0)^10 2\\\"\\\"k^2"), "{renamed}");
-    assert_eq!(usages(&renamed, &Context::default(), at(&renamed, "2\\\"\\\"k^2")).len(), 2);
+    assert!(renamed.contains("sum_(2\"\"k=0)^10 2\"\"k^2"), "{renamed}");
+    assert_eq!(usages(&renamed, &Context::default(), at(&renamed, "2\"\"k^2")).len(), 2);
     let doc = "#show: worksheet\n$a := sum_(k=0)^10 k^2$";
     let renamed = apply(doc, rename(doc, &Context::default(), at(doc, "k^2"), "counter"));
     assert!(renamed.contains("sum_(\"counter\"=0)^10 \"counter\"^2"), "{renamed}");
@@ -132,11 +132,11 @@ fn completions_work_while_typing_a_summand_and_after_a_coefficient() {
     for doc in [
         "#show: worksheet\n$a := sum_(k=0)^10 $",
         "#show: worksheet\n$a := sum_(k=0)^10 (2 )$",
-        "#worksheet(\"a := sum_(k=0)^10 \")",
+        "#worksheet(`a := sum_(k=0)^10 `)",
     ] {
         let cursor = if doc.contains("(2 )") { at(doc, ")$") }
             else if doc.ends_with('$') { at(doc, "$a") + "$a := sum_(k=0)^10 ".encode_utf16().count() as u32 }
-            else { at(doc, "\")") };
+            else { at(doc, "`)") };
         let items = complete(doc, &Context::default(), cursor).unwrap().items;
         assert!(items.iter().any(|i| i.label == "k" && i.detail.contains("sum index")), "missing local completion in {doc}");
     }

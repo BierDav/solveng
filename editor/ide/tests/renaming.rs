@@ -89,7 +89,7 @@ fn long_subscripts_belong_to_the_name() {
 
 #[test]
 fn parameters_belong_to_their_function() {
-    let doc = format!("{FULL}{}#worksheet(\"g(alpha) := 2 alpha\")\n", code("x := 3\nf(x) := 2 x + x^2\ny := f(x)"));
+    let doc = format!("{FULL}{}#worksheet(`g(alpha) := 2 alpha`)\n", code("x := 3\nf(x) := 2 x + x^2\ny := f(x)"));
     let param = u16_at(&doc, "x) := 2");
     let uses: Vec<String> = usages(&doc, &Context::default(), param).iter().map(|l| text_at(&doc, l.start, l.end)).collect();
     assert_eq!(uses.len(), 3);
@@ -98,22 +98,22 @@ fn parameters_belong_to_their_function() {
     // The x passed to f is the variable.
     assert_eq!(definition(&doc, &Context::default(), u16_at(&doc, "x)\n```")).unwrap().start, u16_at(&doc, "x := 3"));
     let renamed = applied(&doc, rename(&doc, &Context::default(), u16_at(&doc, "alpha)"), "beta"));
-    assert!(renamed.contains("#worksheet(\"g(β) := 2 β\")"), "{renamed}");
+    assert!(renamed.contains("#worksheet(`g(β) := 2 β`)"), "{renamed}");
 }
 
 #[test]
 fn renames_in_each_spelling() {
-    let doc = format!("{FULL}$ R_\"load\" := 1 $\n{}#worksheet(\"p := R_load + q\")\n$ s := @R_\"load\" $\n", code("q := R_load * 2"));
+    let doc = format!("{FULL}$ R_\"load\" := 1 $\n{}#worksheet(`p := R_load + q`)\n$ s := @R_\"load\" $\n", code("q := R_load * 2"));
     let at = u16_at(&doc, "R_load *");
     let target = rename_target(&doc, &Context::default(), at).unwrap();
     assert_eq!(target.name, "R_load");
     let out = applied(&doc, rename(&doc, &Context::default(), at, "tews"));
-    assert_eq!(out, format!("{FULL}$ \"tews\" := 1 $\n{}#worksheet(\"p := tews + q\")\n$ s := @\"tews\" $\n", code("q := tews * 2")));
+    assert_eq!(out, format!("{FULL}$ \"tews\" := 1 $\n{}#worksheet(`p := tews + q`)\n$ s := @\"tews\" $\n", code("q := tews * 2")));
     // Rename emits the canonical name in each source syntax.
     let out = applied(&doc, rename(&doc, &Context::default(), at, "Delta\"\"r_\"in\""));
-    assert!(out.contains("$ \"Δr\"_\"in\" := 1 $") && out.contains("q := Δr_in * 2") && out.contains("#worksheet(\"p := Δr_in + q\")"), "{out}");
+    assert!(out.contains("$ \"Δr\"_\"in\" := 1 $") && out.contains("q := Δr_in * 2") && out.contains("#worksheet(`p := Δr_in + q`)"), "{out}");
     let out = applied(&doc, rename(&doc, &Context::default(), at, "Delta\"\"r"));
-    assert!(out.contains("#worksheet(\"p := Δr + q\")"), "{out}");
+    assert!(out.contains("#worksheet(`p := Δr + q`)"), "{out}");
     assert!(rename(&doc, &Context::default(), at, "2x").iter().all(|e| e.text.contains("2\"\"x") || e.text.contains("2\\\"\\\"x")));
 }
 
@@ -127,31 +127,31 @@ fn docs_of_the_whole_function_name() {
     // Like the completion's docs, every parameter shows.
     let doc = "#worksheet(evaluate: true)[]";
     let h = hover(doc, &Context::default(), 2).unwrap();
-    assert!(h.markdown.contains("### Parameters\n\n- `..body` (content, str)"), "{}", h.markdown);
+    assert!(h.markdown.contains("### Parameters\n\n- `..body` (content)"), "{}", h.markdown);
     assert!(h.markdown.contains("- `hidden` (bool) = `false`: Calculate without showing"), "{}", h.markdown);
 }
 
 #[test]
 fn a_graph_plots_against_its_parameter() {
-    let doc = "#worksheet(\"k := 2\")\n#graph(\"q(..) = 12 A\", \"k A\")\n#graph(\"P(..) = U^2/R\")\n#graph(\"cos(w)\", \"w\")\n";
+    let doc = "#worksheet(`k := 2`)\n#graph($q(..) = 12 A \\ k A$)\n#graph($P(..) = U^2/R$)\n#graph($cos(w) \\ w$)\n";
     // A is a variable in a curve, the parameter q takes, and what the unnamed curve is plotted against.
-    assert_eq!(kind_at(doc, "A\", "), Some(TokenKind::PARAMETER));
-    assert_eq!(kind_at(doc, "A\")"), Some(TokenKind::PARAMETER));
+    assert_eq!(kind_at(doc, "A \\"), Some(TokenKind::PARAMETER));
+    assert_eq!(kind_at(doc, "A$)"), Some(TokenKind::PARAMETER));
     assert_eq!(kind_at(doc, "k A"), Some(TokenKind::VARIABLE));
     assert_eq!(kind_at(doc, "q(.."), Some(TokenKind::FUNCTION_CALL));
     // Both of .. show, though the graph can't plot against two.
     assert_eq!(kind_at(doc, "U^2"), Some(TokenKind::PARAMETER));
-    assert_eq!(kind_at(doc, "R\")"), Some(TokenKind::PARAMETER));
+    assert_eq!(kind_at(doc, "R$)"), Some(TokenKind::PARAMETER));
     assert_eq!(kind_at(doc, "w)"), Some(TokenKind::PARAMETER));
     // A renames in its curve.
-    let out = applied(doc, rename(doc, &Context::default(), u16_at(doc, "A\", "), "I"));
-    assert!(out.contains("#graph(\"q(..) = 12 I\", \"k A\")"), "{out}");
-    assert!(hover(doc, &Context::default(), u16_at(doc, "A\", ")).unwrap().markdown.contains("parameter"));
+    let out = applied(doc, rename(doc, &Context::default(), u16_at(doc, "A \\"), "I"));
+    assert!(out.contains("#graph($q(..) = 12 I \\ k A$)"), "{out}");
+    assert!(hover(doc, &Context::default(), u16_at(doc, "A \\")).unwrap().markdown.contains("parameter"));
 }
 
 #[test]
 fn parameters_stand_out_and_resolve() {
-    let doc = format!("{FULL}{}$ g(..) := U^2 \"V\" $\n#graph(\"U(I: mA) = I * [2 Ω]\")\n", code("k := 2\nf(x: A, ..) := x * k + m"));
+    let doc = format!("{FULL}{}$ g(..) := U^2 unit(\"V\") $\n#graph($U(I: mA) = I * [2 Ω]$)\n", code("k := 2\nf(x: A, ..) := x * k + m"));
     for p in ["x: A", "x * k", "m\n", "U^2", "I: mA", "I * "] {
         assert_eq!(kind_at(&doc, p), Some(TokenKind::PARAMETER), "{p}");
     }
@@ -168,30 +168,30 @@ fn parameters_stand_out_and_resolve() {
 
 #[test]
 fn functions_in_math() {
-    let doc = format!("{FULL}#show: worksheet.with(units: (ü: auto))\n$ q(x) := x \"ü\" $\n{}", code("y := q(3)\nx := 5"));
+    let doc = format!("{FULL}#show: worksheet.with(units: (ü: auto))\n$ q(x) := x unit(\"ü\") $\n{}", code("y := q(3)\nx := 5"));
     let d = definition(&doc, &Context::default(), u16_at(&doc, "q(3)")).unwrap();
     assert_eq!(d.start, u16_at(&doc, "q(x)"));
     // x is the parameter, not the variable defined below.
-    let body = u16_at(&doc, "x \"ü\"");
+    let body = u16_at(&doc, "x unit(\"ü\")");
     assert_eq!(definition(&doc, &Context::default(), body).unwrap().start, u16_at(&doc, "x) :="));
     let out = applied(&doc, rename(&doc, &Context::default(), body, "t"));
-    assert!(out.contains("$ q(t) := t \"ü\" $") && out.contains("x := 5"), "{out}");
+    assert!(out.contains("$ q(t) := t unit(\"ü\") $") && out.contains("x := 5"), "{out}");
 }
 
 #[test]
 fn quoted_functions_in_math() {
-    let doc = format!("{FULL}$ \"pytagoras\"(a, b, c) := a^2 + b^2 = c^2 $\n#worksheet(\"d := pytagoras(1, 2, 3)\")\n");
+    let doc = format!("{FULL}$ \"pytagoras\"(a, b, c) := a^2 + b^2 = c^2 $\n#worksheet(`d := pytagoras(1, 2, 3)`)\n");
     let out = applied(&doc, rename(&doc, &Context::default(), u16_at(&doc, "a^2"), "side"));
     assert!(out.contains("$ \"pytagoras\"(\"side\", b, c) := \"side\"^2 + b^2 = c^2 $"), "{out}");
     // A longer function name stays quoted in math, and is written as code in the string.
     let out = applied(&doc, rename(&doc, &Context::default(), u16_at(&doc, "pytagoras\"("), "hyp"));
-    assert!(out.contains("$ \"hyp\"(a, b, c)") && out.contains("#worksheet(\"d := hyp(1, 2, 3)\")"), "{out}");
+    assert!(out.contains("$ \"hyp\"(a, b, c)") && out.contains("#worksheet(`d := hyp(1, 2, 3)`)"), "{out}");
 }
 
 #[test]
 fn custom_units_are_found_and_renamed() {
-    let doc = "#show: worksheet.with(units: (ü: auto, mü: \"10ü\", \"kq\": \"2 ü\"))\n$ a := 3 \"ü\" $\n$ b := 2 \"kü\" $\n```solveng\nc := 4 ü\nd := a + c = [ü]\n```\n#lambdify(\"a\", \"a\", unit: \"ü\")\n";
-    let at = u16_at(doc, "\"ü\" $") + 1;
+    let doc = "#show: worksheet.with(units: (ü: auto, mü: $10ü$, \"kq\": $2 ü$))\n$ a := 3 unit(\"ü\") $\n$ b := 2 unit(\"kü\") $\n```solveng\nc := 4 ü\nd := a + c = [ü]\n```\n#lambdify($a$, \"a\", unit: \"ü\")\n";
+    let at = u16_at(doc, "ü\") $") + 1;
     let d = definition(doc, &Context::default(), at).unwrap();
     assert_eq!(d.start, u16_at(doc, "ü: auto"));
     // The key, the values of other units, prefixed and quoted uses, code and call strings; not mü, a unit of its own.
@@ -200,8 +200,8 @@ fn custom_units_are_found_and_renamed() {
     assert_eq!(found.len(), 8, "{ctx:?}");
     assert!(found.iter().all(|f| f == "ü"));
     let out = applied(doc, rename(doc, &Context::default(), at, "sheep"));
-    assert!(out.contains("units: (sheep: auto, mü: \"10sheep\", \"kq\": \"2 sheep\")"), "{out}");
-    assert!(out.contains("$ a := 3 \"sheep\" $") && out.contains("\"ksheep\"") && out.contains("c := 4 sheep") && out.contains("[sheep]") && out.contains("unit: \"sheep\""), "{out}");
+    assert!(out.contains("units: (sheep: auto, mü: $10sheep$, \"kq\": $2 sheep$)"), "{out}");
+    assert!(out.contains("$ a := 3 unit(\"sheep\") $") && out.contains("\"ksheep\"") && out.contains("c := 4 sheep") && out.contains("[sheep]") && out.contains("unit: \"sheep\""), "{out}");
     let target = rename_target(doc, &Context::default(), u16_at(doc, "ü\")\n")).unwrap();
     assert_eq!(target.name, "ü");
     assert!(rename(doc, &Context::default(), at, "^").is_empty());
@@ -221,7 +221,7 @@ fn parameters_with_units() {
 
 #[test]
 fn variables_show_their_unit() {
-    let doc = format!("{FULL}$ V := 4 A $\n$ I := 0.004 A = mA $\n{}", code("W := 3 [V]\nU := V I\ny := U"));
+    let doc = format!("{FULL}$ V := 4 unit(\"A\") $\n$ I := 0.004 unit(\"A\") = mA $\n{}", code("W := 3 [V]\nU := V I\ny := U"));
     let at = |w: &str| u16_at(&doc, w);
     // Inferred from the value.
     assert!(hover(&doc, &Context::default(), at("V I")).unwrap().markdown.starts_with("```solveng\nV: A "));
@@ -273,16 +273,16 @@ fn casts() {
 
 #[test]
 fn as_after_a_number_is_the_unit() {
-    let doc = format!("{FULL}{}$ e := 3 \"as\" $\n", code("U := 5 V\na := 3 as\nb := U as as"));
+    let doc = format!("{FULL}{}$ e := 3 unit(\"as\") $\n", code("U := 5 V\na := 3 as\nb := U as as"));
     assert_eq!(kind_at(&doc, "as\nb"), Some(TokenKind::UNIT));
     assert_eq!(kind_at(&doc, "as as"), Some(TokenKind::KEYWORD));
     assert_eq!(kind_at(&doc, "as\n```"), Some(TokenKind::UNIT));
-    assert_eq!(kind_at(&doc, "as\" $"), Some(TokenKind::UNIT));
+    assert_eq!(kind_at(&doc, "as\") $"), Some(TokenKind::UNIT));
 }
 
 #[test]
 fn forgiving_rename_keeps_references_linked_in_every_syntax() {
-    let doc = "#show: worksheet\n$\"foo\" := 3$\n```solveng\nx := foo\n```\n#graph(\"foo * x\")";
+    let doc = "#show: worksheet\n$\"foo\" := 3$\n```solveng\nx := foo\n```\n#graph($foo * x$)";
     for typed in ["2x", "123", "Delta2tau", "2foo", "2x_tau", "😅2tau", "é2tau"] {
         let edits = rename(doc, &Context::default(), u16_at(doc, "foo *"), typed);
         assert_eq!(edits.len(), 3, "{typed}");
@@ -294,12 +294,12 @@ fn forgiving_rename_keeps_references_linked_in_every_syntax() {
 
 #[test]
 fn numeric_renames_in_worksheet_strings_keep_definitions_and_completions() {
-    let doc = "😅\n#show: worksheet\n#worksheet(\"foo := 3\nz := foo\")\n#graph(\"foo * x\")";
+    let doc = "😅\n#show: worksheet\n#worksheet(```\nfoo := 3\nz := foo\n```)\n#graph($foo * x$)";
     let ctx = Context::default();
     let edits = rename(doc, &ctx, u16_at(doc, "foo :="), "2x");
     assert_eq!(edits.len(), 3);
     let out = applied(doc, edits);
-    let at = u16_at(&out, "2\\\"\\\"x :=");
+    let at = u16_at(&out, "2\"\"x :=");
     assert_eq!(usages(&out, &ctx, at).len(), 3, "{out}");
     let marked = format!("{out}\n```solveng\na := \n```");
     let completions = complete(&marked, &ctx, u16_at(&marked, "a := ") + 5).unwrap();
@@ -309,13 +309,13 @@ fn numeric_renames_in_worksheet_strings_keep_definitions_and_completions() {
 #[test]
 fn numeric_rename_emits_math_and_escaped_code_across_files() {
     let main = "#show: worksheet\n$foo := 3$\n#include \"chapter.typ\"";
-    let chapter = "#graph(\"foo * x\")";
+    let chapter = "#graph($foo * x$)";
     let ctx = Context::new("").with_report(&Report::default(), "chapter.typ", false)
         .with_files(vec![ContextFile { path: "main.typ".into(), text: main.into() }]).with_main("main.typ");
     let edits = rename(chapter, &ctx, u16_at(chapter, "foo"), "2x");
     assert_eq!(edits.len(), 2);
     assert!(edits.iter().any(|e| e.path.as_deref() == Some("main.typ") && e.text == "2\"\"x"));
-    assert!(edits.iter().any(|e| e.path.is_none() && e.text == "2\\\"\\\"x"));
+    assert!(edits.iter().any(|e| e.path.is_none() && e.text == "2\"\"x"));
     for invalid in ["^", "a+b", "2.5x", "a b", "x\u{200b}y", "\"unclosed"] {
         assert!(rename(chapter, &ctx, u16_at(chapter, "foo"), invalid).is_empty(), "{invalid}");
     }

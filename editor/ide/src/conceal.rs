@@ -169,14 +169,14 @@ pub fn conceals(document: &str, context: &Context) -> Vec<Conceal> {
     for t in a.calls.iter().flat_map(|c| &c.texts) {
         let code = &a.doc.c[t.start..t.end];
         let found = match t.role {
-            Role::Code | Role::Mark | Role::Name => conceals_in(code, &unit),
+            Role::Name => conceals_in(code, &unit),
             // Every word of a unit is a unit, as after `->`.
             Role::Unit => {
                 let mut with: Vec<char> = "-> ".chars().collect();
                 with.extend_from_slice(code);
                 conceals_in(&with, &unit).into_iter().filter(|x| x.0 >= 3).map(|(s, l, c)| (s - 3, l, c)).collect()
             }
-            Role::Choice => Vec::new(),
+            Role::Choice | Role::Mark => Vec::new(),
         };
         push(t.start, found, (t.start.saturating_sub(1), (t.end + 1).min(a.doc.c.len())));
     }
@@ -192,6 +192,11 @@ pub fn conceals(document: &str, context: &Context) -> Vec<Conceal> {
         for (from, to) in [(reference.start, reference.text_start), (reference.text_end, reference.end)] {
             out.push(Conceal { start: a.doc.to16(from), length: a.doc.to16(to) - a.doc.to16(from), character: 0, element_start: start, element_end: end });
         }
+    }
+    for (start, end) in a.bindings.unit_uses().map(|(s, e, _, _)| (s, e))
+        .chain(a.bindings.operation_uses().map(|(s, e, _, _)| (s, e))) {
+        if start == 0 || a.doc.c[start - 1] != '#' || !a.elements.iter().any(|e| e.math && e.body_start < start && end <= e.body_end) { continue; }
+        out.push(Conceal { start: a.doc.to16(start - 1), length: 1, character: 0, element_start: a.doc.to16(start - 1), element_end: a.doc.to16(end) });
     }
     out.sort_by_key(|c| (c.start, c.length, c.character, c.element_start, c.element_end));
     out.dedup();

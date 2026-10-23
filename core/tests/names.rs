@@ -92,6 +92,6 @@ fn numeric_names_need_an_explicit_join_and_do_not_change_coefficients() {
         assert_eq!(run(&mut env, "2x =", mode).result.as_deref(), Some("\"6\""));
         run(&mut env, "2\"\"f(t) := t + 1", mode);
         assert_eq!(run(&mut env, "2\"\"f(3) =", mode).result.as_deref(), Some("\"4\""));
-        run(&mut env, "length := 2\"m\"", mode);
+        run(&mut env, "length := 2⦃m⦄", mode);
     }
 }

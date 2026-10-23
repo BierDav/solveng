@@ -9,13 +9,13 @@ g := 2
 $)
 #expect("t", 1)
 #expect("g", 2)
-#worksheet("t := 1 \\ g := 23")
+#worksheet(raw("t := 1 \\ g := 23"))
 #expect("g", 23)
-#worksheet("t := 1 \ g := 24")
+#worksheet(raw("t := 1 \ g := 24"))
 #expect("g", 24)
-#worksheet("u := 23 + 3
+#worksheet(raw("u := 23 + 3
 v := u +
-  2")
+  2"))
 #expect("v", 28)
 #clear("t")
 ```solveng

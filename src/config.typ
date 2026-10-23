@@ -62,7 +62,8 @@
   if "prefixes" in o and type(o.prefixes) == array and o.prefixes.any(p => type(p) != str) { return (err: "prefixes: the array must hold strings like \"m\"") }
   if "words" in o and o.words.keys().any(k => k not in ("cast", "any")) { return (err: "words: the words shown for casts and any-unit types, (cast: \"als\", any: \"beliebig\")") }
   if "chips" in o and type(o.chips) == dictionary and o.chips.pairs().any(((k, v)) => k not in ("cast", "type") or type(v) != dictionary or v.keys().any(c => c not in ("fill", "mark", "ink"))) { return (err: "chips: colours per kind, (cast: (fill: …, mark: …, ink: …), type: (…)), or a function (kind, mark, unit) => content") }
-  if "units" in o and o.units.values().any(v => type(v) not in (str, content, int, float, type(none), type(auto))) { return (err: "units: a dictionary of definitions like (bar: \"100 kPa\", rpm: \"1/min\", dozen: 12), auto for a base unit of your own (ü: auto), or none to remove a unit (T: none)") }
+  if "units" in o and o.units.values().any(v => type(v) not in (content, int, float, type(none), type(auto))) { return (err: "units: a dictionary of definitions like (bar: $100 unit(\"kPa\")$, rpm: $1 / unit(\"min\")$, dozen: 12), auto for a base unit of your own (ü: auto), or none to remove a unit (T: none)") }
+  if "units" in o and o.units.values().any(v => type(v) == content and v.func() != math.equation) { return (err: "units: definitions must be math equations") }
   if "preferred-units" in o { if type(o.preferred-units) == str { o.preferred-units = (o.preferred-units,) }; if o.preferred-units.any(u => type(u) != str) { return (err: "preferred-units: units like (\"kWh\", \"mm\")") } }
   o
 }

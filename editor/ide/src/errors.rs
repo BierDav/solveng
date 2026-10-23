@@ -1,6 +1,5 @@
 //! The errors the last compile reported, placed in the document as it is now.
 
-use crate::calls::Role;
 use crate::text::index_of;
 use crate::{Analysis, Problem, ReportError};
 
@@ -44,12 +43,11 @@ fn unplaced(a: &Analysis, source: &str) -> Option<(usize, usize)> {
     if source.is_empty() {
         return None;
     }
-    let strings = a.calls.iter().flat_map(|c| &c.texts).filter(|t| t.role == Role::Code).map(|t| (t.start, t.end));
     let raws = a.elements.iter().filter(|e| !e.math && a.active(e)).map(|e| (e.body_start, e.body_end));
     let maths = a.elements.iter()
         .filter(|e| e.math && a.calls.iter().any(|c| c.maths.contains(&(e.start, e.end))))
         .map(|e| (e.body_start, e.body_end));
-    strings.chain(raws).chain(maths).find_map(|(start, end)| statement(a, start, end, source))
+    raws.chain(maths).find_map(|(start, end)| statement(a, start, end, source))
 }
 
 /// Where `source` is in `start..end`, also as a Typst string writes it (`\"`, `\\`).

@@ -4,7 +4,7 @@ use crate::calls::{Call, Role};
 use crate::complete::{FUNCTIONS, definitions};
 use crate::elements::Element;
 use crate::text::Doc;
-use crate::tokens::{Tok, code_tokens, formula_tokens, math_tokens};
+use crate::tokens::{Tok, code_tokens, math_tokens};
 use crate::scope::{self, File, Occurrence};
 use crate::{Analysis, Context, Edit, Location, RenameTarget, TokenKind as K};
 
@@ -115,11 +115,6 @@ fn names(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Eleme
     }
     for t in calls.iter().flat_map(|c| &c.texts) {
         match t.role {
-            Role::Code | Role::Mark => {
-                let code = &doc.c[t.start..t.end];
-                let toks = if calls.iter().any(|c| c.is_curve(t)) { formula_tokens(code, unit) } else { code_tokens(code, unit) };
-                code_names(doc, t.start, toks, &mut out)
-            }
             Role::Name => {
                 let text = doc.sub(t.start, t.end);
                 let lead = text.chars().take_while(|ch| ch.is_whitespace()).count();
@@ -144,13 +139,10 @@ fn names(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Eleme
     out
 }
 
-fn locals(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Element) -> bool) -> Vec<crate::locals::Local> {
+fn locals(doc: &Doc, elements: &[Element], _calls: &[Call], active: &dyn Fn(&Element) -> bool) -> Vec<crate::locals::Local> {
     let mut out = Vec::new();
     for e in elements.iter().filter(|e| active(e)) {
         out.extend(crate::locals::read(&doc.c[e.body_start..e.body_end], e.body_start, false, !e.math));
-    }
-    for text in calls.iter().flat_map(|c| &c.texts).filter(|t| matches!(t.role, Role::Code | Role::Mark)) {
-        out.extend(crate::locals::read(&doc.c[text.start..text.end], text.start, true, true));
     }
     out
 }
@@ -164,8 +156,8 @@ fn graphs(doc: &Doc, calls: &[Call]) -> Vec<(Vec<(usize, usize)>, Vec<(usize, us
         .iter()
         .filter(|c| c.function.name == "graph")
         .map(|c| {
-            let curves = c.curves().map(|t| (t.start, t.end)).collect();
-            let names = c.curves().filter_map(|t| curve_function(&doc.c[t.start..t.end]).map(|(s, e)| (t.start + s, t.start + e))).collect();
+            let curves = c.curves(doc).collect();
+            let names = c.curves(doc).filter_map(|(start, end)| curve_function(&doc.c[start..end]).map(|(s, e)| (start + s, start + e))).collect();
             (curves, names)
         })
         .collect()
@@ -175,8 +167,8 @@ fn graphs(doc: &Doc, calls: &[Call]) -> Vec<(Vec<(usize, usize)>, Vec<(usize, us
 fn curve_functions(doc: &Doc, calls: &[Call]) -> Vec<(usize, usize, usize)> {
     calls
         .iter()
-        .flat_map(|c| c.curves())
-        .filter_map(|t| curve_function(&doc.c[t.start..t.end]).map(|(s, e)| (t.start + s, t.start + e, t.end)))
+        .flat_map(|c| c.curves(doc))
+        .filter_map(|(start, end)| curve_function(&doc.c[start..end]).map(|(s, e)| (start + s, start + e, end)))
         .collect()
 }
 

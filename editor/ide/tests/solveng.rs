@@ -113,7 +113,7 @@ fn reads_whether_math_is_evaluated() {
     assert!(!evaluates("$x = 1$", &ctx("")));
     assert!(evaluates("#show: worksheet", &ctx("")));
     // No worksheet around the math: nothing is evaluated, however the document is set up.
-    let plain = "#import \"@solveng/solveng:1.0.0\": *\n\n$R := 5\"cm\"$\n";
+    let plain = "#import \"@solveng/solveng:1.0.0\": *\n\n$R := 5cm$\n";
     assert!(!evaluates(plain, &ctx("")));
     assert!(math_tokens(plain, &ctx("")).is_empty());
     assert!(document_tokens(plain, &ctx("")).is_empty());
@@ -176,8 +176,8 @@ fn only_a_worksheet_that_includes_a_file_evaluates_it() {
     // Before it, after it, or not included at all, the chapter stays as written.
     assert!(!coloured("#include \"chapters/one.typ\"\n#show: worksheet\n"));
     assert!(!coloured("#worksheet(evaluate: false)[\n#include \"chapters/one.typ\"\n]\n"));
-    assert!(!coloured("#worksheet[\n$U := 5 V$\n]\n#include \"chapters/one.typ\"\n"));
-    assert!(!coloured("#show: worksheet\n$U := 5 V$\n"));
+    assert!(!coloured("#worksheet[\n$U := 5 unit(\"V\")$\n]\n#include \"chapters/one.typ\"\n"));
+    assert!(!coloured("#show: worksheet\n$U := 5 unit(\"V\")$\n"));
 }
 
 #[test]
@@ -188,7 +188,7 @@ fn reads_code_passed_to_a_worksheet() {
 
 #[test]
 fn completes_definitions_from_the_whole_document() {
-    let doc = "#show: worksheet\n#worksheet(\"R := 7.2 kΩ\", \"f(x) := x^2 + 1\")\nThe load draws $I := 30 mA$ and $Q_0/2 = I t$.\n```solveng\nP := [5 V] I\nU := |\n```";
+    let doc = "#show: worksheet\n#worksheet(`R := 7.2 kΩ`, `f(x) := x^2 + 1`)\nThe load draws $I := 30 mA$ and $Q_0/2 = I t$.\n```solveng\nP := [5 V] I\nU := |\n```";
     let c = complete_at(doc).unwrap();
     let get = |l: &str| c.items.iter().find(|i| name(&i.label) == l).unwrap();
     assert_eq!(get("I").detail, "= 30 mA");
@@ -206,7 +206,7 @@ fn completes_units_where_a_value_is_written() {
     assert!(units.contains(&"mA".into()) && units.contains(&"kΩ".into()) && units.contains(&"h".into()));
     assert!(labels("```solveng\nP := [5 |] I\n```").contains(&"A".into()));
     assert!(labels("```solveng\ng := 9.81 m/|\n```").contains(&"s".into()));
-    assert!(labels("#show: worksheet.with(units: (bar: \"100 kPa\"), evaluate: false)\n```solveng\np := 3 |\n```").contains(&"bar".into()));
+    assert!(labels("#show: worksheet.with(units: (bar: $100 kPa$), evaluate: false)\n```solveng\np := 3 |\n```").contains(&"bar".into()));
     assert!(!labels("```solveng\nU := 2 I |\n```").contains(&"mA".into()));
     // The word being typed is replaced.
     assert_eq!(complete_at("```solveng\nI := 30 mA|\n```").unwrap().from, "```solveng\nI := 30 ".len() as u32);
@@ -259,14 +259,14 @@ fn completes_in_math() {
 
 #[test]
 fn colors_math_like_code() {
-    let doc = "#show: worksheet\n$I := 30 \"mA\" dot R_\"load\" + sqrt(x) = 1 \"A\"$";
+    let doc = "#show: worksheet\n$I := 30 unit(\"mA\") dot R_\"load\" + sqrt(x) = 1 unit(\"A\")$";
     let found: Vec<String> = math_tokens(doc, &ctx("")).iter().map(|x| format!("{}:{}", slice(doc, x.start, x.length), x.kind)).collect();
     assert_eq!(
         found,
         vec![
-            t("I", TokenKind::VARIABLE), t(":=", TokenKind::OPERATOR), t("30", TokenKind::NUMBER), t("\"mA\"", TokenKind::UNIT),
+            t("I", TokenKind::VARIABLE), t(":=", TokenKind::OPERATOR), t("30", TokenKind::NUMBER), t("unit", TokenKind::KEYWORD), t("mA", TokenKind::UNIT),
             t("dot", TokenKind::OPERATOR), t("R", TokenKind::VARIABLE), t("\"load\"", TokenKind::VARIABLE), t("sqrt", TokenKind::BUILTIN_FUNCTION),
-            t("x", TokenKind::VARIABLE), t("=", TokenKind::EVALUATE), t("1", TokenKind::NUMBER), t("\"A\"", TokenKind::UNIT),
+            t("x", TokenKind::VARIABLE), t("=", TokenKind::EVALUATE), t("1", TokenKind::NUMBER), t("unit", TokenKind::KEYWORD), t("A", TokenKind::UNIT),
         ]
     );
     // a letter alone after = is a variable: t = A compares
@@ -274,9 +274,9 @@ fn colors_math_like_code() {
     let found: Vec<String> = math_tokens(doc, &ctx("")).iter().map(|x| format!("{}:{}", slice(doc, x.start, x.length), x.kind)).collect();
     assert_eq!(found, vec![t("t", TokenKind::VARIABLE), t("=", TokenKind::OPERATOR), t("A", TokenKind::VARIABLE)]);
     // quoted units are units anywhere in math; bare words are Typst's names
-    let doc = "#show: worksheet.with(units: (bar: \"100 kPa\"))\n$x := U \"as\" \"kΩ\" + \"bar\" + kΩ$";
+    let doc = "#show: worksheet.with(units: (bar: $100 kPa$))\n$x := U \"as\" unit(\"kΩ\") + unit(\"bar\") + kΩ$";
     let found: Vec<String> = math_tokens(doc, &ctx("")).iter().map(|x| format!("{}:{}", slice(doc, x.start, x.length), x.kind)).collect();
-    assert!(found.contains(&t("\"kΩ\"", TokenKind::UNIT)) && found.contains(&t("\"bar\"", TokenKind::UNIT)) && found.contains(&t("kΩ", TokenKind::VARIABLE)), "{found:?}");
+    assert!(found.contains(&t("kΩ", TokenKind::UNIT)) && found.contains(&t("bar", TokenKind::UNIT)) && found.contains(&t("kΩ", TokenKind::VARIABLE)), "{found:?}");
     assert!(math_tokens("#worksheet(evaluate: false)[$x = 1$]", &ctx("")).is_empty());
 }
 
@@ -327,14 +327,14 @@ const WS: &str = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet\n";
 fn converts_math_to_code_and_back() {
     let i = WS;
     assert_eq!(convert(&format!("{i}$R := |7.2 kΩ$")), vec![format!("{i}```solveng\nR := 7.2 kΩ\n```")]);
-    assert_eq!(convert(&format!("{i}$t := Q_0/I = \"h\", digits(2)|$")), vec![format!("{i}```solveng\nt := Q_0/I = [h], digits(2)\n```")]);
-    assert_eq!(convert(&format!("{i}$I := frac(3450 mAh, 30 \"h\") dot 2|$")), vec![format!("{i}```solveng\nI := (3450 mAh)/(30 h) * 2\n```")]);
+    assert_eq!(convert(&format!("{i}$t := Q_0/I = unit(\"h\"), digits(2)|$")), vec![format!("{i}```solveng\nt := Q_0/I = [h], digits(2)\n```")]);
+    assert_eq!(convert(&format!("{i}$I := frac(3450 mAh, 30 unit(\"h\")) dot 2|$")), vec![format!("{i}```solveng\nI := (3450 mAh)/(30 h) * 2\n```")]);
     assert_eq!(convert(&format!("{i}$x| := A unit(\"A\")$")), vec![format!("{i}```solveng\nx := A [A]\n```")]);
     assert_eq!(convert(&format!("{i}$x + y = 3, x - y = 1 -> solve(x, y)|$")), vec![format!("{i}```solveng\nx + y = 3; x - y = 1 -> solve(x, y)\n```")]);
     assert!(convert(&format!("{i}$a => b|$")).is_empty());
     assert_eq!(
         convert(&format!("{i}```solveng\nR := U/I = [mA] // load\n|x^2 = 4 -> solve(x)\n```")),
-        vec![format!("{i}$R := U/I = \"mA\"$ // load\n\n$x^2 = 4 -> solve(x)$")]
+        vec![format!("{i}$R := U/I = unit(\"mA\")$ // load\n\n$x^2 = 4 -> solve(x)$")]
     );
     assert_eq!(convert(&format!("{i}```solveng\nx| := A [A]; p := 3 [bar]\n```")), vec![format!("{i}$x := A unit(\"A\"), p := 3 unit(\"bar\")$")]);
 }
@@ -346,7 +346,7 @@ fn reads_the_files_around() {
         vec!["defaults.typ", "ch/1.typ"]
     );
     // A chapter of a main file that sets everything up.
-    let main = ctx("#show: worksheet.with(units: (bar: \"100 kPa\"))\n$U := 5 V$");
+    let main = ctx("#show: worksheet.with(units: (bar: $100 kPa$))\n$U := 5 unit(\"V\")$");
     assert!(evaluates("text", &main));
     let chapter = "```solveng\nP := U |\n```";
     let c = complete(&chapter.replace('|', ""), &main, chapter.find('|').unwrap() as u32).unwrap();
@@ -385,19 +385,19 @@ fn trusts_the_compilers_report() {
 
 #[test]
 fn conceals_the_strings_of_calls() {
-    let doc = "#graph(\"alpha3 = cos(x)\", xrange: \"2 uA\")\n#worksheet(\"Delta_R := 2 * x\")";
+    let doc = "#graph($alpha3 = cos(x)$, xrange: \"2 uA\")\n#worksheet(`Delta_R := 2 * x`)";
     let c = conceals(doc, &ctx(""));
     let shown: Vec<(String, char)> = c
         .iter()
         .map(|x| (String::from_utf16(&units16(doc)[x.start as usize..(x.start + x.length) as usize]).unwrap(), char::from_u32(x.character).unwrap()))
         .collect();
-    assert_eq!(shown, [("alpha".into(), 'α'), ("u".into(), 'µ'), ("Delta".into(), 'Δ')]);
+    assert_eq!(shown, [("Delta".into(), 'Δ')]);
     // Glued and subscripted letters in a string, its quotes escaped.
-    let glued = "#worksheet(\"Delta\\\"\\\"tau := Delta_tau\")";
+    let glued = "#worksheet(`Delta\"\"tau := Delta_tau`)";
     let letters: Vec<char> = conceals(glued, &ctx("")).iter().filter_map(|x| char::from_u32(x.character)).filter(|&c| c != '\0').collect();
     assert_eq!(letters, ['Δ', 'τ', 'Δ', 'τ']);
     // Each string shows as typed while the caret is in it, quotes included.
     let first = &c[0];
-    assert_eq!((first.element_start, first.element_end), (7, 24));
+    assert_eq!((first.element_start, first.element_end), (doc.find("`Delta").unwrap() as u32, doc.len() as u32 - 1));
 }
 

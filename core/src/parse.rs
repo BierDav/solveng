@@ -506,9 +506,9 @@ impl<'a, 'b> P<'a, 'b> {
         }
         match self.t.get(k)? {
             Tok::UnitWord(u) => Some(u.clone()),
-            Tok::Quoted(q) if q != "as" && self.c.units.visible(q) && !(self.c.is_var)(q) => Some(q.clone()),
+            Tok::Quoted(q) if self.c.mode == Mode::Code && q != "as" && self.c.units.visible(q) && !(self.c.is_var)(q) => Some(q.clone()),
             // as after a number is attoseconds
-            Tok::Quoted(q) if q == "as" && self.c.units.visible(q) && !(self.c.is_var)(q) => Some(q.clone()),
+            Tok::Quoted(q) if self.c.mode == Mode::Code && q == "as" && self.c.units.visible(q) && !(self.c.is_var)(q) => Some(q.clone()),
             Tok::Name(n) if self.c.expression_unit(n) && !(self.c.strict && self.c.mode == Mode::Math) => Some(n.clone()),
             Tok::Name(n) if n == "as" && self.c.named_unit(n) => Some(n.clone()),
             _ => None,
@@ -593,7 +593,7 @@ impl<'a, 'b> P<'a, 'b> {
             if toks.is_empty() || !toks.iter().all(|t| match t {
                 Tok::UnitWord(_) => true,
                 Tok::Name(n) => self.c.expression_unit(n),
-                Tok::Quoted(n) => self.c.units.visible(n) && !(self.c.is_var)(n),
+                Tok::Quoted(n) => self.c.mode == Mode::Code && self.c.units.visible(n) && !(self.c.is_var)(n),
                 Tok::Num(_) => true,
                 Tok::Op(o) => matches!(*o, "^" | "(" | ")" | "-" | "*" | "·"),
                 _ => false,
@@ -642,7 +642,7 @@ impl<'a, 'b> P<'a, 'b> {
                     break;
                 }
                 Some(Tok::UnitWord(u)) => s += &format!(" {u}"),
-                Some(Tok::Quoted(q)) if self.c.units.visible(q) || q == "any" => s += &format!(" {q}"),
+                Some(Tok::Quoted(q)) if self.c.mode == Mode::Code && self.c.units.visible(q) || q == "any" => s += &format!(" {q}"),
                 Some(Tok::Quoted(q)) => return Err(format!("unknown unit '{q}'")),
                 Some(Tok::Name(n)) if self.c.named_unit(n) || n == "any" => s += &format!(" {n}"),
                 Some(Tok::Num(n)) if s.is_empty() && n == "1" => s += "1",
@@ -863,7 +863,7 @@ impl<'a, 'b> P<'a, 'b> {
                     return Err("a value before 'as' to cast".into());
                 }
                 // a quoted unit on its own is one of it; else a name of several letters
-                if self.c.units.visible(&q) && !(self.c.is_var)(&q) {
+                if self.c.mode == Mode::Code && self.c.units.visible(&q) && !(self.c.is_var)(&q) {
                     self.i -= 1;
                     let u = self.unit_run()?.unwrap();
                     return Ok(Ast::Unit(u));
@@ -1064,7 +1064,7 @@ fn split_trail(t: &[Tok], c: &Ctx) -> Result<(usize, Option<(Trail, Clause)>), S
             });
             if let Some(n) = letter {
                 return Err(if c.mode == Mode::Math {
-                    format!("'{n}' after -> is a name, not a unit – write \"{n}\", or #{n} with #import units: {n}")
+                    format!("'{n}' after -> is a name, not a unit – write unit(\"{n}\"), or #{n} with #import units: {n}")
                 } else {
                     format!("'{n}' after -> is a name, not a unit – write [{n}]")
                 });
@@ -1381,7 +1381,7 @@ pub fn meant(src: &str, c: &Ctx) -> bool {
     if t[arrow + 1..].iter().any(|k| matches!(k, Tok::Kw(_)) || matches!(k, Tok::Name(n) | Tok::Builtin(n) if keyword(n))) { return true; }
     t[..arrow].iter().any(|k| match k {
         Tok::UnitWord(_) | Tok::Bracket(_) => true,
-        Tok::Quoted(n) => c.units.visible(n) || (c.is_var)(n) || (c.is_fn)(n),
+        Tok::Quoted(n) => c.mode == Mode::Code && c.units.visible(n) || (c.is_var)(n) || (c.is_fn)(n),
         Tok::Name(n) => (c.is_var)(n) || (c.is_fn)(n),
         _ => false,
     })

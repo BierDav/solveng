@@ -1,6 +1,6 @@
 //! Editor support for solveng (`@preview/solveng`), the calculation language of Typst documents: ```` ```solveng ````
 //! code blocks, math in a `worksheet` (unless the innermost one says `evaluate: false`) and equations and code
-//! passed to `#worksheet(…)`, and the strings of `#worksheet`, `#graph` and `#lambdify`. Like Mathcad, `:=` defines, a
+//! passed to `#worksheet(…)`, and explicit unit and operation names. Like Mathcad, `:=` defines, a
 //! trailing `=` shows a value and `->` a symbolic result or a solution, each followed by a clause of a unit and
 //! keywords.
 //!
@@ -415,15 +415,20 @@ pub fn body(raw: &str) -> Option<(u32, u32)> {
 }
 
 /// Raw elements and equations outside the strings of solveng's calls, where a `$` or a backtick is just text.
-pub(crate) fn scan(doc: &Doc, calls: &[calls::Call]) -> Vec<Element> {
-    let mut c = doc.c.clone();
-    for t in calls.iter().flat_map(|call| &call.texts) {
-        for ch in &mut c[t.start..t.end] {
-            if *ch == '$' || *ch == '`' {
-                *ch = ' ';
+pub(crate) fn scan(doc: &Doc, _calls: &[calls::Call]) -> Vec<Element> {
+    use typst_syntax::{LinkedNode, SyntaxKind};
+    fn mask(node: &LinkedNode, doc: &Doc, c: &mut [char]) {
+        if node.kind() == SyntaxKind::Str || node.kind() == SyntaxKind::Error && node.get().clone().full_text().starts_with('"') {
+            for ch in &mut c[doc.of_byte(node.offset())..doc.of_byte(node.offset() + node.len())] {
+                if *ch == '$' || *ch == '`' { *ch = ' '; }
             }
+        } else {
+            for child in node.children() { mask(&child, doc, c); }
         }
     }
+    let mut c = doc.c.clone();
+    let root = typst_syntax::parse(&doc.s);
+    mask(&LinkedNode::new(&root), doc, &mut c);
     elements::elements(&c)
 }
 
@@ -533,6 +538,7 @@ pub(crate) struct Analysis<'a> {
     pub calculated: Vec<bool>,
     pub calls: Vec<calls::Call>,
     pub units: Vec<units::Custom>,
+    unit_equations: Vec<(usize, usize)>,
     pub bindings: bindings::Bindings,
     unit_scopes: Vec<calls::Scope>,
     unit_context: Vec<units::Custom>,
@@ -558,7 +564,9 @@ impl<'a> Analysis<'a> {
         let calculated = activity(&doc, &elements, &calls, &scopes, &context.reported_in(&context.path), math,
             &|| included_in_worksheet(context, &context.path));
         let bindings = bindings::Bindings::new(&doc);
-        Analysis { doc, context, elements, calculated, calls, units, bindings, unit_scopes: scopes, unit_context, reported_units, around: OnceCell::new() }
+        let entries = units::entries(document);
+        let unit_equations = elements.iter().filter(|e| e.math && entries.iter().any(|entry| entry.start < doc.sub(0, e.start).len() && doc.sub(0, e.end).len() <= entry.value_end)).map(|e| (e.start, e.end)).collect();
+        Analysis { doc, context, elements, calculated, calls, units, unit_equations, bindings, unit_scopes: scopes, unit_context, reported_units, around: OnceCell::new() }
     }
 
     fn index(&self, e: &Element) -> Option<usize> {
@@ -573,7 +581,7 @@ impl<'a> Analysis<'a> {
     /// Whether an element is solveng to the editor: calculated, or a ```` ```solveng ```` block, which is the
     /// language wherever it is.
     pub fn shown(&self, e: &Element) -> bool {
-        (!e.math && e.tag == TAG && e.block) || self.active(e)
+        (!e.math && e.tag == TAG && e.block) || self.active(e) || self.unit_equations.contains(&(e.start, e.end))
     }
 
     /// The files around, read when first needed: one by one when known, else their join.

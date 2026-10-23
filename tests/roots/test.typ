@@ -22,7 +22,7 @@ $h(x) := sqrt(1 + sqrt(x))$
 #passes()
 $ k := h(9) = $
 #expect("k", 2)
-#worksheet("f(x) := sqrt(x^2) ->")
+#worksheet(raw("f(x) := sqrt(x^2) ->"))
 #passes()
-#worksheet("m := f(-4) =")
+#worksheet(raw("m := f(-4) ="))
 #expect("m", 4)

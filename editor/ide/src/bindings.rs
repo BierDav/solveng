@@ -414,7 +414,7 @@ fn nudges(a: &crate::Analysis) -> Vec<Nudge> {
     };
     let unit_ok = |at: usize, name: &str| {
         let units = a.units_at(at);
-        name.chars().count() > 1 && crate::units::shorthand(name) && crate::units::visible(name, &units) && !units.iter().any(|u| u.name == name)
+        crate::units::shorthand(name) && crate::units::visible(name, &units) && !units.iter().any(|u| u.name == name)
     };
     let references = a.reference_strings();
     for e in a.elements.iter().filter(|e| e.math && a.active(e)) {
@@ -423,7 +423,7 @@ fn nudges(a: &crate::Analysis) -> Vec<Nudge> {
         for (s, l, kind) in toks {
             let (start, end) = (e.body_start + s, e.body_start + s + l);
             // the string of `unit("km")` counts with its call
-            if kind != crate::TokenKind::UNIT || a.doc.c[start] != '"' || references.iter().any(|&(s, e)| s <= start + 1 && start < e) { continue; }
+            if !matches!(kind, crate::TokenKind::UNIT | crate::TokenKind::VARIABLE) || a.doc.c[start] != '"' || references.iter().any(|&(s, e)| s <= start + 1 && start < e) { continue; }
             let name = crate::resolved_name(&a.doc.sub(start + 1, end.saturating_sub(1)));
             if !unit_ok(start, &name) { continue; }
             if let Some(edits) = available(start, &name, true) { out.push(Nudge { start, end, name, units: true, edits }); }
@@ -474,14 +474,14 @@ pub fn unit_fixes(document: &str, context: &crate::Context, offset: u32) -> Vec<
         let name = crate::resolved_name(&a.doc.sub(start, end));
         if crate::units::visible(&name, &a.units_at(start))
             && crate::definition(document, context, token.start).is_none() {
-            fixes.push(crate::Conversion { title: format!("Quote \"{name}\" as a unit"), start: token.start, end: token.start + token.length, text: format!("\"{name}\""), edits: Vec::new() });
+            fixes.push(crate::Conversion { title: format!("Use unit(\"{name}\")"), start: token.start, end: token.start + token.length, text: format!("unit(\"{name}\")"), edits: Vec::new() });
         }
     }
     fixes.extend(unresolved_units(&a).into_iter().filter(|&(start, end, _)| start <= at && at <= end).map(|(start, _, name)| crate::Conversion {
         title: format!("Use #{name} to reference the Typst unit binding"), start: a.doc.to16(start), end: a.doc.to16(start), text: "#".into(), edits: Vec::new(),
     }));
     fixes.extend(nudges(&a).into_iter().filter(|n| n.start <= at && at <= n.end).map(|n| crate::Conversion {
-        title: format!("Use the shorthand {}", n.name), start: a.doc.to16(n.start), end: a.doc.to16(n.end), text: n.name, edits: n.edits,
+        title: format!("Use the shorthand {}", n.name), start: a.doc.to16(n.start), end: a.doc.to16(n.end), text: if n.units && n.name.chars().count() == 1 { format!("#{}", n.name) } else { n.name }, edits: n.edits,
     }));
     fixes.extend(overlay_bindings(&a, at));
     fixes

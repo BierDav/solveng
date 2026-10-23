@@ -3,7 +3,7 @@
 /// Import only the ones you use, where you use them: `#import functions: tri, sgn`. Typst imports are lexical, so
 /// they apply to that file or block and the ones nested in it; nothing comes along with
 /// `#import "@preview/solveng:1.0.0": *`. Without the import, math reads the name as Typst's own (`at` is the
-/// symbol @) or as an unknown variable. Strings and code blocks need no import: `#worksheet("tri(0) =")`.
+/// symbol @) or as an unknown variable. Code blocks need no import.
 ///
 /// Imported names follow `builtin-functions`, and a worksheet's own function of that name wins. `op("tri")` and
 /// `operation("convolve")` are the explicit references, independent of both. Typst's own math operators (`sin`,
@@ -17,8 +17,7 @@
 
 /// ## Built-in operations
 ///
-/// Built-in operations work in worksheet math, calculation strings and graphs. In strings and code their
-/// names work as they are: `#worksheet("tri(0) =")`. In math, Typst needs a binding for every name it doesn't
+/// Built-in operations work in worksheet math, code blocks and graphs. In code blocks their names work as they are. In math, Typst needs a binding for every name it doesn't
 /// know, and `#import "@preview/solveng:1.0.0": *` brings none: import the ones you use from solveng's
 /// `functions` module, `#import functions: tri, sgn` (or `#import functions: *`), then `$tri(t)$`. Like any
 /// import, it holds only where it's written, so no name appears in a document unasked. `at` needs it most:
@@ -184,7 +183,7 @@
 /// Values from start to end, as Typst's range: `range(end)`, `range(start, end, step: 1)`, the end left out.
 ///
 /// `$range(0, 1, step: 1/4)$` is `vec(0, 1/4, 1/2, 3/4)`. Values may have a unit, then the step needs it too:
-/// `$range(0 "s", 1 "s", step: 250 ms)$`. The bounds and the step need values when the range is defined. A
+/// `$range(0 unit("s"), 1 unit("s"), step: 250 ms)$`. The bounds and the step need values when the range is defined. A
 /// range variable, as Mathcad writes it, includes the end: `$i := 0 .. N$` (or `0...N`) counts from 0 to N in
 /// steps of 1. Used as an index, `$x[i] := tri(t[i])$` defines an element for each value. In Typst code
 /// (`#for i in range(5)`), `range` stays Typst's own.

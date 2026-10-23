@@ -58,17 +58,17 @@ fn numeric_subscript_functions_complete_without_trailing_name_joins() {
 
 #[test]
 fn worksheet_strings_complete_escaped_carriers_and_keep_utf16_ranges() {
-    for prefix in ["Delta2ta|", "Δ2t|", "\\\"Delta2ta|\\\""] {
-        let document = format!("#worksheet(\"😅 := 1\nDelta2tau := 2\nx := {prefix}\")");
+    for prefix in ["Delta2ta|", "Δ2t|", "\"Delta2ta|\""] {
+        let document = format!("#worksheet(```\n😅 := 1\nDelta2tau := 2\nx := {prefix}\n```)");
         let (applied, _, item) = completion(&document, "Δ2τ");
         assert_eq!(item.insert, "Δ2τ");
-        assert!(applied.ends_with("x := Δ2τ\")"), "{applied}");
+        assert!(applied.ends_with("x := Δ2τ\n```)" ), "{applied}");
     }
 }
 
 #[test]
 fn aliases_share_navigation_and_rename_in_every_context() {
-    let document = "#show: worksheet\n$\"Delta2tau\" := 3$\n```solveng\nx := Δ2τ + Delta2tau\n```\n$y := \"Δ2τ\"$\n#worksheet(\"z := Delta2tau\")";
+    let document = "#show: worksheet\n$\"Delta2tau\" := 3$\n```solveng\nx := Δ2τ + Delta2tau\n```\n$y := \"Δ2τ\"$\n#worksheet(`z := Delta2tau`)";
     let at = document.find("Δ2τ +").unwrap();
     let offset = document[..at].encode_utf16().count() as u32;
     let target = definition(document, &Context::default(), offset).unwrap();
@@ -122,7 +122,7 @@ fn solved_function_unknowns_are_local_and_do_not_change_the_signature() {
     for statement in [
         "$\"circle\"(x, r) := x^2 + b^2 = r^2 -> solve(b)$",
         "```solveng\ncircle(x, r) := x^2 + b^2 = r^2 -> solve(b)\n```",
-        "#worksheet(\"circle(x, r) := x^2 + b^2 = r^2 -> solve(b)\")",
+        "#worksheet(`circle(x, r) := x^2 + b^2 = r^2 -> solve(b)`)",
     ] {
         let document = format!("#show: worksheet\n$b := 99$\n{statement}\n$z := b$");
         let at = document.find("b^2").unwrap();
@@ -159,7 +159,7 @@ fn acute_accents_are_part_of_completion_and_navigation_names() {
 const USER_WORKSHEET: &str = r#"#import "@solveng/solveng:1.0.0": *
 
 //#show: worksheet.with(
-//units: (über: auto, üm: "10^3 über"),
+//units: (über: auto, üm: $10^3 über$),
 //)
 
 #worksheet(evaluate: true)[
@@ -195,7 +195,7 @@ fn user_worksheet_highlights_and_resolves_names() {
 
 #[test]
 fn builtin_functions_without_bindings_are_not_graph_parameters() {
-    let document = "#graph(\"tri(x) + sin(x)\")";
+    let document = "#graph($tri(x) + sin(x)$)";
     let ctx = Context::default();
     assert!(usages(document, &ctx, document.find("tri(x)").unwrap() as u32).is_empty());
     assert!(usages(document, &ctx, document.find("sin(x)").unwrap() as u32).is_empty());
@@ -211,7 +211,7 @@ fn invalid_quoted_names_stay_variables_instead_of_units() {
         assert!(diagnostics(&document, &Context::default()).iter().all(|p| !p.message.contains("unknown unit")), "{document}");
     }
     for unit in [r#""mA""#, r#""km""#, r#""k"Omega"#] {
-        assert!(math_tokens_of(&format!("1{unit}")).iter().any(|t| t.start == 1 && t.kind == TokenKind::UNIT), "{unit}");
+        assert!(math_tokens_of(&format!("1{unit}")).iter().any(|t| t.start == 1 && t.kind == TokenKind::VARIABLE), "{unit}");
     }
 }
 
@@ -222,7 +222,7 @@ fn function_definitions_calls_and_builtins_have_distinct_styles() {
         (code.to_string(), tokens(code)),
         (format!("#import functions: tri, rect\n#show: worksheet\n${}$", code.replace('\n', "$\n$")), document_tokens(&format!("#import functions: tri, rect\n#show: worksheet\n${}$", code.replace('\n', "$\n$")), &Context::default())),
         (format!("```solveng\n{code}\n```"), document_tokens(&format!("```solveng\n{code}\n```"), &Context::default())),
-        (format!("#worksheet(\"{code}\")"), document_tokens(&format!("#worksheet(\"{code}\")"), &Context::default())),
+        (format!("#worksheet(`{code}`)"), document_tokens(&format!("#worksheet(`{code}`)"), &Context::default())),
     ] {
         // the code itself, not the import before it
         let code_start = source[..source.find("f(x)").unwrap()].encode_utf16().count() as u32;
