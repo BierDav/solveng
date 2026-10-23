@@ -90,3 +90,16 @@ fn reads_errors_from_the_report_json() {
     let context = Context::default().with_report(&report, "main.typ", true);
     assert_eq!(errors(doc, &context), vec![("U := 5 X".to_string(), "unknown unit X".to_string())]);
 }
+
+#[test]
+fn places_errors_in_math_arguments_without_coloring_unrelated_math() {
+    for function in ["value", "worksheet"] {
+        let doc = format!("$q + 1$\n#{function}($q + 1$)");
+        let c = context(vec![error(&doc, "", "q + 1", "undefined q")]);
+        let problems: Vec<_> = diagnostics(&doc, &c).into_iter().filter(|p| p.severity == "error").collect();
+        assert_eq!(problems.len(), 1);
+        assert_eq!(problems[0].start, doc.rfind("q + 1").unwrap() as u32);
+        assert_eq!(errors(&doc, &c), vec![("q + 1".into(), "undefined q".into())]);
+        assert!(errors(&doc.replace(&format!("#{function}($q + 1$)"), &format!("#{function}($q + 2$)")), &c).is_empty());
+    }
+}

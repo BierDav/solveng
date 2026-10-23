@@ -1,0 +1,39 @@
+# Commit messages and pull request titles must be Conventional Commits:
+# the release workflow reads them to pick the next version and write the notes.
+name: Conventional commits
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # a squash merge uses the title as the commit message
+      - name: Pull request title
+        if: github.event_name == 'pull_request'
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: python3 scripts/commits.py message "$TITLE"
+
+      - name: Commits
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          # a new branch has no "before"
+          if [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ]; then
+            python3 scripts/commits.py range "$HEAD^!"
+          else
+            python3 scripts/commits.py range "$BASE..$HEAD"
+          fi

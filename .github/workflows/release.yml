@@ -1,0 +1,152 @@
+# Releases main. Run it from the Actions tab and pick a channel:
+#   alpha, rc  -> vX.Y.Z-alpha.N / vX.Y.Z-rc.N, a GitHub prerelease
+#   stable     -> vX.Y.Z, a GitHub release and a pull request to Typst Universe (typst/packages)
+# X.Y.Z comes from the Conventional Commits since the last stable release (see scripts/release.py).
+#
+# The Universe pull request needs:
+#   secret UNIVERSE_TOKEN   a classic personal access token with the public_repo scope
+#   variable UNIVERSE_FORK  optional, your fork of typst/packages (default: <owner>/packages)
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Channel
+        type: choice
+        options: [alpha, rc, stable]
+        default: alpha
+      version:
+        description: Version X.Y.Z to release instead of the computed one (optional)
+        type: string
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      tag: ${{ steps.next.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Next version
+        id: next
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          VERSION: ${{ inputs.version }}
+        run: python3 scripts/release.py next "$CHANNEL" "$VERSION"
+
+      - name: Write the version
+        run: python3 scripts/release.py bump "${{ steps.next.outputs.version }}"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build the plugin
+        run: |
+          sudo apt-get update && sudo apt-get install -y binaryen
+          cargo update --workspace
+          plugin/build.sh
+
+      - uses: typst-community/setup-typst@v4
+        with:
+          typst-version: "0.14"
+      - name: Compile the documented examples
+        run: python3 tests/examples.py
+
+      - name: Commit and tag
+        env:
+          TAG: ${{ steps.next.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -u
+          git diff --cached --quiet || git commit -m "chore(release): $TAG"
+          git tag -a "$TAG" -m "$TAG"
+          git push --atomic origin HEAD:main "$TAG"
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.next.outputs.tag }}
+          VERSION: ${{ steps.next.outputs.version }}
+          PRERELEASE: ${{ steps.next.outputs.prerelease }}
+        run: |
+          python3 scripts/release.py notes "$TAG" > notes.md
+          python3 scripts/release.py bundle "dist/solveng" "$TAG" > /dev/null
+          (cd dist && zip -qr "../solveng-$VERSION.zip" solveng)
+          flags=()
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
+          gh release create "$TAG" "solveng-$VERSION.zip" --title "$TAG" --notes-file notes.md "${flags[@]}"
+
+  universe:
+    needs: release
+    if: inputs.channel == 'stable'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.UNIVERSE_TOKEN }}
+      FORK: ${{ vars.UNIVERSE_FORK || format('{0}/packages', github.repository_owner) }}
+      TAG: ${{ needs.release.outputs.tag }}
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - name: Check the token
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Set the UNIVERSE_TOKEN secret (a classic token with public_repo) to open the Typst Universe pull request."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Bundle
+        run: |
+          python3 scripts/release.py bundle "$RUNNER_TEMP/solveng" "$TAG"
+          python3 scripts/release.py notes "$TAG" > "$RUNNER_TEMP/notes.md"
+
+      - name: Push to the fork
+        run: |
+          gh repo sync "$FORK" --source typst/packages --branch main
+          git clone --depth 1 --filter=blob:none --sparse \
+            "https://x-access-token:$GH_TOKEN@github.com/$FORK.git" "$RUNNER_TEMP/packages"
+          cd "$RUNNER_TEMP/packages"
+          git sparse-checkout set packages/preview/solveng
+          dest="packages/preview/solveng/$VERSION"
+          if [ -e "$dest" ]; then echo "::error::$dest is already in typst/packages"; exit 1; fi
+          mkdir -p "$dest"
+          cp -R "$RUNNER_TEMP/solveng/." "$dest/"
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          git checkout -b "solveng-$VERSION"
+          git add "$dest"
+          git commit -m "solveng:$VERSION"
+          git push --force origin "solveng-$VERSION"
+
+      - name: Open the pull request
+        run: |
+          {
+            echo "I am submitting"
+            echo "- [ ] a new package"
+            echo "- [x] an update for a package"
+            echo
+            echo "Release: https://github.com/${{ github.repository }}/releases/tag/$TAG"
+            echo
+            cat "$RUNNER_TEMP/notes.md"
+          } > "$RUNNER_TEMP/body.md"
+          gh pr create --repo typst/packages --base main --head "${FORK%%/*}:solveng-$VERSION" \
+            --title "solveng:$VERSION" --body-file "$RUNNER_TEMP/body.md"

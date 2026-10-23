@@ -1,0 +1,4 @@
+#!/bin/sh
+# Rejects commit messages that aren't Conventional Commits.
+# Enable once per clone: git config core.hooksPath .githooks
+exec python3 "$(git rev-parse --show-toplevel)/scripts/commits.py" file "$1"

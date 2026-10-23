@@ -38,14 +38,17 @@ fn placed(a: &Analysis, err: &ReportError) -> Option<(usize, usize)> {
     Some(found.unwrap_or_else(|| trimmed(a, e.body_start, e.body_end)))
 }
 
-/// A statement of an equation or code passed to `worksheet`: in the code of its strings and raw blocks.
+/// A statement passed to a calculation call: in its strings, raw blocks and math arguments.
 fn unplaced(a: &Analysis, source: &str) -> Option<(usize, usize)> {
     if source.is_empty() {
         return None;
     }
     let strings = a.calls.iter().flat_map(|c| &c.texts).filter(|t| t.role == Role::Code).map(|t| (t.start, t.end));
     let raws = a.elements.iter().filter(|e| !e.math && a.active(e)).map(|e| (e.body_start, e.body_end));
-    strings.chain(raws).find_map(|(start, end)| statement(a, start, end, source))
+    let maths = a.elements.iter()
+        .filter(|e| e.math && a.calls.iter().any(|c| c.maths.contains(&(e.start, e.end))))
+        .map(|e| (e.body_start, e.body_end));
+    strings.chain(raws).chain(maths).find_map(|(start, end)| statement(a, start, end, source))
 }
 
 /// Where `source` is in `start..end`, also as a Typst string writes it (`\"`, `\\`).
