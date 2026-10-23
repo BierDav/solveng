@@ -1,5 +1,7 @@
 //! Units: the table (built-in and your own), prefixes, reading unit expressions, and picking a readable unit.
 
+use std::collections::{HashMap, HashSet};
+
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
@@ -45,6 +47,12 @@ pub struct Units {
     pub map: IndexMap<String, UnitDef>,
     /// Names of the base units of your own, by slot.
     pub own_base: Vec<String>,
+    #[serde(default)]
+    hidden: HashSet<String>,
+    #[serde(default = "crate::format::d_true")]
+    builtin_units: bool,
+    #[serde(default)]
+    exposed: HashSet<String>,
 }
 
 fn builtin() -> IndexMap<String, UnitDef> {
@@ -85,7 +93,8 @@ fn builtin() -> IndexMap<String, UnitDef> {
         ("As", one, c),
         ("Wh", Num::int(3600), j),
         ("Ws", one, j),
-        ("eV", Num::R(Rat::parse_decimal("1.602176634e-19").unwrap()), j),
+        // 1.602176634e-19 J, written out: no e-notation in input
+        ("eV", Num::R(Rat::new(1602176634, 10i128.pow(28)).unwrap()), j),
         ("l", r(1, 1000), d([3, 0, 0, 0, 0, 0, 0])),
         ("L", r(1, 1000), d([3, 0, 0, 0, 0, 0, 0])),
         ("%", r(1, 100), Dim::ONE),
@@ -134,6 +143,8 @@ impl UnitExpr {
 
 /// Typeable spellings shown with their symbols: Omega → Ω, uA → µA, degC → °C.
 pub fn display_name(n: &str, u: &Units) -> String {
+    let normalized = solveng_names::normalize(n);
+    let n = normalized.as_str();
     let sym = |r: &str| match r {
         "Omega" => "Ω".to_string(),
         "degC" => "°C".to_string(),
@@ -155,43 +166,62 @@ pub fn display_name(n: &str, u: &Units) -> String {
 
 impl Default for Units {
     fn default() -> Self {
-        Units { map: builtin(), own_base: vec![] }
+        Units { map: builtin(), own_base: vec![], hidden: HashSet::new(), builtin_units: true, exposed: HashSet::new() }
     }
 }
 
 impl Units {
     /// The built-in units changed by the option `units`.
     pub fn build(opts: &IndexMap<String, UnitOpt>) -> Result<Units, String> {
-        let mut u = Units::default();
-        for (k, v) in opts {
-            match v {
-                UnitOpt::Key(KeyOpt::None) => {
-                    if u.map.shift_remove(k).is_none() {
-                        return Err(format!("units: '{k}' is not a unit, so it can't be removed"));
-                    }
-                }
-                _ if !valid_name(k) => {
-                    return Err(format!("units: '{k}' can't be a unit name (no spaces, digits or operators)"));
-                }
-                UnitOpt::Key(KeyOpt::Auto) => {
-                    if u.own_base.len() == OWN {
-                        return Err(format!("units: at most {OWN} base units of your own, '{k}' is one more"));
-                    }
-                    let d = Dim::base(BASE.len() + u.own_base.len());
-                    u.own_base.push(k.clone());
-                    u.map.insert(k.clone(), UnitDef { f: Num::ONE, d, own: true });
-                }
-                UnitOpt::Num(x) => {
-                    let f = Rat::approx(*x, 1 << 40).filter(|r| r.to_f64() == *x).map(Num::R).unwrap_or(Num::F(*x));
-                    u.map.insert(k.clone(), UnitDef { f, d: Dim::ONE, own: true });
-                }
-                UnitOpt::Str(s) => {
-                    let p = u.parse(s, true).map_err(|e| format!("units: {k}: {e}"))?;
-                    u.map.insert(k.clone(), UnitDef { f: p.f, d: p.d, own: true });
+        Self::build_visible(opts, true)
+    }
+
+    pub fn configured(cfg: &crate::format::Cfg) -> Result<Units, String> {
+        let layers = if cfg.unit_layers.is_empty() { vec![cfg.units.clone()] } else { cfg.unit_layers.clone() };
+        Self::layered(&layers, cfg.builtin_units)
+    }
+
+    pub fn build_visible(opts: &IndexMap<String, UnitOpt>, builtin_units: bool) -> Result<Units, String> {
+        Self::layered(&[opts.clone()], builtin_units)
+    }
+
+    fn layered(layers: &[IndexMap<String, UnitOpt>], builtin_units: bool) -> Result<Units, String> {
+        let layers = layers.iter().map(|layer| layer.iter().map(|(name, value)| (solveng_names::normalize(name), value.clone())).collect()).collect::<Vec<IndexMap<String, UnitOpt>>>();
+        let mut units = Units { builtin_units, ..Units::default() };
+        let mut resolver = Resolver { layers: &layers, cache: HashMap::new(), stack: Vec::new(), own_base: Vec::new() };
+        for (index, layer) in layers.iter().enumerate() {
+            for (name, value) in layer {
+                if !valid_name(name) { return Err(format!("units: '{name}' can't be a unit name (no spaces, digits or operators)")); }
+                if matches!(value, UnitOpt::Key(KeyOpt::None)) {
+                    units.hidden.insert(name.clone());
+                } else {
+                    resolver.resolve(name, index + 1)?;
+                    units.hidden.remove(name);
+                    units.exposed.insert(name.clone());
                 }
             }
         }
-        Ok(u)
+        for layer in &layers {
+            for name in layer.keys() {
+                if let Ok(definition) = resolver.resolve(name, layers.len()) { units.map.insert(name.clone(), definition); }
+            }
+        }
+        units.own_base = resolver.own_base;
+        Ok(units)
+    }
+
+    /// Visibility affects implicit names, never explicit unit references or definitions.
+    pub fn visible(&self, name: &str) -> bool {
+        let normalized = solveng_names::normalize(name);
+        let name = normalized.as_str();
+        self.known(name) && !self.hidden.contains(name)
+            && (self.builtin_units || self.exposed.contains(name) || !Units::was_builtin(name))
+    }
+
+    pub fn bare(&self, name: &str) -> bool {
+        let normalized = solveng_names::normalize(name);
+        let name = normalized.as_str();
+        self.builtin_units && !self.hidden.contains(name) && Units::was_builtin(name)
     }
 
     /// A prefixed unit: kΩ → (factor, dims); a spelled Greek letter takes one only glued (k""Omega), as names do.
@@ -207,6 +237,8 @@ impl Units {
         Some((def.f.mul(pf), def.d))
     }
     pub fn lookup(&self, n: &str) -> Option<(Num, Dim)> {
+        let normalized = solveng_names::normalize(n);
+        let n = normalized.as_str();
         match self.map.get(n) {
             Some(d) => Some((d.f, d.d)),
             None => self.prefixed(n),
@@ -495,6 +527,67 @@ fn utok(s: &str) -> Vec<String> {
     out
 }
 
+struct Resolver<'a> {
+    layers: &'a [IndexMap<String, UnitOpt>],
+    cache: HashMap<(String, usize), UnitDef>,
+    stack: Vec<(String, usize)>,
+    own_base: Vec<String>,
+}
+
+impl Resolver<'_> {
+    fn resolve(&mut self, name: &str, ceiling: usize) -> Result<UnitDef, String> {
+        let found = (0..ceiling).rev().find_map(|index| self.layers[index].get(name).map(|value| (index, value.clone())));
+        let Some((index, value)) = found else {
+            if let Some(definition) = builtin().get(name) { return Ok(definition.clone()); }
+            let prefix = name.chars().next().ok_or_else(|| "unknown unit ''".to_string())?;
+            let exponent = prefix_exp(&prefix.to_string()).ok_or_else(|| format!("unknown unit '{name}'"))?;
+            let rest = &name[prefix.len_utf8()..];
+            if rest.is_empty() || rest == "Omega" { return Err(format!("unknown unit '{name}'")); }
+            let mut definition = self.resolve(rest, ceiling)?;
+            definition.f = definition.f.mul(Num::R(Rat::int(10).powi(exponent as i64).unwrap()));
+            return Ok(definition);
+        };
+        if matches!(value, UnitOpt::Key(KeyOpt::None)) { return self.resolve(name, index); }
+        let key = (name.to_string(), index);
+        if let Some(definition) = self.cache.get(&key) { return Ok(definition.clone()); }
+        if let Some(at) = self.stack.iter().position(|entry| entry == &key) {
+            let cycle = self.stack[at..].iter().map(|(name, _)| name.as_str()).chain(std::iter::once(name)).collect::<Vec<_>>();
+            return Err(format!("units: circular dependency: {}", cycle.join(" -> ")));
+        }
+        self.stack.push(key.clone());
+        let definition = match value {
+            UnitOpt::Key(KeyOpt::Auto) => {
+                if self.own_base.len() == OWN { return Err(format!("units: at most {OWN} base units of your own, '{name}' is one more")); }
+                let d = Dim::base(BASE.len() + self.own_base.len());
+                self.own_base.push(name.into());
+                UnitDef { f: Num::ONE, d, own: true }
+            }
+            UnitOpt::Num(value) => {
+                let f = Rat::approx(value, 1 << 40).filter(|r| r.to_f64() == value).map(Num::R).unwrap_or(Num::F(value));
+                UnitDef { f, d: Dim::ONE, own: true }
+            }
+            UnitOpt::Str(source) => {
+                let mut table = Units::default();
+                let words = utok(&source).into_iter().map(|word| solveng_names::normalize(&word)).collect::<Vec<_>>();
+                for word in words.iter().filter(|word| valid_name(word)) {
+                    let exact = self.layers[..=index].iter().any(|layer| layer.contains_key(word));
+                    if !exact && !table.map.contains_key(word) && prefix_exp(word).is_some() { continue; }
+                    let prefixed_self = word.chars().next().is_some_and(|prefix| prefix_exp(&prefix.to_string()).is_some() && &word[prefix.len_utf8()..] == name);
+                    let ceiling = if word == name || prefixed_self { index } else { index + 1 };
+                    let definition = self.resolve(word, ceiling).map_err(|error| format!("units: {name}: {error}"))?;
+                    table.map.insert(word.clone(), definition);
+                }
+                let parsed = table.parse(&source, true).map_err(|error| format!("units: {name}: {error}"))?;
+                UnitDef { f: parsed.f, d: parsed.d, own: true }
+            }
+            UnitOpt::Key(KeyOpt::None) => unreachable!(),
+        };
+        self.stack.pop();
+        self.cache.insert(key, definition.clone());
+        Ok(definition)
+    }
+}
+
 struct UParser<'a> {
     t: &'a [String],
     i: usize,
@@ -552,7 +645,7 @@ impl UParser<'_> {
                 return Err(format!("can't read the unit '{}'", self.src));
             } else {
                 // "k" Ω: a prefix written apart
-                let mut n = k.to_string();
+                let mut n = solveng_names::normalize(k);
                 self.i += 1;
                 if prefix_exp(&n).is_some() && !self.u.map.contains_key(&n) {
                     if let Some(nx) = self.at(self.i) {
@@ -652,8 +745,42 @@ mod tests {
         o.insert("T".to_string(), UnitOpt::Key(KeyOpt::None));
         let un = Units::build(&o).unwrap();
         assert_eq!(un.lookup("mbar").unwrap().0, Num::int(100));
-        assert!(un.lookup("T").is_none());
+        assert!(un.lookup("T").is_some());
+        assert!(!un.visible("T"));
         assert_eq!(un.auto(&Dim::base(7)).text(), "ü");
+    }
+
+    #[test]
+    fn visibility_and_dependency_layers() {
+        let options = |pairs: &[(&str, UnitOpt)]| pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect();
+        let hidden = Units::build(&options(&[("s", UnitOpt::Key(KeyOpt::None)), ("mys", UnitOpt::Str("s".into()))])).unwrap();
+        assert!(!hidden.visible("s"));
+        assert!(hidden.visible("ms"));
+        assert_eq!(hidden.lookup("mys"), hidden.lookup("s"));
+        let redefined = Units::build(&options(&[("mys", UnitOpt::Str("s".into())), ("s", UnitOpt::Str("2s".into()))])).unwrap();
+        assert_eq!(redefined.lookup("mys").unwrap().0, Num::int(2));
+        let selected = Units::build_visible(&options(&[("s", UnitOpt::Str("s".into()))]), false).unwrap();
+        assert!(selected.visible("s"));
+        assert!(!selected.bare("s"));
+        assert!(!selected.visible("ms"));
+        assert!(!selected.visible("m"));
+        assert!(selected.known("ms"));
+        for pairs in [vec![("zu", UnitOpt::Str("uz".into())), ("uz", UnitOpt::Str("zu".into()))], vec![("zu", UnitOpt::Str("uz".into())), ("uz", UnitOpt::Str("mzu".into()))]] {
+            assert!(Units::build(&options(&pairs)).unwrap_err().contains("circular dependency"));
+        }
+        let forward = Units::build(&options(&[("zu", UnitOpt::Str("2uz".into())), ("uz", UnitOpt::Str("3m".into()))])).unwrap();
+        assert_eq!(forward.lookup("zu").unwrap().0, Num::int(6));
+    }
+
+    #[test]
+    fn nested_overlays_resolve_self_references_in_the_lower_layer() {
+        let layer = |name: &str, value: &str| IndexMap::from([(name.into(), UnitOpt::Str(value.into()))]);
+        let units = Units::layered(&[layer("s", "2s"), layer("s", "3s")], false).unwrap();
+        assert_eq!(units.lookup("s").unwrap().0, Num::int(6));
+        assert!(!units.bare("s"));
+        assert!(units.visible("s"));
+        let units = Units::layered(&[layer("span", "2m"), layer("span", "3span")], true).unwrap();
+        assert_eq!(units.lookup("span").unwrap().0, Num::int(6));
     }
 
     impl Units {

@@ -38,6 +38,8 @@ pub enum Op {
     Cols,
     /// at(v, i), at(A, i, j): an element, counted from 0.
     At,
+    /// convolve(x, h): the discrete convolution of two sequences (vectors), of length n + m − 1.
+    Convolve,
 }
 
 /// The functions on matrices, by name.
@@ -70,6 +72,7 @@ impl Op {
             Op::Rows => "rows",
             Op::Cols => "cols",
             Op::At => "at",
+            Op::Convolve => "convolve",
         }
     }
     /// What it takes, for a call with the wrong number of arguments.
@@ -82,7 +85,7 @@ impl Op {
     /// How many arguments it takes.
     pub fn arity(self) -> RangeInclusive<usize> {
         match self {
-            Op::Cross => 2..=2,
+            Op::Cross | Op::Convolve => 2..=2,
             Op::At => 2..=3,
             _ => 1..=1,
         }
@@ -118,7 +121,7 @@ impl Array {
     fn square(&self) -> bool {
         self.rows == self.cols
     }
-    fn vector(&self) -> bool {
+    pub fn vector(&self) -> bool {
         self.cols == 1
     }
     /// For messages: "a vector of 3 components", "a 2×3 matrix".
@@ -360,6 +363,69 @@ fn eval(op: Op, args: &[Expr]) -> Result<Option<Expr>, String> {
     if args.iter().any(waits) {
         return Ok(None);
     }
+    // x[i] with a vector of indices (a range variable): the elements at each
+    if op == Op::At && args.len() >= 2 {
+        if let Some(k) = (1..args.len()).find(|&k| Array::of(&args[k]).is_some_and(|a| a.vector())) {
+            let idx = Array::of(&args[k]).unwrap();
+            let mut out = vec![];
+            for i in idx.a {
+                let mut a = args.to_vec();
+                a[k] = i;
+                match eval(op, &a)? {
+                    Some(e) => out.push(e),
+                    None => return Ok(None),
+                }
+            }
+            return Ok(Some(Expr::Vector(out)));
+        }
+    }
+    if op == Op::Convolve {
+        let seq = |e: &Expr| -> Result<Vec<Expr>, String> {
+            match Array::of(e) {
+                Some(a) if a.vector() => Ok(a.a),
+                Some(a) => Err(format!("convolve takes two sequences (vectors), not {}", a.describe())),
+                None => Ok(vec![e.clone()]),
+            }
+        };
+        let (x, h) = (seq(&args[0])?, seq(&args[1])?);
+        if x.is_empty() || h.is_empty() {
+            return Err("convolve: a sequence without elements".into());
+        }
+        let n = x.len() + h.len() - 1;
+        // sequences of values (the usual case, sampled signals): computed with their numbers directly
+        let values = |v: &[Expr]| -> Option<(Vec<Num>, Dim)> {
+            let d = v.first()?.as_c()?.d;
+            v.iter().map(|e| e.as_c().filter(|c| c.d == d).map(|c| c.v)).collect::<Option<Vec<_>>>().map(|ns| (ns, d))
+        };
+        if let (Some((xs, dx)), Some((hs, dh))) = (values(&x), values(&h)) {
+            let d = dx.mul(&dh);
+            // whole numbers exactly; other samples (measured, sampled signals) as floats, which a sum of
+            // products of many fractions would only turn into anyway, slowly
+            let whole = xs.iter().chain(&hs).all(|v| v.as_int().is_some_and(|i| i.abs() < 1 << 40));
+            let (xf, hf): (Vec<f64>, Vec<f64>) = (xs.iter().map(|v| v.f()).collect(), hs.iter().map(|v| v.f()).collect());
+            let out = (0..n)
+                .map(|k| {
+                    let lo = k.saturating_sub(hs.len() - 1);
+                    let hi = k.min(xs.len() - 1);
+                    let v = if whole {
+                        (lo..=hi).fold(Num::ZERO, |acc, i| acc.add(xs[i].mul(hs[k - i])))
+                    } else {
+                        Num::F((lo..=hi).map(|i| xf[i] * hf[k - i]).sum())
+                    };
+                    Expr::C(Val::new(v, d))
+                })
+                .collect();
+            return Ok(Some(Expr::Vector(out)));
+        }
+        let out = (0..n)
+            .map(|k| {
+                let lo = k.saturating_sub(h.len() - 1);
+                let hi = k.min(x.len() - 1);
+                simp(&Expr::Add((lo..=hi).map(|i| expr::mul(vec![x[i].clone(), h[k - i].clone()])).collect()))
+            })
+            .collect();
+        return Ok(Some(Expr::Vector(out)));
+    }
     let arrays: Vec<Option<Array>> = args.iter().map(Array::of).collect();
     let need = |i: usize| arrays[i].clone().ok_or_else(|| format!("{} takes a vector or matrix", op.name()));
     let square = |a: &Array| if a.square() { Ok(()) } else { Err(format!("{} takes a square matrix, not {}", op.name(), a.describe())) };
@@ -403,8 +469,27 @@ fn eval(op: Op, args: &[Expr]) -> Result<Option<Expr>, String> {
             }
             a.at(i, j).clone()
         }
-        Op::Cross => unreachable!("handled above"),
+        Op::Cross | Op::Convolve => unreachable!("handled above"),
     }))
+}
+
+/// Elements selected by constant indices taken out without simplifying the whole vector or matrix first:
+/// the body of x[i] := … for each value of i reads one element of t[i].
+pub fn pick(e: &Expr) -> Expr {
+    if let Expr::Op(Op::At, args) = e {
+        if let Some(a) = Array::of(&args[0]) {
+            let index = |e: &Expr| simp(&pick(e)).as_num().and_then(Num::as_int).filter(|i| *i >= 0).map(|i| i as usize);
+            let at = match args.len() {
+                2 if a.vector() => index(&args[1]).map(|i| (i, 0)),
+                3 => index(&args[1]).zip(index(&args[2])),
+                _ => None,
+            };
+            if let Some((i, j)) = at.filter(|(i, j)| *i < a.rows && *j < a.cols) {
+                return pick(a.at(i, j));
+            }
+        }
+    }
+    e.map(&mut pick)
 }
 
 /// Why an expression with arrays in it has no value: the first operation that can't be done.

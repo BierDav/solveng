@@ -59,6 +59,9 @@ pub struct Series {
     pub curve: usize,
     pub label: Option<String>,
     pub label_pos: f64,
+    /// Sampled data with few points: each point is drawn as a dot too.
+    #[serde(default)]
+    pub dots: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -110,6 +113,154 @@ struct Curve {
     call: Option<String>,
     /// The parameters written in its head.
     params: Vec<String>,
+    /// Sampled data instead of a function of x (`e` is then unused).
+    data: Option<Data>,
+}
+
+/// Data with at most this many points is drawn with a dot at every point, a line alone hides where they are.
+const DOTS_MAX: usize = 30;
+
+/// Sampled data: the points (x_k, y_k) in SI, drawn in index order.
+struct Data {
+    xs: Vec<f64>,
+    ys: Vec<f64>,
+    xd: Dim,
+    yd: Dim,
+    /// What x is: (identifier, axis label markup); `None`: the index k = 0 … n−1.
+    x: Option<(String, String)>,
+}
+
+impl Data {
+    fn segments(&self) -> impl Iterator<Item = ((f64, f64), (f64, f64))> + '_ {
+        (1..self.xs.len()).map(|k| ((self.xs[k - 1], self.ys[k - 1]), (self.xs[k], self.ys[k])))
+    }
+    /// y on every segment through x = t, linearly interpolated (several where x runs back).
+    fn at(&self, t: f64) -> Vec<f64> {
+        let mut out: Vec<f64> = vec![];
+        let mut add = |y: f64| if out.last() != Some(&y) { out.push(y) };
+        if self.xs.len() == 1 && self.xs[0] == t { add(self.ys[0]); }
+        for ((x1, y1), (x2, y2)) in self.segments() {
+            if t < x1.min(x2) || t > x1.max(x2) { continue; }
+            if t == x1 { add(y1); } else if t == x2 { add(y2); } else { add(y1 + (y2 - y1) * (t - x1) / (x2 - x1)); }
+        }
+        out
+    }
+    /// The x values where the data reaches y = level: samples on it and sign changes between samples, interpolated.
+    fn level(&self, level: f64) -> Vec<f64> {
+        let n = self.xs.len();
+        let mut out = vec![];
+        for k in 0..n {
+            let u = self.ys[k] - level;
+            if u == 0.0 {
+                out.push(self.xs[k]);
+            } else if k + 1 < n {
+                let w = self.ys[k + 1] - level;
+                if w != 0.0 && (u > 0.0) != (w > 0.0) { out.push(self.xs[k] + (self.xs[k + 1] - self.xs[k]) * u / (u - w)); }
+            }
+        }
+        out
+    }
+    /// Local extreme samples: higher or lower than the samples on both sides (a plateau counts once, at its middle).
+    fn extrema(&self) -> Vec<(f64, f64)> {
+        let (ys, n) = (&self.ys, self.ys.len());
+        let mut out = vec![];
+        let mut a = 0;
+        while a < n {
+            let mut b = a;
+            while b + 1 < n && ys[b + 1] == ys[a] { b += 1; }
+            if a > 0 && b + 1 < n && (ys[a - 1] < ys[a]) == (ys[b + 1] < ys[a]) {
+                let m = (a + b) / 2;
+                out.push((self.xs[m], ys[m]));
+            }
+            a = b + 1;
+        }
+        out
+    }
+    /// The parts of the polyline within a ≤ x ≤ b, cut where it leaves.
+    fn clip(&self, a: f64, b: f64) -> Vec<Vec<(f64, f64)>> {
+        let inside = |x: f64| a <= x && x <= b;
+        let mut runs: Vec<Vec<(f64, f64)>> = vec![];
+        if self.xs.len() == 1 && inside(self.xs[0]) { runs.push(vec![(self.xs[0], self.ys[0])]); }
+        let mut open = false;
+        for (p, q) in self.segments() {
+            // the part of the segment p + s (q − p), 0 ≤ s ≤ 1, within the range
+            let (mut s0, mut s1) = (0.0f64, 1.0f64);
+            if p.0 == q.0 {
+                if !inside(p.0) { open = false; continue; }
+            } else {
+                let (sa, sb) = ((a - p.0) / (q.0 - p.0), (b - p.0) / (q.0 - p.0));
+                s0 = s0.max(sa.min(sb));
+                s1 = s1.min(sa.max(sb));
+                if s0 > s1 { open = false; continue; }
+            }
+            let at = |s: f64| if s == 0.0 { p } else if s == 1.0 { q } else { (p.0 + s * (q.0 - p.0), p.1 + s * (q.1 - p.1)) };
+            if !open || s0 > 0.0 { runs.push(vec![at(s0)]); }
+            runs.last_mut().unwrap().push(at(s1));
+            open = s1 == 1.0;
+        }
+        runs
+    }
+}
+
+/// The numeric values of a vector (a matrix of one row or one column): SI numbers of one dimension. `None` if
+/// `e` isn't a vector; `what` names it in messages.
+fn data_values(env: &Env, units: &Units, e: &Expr, what: &str) -> Result<Option<(Vec<f64>, Dim)>, String> {
+    let e = simp(&env.bind_with_units(e, &BTreeSet::new(), units)?);
+    let Some(a) = crate::linalg::Array::of(&e) else { return Ok(None) };
+    if a.rows > 1 && a.cols > 1 {
+        return Err(format!("{what} is {} – plot a vector, for example a column of it", a.describe()));
+    }
+    let mut xs = vec![];
+    let mut dim: Option<Dim> = None;
+    for (k, el) in a.a.iter().enumerate() {
+        let v = value(el).map_err(|m| format!("{what}: element {k} has no value – {}", m.message()))?;
+        let x = v.v.f();
+        if !x.is_finite() { return Err(format!("{what}: element {k} isn't a finite number")); }
+        match dim {
+            Some(d) if d != v.d => {
+                let t = |d: &Dim| if d.is_one() { "no unit".to_string() } else { units.auto(d).text() };
+                return Err(format!("{what}: element {k} is in {}, but element 0 in {} – data needs one unit for all elements", t(&v.d), t(&d)));
+            }
+            _ => dim = Some(v.d),
+        }
+        xs.push(x);
+    }
+    if xs.is_empty() { return Err(format!("{what} is empty – nothing to plot")); }
+    Ok(Some((xs, dim.unwrap_or(Dim::ONE))))
+}
+
+/// A curve over another vector: `y(tau)` with y a defined vector and tau anything without free names that is a
+/// vector of the same length. `None`: not of this form, read as a function curve. The only place a data curve is
+/// told by how it's written; `src` is the curve as written, for messages.
+fn data_curve(env: &Env, cv: &parse::Curve, src: &str, units: &Units, r: &R) -> Result<Option<(String, Data)>, String> {
+    let parse::Ast::Call(n, args) = &cv.body else { return Ok(None) };
+    if cv.head.as_ref().is_some_and(|h| !h.1.is_empty()) || env.funs.contains_key(n) { return Ok(None); }
+    let Some(var) = env.vars.get(n) else { return Ok(None) };
+    if cv.defines {
+        return Err(format!("'{src}' plots data, it defines nothing – write it with = or without a name"));
+    }
+    let [arg] = args.as_slice() else {
+        return Err(format!("'{n}' is a variable: '{n}(…)' plots the vector {n} over one vector of the same length, like {n}(t)"));
+    };
+    let Some((ys, yd)) = data_values(env, units, &var.expr, n)? else {
+        return Err(format!("'{n}' isn't a vector, so '{src}' can't plot it over another – {n} is a variable and can't be called"));
+    };
+    let what = match arg { parse::Ast::Name(m) => m.clone(), _ => format!("the argument of {n}") };
+    let xe = Lower::new(env, units).expr(arg)?;
+    let free = env.bind_with_units(&xe, &BTreeSet::new(), units)?.syms();
+    if let Some(f) = free.first() {
+        return Err(format!("'{f}' isn't defined – '{src}' plots the vector {n} over a vector of the same length; a function of {f} is written {n}({f}) := …"));
+    }
+    let Some((xs, xd)) = data_values(env, units, &xe, &what)? else {
+        return Err(format!("{what} isn't a vector – '{src}' plots {n} over a vector of the same length; one element is at({n}, k)"));
+    };
+    if xs.len() != ys.len() {
+        return Err(format!("'{src}': {n} has {} elements, but {what} has {} – data is plotted over a vector of the same length", ys.len(), xs.len()));
+    }
+    let xlabel = r.ast(arg, &|_| None).0;
+    let id = match arg { parse::Ast::Name(m) => m.clone(), _ => xlabel.clone() };
+    let name = cv.head.as_ref().map_or(n, |h| &h.0).clone();
+    Ok(Some((name, Data { xs, ys, xd, yd, x: Some((id, xlabel)) })))
 }
 
 /// An x or y value: (SI value, dims, unit text, source) or a plain number.
@@ -122,6 +273,8 @@ enum V {
 struct Read {
     curves: Vec<Curve>,
     x: String,
+    /// The x axis's label where data sets it (the names of the x vectors).
+    xlabel: Option<String>,
     xunit_typed: Option<UnitExpr>,
     defines: Vec<Src>,
     eq: String,
@@ -152,6 +305,7 @@ fn case_boundaries(e: &Expr, x: &str, scale: f64, points: &mut Vec<f64>) {
 
 fn read(env: &Env, req: &GraphReq, units: &Units) -> Result<Read, String> {
     let cfg = &req.cfg;
+    let functions = crate::builtins::Functions::configured(cfg)?;
     let is_fn = |n: &str| env.funs.contains_key(n);
     let is_var = |n: &str| env.vars.contains_key(n);
     let r = R { units, cfg, exact: false, sub: None };
@@ -160,8 +314,18 @@ fn read(env: &Env, req: &GraphReq, units: &Units) -> Result<Read, String> {
     let mut takes: Vec<String> = vec![];
     let mut xunit_typed: Option<UnitExpr> = None;
     let mut defines = vec![];
+    // the names data is plotted over (tau in y(tau)) are what the function curves alongside take: c(tau), 2 tau
+    let mut data_x = BTreeSet::new();
     for c in &req.curves {
-        let ctx = Ctx { units, mode: c.mode, is_fn: &is_fn, is_var: &is_var, strict: cfg.strict };
+        let ctx = Ctx { units, functions: &functions, mode: c.mode, is_fn: &is_fn, is_var: &is_var, strict: cfg.strict };
+        if let Ok(cv) = parse::parse_curve(&c.src, &ctx)
+            && let Ok(Some((_, Data { x: Some((id, _)), .. }))) = data_curve(env, &cv, &tidy(&c.src), units, &r)
+            && is_var(&id) {
+            data_x.insert(id);
+        }
+    }
+    for c in &req.curves {
+        let ctx = Ctx { units, functions: &functions, mode: c.mode, is_fn: &is_fn, is_var: &is_var, strict: cfg.strict };
         let cv = match parse::parse_curve(&c.src, &ctx) {
             Ok(cv) => cv,
             Err(e) if e.starts_with("NAMED:") => {
@@ -179,8 +343,15 @@ fn read(env: &Env, req: &GraphReq, units: &Units) -> Result<Read, String> {
             }
             Err(e) => return Err(e),
         };
+        let display = c.label.as_ref().map(|label| parse::parse_curve(label, &ctx)).transpose()?;
+        let label = r.ast(display.as_ref().map_or(&cv.body, |cv| &cv.body), &|_| None).0;
+        if let Some((n, data)) = data_curve(env, &cv, &tidy(&c.src), units, &r)? {
+            curves.push(Curve { e: Expr::C(crate::expr::Val::new(Num::ZERO, Dim::ONE)), label, name: Some(n), call: None, params: vec![], data: Some(data) });
+            continue;
+        }
         // the free names: what the curve is plotted against
         let mut lo = Lower::new(env, units);
+        lo.params.extend(data_x.iter().cloned());
         let mut written: Vec<String> = vec![];
         if let Some((_, ps, _)) = &cv.head {
             for p in ps {
@@ -216,6 +387,18 @@ fn read(env: &Env, req: &GraphReq, units: &Units) -> Result<Read, String> {
             && let Some(f) = free.iter().find(|f| !written.contains(f)) {
                 return Err(format!("'{f}' in '{n}' isn't defined – define it first with :=, or plot against it: {n}({f}) or {n}(..)"));
             }
+        // nothing varies and it's a vector of values: data, plotted against its index
+        if free.is_empty() && let Some((ys, yd)) = data_values(env, units, &e0, &label)? {
+            let name = match (&cv.head, &cv.body) {
+                (Some(h), _) => Some(h.0.clone()),
+                (None, parse::Ast::Name(n)) => Some(n.clone()),
+                _ => None,
+            };
+            if cv.defines { defines.push(c.clone()); }
+            let xs = (0..ys.len()).map(|k| k as f64).collect();
+            curves.push(Curve { e: Expr::C(crate::expr::Val::new(Num::ZERO, Dim::ONE)), label, name, call: None, params: written.clone(), data: Some(Data { xs, ys, xd: Dim::ONE, yd, x: None }) });
+            continue;
+        }
         // read again with every free name as a parameter: the units they get from the functions they're passed to
         let mut lo2 = Lower::new(env, units);
         lo2.params = free.iter().cloned().collect();
@@ -237,8 +420,6 @@ fn read(env: &Env, req: &GraphReq, units: &Units) -> Result<Read, String> {
             parse::Ast::Call(n, _) => Some(n.clone()),
             _ => None,
         };
-        let display = c.label.as_ref().map(|label| parse::parse_curve(label, &ctx)).transpose()?;
-        let label = r.ast(display.as_ref().map_or(&cv.body, |cv| &cv.body), &|_| None).0;
         if cv.defines {
             defines.push(c.clone());
         }
@@ -249,7 +430,7 @@ fn read(env: &Env, req: &GraphReq, units: &Units) -> Result<Read, String> {
             if matches!(e, Expr::Vector(_)) { return Err("a graph needs scalar components – select a solution with at(vector, index)".into()); }
             curves.push(Curve {
                 e, label: if count == 1 { label.clone() } else { format!("{}_({})", label, i + 1) },
-                name: cv.head.as_ref().map(|h| h.0.clone()), call: call.clone(), params: written.clone(),
+                name: cv.head.as_ref().map(|h| h.0.clone()), call: call.clone(), params: written.clone(), data: None,
             });
         }
     }
@@ -260,22 +441,35 @@ fn read(env: &Env, req: &GraphReq, units: &Units) -> Result<Read, String> {
             takes.iter().map(|n| format!("'{n}'")).collect::<Vec<_>>().join(", ")
         ));
     }
-    let Some(x) = takes.first().cloned() else { return Err(format!("nothing varies in '{eq}' – a curve takes what it's plotted against: U(x) = …")) };
+    // data is over its x vectors (or its index); function curves alongside take the same x
+    let datax: Vec<(String, String)> = curves.iter().filter_map(|c| c.data.as_ref()?.x.clone()).collect();
+    let has_data = curves.iter().any(|c| c.data.is_some());
+    if let (Some(t), Some(dx)) = (takes.first(), data_x.iter().find(|d| Some(*d) != takes.first())) {
+        return Err(format!("a graph has one x axis: the data is over '{dx}', but '{t}' varies in '{eq}' – write the curves in {dx}"));
+    }
+    let Some(x) = takes.first().or(data_x.first()).or(datax.first().map(|d| &d.0)).cloned().or(has_data.then(|| "k".to_string())) else {
+        return Err(format!("nothing varies in '{eq}' – a curve takes what it's plotted against: U(x) = …"));
+    };
+    let xlabel = has_data.then(|| {
+        let mut ls: Vec<String> = takes.iter().map(|t| name(t)).chain(datax.iter().map(|d| d.1.clone())).collect();
+        ls.dedup();
+        if ls.is_empty() { name(&x) } else { ls.join(", ") }
+    });
     // y(y) := … names its parameter so on purpose
-    if curves.iter().any(|c| c.name.as_deref() == Some(x.as_str()) && !c.params.contains(&x)) {
+    if curves.iter().any(|c| c.data.is_none() && c.name.as_deref() == Some(x.as_str()) && !c.params.contains(&x)) {
         return Err(format!("'{x}' is what the curve is plotted against, so it can't name it"));
     }
-    Ok(Read { curves, x, xunit_typed, defines, eq })
+    Ok(Read { curves, x, xlabel, xunit_typed, defines, eq })
 }
 
 /// The curves written with `:=`, if the graph can read its curves: what calculating them as lines defines.
 pub fn defines(env: &Env, req: &GraphReq) -> Result<Vec<Src>, String> {
-    let units = Units::build(&req.cfg.units)?;
+    let units = Units::configured(&req.cfg)?;
     Ok(read(env, req, &units)?.defines)
 }
 
 pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
-    let units = Units::build(&req.cfg.units)?;
+    let units = Units::configured(&req.cfg)?;
     let cfg = &req.cfg;
     if req.curves.is_empty() {
         return Err("nothing to plot – pass an equation like \"P = U^2/R\"".into());
@@ -283,7 +477,12 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
     if req.samples < 2 {
         return Err("samples: an integer ≥ 2".into());
     }
-    let Read { curves, x, xunit_typed, eq, .. } = read(env, req, &units)?;
+    let Read { curves, x, xlabel, xunit_typed, eq, .. } = read(env, req, &units)?;
+    let data: Vec<&Data> = curves.iter().filter_map(|c| c.data.as_ref()).collect();
+    let utext = |d: &Dim| if d.is_one() { "no unit".to_string() } else { units.auto(d).text() };
+    if let Some(d) = data.iter().find(|d| d.xd != data[0].xd) {
+        return Err(format!("the data's x values have different units ({} and {}) – plot them separately", utext(&data[0].xd), utext(&d.xd)));
+    }
     let tidy = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ").replace("( ", "(").replace(" )", ")");
     // values of ranges and marks
     let xv = |v: &XV| -> Result<V, String> {
@@ -291,7 +490,9 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
             XV::Num(n) => Ok(V::Plain(*n)),
             XV::Src(s) => {
                 let t = s.src.trim();
-                if let Ok(n) = t.replace(',', ".").replace('−', "-").parse::<f64>() {
+                // no e-notation: `1e5` is a number and the name e5, not a range value
+                if !t.contains(['e', 'E'])
+                    && let Ok(n) = t.replace(',', ".").replace('−', "-").parse::<f64>() {
                     return Ok(V::Plain(n));
                 }
                 let (val, d) = crate::api::quantity(env, cfg, t, s.mode).map_err(|e| format!("{e} in '{t}'"))?;
@@ -321,9 +522,19 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
             _ => None,
         })
         .collect();
-    let mut xunit = match (&xunit_typed, withu.first()) {
-        (Some(u), _) => u.clone(),
-        (None, Some((_, u))) => units.parse(u, false).map(|p| p.u).unwrap_or_default(),
+    // data's x unit: its elements', with a prefix fitting the largest
+    let data_xunit = data.first().map(|d| {
+        let a = units.auto(&d.xd);
+        let m = data.iter().flat_map(|d| &d.xs).fold(0.0f64, |m, x| m.max(x.abs()));
+        units.prefixed_for(m / units.factor(&a).f(), &a, &cfg.prefixes)
+    });
+    // the data's unit, if the functions alongside take x in the same dimension (c(t: s) next to data in ms)
+    if let (Some(d), Some(u)) = (data.first(), &xunit_typed) && units.dim(u).unwrap_or(Dim::ONE) != d.xd {
+        return Err(format!("the data is over x values in {}, but the curves take {x} in {} – x needs one unit", utext(&d.xd), u.text()));
+    }
+    let mut xunit = match (&data_xunit, &xunit_typed, withu.first()) {
+        (Some(u), ..) | (None, Some(u), _) => u.clone(),
+        (None, None, Some((_, u))) => units.parse(u, false).map(|p| p.u).unwrap_or_default(),
         _ => UnitExpr::default(),
     };
     let mut xd = units.dim(&xunit).unwrap_or(Dim::ONE);
@@ -332,7 +543,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         V::Q(_, d, ..) if !d.is_one() => Some(*d),
         _ => None,
     });
-    if xunit.is_empty() && withu.is_empty() {
+    if xunit.is_empty() && withu.is_empty() && data.is_empty() {
         if let Some(yd) = yu {
             let known = |n: &str| env.vars.get(n).and_then(|v| value(&env.bind_with_units(&v.expr, &BTreeSet::new(), &units).ok()?).ok()).map(|v| v.d);
             let y = Expr::C(crate::expr::Val::new(Num::ONE, yd));
@@ -374,11 +585,13 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         }
         env.vars.get(n).and_then(|v| value(&env.bind_with_units(&v.expr, &BTreeSet::new(), &units).ok()?).ok()).map(|v| v.d)
     };
-    let yd = dim_of(&curves[0].e, &known)?.unwrap_or(Dim::ONE);
+    let cdim = |c: &Curve| match &c.data { Some(d) => Ok(Some(d.yd)), None => dim_of(&c.e, &known) };
+    let yd = cdim(&curves[0])?.unwrap_or(Dim::ONE);
     for c in &curves[1..] {
-        if let Ok(Some(d)) = dim_of(&c.e, &known) {
-            if d != yd && !yd.is_one() {
-                return Err(format!("the curves have different units ({} and {}) – plot them separately", units.auto(&yd).text(), if d.is_one() { "1".into() } else { units.auto(&d).text() }));
+        if let Ok(Some(d)) = cdim(c) {
+            // a unitless function next to others may be a scale; data has the unit it has
+            if d != yd && (!yd.is_one() || c.data.is_some()) {
+                return Err(format!("the curves have different units ({} and {}) – plot them separately", if yd.is_one() { "1".into() } else { units.auto(&yd).text() }, if d.is_one() { "1".into() } else { units.auto(&d).text() }));
             }
         }
     }
@@ -398,11 +611,14 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
     let yb = units.factor(&units.auto(&yd)).f();
     let yrv: Vec<f64> = yrv.iter().map(|v| si(v, yb)).collect();
     let ymv: Vec<f64> = ymv.iter().map(|v| si(v, yb)).collect();
-    let f = |c: &Curve, t: f64| eval_f(&c.e, &|n| (n == x).then_some(t));
+    let f = |c: &Curve, t: f64| match &c.data {
+        Some(d) => d.at(t).first().copied(),
+        None => eval_f(&c.e, &|n| (n == x).then_some(t)),
+    };
     // where the curves reach the y marks: the nearest ones must be visible
     let mut yneed = vec![];
     for y in &ymv {
-        for c in &curves {
+        for c in curves.iter().filter(|c| c.data.is_none()) {
             let mut rs = scan(&simp(&expr::sub(c.e.clone(), Expr::C(crate::expr::Val::new(Num::F(*y), Dim::ONE)))), &x, xf);
             rs.sort_by(|a, b| a.abs().total_cmp(&b.abs()));
             if let Some(first) = rs.first().copied() {
@@ -411,7 +627,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         }
     }
     let mut boundaries = vec![];
-    for c in &curves { case_boundaries(&c.e, &x, xf, &mut boundaries); }
+    for c in curves.iter().filter(|c| c.data.is_none()) { case_boundaries(&c.e, &x, xf, &mut boundaries); }
     boundaries.retain(|point| point.is_finite());
     boundaries.sort_by(f64::total_cmp);
     boundaries.dedup();
@@ -422,6 +638,16 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
     dedup_rv.dedup();
     let (mut xa, mut xb) = if dedup_rv.len() >= 2 {
         (dedup_rv[0], *dedup_rv.last().unwrap())
+    } else if !data.is_empty() {
+        // data: from its first to its last x value, as it was taken
+        let lo = data.iter().flat_map(|d| &d.xs).copied().fold(f64::INFINITY, f64::min);
+        let hi = data.iter().flat_map(|d| &d.xs).copied().fold(f64::NEG_INFINITY, f64::max);
+        if lo == hi {
+            let w = if lo == 0.0 { xf } else { lo.abs() / 2.0 };
+            (lo - w, lo + w)
+        } else {
+            (lo, hi)
+        }
     } else if !need.is_empty() {
         // the marks are what's interesting: around them, not back to 0
         let lo = need.iter().copied().fold(f64::INFINITY, f64::min);
@@ -465,10 +691,16 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         ts.sort_by(f64::total_cmp);
         ts.dedup();
     }
-    let ys: Vec<Vec<Option<f64>>> = curves.iter().map(|c| ts.iter().map(|&t| f(c, t)).collect()).collect();
+    let ys: Vec<Vec<Option<f64>>> = curves.iter().map(|c| if c.data.is_some() { vec![None; ts.len()] } else { ts.iter().map(|&t| f(c, t)).collect() }).collect();
+    // data within the x range, as drawn
+    let clipped: Vec<Vec<Vec<(f64, f64)>>> = curves.iter().map(|c| c.data.as_ref().map_or(vec![], |d| d.clip(xa, xb))).collect();
+    let dys: Vec<f64> = clipped.iter().flatten().flatten().map(|p| p.1).collect();
     let mut all: Vec<f64> = ys.iter().flatten().filter_map(|y| *y).collect();
     all.sort_by(|a, b| a.total_cmp(b));
-    if all.is_empty() {
+    if all.is_empty() && dys.is_empty() && !data.is_empty() {
+        return Err("the data has no points within the x range".into());
+    }
+    if all.is_empty() && dys.is_empty() {
         let mut missing = BTreeSet::new();
         for curve in &curves {
             let mut pending = vec![&curve.e];
@@ -482,10 +714,18 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         }
         return Err(format!("'{eq}' can't be evaluated in this range"));
     }
-    let (mut lo, mut hi) = (all[0], *all.last().unwrap());
-    let (q1, q2) = (all[(all.len() as f64 * 0.05) as usize], all[((all.len() as f64 * 0.95) as usize).min(all.len() - 1)]);
-    if hi - lo > 20.0 * (q2 - q1) && q2 > q1 {
-        (lo, hi) = (q1 - (q2 - q1) / 2.0, q2 + (q2 - q1) / 2.0); // poles
+    let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+    if !all.is_empty() {
+        (lo, hi) = (all[0], *all.last().unwrap());
+        let (q1, q2) = (all[(all.len() as f64 * 0.05) as usize], all[((all.len() as f64 * 0.95) as usize).min(all.len() - 1)]);
+        if hi - lo > 20.0 * (q2 - q1) && q2 > q1 {
+            (lo, hi) = (q1 - (q2 - q1) / 2.0, q2 + (q2 - q1) / 2.0); // poles
+        }
+    }
+    // data has no poles: all of it shows
+    for y in &dys {
+        lo = lo.min(*y);
+        hi = hi.max(*y);
     }
     let mut dedup_y = yrv.clone();
     dedup_y.sort_by(|a, b| a.total_cmp(b));
@@ -501,6 +741,11 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         } else {
             let p = (hi - lo) * 0.25;
             (lo, hi) = (lo - p, hi + p);
+        }
+        // but all of the data
+        for y in &dys {
+            lo = lo.min(*y);
+            hi = hi.max(*y);
         }
     }
     // a function's result in the type it returns (A², not W from V·A)
@@ -585,7 +830,9 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
             branches(&c.e, &|n| (n == x).then_some(t), &mut selected);
             selected
         };
-        for (j, &t) in ts.iter().enumerate() {
+        // functions: their samples; data: its points as they are
+        let samples: &[f64] = if c.data.is_some() { &[] } else { &ts };
+        for (j, &t) in samples.iter().enumerate() {
             let Some(v) = ys[i][j] else {
                 if !runs.last().unwrap().is_empty() {
                     runs.push(vec![]);
@@ -613,14 +860,21 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
             runs.last_mut().unwrap().push(p);
         }
         runs.retain(|r| r.len() > 1);
+        if c.data.is_some() {
+            runs = clipped[i].iter().map(|r| r.iter().map(|p| (p.0 / xf, p.1 / yf, usize::MAX)).collect()).collect();
+        }
         let longest = runs.iter().map(|r| r.len()).max().unwrap_or(0);
+        // one label per curve, on its longest run (a piecewise curve has several of the same length)
+        let mut labelled = false;
         for run in runs {
-            let lab = curves.len() > 1 && run.len() == longest;
+            let lab = curves.len() > 1 && run.len() == longest && !labelled;
+            labelled |= lab;
             let mut lp = 0.8;
             if lab {
                 let (mut best, mut bd) = (None, -1.0);
                 for (k, &(px, py, j)) in run.iter().enumerate().rev() {
-                    if (k as f64) < run.len() as f64 * 0.15 || (k as f64) > run.len() as f64 * 0.95 || py < y0 || py > y1 {
+                    // not on the axes' ends, where their labels are
+                    if (k as f64) < run.len() as f64 * 0.15 || (k as f64) > run.len() as f64 * 0.95 || py < y0 + 0.08 * (y1 - y0) || py > y1 - 0.12 * (y1 - y0) {
                         continue;
                     }
                     if used.iter().any(|&(ux, uy)| (ux - px).abs() < 0.2 * (x1 - x0) && (uy - py).abs() < 0.15 * (y1 - y0)) {
@@ -628,7 +882,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
                     }
                     let dd = (0..curves.len())
                         .filter(|&o| o != i)
-                        .map(|o| match ys[o][j] {
+                        .map(|o| match if j == usize::MAX || curves[o].data.is_some() { f(&curves[o], px * xf) } else { ys[o][j] } {
                             None => 1.0,
                             Some(w) => (w / yf - py).abs() / (y1 - y0),
                         })
@@ -643,7 +897,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
                     used.push((run[b].0, run[b].1));
                 }
             }
-            series.push(Series { points: run.iter().map(|p| (p.0, p.1)).collect(), curve: i, label: lab.then(|| label.clone()), label_pos: lp });
+            series.push(Series { points: run.iter().map(|p| (p.0, p.1)).collect(), curve: i, label: lab.then(|| label.clone()), label_pos: lp, dots: c.data.as_ref().is_some_and(|d| d.xs.len() <= DOTS_MAX) });
         }
     }
     // marks
@@ -668,9 +922,18 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
     let crossings = |pairs: &[(usize, usize)], ly: bool| -> Vec<(f64, Option<f64>, &'static str, bool, bool)> {
         let mut out = vec![];
         for &(a, b) in pairs {
-            let h = |t: f64| Some(f(&curves[a], t)? - f(&curves[b], t)?);
-            for t in zeros(&h) {
-                out.push((t, f(&curves[a], t), if ly { "xy" } else { "x" }, true, ly));
+            let (ca, cb) = (&curves[a], &curves[b]);
+            let met = match (&ca.data, &cb.data) {
+                (None, None) => {
+                    let h = |t: f64| Some(f(ca, t)? - f(cb, t)?);
+                    zeros(&h).into_iter().map(|t| (t, f(ca, t))).collect()
+                }
+                (Some(d), None) => data_meets(d, &|t| f(cb, t), &ts),
+                (None, Some(d)) => data_meets(d, &|t| f(ca, t), &ts),
+                (Some(p), Some(q)) => data_cross(p, q),
+            };
+            for (t, y) in met {
+                out.push((t, y, if ly { "xy" } else { "x" }, true, ly));
             }
         }
         out
@@ -686,13 +949,18 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
                 }
                 "roots" => {
                     for c in &curves {
-                        for t in zeros(&|t| f(c, t)) {
+                        let ts = match &c.data { Some(d) => d.level(0.0), None => zeros(&|t| f(c, t)) };
+                        for t in ts {
                             pts.push((t, Some(0.0), "", false, false));
                         }
                     }
                 }
                 "extrema" => {
                     for c in &curves {
+                        if let Some(d) = &c.data {
+                            pts.extend(d.extrema().into_iter().map(|(t, y)| (t, Some(y), "x", false, false)));
+                            continue;
+                        }
                         let d = c.e.diff(&x);
                         for t in zeros(&|t| eval_f(&d, &|nn| (nn == x).then_some(t))) {
                             pts.push((t, f(c, t), "x", false, false));
@@ -704,13 +972,19 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         }
     }
     for (t, ly) in &mv {
+        let guides = if *ly || curves.len() == 1 { "xy" } else { "x" };
         for c in &curves {
-            pts.push((*t, f(c, *t), if *ly || curves.len() == 1 { "xy" } else { "x" }, true, *ly));
+            match &c.data {
+                // every point of the data at t: where its x runs back, more than one
+                Some(d) if !d.at(*t).is_empty() => pts.extend(d.at(*t).into_iter().map(|y| (*t, Some(y), guides, true, *ly))),
+                _ => pts.push((*t, f(c, *t), guides, true, *ly)),
+            }
         }
     }
     for y in &ymv {
         for c in &curves {
-            for t in zeros(&|t| Some(f(c, t)? - y)) {
+            let ts = match &c.data { Some(d) => d.level(*y), None => zeros(&|t| Some(f(c, t)? - y)) };
+            for t in ts {
                 pts.push((t, Some(*y), "xy", false, true));
             }
         }
@@ -774,7 +1048,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         xlabels: xt.1,
         yticks: yt.0,
         ylabels: yt.1,
-        xlabel: axlabel(&name(&x), &xunit),
+        xlabel: axlabel(&xlabel.unwrap_or_else(|| name(&x)), &xunit),
         ylabel: axlabel(&ylab, &yunit),
         x_axis_zero: yc,
         y_axis_zero: xc,
@@ -783,6 +1057,54 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         ax,
         ay,
     })
+}
+
+/// Where data meets a function g: on each segment, sign changes of the difference at the samples within it,
+/// refined by bisection.
+fn data_meets(d: &Data, g: &dyn Fn(f64) -> Option<f64>, ts: &[f64]) -> Vec<(f64, Option<f64>)> {
+    let mut out = vec![];
+    if d.xs.len() == 1 && g(d.xs[0]) == Some(d.ys[0]) { out.push((d.xs[0], Some(d.ys[0]))); }
+    for ((x1, y1), (x2, y2)) in d.segments() {
+        if x1 == x2 { continue; }
+        let lerp = |t: f64| y1 + (y2 - y1) * (t - x1) / (x2 - x1);
+        let h = |t: f64| Some(lerp(t) - g(t)?);
+        let (a, b) = (x1.min(x2), x1.max(x2));
+        let mut grid = vec![a];
+        grid.extend(ts.iter().copied().filter(|t| *t > a && *t < b));
+        grid.push(b);
+        for w in grid.windows(2) {
+            let (Some(u), Some(v)) = (h(w[0]), h(w[1])) else { continue };
+            if u == 0.0 {
+                out.push((w[0], Some(lerp(w[0]))));
+            } else if v != 0.0 && (u > 0.0) != (v > 0.0) {
+                let t = bisect(&h, w[0], w[1]);
+                out.push((t, Some(lerp(t))));
+            }
+        }
+        if h(b) == Some(0.0) { out.push((b, Some(lerp(b)))); }
+    }
+    out
+}
+
+/// Where two data polylines cross: intersections of their segments (parallel ones, overlapping or not, don't count).
+fn data_cross(p: &Data, q: &Data) -> Vec<(f64, Option<f64>)> {
+    let mut out = vec![];
+    for (a1, a2) in p.segments() {
+        for (b1, b2) in q.segments() {
+            if a1.0.max(a2.0) < b1.0.min(b2.0) || b1.0.max(b2.0) < a1.0.min(a2.0) || a1.1.max(a2.1) < b1.1.min(b2.1) || b1.1.max(b2.1) < a1.1.min(a2.1) {
+                continue;
+            }
+            // a1 + s·r = b1 + u·v with 0 ≤ s, u ≤ 1
+            let (r, v, w) = ((a2.0 - a1.0, a2.1 - a1.1), (b2.0 - b1.0, b2.1 - b1.1), (b1.0 - a1.0, b1.1 - a1.1));
+            let den = r.0 * v.1 - r.1 * v.0;
+            if den == 0.0 { continue; }
+            let (s, u) = ((w.0 * v.1 - w.1 * v.0) / den, (w.0 * r.1 - w.1 * r.0) / den);
+            if (0.0..=1.0).contains(&s) && (0.0..=1.0).contains(&u) {
+                out.push((a1.0 + s * r.0, Some(a1.1 + s * r.1)));
+            }
+        }
+    }
+    out
 }
 
 fn fixed10(p: f64) -> String {
@@ -947,7 +1269,7 @@ mod tests {
                 xrange: vec![XV::Num(-1.0), XV::Num(1.0)], yrange: vec![],
                 marks: vec![], ymark: vec![], samples: 20,
             };
-            let units = Units::build(&Cfg::default().units).unwrap();
+            let units = Units::configured(&Cfg::default()).unwrap();
             let mut env = Env::default();
             for src in [
                 "integral_(-infinity)^t sigma(tau) dif tau",
@@ -1050,5 +1372,157 @@ mod tests {
         assert!(g.y0 < 20.0 && 20.0 < g.y1, "{} {}", g.y0, g.y1);
         // = plots without defining
         assert!(defines(&env, &req("w(t) = X(t)")).unwrap().is_empty());
+    }
+
+    fn data_env(lines: &[&str]) -> Env {
+        let mut env = Env::default();
+        for s in lines {
+            let o = line(&mut env, &LineReq { src: (*s).into(), mode: Mode::Code, cfg: Cfg::default(), listed: true });
+            assert!(o.errors.is_empty(), "{s}: {:?}", o.errors);
+        }
+        env
+    }
+
+    fn data_req(curves: &[&str], marks: Vec<Mark>) -> GraphReq {
+        GraphReq {
+            cfg: Cfg::default(),
+            curves: curves.iter().map(|c| Src { src: (*c).into(), mode: Mode::Code, label: None }).collect(),
+            xrange: vec![], yrange: vec![],
+            marks: marks.into_iter().map(|m| (m, true)).collect(),
+            ymark: vec![], samples: 200,
+        }
+    }
+
+    fn key(k: &str) -> Mark { Mark::Key(k.into()) }
+
+    #[test]
+    fn data_against_its_index() {
+        let env = data_env(&["y := vec(1, 4, 9)"]);
+        for src in ["y", "2 y", "vec(1, 4, 9)"] {
+            let g = graph(&env, &data_req(&[src], vec![])).unwrap();
+            assert_eq!(g.series.len(), 1, "{src}");
+            let s = &g.series[0];
+            let f = if src == "2 y" { 2.0 } else { 1.0 };
+            assert_eq!(s.points, vec![(0.0, f), (1.0, 4.0 * f), (2.0, 9.0 * f)], "{src}");
+            assert!(s.dots);
+            assert_eq!((g.x0, g.x1), (0.0, 2.0));
+            assert!(g.y0 <= f && g.y1 >= 9.0 * f);
+        }
+        let g = graph(&env, &data_req(&["y"], vec![])).unwrap();
+        assert_eq!(g.ylabel, name("y"));
+        // a vector with a free variable is still several curves over it
+        let g = graph(&env, &data_req(&["vec(t, t^2)"], vec![])).unwrap();
+        assert!(g.series.len() >= 2 && !g.series[0].dots);
+        // a single sample is a dot
+        let env = data_env(&["one := vec(3)"]);
+        let g = graph(&env, &data_req(&["one"], vec![])).unwrap();
+        assert_eq!(g.series[0].points, vec![(0.0, 3.0)]);
+    }
+
+    #[test]
+    fn data_over_a_vector_with_units() {
+        let env = data_env(&["tau := vec(0, 1, 2, 3) * 1 s", "y := vec(0 V, 2 V, 1 V, -1 V)", "ms := vec(0, 1, 2, 3) * 1 ms"]);
+        let g = graph(&env, &data_req(&["y(tau)"], vec![])).unwrap();
+        assert_eq!(g.series[0].points, vec![(0.0, 0.0), (1.0, 2.0), (2.0, 1.0), (3.0, -1.0)]);
+        assert!(g.xlabel.contains("τ") && g.xlabel.contains("upright(\"s\")"), "{}", g.xlabel);
+        assert!(g.ylabel.contains("upright(\"V\")"), "{}", g.ylabel);
+        assert_eq!((g.x0, g.x1), (0.0, 3.0));
+        // the x prefix fits the values, the argument may be any vector expression
+        let g = graph(&env, &data_req(&["y(ms)"], vec![])).unwrap();
+        assert!(g.xlabel.contains("ms"), "{}", g.xlabel);
+        assert_eq!(g.series[0].points[3].0, 3.0);
+        let g = graph(&env, &data_req(&["y(2 tau)"], vec![])).unwrap();
+        assert_eq!(g.series[0].points[3].0, 6.0);
+        // an explicit range cuts the polyline where it leaves
+        let mut req = data_req(&["y(tau)"], vec![]);
+        req.xrange = vec![XV::Num(0.5), XV::Num(2.5)];
+        let g = graph(&env, &req).unwrap();
+        assert_eq!(g.series[0].points, vec![(0.5, 1.0), (1.0, 2.0), (2.0, 1.0), (2.5, 0.0)]);
+        // the range's units are checked against the data's
+        req.xrange = vec![XV::Src(Src { src: "2 V".into(), mode: Mode::Code, label: None })];
+        assert!(graph(&env, &req).is_err());
+    }
+
+    #[test]
+    fn data_errors() {
+        let env = data_env(&["tau := vec(0, 1, 2) * 1 s", "y := vec(1, 2, 3, 4) * 1 V", "u := vec(1 V, 2 A, 3 V)", "w := vec(1, a, 3)", "c := 5", "M := mat(1, 2; 3, 4)"]);
+        let e = graph(&env, &data_req(&["y(tau)"], vec![])).unwrap_err();
+        assert!(e.contains("4 elements") && e.contains("3"), "{e}");
+        let e = graph(&env, &data_req(&["u(tau)"], vec![])).unwrap_err();
+        assert!(e.contains("u: element 1") && e.contains("one unit"), "{e}");
+        let e = graph(&env, &data_req(&["w(tau)"], vec![])).unwrap_err();
+        assert!(e.contains("w: element 1 has no value") && e.contains("'a'"), "{e}");
+        let e = graph(&env, &data_req(&["y(t)"], vec![])).unwrap_err();
+        assert!(e.contains("'t' isn't defined"), "{e}");
+        let e = graph(&env, &data_req(&["c(tau)"], vec![])).unwrap_err();
+        assert!(e.contains("isn't a vector"), "{e}");
+        let e = graph(&env, &data_req(&["y(c)"], vec![])).unwrap_err();
+        assert!(e.contains("isn't a vector"), "{e}");
+        let e = graph(&env, &data_req(&["M"], vec![])).unwrap_err();
+        assert!(e.contains("2×2 matrix"), "{e}");
+        let e = graph(&env, &data_req(&["z := y(tau)"], vec![])).unwrap_err();
+        assert!(e.contains("defines nothing"), "{e}");
+        // x and y units must agree with the other curves
+        let env = data_env(&["tau := vec(0, 1, 2) * 1 s", "y := vec(1, 2, 3) * 1 V", "p(t: A) := t * 1 V/A", "q(t: s) := t * 1 A/s"]);
+        let e = graph(&env, &data_req(&["y(tau)", "p(tau)"], vec![])).unwrap_err();
+        assert!(e.contains("one unit"), "{e}");
+        let e = graph(&env, &data_req(&["y(tau)", "q(tau)"], vec![])).unwrap_err();
+        assert!(e.contains("different units"), "{e}");
+        let e = graph(&env, &data_req(&["y(tau)", "t^2"], vec![])).unwrap_err();
+        assert!(e.contains("one x axis"), "{e}");
+    }
+
+    #[test]
+    fn data_with_functions() {
+        let env = data_env(&["tau := vec(0, 1, 2, 3, 4) * 1 s", "y := vec(0, 1, 4, 9, 16) * 1 V", "c(t: s) := 2 V/s * t + 1 V"]);
+        for curves in [["y(tau)", "c(tau)"], ["y(tau)", "2 V/s * tau + 1 V"]] {
+            let g = graph(&env, &data_req(&curves, vec![key("crossings")])).unwrap();
+            // the function is sampled over the data's extent
+            assert_eq!((g.x0, g.x1), (0.0, 4.0), "{curves:?}");
+            let fun: Vec<_> = g.series.iter().filter(|s| s.curve == 1).flat_map(|s| &s.points).collect();
+            assert!(fun.len() > 100 && fun.iter().all(|p| (p.1 - (2.0 * p.0 + 1.0)).abs() < 1e-9));
+            // a label for each
+            assert!(g.series.iter().all(|s| s.label.is_some()));
+            // y = 2t + 1 meets the polyline between 2 and 3: 4 + 5 (t − 2) = 2 t + 1 → t = 7/3
+            assert!(g.points.iter().any(|p| (p.x - 7.0 / 3.0).abs() < 1e-9 && (p.y - 17.0 / 3.0).abs() < 1e-9), "{:?}", g.points);
+            assert!(g.xlabel.contains("τ"), "{}", g.xlabel);
+        }
+        // xrange still decides
+        let mut req = data_req(&["y(tau)", "c(tau)"], vec![]);
+        req.xrange = vec![XV::Num(-1.0), XV::Num(6.0)];
+        let g = graph(&env, &req).unwrap();
+        assert_eq!((g.x0, g.x1), (-1.0, 6.0));
+        // data against the index next to a function of the index
+        let env = data_env(&["y := vec(0, 1, 4)"]);
+        let g = graph(&env, &data_req(&["y", "k"], vec![key("auto")])).unwrap();
+        assert!(g.points.iter().any(|p| p.x == 0.0 && p.y == 0.0) && g.points.iter().any(|p| p.x == 1.0 && p.y == 1.0), "{:?}", g.points);
+    }
+
+    #[test]
+    fn data_marks() {
+        let env = data_env(&["tau := vec(0, 1, 2, 3, 4) * 1 s", "y := vec(-1, 1, 3, 1, -3) * 1 V", "z := vec(2, 2, 2, 0, 0) * 1 V", "t0 := 2.5 s"]);
+        let pts = |curves: &[&str], marks: Vec<Mark>| graph(&env, &data_req(curves, marks)).unwrap().points;
+        let has = |ps: &[Point], x: f64, y: f64| ps.iter().any(|p| (p.x - x).abs() < 1e-9 && (p.y - y).abs() < 1e-9);
+        // roots by sign changes, interpolated
+        let ps = pts(&["y(tau)"], vec![key("roots")]);
+        assert!(has(&ps, 0.5, 0.0) && has(&ps, 3.25, 0.0) && ps.len() == 2, "{ps:?}");
+        // the local extreme samples
+        let ps = pts(&["y(tau)"], vec![key("extrema")]);
+        assert!(has(&ps, 2.0, 3.0) && ps.len() == 1, "{ps:?}");
+        // x values interpolate: a number in s and an expression
+        let ps = pts(&["y(tau)"], vec![Mark::Val(XV::Num(0.25)), Mark::Val(XV::Src(Src { src: "t0".into(), mode: Mode::Code, label: None }))]);
+        assert!(has(&ps, 0.25, -0.5) && has(&ps, 2.5, 2.0), "{ps:?}");
+        // data–data crossings, also along a flat part
+        let ps = pts(&["y(tau)", "z(tau)"], vec![key("crossings")]);
+        assert!(has(&ps, 1.5, 2.0) && has(&ps, 3.25, 0.0) && ps.len() == 2, "{ps:?}");
+        // y marks
+        let mut req = data_req(&["y(tau)"], vec![]);
+        req.ymark = vec![XV::Num(2.0)];
+        let ps = graph(&env, &req).unwrap().points;
+        assert!(has(&ps, 1.5, 2.0) && has(&ps, 2.5, 2.0), "{ps:?}");
+        // where x runs back, an x value is on several segments
+        let env = data_env(&["xs := vec(0, 2, 1)", "ys := vec(0, 2, 4)"]);
+        let ps = graph(&env, &data_req(&["ys(xs)"], vec![Mark::Val(XV::Num(1.5))])).unwrap().points;
+        assert!(has(&ps, 1.5, 1.5) && has(&ps, 1.5, 3.0), "{ps:?}");
     }
 }

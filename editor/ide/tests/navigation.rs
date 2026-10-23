@@ -185,7 +185,7 @@ fn follows_includes_in_compile_order() {
     let outside = "#worksheet[\n$U := 5 V$\n]\n#include \"chapters/one.typ\"\n";
     assert_eq!(definition(chapter, &chapter_context(outside), nth(chapter, "U", 0)), None);
     // Usages from main don't reach a chapter that isn't in the worksheet either.
-    assert_eq!(usages(chapter, &chapter_context(outside), nth(chapter, "I", 0)).len(), 1);
+    assert!(usages(chapter, &chapter_context(outside), nth(chapter, "I", 0)).is_empty());
     // Without a main file the document stands alone.
     let alone = Context::new("").with_files(vec![ContextFile { path: "main.typ".into(), text: main.into() }]);
     assert_eq!(definition(chapter, &alone, nth(chapter, "U", 0)), None);
@@ -193,7 +193,7 @@ fn follows_includes_in_compile_order() {
 
 #[test]
 fn ignores_units_and_prose() {
-    let doc = "#show: worksheet\n$V := 5 V$, $P := V dot 2 V = mV$ and V in prose\n";
+    let doc = "#show: worksheet\n$V := 5 unit(\"V\")$, $P := V dot 2 unit(\"V\") = mV$ and V in prose\n";
     let found = used(doc, &Context::new(""), nth(doc, "V", 0));
     assert_eq!(found, [nth(doc, "V", 0), nth(doc, "V", 2)]);
 }
@@ -210,7 +210,7 @@ fn finds_math_names_with_subscripts() {
 
 #[test]
 fn warns_of_unknown_units_where_calculated() {
-    let doc = "$a := 3 \"zorp\"$\n#show: worksheet\n$b := 3 \"zorp\"$\n#lambdify(\"b\", \"b\", unit: \"blop\")\n```solveng\nc := b = [blip]\n```\n#worksheet-config(units: (zorp: \"2 m\"))\n";
+    let doc = "$a := 3 \"zorp\"$\n#show: worksheet\n$b := 3 \"zorp\"$\n#lambdify(\"b\", \"b\", unit: \"blop\")\n```solveng\nc := b = [blip]\n```\n#worksheet(units: (zorp: \"2 m\"), evaluate: false)[]\n";
     let compiled = report(doc, &[("$b := 3 \"zorp\"$", true, true)]);
     let context = Context::new("").with_report(&compiled, "main.typ", true);
     let found = diagnostics(doc, &context);
@@ -218,7 +218,7 @@ fn warns_of_unknown_units_where_calculated() {
     assert_eq!(words, ["blip", "blop"]);
     assert!(found.iter().all(|p| p.severity == "warning"));
     // Without the custom unit, only the calculated equation warns.
-    let bare = doc.replace("#worksheet-config(units: (zorp: \"2 m\"))\n", "");
+    let bare = doc.replace("#worksheet(units: (zorp: \"2 m\"), evaluate: false)[]\n", "");
     let compiled = report(&bare, &[("$b := 3 \"zorp\"$", true, true)]);
     let found = diagnostics(&bare, &Context::new("").with_report(&compiled, "main.typ", true));
     assert_eq!(found.iter().filter(|p| text_at(&bare, p.start, p.end) == "zorp").count(), 1);

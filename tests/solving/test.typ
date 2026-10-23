@@ -5,10 +5,10 @@
 #worksheet[
   // Mathcad's =: a comparison, 1 or 0; different units are never equal
   $M := 1 = 2 =$ #expect("M", 0) #result("\"0\"")
-  $M := 1 A = 2 V ->$ #expect("M", 0) #result("\"0\"")
+  $M := 1 "A" = 2 "V" ->$ #expect("M", 0) #result("\"0\"")
   $M =$ #result("\"0\"")
-  $N := 2 A = 2000 mA$ #expect("N", 1)
-  $Z := 3 A < 4 A$ #expect("Z", 1)
+  $N := 2 "A" = 2000 mA$ #expect("N", 1)
+  $Z := 3 "A" < 4 "A"$ #expect("Z", 1)
   #def("c_s := 2 A != 2 V") #expect("c_s", 1)
 
   // simplify keeps undefined names, a function needn't define what it uses
@@ -22,7 +22,7 @@
   $h =$ #result("\"1\" thin upright(\"m\")")
   $U(x: m) := h*x*a ->$ #result("\"1\" thin upright(\"m\") dot a x")
   $h(x: m) := U(x)/a ->$ #result("\"1\" thin upright(\"m\") dot x")
-  $y_h := h(3) =$ #expect("y_h", 3)
+  $y_h := h(3"m") =$ #expect("y_h", 3)
   // a name used before it's defined is looked up when the value is needed
   $k_l := 2 w_l$ $w_l := 4$ $k_l =$ #expect("k_l", 8)
   $p_u := r_u + 1 =$ #fails("'r_u' in 'p_u' isn't defined")
@@ -35,7 +35,7 @@
   $x^2 + 2x - 3 = 0 -> solve(x)$ #expect("x", 1)
   $a + b = 3, a - b = 1 -> solve(a, b)$ #expect("a", 2) #expect("b", 1)
   $cos(w) = w -> solve(w)$ #expect("w", 0.7390851332151607)
-  $U := 5 V$
+  $U := 5 "V"$
   $R <= U/I -> solve(R)$ #expect("R", 5 / 0.03)
   $x_3^3 - 6x_3^2 + 11x_3 - 6 = 0 -> solve(x_3)$ #passes()
   $e^v = 2 -> solve(v)$ #expect("v", calc.ln(2))
@@ -46,24 +46,24 @@
 
 // = states something: checked when everything is known, prose when not
 #worksheet[
-  $U := 5 V$ $R := 2 Ω$ $I := U/R$
+  $U := 5 "V"$ $R := 2 "Ω"$ $I := U/R$
   $U = R I$ #passes()
-  $U = 6 V$ #fails("has another value than")
-  $U = 5 A$ #fails("has another unit than")
+  $U = 6 "V"$ #fails("has another value than")
+  $U = 5 "A"$ #fails("has another unit than")
   $E = m c^2$ #passes()
 ]
 
 // functions: units of parameters, any, .., types taken from where they're passed, comparisons
 #worksheet[
   #def("q(x: A) := x [2 Ω]", "f(I: mA, R) := I R")
-  #def("y := q(3)", "z := q([2 mA])", "u := f(3, [2 Ω])")
+  #def("y := q([3 A])", "z := q([2 mA])", "u := f([3 mA], [2 Ω])")
   #expect("y", 6) #expect("z", 0.004) #expect("u", 0.006)
   #def("w := q([2 V])") #fails("q takes x in A, got V")
   #def("g(x, ..) := x m", "y2 := g(2, 4)") #expect("y2", 8)
-  #def("r(y) := q(y)", "z2 := r(2)") #expect("z2", 4)
+  #def("r(y) := q(y)", "z2 := r([2 A])") #expect("z2", 4)
   #def("s(y: V) := q(y)") #fails("q takes x in A, got V")
   #def("U_c(x, y) := x = y", "a_c := U_c(2, 2)", "b_c := U_c(2, 3)") #expect("a_c", 1) #expect("b_c", 0)
-  #def("L_c(x: A, y: A) := x < y", "c_c := L_c(1, 2)", "g_c := L_c(2, [1 A])") #expect("c_c", 1) #expect("g_c", 0)
+  #def("L_c(x: A, y: A) := x < y", "c_c := L_c([1 A], [2 A])", "g_c := L_c([2 A], [1 A])") #expect("c_c", 1) #expect("g_c", 0)
   #def("k_r(x) := k_r(x) + 1") #fails("functions can't call themselves")
 ]
 
@@ -80,8 +80,8 @@
 
 // := assigns, the last assignment wins; a variable takes no type, a function returns what its body gives
 #worksheet[
-  $I_r := 4 A$ $I_r := 2 A$ #expect("I_r", 2)
-  $I_r := I_r + 1 A$ #expect("I_r", 3)
+  $I_r := 4 "A"$ $I_r := 2 "A"$ #expect("I_r", 2)
+  $I_r := I_r + 1 "A"$ #expect("I_r", 3)
   #def("I_t: mA := 3 A") #fails("takes no type")
   #def("Y_t(x): V := 3 x") #fails("a function returns what its body gives")
 ]
@@ -134,14 +134,14 @@ v_c := 4 m / t_c
 #expect("t_c", 2) #expect("v_c", 2)
 
 // editors read what a worksheet saw: each element (by location) and what the block defined
-#worksheet[$k := 2 V$ `m := 1`]
+#worksheet[$k := 2 "V"$ `m := 1`]
 #context {
   let r = query(<solveng>).map(it => it.value)
   assert(r.any(x => x.kind == "math" and x.active and type(x.element) == location))
   assert(r.any(x => x.kind == "block" and x.defined.any(d => d.name == "k" and d.value == "2 V")))
 }
 // and what went wrong: per problem its message, element (none passed to worksheet) and statement
-#worksheet[$e_1 := 2 V + 1 s =$
+#worksheet[$e_1 := 2 "V" + 1 "s" =$
 ```solveng
 e_2 := 2 [V] + 1 [s] =
 ```]
@@ -161,8 +161,8 @@ e_2 := 2 [V] + 1 [s] =
   let r = query(<solveng>).map(it => it.value).filter(x => x.kind == "math" and x.active)
   assert.eq(r.len(), r.map(x => x.element).dedup().len(), message: "an element was read twice")
 }
-// worksheet-config calculates nothing on its own
-#worksheet-config(digits: 3)[$o := 1$]
+// evaluate: false calculates no math
+#worksheet(evaluate: false, digits: 3)[$o := 1$]
 #undefined("o")
 
 // calls: equations where they stand, hidden ones silently, options for them only
@@ -177,10 +177,8 @@ e_2 := 2 [V] + 1 [s] =
   $c_1 := 1$ $c_2 := 2$ $f_c(x) := 2 x$ $tau := 3$
   #clear("c_1", $f_c$, "tau") #passes() #undefined("c_1") #undefined("f_c") #undefined("τ") #expect("c_2", 2)
   $g_c(x) := x$ $g_c := 4$ #clear("g_c()") #undefined("g_c")
-  #worksheet-config(errors: "document")[
-    #clear("c_1") #fails("'c_1' isn't defined")
-    #clear("1 + c_2") #fails("isn't a name")
-  ]
+  #clear("c_1") #fails("'c_1' isn't defined")
+  #clear("1 + c_2") #fails("isn't a name")
   #expect("c_2", 2)
 ]
 #worksheet(clear-at: heading)[
@@ -238,7 +236,7 @@ e_2 := 2 [V] + 1 [s] =
 
 // value: a result alone, from code or math, which defines nothing
 #worksheet[
-  $U_v := 5 V$, $f_v(x) := 2 x$
+  $U_v := 5 "V"$, $f_v(x) := 2 x$
   #context {
     let w(x) = measure(value(x)).width
     assert(w("U_v") > 0pt, message: "value shown")

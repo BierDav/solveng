@@ -21,11 +21,15 @@
 /// #graph("cos(w) \\ w", mark: auto)                          // range picked, crossing marked
 /// #graph("y(x) = x^2 \\ y(x) = 2x + 3", xrange: (-3, 5))     // several curves
 /// #graph("P(R_L: Ω) = U0^2/R_L", xrange: (0, "2 R"), mark: ("R", "extrema"))
+/// #worksheet("tau := vec(0, 1, 2, 3) * 1 s", "y := vec(0, 2, 1, 3) * 1 V", hidden: true)
+/// #graph("y(tau) \\ 1 V/s * tau", mark: "crossings")         // data over tau and a line
 /// ```
 ///
 /// Uses `@preview/simple-plot:1.1.0`. Ticks use the document's decimal separator, axis labels read `U / V`; curves of the same unit share one graph, with a legend.
 ///
 /// **Ranges:** values and expressions in `xrange` / `yrange` must have the axis unit (`$f(20) Omega$` and `"f(20) Ω"` are fine) – `xrange: ("10 Ω", "f(20)")` with a unitless `f(20)` is an error, since it isn't clear what was meant. Without a range: around the marks; else around what's interesting – roots, extrema, poles, edges of the domain (√, ln) and, above all, where curves cross – rounded to nice ticks, starting at 0 when everything interesting is positive. With `ymark`, the y range is around the marked values (steep curves leave the picture). **Units** follow from what's plotted: y's from the curves (shown in the SI unit with a fitting prefix; `preferred-units` picks others), x's from the curve's parameter (`U(I: mA) = …`) or a function x is passed to whose parameter has one (`$q(I: mA) := I R$`, then `#graph("U(I) = q(I)")` is over I in mA), else from the units in `xrange` and the marks, else from the curve and the units of the y values (`P(..) = U0^2/R2` with `ymark: "2 W"`: R₂ in Ω).
+///
+/// **Data:** a vector of values is plotted as the points through its elements, joined in index order (with a dot at each when there are at most 30): `#graph("y")` against the zero-based index k (as in `at(y, k)`), `#graph("y(tau)")` over the vector `tau` of the same length – or over any expression without free names that is one, `y(2 tau)`. Units come from the elements (each vector needs one unit for all its elements; every element must have a value). Function curves can go alongside: `#graph("y(tau) \\ c(tau)")` with a function `c`, or an expression in `tau` (`"2 tau"`), where `tau` stands for the x axis and the function is sampled over it; the x range is from the data's first to last x value unless `xrange` says otherwise, and the units of x and y must agree. Marks work on data too, with linear interpolation between the points: x values, `"roots"` and `"crossings"` (with data and with functions) where the values change sign, `"extrema"` as the local extreme points, and `ymark`. A vector with a free name is several curves instead, one per element (`"vec(t, t^2)"`).
 ///
 /// **Marks** default to none. Requested marks are always visible – the ranges grow to show them. Combine them in an array, `(auto, "R1")`.
 ///
@@ -42,16 +46,17 @@
 /// - width (auto, length, ratio, relative, fraction): Width of the whole graph, labels included: `12cm`, `300pt` or a share like `100%`. `1fr` is the container's width – in a grid, the column's. `auto`: a plot area of 8 cm.
 /// - height (auto, length, ratio, relative, fraction): Like `width`; `auto`: a plot area of 5 cm. A share is of the container's height, or of the width when the page grows with its content.
 /// - colors (array, color): Colors of the curves, e.g. `(gray, blue, rgb("#f98eff"))`.
-/// - digits, separator, form, … (auto): Every option of `worksheet-config` (except `units`) works here too, for this call only.
+/// - digits, separator, form, … (auto): Every option of `worksheet` (except `units`) works here too, for this call only.
 /// -> content
 #let graph(
   equation, ..args, xrange: auto, yrange: auto, mark: none, xmark: (), ymark: (), samples: 400,
   width: auto, height: auto, colors: (blue, red.darken(10%), green.darken(25%), orange.darken(10%)),
   digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto,
-  max-denominator: auto, fractions: auto, prefixes: auto, show-si: auto, preferred-units: auto, strict: auto, steps: auto, inline-steps: auto,
-  layout: auto, implies: auto, approximate: auto, block: auto, max-solutions: auto, defined-style: auto, errors: auto,
+  max-denominator: auto, fractions: auto, prefixes: auto, show-si: auto, builtin-units: auto, builtin-functions: auto, preferred-units: auto, strict: auto, steps: auto, inline-steps: auto,
+  layout: auto, implies: auto, approximate: auto, block: auto, max-solutions: auto, defined-style: auto, errors: auto, show-casts: auto, show-types: auto,
+  words: auto, chips: auto, unit-style: auto, unit-separator: auto,
 ) = _mine(context {
-  let lc = _check(_given((digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions, prefixes: prefixes, show-si: show-si, preferred-units: preferred-units, strict: strict, steps: steps, inline-steps: inline-steps, layout: layout, implies: implies, approximate: approximate, block: block, max-solutions: max-solutions, defined-style: defined-style, errors: errors)))
+  let lc = _check(_given((digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions, prefixes: prefixes, show-si: show-si, builtin-units: builtin-units, builtin-functions: builtin-functions, preferred-units: preferred-units, strict: strict, steps: steps, inline-steps: inline-steps, layout: layout, implies: implies, approximate: approximate, block: block, max-solutions: max-solutions, defined-style: defined-style, errors: errors, show-casts: show-casts, show-types: show-types, words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator)))
   if _E(lc) { return _errc("graph: " + lc.err, _cf.get(), wide: true) }
   let cf = _cf.get() + lc
   let fail(m) = _errc("graph: " + m, cf, wide: true)
@@ -107,8 +112,10 @@
     if "err" in g { return fail(g.err) }
     let M(s) = _m(s, cf)
     let dash = (paint: luma(110), thickness: 0.6pt, dash: "dashed")
-    let ser = g.series.map(s => _sp.line-plot(s.points, mark: "none", stroke: colors.at(calc.rem(s.curve, colors.len())) + 1.2pt,
-      label: if s.label != none { $#M(s.label)$ }, label-pos: s.label-pos))
+    let ser = g.series.map(s => { let c = colors.at(calc.rem(s.curve, colors.len())); _sp.line-plot(s.points, stroke: c + 1.2pt,
+      // data with few points: a dot at each
+      mark: if s.at("dots", default: false) { "*" } else { "none" }, mark-size: 0.07, mark-fill: c, mark-stroke: c + 0.6pt,
+      label: if s.label != none { $#M(s.label)$ }, label-pos: s.label-pos) })
     for p in g.points {
       if p.guides != "" { ser.push(_sp.vline(p.x, ymin: calc.min(g.ax, p.y), ymax: calc.max(g.ax, p.y), stroke: dash)) }
       if p.guides == "xy" { ser.push(_sp.hline(p.y, xmin: calc.min(g.ay, p.x), xmax: calc.max(g.ay, p.x), stroke: dash)) }

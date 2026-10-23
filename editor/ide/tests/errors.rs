@@ -103,3 +103,21 @@ fn places_errors_in_math_arguments_without_coloring_unrelated_math() {
         assert!(errors(&doc.replace(&format!("#{function}($q + 1$)"), &format!("#{function}($q + 2$)")), &c).is_empty());
     }
 }
+
+#[test]
+fn name_validation_errors_target_only_the_invalid_name() {
+    for (name, invalid) in [(r#""e-"10"#, '-'), (r#""a+b""#, '+'), (r#""😅/"2"#, '/')] {
+        let message = format!("'{invalid}' isn't allowed in a variable name; use spaces or operators between expressions");
+        let expression = format!("y(x) := 1{name}");
+        for element in [format!("${expression}$"), format!("```solveng\n{expression}\n```")] {
+            let doc = format!("#show: worksheet\n😅\n{element}");
+            let source = if element.starts_with('$') { "" } else { &expression };
+            let c = context(vec![error(&doc, &element, source, &message)]);
+            assert_eq!(errors(&doc, &c), vec![(name.into(), message.clone())], "{doc}");
+        }
+        let escaped = expression.replace('"', "\\\"");
+        let doc = format!("#worksheet(\"{escaped}\")");
+        let c = context(vec![error(&doc, "", &expression, &message)]);
+        assert_eq!(errors(&doc, &c), vec![(name.replace('"', "\\\""), message)]);
+    }
+}

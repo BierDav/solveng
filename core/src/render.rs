@@ -9,8 +9,9 @@ use crate::units::{UnitExpr, Units};
 
 /// Precedences: what binds how tightly, for parentheses.
 fn function(name: &str) -> String {
-    if matches!(name, "rect" | "tri" | "sgn" | "floor" | "factorial") || crate::linalg::Op::of(name).is_some_and(|op| !matches!(op, Op::Det | Op::Trace | Op::Norm | Op::At)) { format!("op({})", format::q(name)) }
-    else { name.into() }
+    // Typst's math knows these names; the others are written as operators
+    let typst = matches!(name, "exp" | "ln" | "log" | "sin" | "cos" | "tan" | "arcsin" | "arccos" | "arctan" | "sinh" | "cosh" | "tanh" | "det" | "tr" | "norm" | "at");
+    if typst || crate::builtins::builtin(name).is_none() { name.into() } else { format!("op({})", format::q(name)) }
 }
 
 fn cases(branches: Vec<(String, String)>) -> String {
@@ -277,7 +278,8 @@ impl R<'_> {
             }
             Ast::Div(x, y) => (format!("frac({}, {})", self.ast(x, sub).0, self.ast(y, sub).0), P_FRAC),
             Ast::Pow(x, y) => (format!("{}^({})", wrap(self.ast(x, sub), P_ATOM), self.ast(y, sub).0), P_POW),
-            Ast::Call(n, args) => {
+            Ast::Call(n, args) => (format!("{}({})", name(n), args.iter().map(|x| self.ast(x, sub).0).collect::<Vec<_>>().join(", ")), P_ATOM),
+            Ast::Builtin(n, args) => {
                 if n == "cases" {
                     return (cases(args.chunks(2).map(|pair| (self.ast(&pair[0], sub).0,
                         pair.get(1).map(|a| self.ast(a, sub).0).unwrap_or_else(|| "\"1\"".into()))).collect()), P_ATOM);
@@ -291,11 +293,13 @@ impl R<'_> {
                     "abs" => (format!("abs({})", a.join(", ")), P_ATOM),
                     "exp" => (format!("e^({})", a.join(", ")), P_POW),
                     "det" | "tr" | "vec" | "at" | "norm" => (format!("{n}({})", a.join(", ")), P_ATOM),
-                    n if crate::linalg::FUNCTIONS.contains(&n) => (format!("{}({})", function(n), a.join(", ")), P_ATOM),
                     n if Func::of(n).is_some() => (format!("{}({})", function(Func::of(n).unwrap().name()), a.join(", ")), P_ATOM),
-                    n => (format!("{}({})", name(n), a.join(", ")), P_ATOM),
+                    n => (format!("{}({})", function(n), a.join(", ")), P_ATOM),
                 }
             }
+            Ast::Arg(n, x) => (format!("{} : {}", name(n), self.ast(x, sub).0), P_ATOM),
+            Ast::Index(x, idx) => (format!("{}[{}]", wrap(self.ast(x, sub), P_ATOM), idx.iter().map(|i| self.ast(i, sub).0).collect::<Vec<_>>().join(", ")), P_ATOM),
+            Ast::Range(a, b) => (format!("{} .. {}", wrap(self.ast(a, sub), P_SUM), wrap(self.ast(b, sub), P_SUM)), P_REL),
             Ast::Abs(x) => (format!("abs({})", self.ast(x, sub).0), P_ATOM),
             Ast::Matrix(rs) => (mat(rs.iter().map(|r| r.iter().map(|x| self.ast(x, sub).0).collect()).collect()), P_ATOM),
             Ast::Cmp(first, rest) => {

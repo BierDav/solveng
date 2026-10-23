@@ -11,8 +11,8 @@ import os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "docs", "reference.md")
-# public functions in the order they are documented; worksheet-config comes with the option tables
-FUNCTIONS = ["worksheet", "unit", "solve", "substitute", "simplify", "digits", "sci", "eng", "defined", "graph", "lambdify", "value", "clear", "rect", "tri", "sgn", "floor", "factorial", "diff", "integrate", "laplace", "invlaplace", "at", "rank", "identity", "rows", "cols", "asin", "acos", "atan", "worksheet-config"]
+# public functions in the order they are documented; worksheet comes with the option tables
+FUNCTIONS = ["worksheet", "unit", "operation", "solve", "substitute", "simplify", "digits", "sci", "eng", "defined", "graph", "lambdify", "value", "clear", "rect", "tri", "sgn", "floor", "factorial", "diff", "integrate", "laplace", "invlaplace", "convolve", "range", "at", "rank", "identity", "rows", "cols", "asin", "acos", "atan"]
 CHAPTERS = ["src/builtins.typ", "src/engine.typ", "src/display.typ", "tests/util.typ"]
 PARAM = re.compile(r"^- ((?:\.\.)?[a-z][\w-]*(?:, [a-z][\w-]*)*(?:, …)?) \(([^)]*)\): (.*)$")
 
@@ -162,28 +162,17 @@ def generate():
     out = ["# solveng reference", "",
            "<!-- Generated from the doc comments in src/ by `python3 tests/reference.py` – edit those, not this file. -->", "",
            "Everything solveng does, for looking things up. For an introduction see the [README](../README.md).", ""]
-    titles = [f"`{f}`" for f in FUNCTIONS if f != "worksheet-config"] + ["Options"] + chapter_titles
+    titles = [f"`{f}`" for f in FUNCTIONS] + ["Options"] + chapter_titles
     out += [f"- [{t}](#{anchor(t)})" for t in titles] + [""]
 
     out += ["## Functions", "", "| function | does |", "|---|---|"]
     for f in FUNCTIONS:
-        target = "options" if f == "worksheet-config" else anchor(f"`{f}`")
-        out.append(f"| [`{f}`](#{target}) | {cell(first_sentence(split(fns[f][0])[0]))} |")
+        out.append(f"| [`{f}`](#{anchor(f"`{f}`")}) | {cell(first_sentence(split(fns[f][0])[0]))} |")
     out.append("")
 
     for f in FUNCTIONS:
         doc, sig = fns[f]
         desc, params, ret = split(doc)
-        if f == "worksheet-config":
-            out += ["## Options", "", f"`worksheet-config` – {desc}", ""]
-            texts = {n: (t, d) for n, t, d in params}
-            for group, kv in opt_groups:
-                out += [f"### {group}", "", "| option | type | default | |", "|---|---|---|---|"]
-                for k, v in kv:
-                    t, d = texts.get(k, ("", ""))
-                    out.append(f"| `{k}` | {cell(t)} | {cell(code(v))} | {cell(option_text(d))} |")
-                out.append("")
-            continue
         out += [f"## `{f}`", "", desc, ""]
         rows = []
         skipped_options = False
@@ -205,6 +194,15 @@ def generate():
             if ret:
                 out += ["", f"Returns {ret}."]
             out.append("")
+    # The options are documented with worksheet; defined and graph take the same ones (except units).
+    out += ["## Options", "", "Options of `worksheet`, and of `defined` and `graph` (except `units`). Each one defaults to `auto`, which keeps the current setting.", ""]
+    texts = {n: (t, d) for n, t, d in split(fns["worksheet"][0])[1]}
+    for group, kv in opt_groups:
+        out += [f"### {group}", "", "| option | type | default | |", "|---|---|---|---|"]
+        for k, v in kv:
+            t, d = texts.get(k, ("", ""))
+            out.append(f"| `{k}` | {cell(t)} | {cell(code(v))} | {cell(option_text(d))} |")
+        out.append("")
     for c in chapters:
         out += [c, ""]
     return "\n".join(out).rstrip() + "\n"

@@ -437,6 +437,8 @@ fn code_items(a: &Analysis, line: &str, at: usize) -> Vec<Item> {
                 "diff" => "diff(${1:expression}, ${2:x})$0".into(),
                 "sum" => "sum(${1:expression}, ${2:k}, ${3:0}, ${4:10})$0".into(),
                 "integrate" => "integrate(${1:expression}, ${2:x}, ${3:0}, ${4:1})$0".into(),
+                "convolve" => "convolve(${1:x}, ${2:h})$0".into(),
+                "range" => "range(${1:0}, ${2:10})$0".into(),
                 _ => format!("{f}($0)"),
             };
             let docs = crate::params::builtin(f);
@@ -585,40 +587,35 @@ fn complete_at(document: &str, context: &Context, offset: u32) -> Option<Complet
     done(from, code_items(&a, &line, at), true)
 }
 
-/// Whether the document imports all of solveng (`#import "@preview/solveng:…": *`), which brings the names of
-/// units longer than a letter, so math needs no quotes for them: `$4 mA$`.
-fn imports_unit_words(text: &str) -> bool {
-    static IMPORT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"#import\s+"@[^"]*/solveng:[^"]*"\s*:\s*\*"#).unwrap());
-    IMPORT.is_match(text)
-}
-
 /// In math: units in the quotes after a number (`30 "m|"`), else the defined names next to Typst's.
 fn complete_math(a: &Analysis, e: &Element, from: usize) -> Option<Completions> {
-    let before_ = a.doc.sub(e.body_start, from);
+    let explicit = from > e.body_start && a.doc.c[from - 1] == '#';
+    let before_ = a.doc.sub(e.body_start, from - usize::from(explicit));
+    let replacement = a.doc.to16(from - usize::from(explicit));
     if let Some(names) = crate::clause::at_clause(&before_) {
         return Some(Completions { to: None, from: a.doc.to16(from), items: clause_items(a, names, true), exclusive: !names });
     }
     // V: |, q(x: |: units only; quoted when longer than a letter, as math needs them, unless solveng's import brings
     // their names (built-in units only)
-    let bare = imports_unit_words(&a.doc.s);
-    let quote = |mut i: Item| {
-        let defined = a.units.iter().any(|u| u.name == i.insert);
-        if i.insert.chars().count() > 1 && (!bare || defined || i.kind == ItemKind::KEYWORD) {
-            i.filter.get_or_insert_with(|| i.insert.clone());
-            i.insert = format!("\"{}\"", i.insert);
+    let quote = |mut item: Item| {
+        if item.kind == ItemKind::UNIT || item.kind == ItemKind::KEYWORD && item.insert.chars().count() > 1 {
+            item.filter.get_or_insert_with(|| item.insert.clone());
+            item.insert = format!("\"{}\"", item.insert);
+            if explicit { item.filter = item.filter.map(|filter| format!("#{filter}")); }
         }
-        i
+        item
     };
     if declared_unit(&before_) {
         let items = keyword_items(&before_, false).into_iter().chain(units::unit_items(&a.units)).map(quote).collect();
-        return Some(Completions { to: None, from: a.doc.to16(from), items, exclusive: true });
+        return Some(Completions { to: None, from: replacement, items, exclusive: true });
     }
     // after a number: its unit, or a variable it multiplies
     if before_.trim_end().chars().last().is_some_and(is_digit) {
         let mut items: Vec<Item> = units::unit_items(&a.units).into_iter().map(quote).collect();
         if a.doc.c.get(from) == Some(&'"') {
-            return Some(Completions { to: None, from: a.doc.to16(from), items, exclusive: true });
+            return Some(Completions { to: None, from: replacement, items, exclusive: true });
         }
+        if explicit { return Some(Completions { to: None, from: replacement, items, exclusive: true }); }
         let mut seen = HashSet::new();
         items.extend(local_items(a, &mut seen, from, true));
         items.extend(definition_items(a, &mut seen, true, true));
@@ -649,7 +646,13 @@ fn string_completions(a: &Analysis, call: &Call, t: &crate::calls::Text, at: usi
             let line_start = t.start.max(last_index_of_char(c, '\n', from).map_or(0, |i| i + 1));
             code_items(a, &a.doc.sub(line_start, from), at)
         }
-        Role::Unit => units::unit_items(&a.units),
+        Role::Unit if call.function.name == "unit" => {
+            let settings = a.unit_completion_context(at);
+            let mut items = units::explicit_items(&settings);
+            for item in &mut items { item.detail.push_str(" · available here; resolved at use"); }
+            items
+        }
+        Role::Unit => units::explicit_items(&a.units),
         Role::Name => definition_items(a, &mut HashSet::new(), false, false),
         Role::Mark => {
             let mut items: Vec<Item> = MARKS.iter().map(|(m, d)| Item::new(m, ItemKind::VALUE, d, m)).collect();

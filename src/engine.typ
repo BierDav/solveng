@@ -11,7 +11,7 @@
 /// - **A trailing `->` shows the symbolic result**: defined values put in, exactly (fractions, roots and π stay), undefined names kept: `$x + 3/3 y -> simplify$` is x + y. With `solve(x)` it solves – symbolically when it can (`$0 = 1 + 3/x + y^2 -> solve(x)$` is x = −3/(y² + 1)), numerically when every other name has a value – and defines x when the solution is a value. `substitute(U, …)` shows the result with these variables' formulas put in and every other name kept: after `$U := R I$`, `$P := U^2/R -> substitute(U)$` is I² R.
 /// - **Any other `=`** states something: it's checked when everything in it has a value (`$U = R I$`), and left alone as prose when not (`$E = m c^2$`).
 ///
-/// **Functions** are defined the same way: `$f(x) := x^2 + 1$`. Their body is symbolic too, so a function needn't define everything it uses: names that aren't parameters and aren't defined stay names, looked up when the function is evaluated, and cancel where the algebra lets them (`$U(x: m) := h x a$`, then `$g(x: m) := U(x)/a ->$` is `1 m · x` without any `a`). Undefined function calls stay symbolic too: `$f(t) := integral_(-infinity)^t sigma(tau) dif tau$` is valid before `sigma` is defined; numerical evaluation requires its definition and convergence. A parameter can have a unit, `f(I: mA)`: plain numbers passed to it get the unit (`f(2)` is `f(2 mA)`), values must have its dimension; `any` takes every unit. `..` makes the body's other undefined names parameters, in the order they appear: `$P(..) := U^2/R$` is `P(U, R)`. A parameter passed on to one with a unit takes that unit: with `$q(x: A) := 2 x$`, `$f(y) := q(y)$` makes y an A.
+/// **Functions** are defined the same way: `$f(x) := x^2 + 1$`. Their body is symbolic too, so a function needn't define everything it uses: names that aren't parameters and aren't defined stay names, looked up when the function is evaluated, and cancel where the algebra lets them (`$U(x: m) := h x a$`, then `$g(x: m) := U(x)/a ->$` is `1 m · x` without any `a`). Undefined function calls stay symbolic too: `$f(t) := integral_(-infinity)^t sigma(tau) dif tau$` is valid before `sigma` is defined; numerical evaluation requires its definition and convergence. A parameter can have a unit, `f(I: mA)`: arguments must carry its dimension (`f(2"mA")` is valid, `f(2)` reports a missing unit); `any` takes every unit. `..` makes the body's other undefined names parameters, in the order they appear: `$P(..) := U^2/R$` is `P(U, R)`. A parameter passed on to one with a unit takes that unit: with `$q(x: A) := 2 x$`, `$f(y) := q(y)$` makes y an A. **Named parameters** have a default value and are passed by name, as in Typst: after `$f(x, n: 2) := x^n$`, `$f(3) =$` is 9 and `$f(3, n: 3) =$` is 27; a named argument that isn't a parameter, a positional one passed by name and one passed twice are errors. After the colon, a unit is a type (`I: mA`) and a value a default: what starts with a number or a sign (`n: 2`, `R: 2 Ω`), a defined variable (`s: k`), or parentheses holding no unit (`n: (N0)`). Defaults are taken where the function is defined, as Typst evaluates them, and come after the other parameters.
 ///
 /// ````typ
 /// #show: worksheet
@@ -40,36 +40,57 @@
 /// - **Units:** SI base units (m kg s A K mol cd) and V A Ω W J C F H S Hz N Pa T Wb, min h Ah Wh As Ws eV l %, ‰, °, rad, °C (as a temperature *difference*), all SI prefixes; your own with the option `units`. Powers as `m^2`, `m²`, `s^-1`; quotients as `m/s^2`; products with spaces `kg m`.
 /// - **Typeable spellings:** `Omega` → Ω, with a prefix glued as in math: `k""Omega` → kΩ (`kOmega` is not a unit, like `DeltaT` is not ΔT); `u` → µ, `degC` → °C, `deg` → °. They are printed with the proper symbols (`[20 uA]` → 20 µA). In math, units are names (`$4.7 kΩ$`, `$20 µA$`), see [Units and variables](#units-and-variables).
 /// - **Decimal comma:** `7,2 V` works; the output separator follows the document language (option `separator`).
+/// - **No e-notation:** numbers are written out (`$11200$`, or `$1.12 dot 10^4$`). `1.12e4` is the coefficient 1.12 times the variable `e4` (undefined unless defined; quote it, `$"e4"$`, for a name of several letters). Scientific notation is only how results are written (option `scientific`, keyword `sci`).
 /// - **Names:** the acute accent `´` and the backtick (`` ` ``) are literal name characters (`$x´ := 3$`), with no escaping needed. Digits continue a name: `t2` differs from `t_2` and keeps its digits on the baseline. Complete Latin letter runs normalize to Greek: `Delta2tau` → Δ2τ, while `Deltatau` stays unchanged. `""` joins name fragments: `Delta""tau` → Δτ and `t""2` → t2. Quotes only carry a name through Typst: `$"Delta2tau"$` names Δ2τ, and `$"Delta\"\"tau"$` names Δτ. Explicit subscripts may be grouped: `$R_(a b)$` names R_ab. Operators and whitespace end a name; a leading number remains a coefficient (`2t2` is 2 times t2).
 /// - **Sums:** `sum_(k=0)^10 k^2` or `sum(k^2, k, 0, 10)` sums over inclusive integer bounds. The index is local and case-sensitive. Parenthesize a summand containing addition. Small finite sums simplify exactly; infinite sums stay symbolic after `->` and are evaluated numerically for `=` and graphs. For example, `$s_2(t) := sum_(k=0)^infinity sigma(t-k+3/4)$` defines a function usable as `#graph("s_2(t)")` once `sigma` is defined. Piecewise linear signal sums are counted directly between their corners. Other numerical sums use at most 100000 terms and a shrinking-tail convergence estimate; slow or nonconvergent series report an error. Bounds and the index are unitless, while summands may carry units.
-/// - **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. The standard names are always available and exported by solveng. Define a function such as `$Lambda(t) := tri(t)$` to use another name. Linear combinations simplify and can be solved; definite integrals split affine arguments at their boundaries. Distributional derivatives stay symbolic.
+/// - **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. The standard names are exported by solveng; a worksheet function such as `$Lambda(t) := tri(t)$` or the option `functions: (Λ: "tri")` gives another name. Linear combinations simplify and can be solved; definite integrals split affine arguments at their boundaries. Distributional derivatives stay symbolic.
+/// - **Ranges and elements:** `$i := 0..N$` (also `0 .. N`, `0...N`) is a range variable: the values from 0 to N in steps of 1, both included, counting down when N < 0; with units, use `range(start, end, step: …)`. `x[i]` and `A[i, j]` are elements, counted from 0, written right after the name without a space; a vector of indices selects several (`x[i]` with i a range is a vector). `$x[i] := …$` defines an element for each value of the range variable i, the body calculated with i standing for that value: `$t[i] := i Delta""t$`, `$x[i] := tri(t[i])$`. Elements not defined yet are 0; defining one past the end extends the vector, as in Mathcad. `A[i, j] := …` defines a matrix. In code, `x[i]` is an index and `R [1 mA]`, with a space, a value with a unit.
+/// - **Convolution:** `convolve(x, h)` of sequences and `convolve(f(τ), g(τ), τ, t)` of functions, see `convolve`. Sequences of values are convolved numerically (whole numbers exactly), so long sampled signals stay fast; functions exactly where they're piecewise polynomial.
 /// - **Operators:** `+ - * / ^ · ×`, implicit multiplication (`2 pi f C`), `sqrt exp ln log sin cos tan asin acos atan abs`, constants `pi e` (unless you define a variable with that name), your own functions.
 ///
 /// ## Units and variables
 ///
 /// Many engineering symbols are also units: `A` (area, ampere), `V` (volume, volt), `T` (period, tesla), `h` (height, hour), `C`, `F`, `W`, `m`, `s`, `l`, `L`, … solveng keeps them apart by *how* they are written, never by guessing:
 ///
-/// - **Math:** units are names, `$30 mA$`, `$4.7 kΩ$`, `$9.81 m/s^2$` (solveng brings every unit of several letters and every prefixed one, set upright); `unit("bar")` writes any other, also your own. A single letter is a unit only right after a number (`$5 V$`, `$3 h$`, whatever is defined), so `$t = 1 h$` shows t in hours; anywhere else it's a variable, also alone after `=` (`$t = h$` compares t with h), and `$3 dot h$` is 3 times h. Quoted text is a name of several letters (`$"tews" := 2$`), as Typst needs; `"as"` casts.
+/// - **Math:** units are names, `$30 mA$`, `$4.7 kΩ$`, `$9.81 m/s^2$` (solveng brings every unit of several letters and every prefixed one, set upright); `unit("bar")` writes any other, also your own. Single letters are variables, including after numbers (`$5 V$` multiplies by the variable V). Quote a unit (`$5"V"$`, `$3"h"$`), or use an explicit Typst binding (`$5#V$`). Parameter annotations such as `$f(x: A) := x$` accept unit names; calls must carry the dimension, as in `$f(1"A") =$`. Quoted text is a name of several letters (`$"tews" := 2$`), as Typst needs; `"as"` casts.
 /// - **Code:** a unit is read only where a value is written – right after a number (`I := 30 mA`) or in brackets (`[5 V]`, `[A]` for one ampere). Every other name in an equation is a variable. A value whose unit is also a defined variable (`t := 3 h` with `h` defined, `f := 1/T` with `T` defined) is refused, with a hint how to write either meaning: `[3 h]` for hours, `3*h` or `1/(T)` for the variable.
 ///
 /// ````typ
 /// #show: worksheet
-/// $A := 12$, $x := A dot 2 A =$        // x ≔ A · 2 A = 24 A
-/// $T := 2 s$, $f := 1/T = Hz$          // f ≔ 1/T = 0.5 Hz
+/// $A := 12$, $x := A dot 2"A" =$        // x ≔ A · 2 A = 24 A
+/// $T := 2"s"$, $f := 1/T = Hz$          // f ≔ 1/T = 0.5 Hz
 /// ```solveng
 /// g := 1/T                             // error: 'T' in '1/T' is both a defined variable and a unit – …
 /// ```
 /// ````
 ///
-/// For documents where nothing may be read two ways, `#worksheet-config(strict: true)` also refuses unit names as variable names (`A := 3 m^2` → pick `A_1`, or remove the unit).
+/// For documents where nothing may be read two ways, `#worksheet(strict: true)` (or `#show: worksheet.with(strict: true)`) also refuses unit names as variable names (`A := 3 m^2` → pick `A_1`, or remove the unit).
 ///
-/// The available units can be changed with the option `units`: new units are defined by a value, `none` removes one (which frees its name, e.g. `T` for a period that is then never read as tesla):
+/// **Unit overlays.** Lookup has separate layers: the underlying built-in units, the optional built-in overlay, then user overlays in order. The built-in overlay exposes quoted unit names and automatic unit words. `builtin-units: false` disables that exposure; it never deletes the underlying units. Each `units: (…)` adds a user overlay, scoped to its worksheet, which falls back through lower overlays to the underlying built-ins.
+///
+/// Definitions in one overlay can refer to each other regardless of their order: `(km: "m", tui: "km")` makes both units one metre. A self reference falls back to the next lower overlay: `(s: "2s")` doubles the lower overlay's second. Circular dependencies such as `(zu: "uz", uz: "zu")` are rejected. `none` hides only the exact name for automatic and quoted lookup: `(s: none)` hides `s`, while `ms`, definition expressions such as `(mys: "s")`, and explicit `unit("s")` references still work.
+///
+/// Overlay unit names support the same symbols as variable names. `(alpha: "m")` defines the unit `α`: `$34"alpha"$` and `$34"α"$` agree, and completion inserts `"α"`. With the respective Typst bindings, `$34alpha$` and `$34#α$` work too: `#let alpha = unit("alpha")` and `#let α = unit("alpha")`. The editor collapses the spelled name to `α` both in equations and in the string passed to `unit`.
+///
+/// A user overlay provides quoted lookup, not Typst bindings. With `builtin-units: false, units: (s: "s")`, `$34"s"$` is a quantity, but `$34s$` multiplies by an unresolved math symbol. A worksheet variable with that quoted name takes precedence over the unit. Completion inserts quoted units, and can replace `#s` with `"s"` after a number.
+///
+/// `unit("s")` carries a unit name, resolved through the overlays active where it is used. A Typst binding such as `#let second = unit("s")` can therefore mean different quantities in different worksheets; its declaration location does not freeze the unit definition. Single-letter math symbols do not read Typst bindings: `#let s = unit("s")` requires `$34#s$`, whereas `$34second$` works without a hash. The editor offers an explicit-reference quick fix for an unresolved single letter with a unit binding and shows that reference's hash in gray.
 ///
 /// ```typ
-/// #worksheet-config(units: (bar: "100 kPa", rpm: "1/min", t: "1000 kg", T: none))
-/// #show: worksheet
+/// #show: worksheet.with(builtin-units: false, units: (s: "s"))
+/// $z := 34"s"$                         // the quoted name uses the user overlay
+/// #let s = unit("s")
+/// $a := 34#s$                          // an explicit Typst reference also works
+/// #let second = unit("s")
+/// #worksheet(units: (s: "2s"))[
+///   $b := 2second$                     // four underlying SI seconds
+/// ]
+/// ```
+///
+/// ```typ
+/// #show: worksheet.with(units: (bar: "100 kPa", rpm: "1/min", t: "1000 kg", T: none))
 /// $p := 3 unit("bar")$, $n := 3000 unit("rpm")$          // prefixes work too: unit("mbar")
-/// #worksheet-config(preferred-units: ("bar", "kWh"))  // results with these dimensions are shown in these units
+/// #worksheet(preferred-units: ("bar",))[$p/2 =$]      // results with these dimensions are shown in these units
 /// ```
 ///
 /// ## How it solves
@@ -89,6 +110,8 @@
 /// - **°C** is a temperature difference (no 273.15 offset); temperatures in formulas like `p V = n R T` need K. New base dimensions (bit, €) can be added with `units: (bit: auto)`, at most 8.
 /// - **Prefixes:** a lone `m` before a unit is metre: `"m s"`, `$"m" Omega$` are m·s and Ω·m; write `"ms"`, `$"m"Omega$` for milli.
 /// - **Functions** can't call themselves.
+/// - **Ranges** have at most 100000 values, and their bounds and steps need values when they're defined. In math an index follows its name directly, so `a[b + c]` is an element of a – write `a dot [b + c]` or `a (b + c)` for a product.
+/// - **Convolution** of functions is exact for piecewise polynomials with numeric breakpoints (rect, tri, sgn, abs, cases with affine conditions, polynomials); exponentials, trigonometric functions, symbolic shifts and integrals that diverge stay the integral, evaluated numerically.
 /// - **Matrices:** names without a value are scalars, so they commute in products until they get a value (define matrices before multiplying them, or pass them to a function). Symbolic elimination treats an entry as zero only when it simplifies to 0, so entries that vanish by an identity like sin² + cos² = 1 count as nonzero. Floats count as zero within 10⁻¹³ of the largest element (times the size). Unknowns of `solve` are scalars: write a vector of unknowns as `vec(x, y)`.
 /// - **Math in a worksheet:** an equation with `=` and only known names is checked, so a formula meant as plain text that happens to use defined names (`$a^2 + b^2 = c^2$` after defining a, b and c) must hold. Put those outside the worksheet or use `#worksheet(evaluate: false)[…]` around them.
 
@@ -103,6 +126,8 @@
 #let _sep(cf) = if cf.separator != auto { cf.separator } else if text.lang in _LANGS { "," } else { "." }
 // plain text of content (units: (bar: [100 kPa]))
 #let _plain(c) = if type(c) == str { c } else if type(c) in (int, float, symbol) { str(c) } else if c.has("text") and type(c.text) == str { c.text } else if c.has("children") { c.children.map(_plain).join() } else if c.has("body") { _plain(c.body) } else { " " }
+// a function overlay entry: the operation's name, or none to hide one
+#let _fopt(v) = if v == none { "none" } else { _plain(v) }
 #let _uopt(v) = if v == none { "none" } else if v == auto { "auto" } else if type(v) in (int, float) { float(v) } else { _plain(v) }
 // the options as the engine reads them
 #let _req-cfg(cf) = {
@@ -113,7 +138,10 @@
     scientific: cf.scientific, engineering: cf.engineering, multiplication: cf.multiplication, form: cf.form,
     max-denominator: cf.max-denominator, fractions: cf.fractions,
     prefixes: if cf.prefixes == none { "None" } else if cf.prefixes == "all" { "All" } else { (Some: cf.prefixes) },
-    show-si: cf.show-si, units: cf.units.pairs().map(((k, v)) => (k, _uopt(v))).to-dict(),
+    unit-layers: cf.at("#unit-layers", default: ()).map(layer => layer.pairs().map(((k, v)) => (k, _uopt(v))).to-dict()),
+    show-si: cf.show-si, builtin-units: cf.builtin-units, units: cf.units.pairs().map(((k, v)) => (k, _uopt(v))).to-dict(),
+    builtin-functions: cf.builtin-functions, functions: cf.functions.pairs().map(((k, v)) => (k, _fopt(v))).to-dict(),
+    function-layers: cf.at("#function-layers", default: ()).map(layer => layer.pairs().map(((k, v)) => (k, _fopt(v))).to-dict()),
     preferred-units: if type(cf.preferred-units) == str { (cf.preferred-units,) } else { cf.preferred-units }, strict: cf.strict,
     steps: if cf.steps == auto { cf.inline-steps } else { cf.steps }, inline-steps: cf.inline-steps, layout: cf.layout,
     approximate: cf.approximate, block: cf.block, max-solutions: cf.max-solutions,
@@ -137,8 +165,8 @@
 
 // ---------- reading math as written ----------
 #let _space = [ ].func()
-#let _word-end = regex("[\\p{L}\\p{N}\"⦄⦆)]$")
-#let _word-start = regex("^[\\p{L}\\p{N}\"⦃⦅]")
+#let _word-end = regex("[\\p{L}\\p{N}\"⦄⦆⦈)]$")
+#let _word-start = regex("^[\\p{L}\\p{N}\"⦃⦅⦇]")
 #let _prefix = regex("^\"[afpnµμumcdkMGT]\"$")
 #let _align-point = $&$.body.func()
 // math content -> the equation as text for the engine: letters as they are, quoted text "…" (names of several
@@ -153,7 +181,7 @@
   if f == math.vec {
     let parts = c.children.map(x => _src(x))
     let error = parts.find(_E)
-    return if error != none { error } else { "vec(" + parts.join(", ") + ")" }
+    return if error != none { error } else { "⦇vec⦈(" + parts.join(", ") + ")" }
   }
   if f == math.mat {
     // Typst pads shorter rows (of blocks) with empty cells
@@ -178,8 +206,9 @@
       if _E(test) { return test }
       branches.push(value + ", " + test)
     }
-    return "cases(" + branches.join(", ") + ")"
+    return "⦇cases⦈(" + branches.join(", ") + ")"
   }
+  if c.has("label") and c.label == <solveng-unit-word> { return "⦗" + _plain(c) + "⦘" }
   if c.has("label") and c.label == <solveng-unit> { return "⦃" + _plain(c) + "⦄" }
   if f == metadata {
     if c.has("label") and c.label == <solveng-key> {
@@ -243,15 +272,16 @@
     return out
   }
   if f == math.class and _plain(c.body) == "d" { return "dif" }
+  // math.op is an explicit reference to an operation, resolved through the function overlays where it's used
   if f == math.op {
     let name = _plain(c.text).trim()
-    return if name == "d" { "dif" } else { name }
+    return if name == "d" { "dif" } else { "⦇" + name + "⦈" }
   }
   if f == math.root {
     let r = _src(c.radicand)
     if _E(r) { return r }
     if c.has("index") and c.index != none { let i = _src(c.index); return if _E(i) { i } else { "(" + r + ")^(1/(" + i + "))" } }
-    return "sqrt(" + r + ")"
+    return "⦇sqrt⦈(" + r + ")"
   }
   if f == math.lr { return _src(c.body) }
   if f == raw { return if c.text == "frac" { "⦅frac⦆" } else { _err("not a formula") } }

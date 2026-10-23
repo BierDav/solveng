@@ -22,6 +22,7 @@ fn code_names(doc: &Doc, base: usize, toks: Vec<Tok>, out: &mut Vec<Name>) {
         let (start, end) = (base + s, base + s + l);
         let raw: Vec<char> = doc.sub(start, end).chars().collect();
         let (decoded, _) = crate::text::unescape(&raw);
+        if solveng_names::scan(&decoded, 0).is_err() { continue; }
         let text: String = decoded.into_iter().collect();
         match kind {
             K::VARIABLE => out.push(Name { key: crate::resolved_name(&text), start, end }),
@@ -43,6 +44,7 @@ fn math_names(doc: &Doc, base: usize, toks: Vec<Tok>, out: &mut Vec<Name>) {
         if !matches!(kind, K::VARIABLE | K::FUNCTION) || (start > 0 && c[start - 1] == '_') {
             continue;
         }
+        if solveng_names::scan(&c[start..end], 0).is_err() { continue; }
         let mut key = crate::resolved_name(&doc.sub(start, end));
         if kind == K::FUNCTION && FUNCTIONS.contains(&key.as_str()) {
             continue;
@@ -75,10 +77,18 @@ fn math_names(doc: &Doc, base: usize, toks: Vec<Tok>, out: &mut Vec<Name>) {
 
 /// The one name a stretch of math is, as (key, start, end) in characters; None for anything else.
 pub(crate) fn math_name_of(math: &[char]) -> Option<(String, usize, usize)> {
-    let doc = Doc::new(&math.iter().collect::<String>());
+    // A quoted name is a name even when it spells a unit: `"km" := 23` defines a variable.
+    let lead = math.iter().take_while(|c| c.is_whitespace()).count();
+    let end = math.len().saturating_sub(math.iter().rev().take_while(|c| c.is_whitespace()).count());
+    let trimmed: String = math[lead.min(end)..end].iter().collect();
+    if let Ok(name) = solveng_names::resolve(&trimmed) {
+        return Some((name, lead, end));
+    }
+    let text: String = math.iter().collect();
+    let doc = Doc::new(&text);
     let mut out = Vec::new();
-    math_names(&doc, 0, math_tokens(math, &|_| false), &mut out);
-    let toks = math_tokens(math, &|_| false);
+    math_names(&doc, 0, math_tokens(math, &crate::is_unit, &crate::is_unit, &|_| false), &mut out);
+    let toks = math_tokens(math, &crate::is_unit, &crate::is_unit, &|_| false);
     // Nothing but the name: no units, numbers or operators around it.
     let covered = |t: &Tok| out.first().is_some_and(|n| n.start <= t.0 && t.0 + t.1 <= n.end);
     if out.len() != 1 || !toks.iter().all(covered) || out[0].key.is_empty() {
@@ -92,12 +102,13 @@ pub(crate) fn math_name_of(math: &[char]) -> Option<(String, usize, usize)> {
 pub(crate) fn math_piece(text: &str) -> String { crate::resolved_name(text) }
 
 /// Every name solveng reads in a text: in calculated code and math, and in the strings of its calls.
-fn names(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Element) -> bool, unit: &dyn Fn(&str) -> bool) -> Vec<Name> {
+fn names(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Element) -> bool, unit: &dyn Fn(&str) -> bool, defined: &dyn Fn(&str) -> bool, units_at: &dyn Fn(usize) -> Vec<crate::units::Custom>) -> Vec<Name> {
     let mut out = Vec::new();
     for e in elements.iter().filter(|e| active(e)) {
         let body = &doc.c[e.body_start..e.body_end];
         if e.math {
-            math_names(doc, e.body_start, math_tokens(body, unit), &mut out);
+            let units = units_at(e.body_start);
+            math_names(doc, e.body_start, math_tokens(body, &|w| crate::units::visible(w, &units), &|w| crate::units::bare(w, &units), defined), &mut out);
         } else {
             code_names(doc, e.body_start, code_tokens(body, unit), &mut out);
         }
@@ -277,11 +288,17 @@ fn resolved<'a>(a: &'a Analysis) -> (Vec<File<'a>>, Vec<Occurrence>) {
 fn resolved_all<'a>(a: &'a Analysis) -> (Vec<File<'a>>, Vec<Occurrence>, Vec<usize>, scope::Params) {
     let unit = |w: &str| a.is_custom_unit(w);
     let named = |n: Vec<Name>| n.into_iter().map(|n| (n.key, n.start, n.end)).collect::<Vec<_>>();
+    let defs = definitions(&a.doc, &a.elements, &a.calls, &|e| a.active(e));
+    let found = {
+        // Quoted names of defined variables stand outside unit positions ("km" := 23, then "km" + 1).
+        let defined = |w: &str| defs.iter().any(|d| d.base() == w);
+        named(names(&a.doc, &a.elements, &a.calls, &|e| a.active(e), &unit, &defined, &|at| a.units_at(at)))
+    };
     let mut files = vec![File {
         path: a.context.path.clone(),
         doc: &a.doc,
-        definitions: definitions(&a.doc, &a.elements, &a.calls, &|e| a.active(e)),
-        names: named(names(&a.doc, &a.elements, &a.calls, &|e| a.active(e), &unit)),
+        definitions: defs,
+        names: found,
         maths: maths(&a.elements),
         strings: strings(&a.calls),
         graphs: graphs(&a.doc, &a.calls),
@@ -293,11 +310,17 @@ fn resolved_all<'a>(a: &'a Analysis) -> (Vec<File<'a>>, Vec<Occurrence>, Vec<usi
         if *path == a.context.path {
             continue;
         }
+        let settings = Analysis::new(&part.doc.s, a.context);
+        let defs = definitions(&part.doc, &part.elements, &part.calls, &|e| part.active(e));
+        let found = {
+            let defined = |w: &str| defs.iter().any(|d| d.base() == w);
+            named(names(&part.doc, &part.elements, &part.calls, &|e| part.active(e), &unit, &defined, &|at| settings.units_at(at)))
+        };
         files.push(File {
             path: path.clone(),
             doc: &part.doc,
-            definitions: definitions(&part.doc, &part.elements, &part.calls, &|e| part.active(e)),
-            names: named(names(&part.doc, &part.elements, &part.calls, &|e| part.active(e), &unit)),
+            definitions: defs,
+            names: found,
             maths: maths(&part.elements),
             strings: strings(&part.calls),
             graphs: graphs(&part.doc, &part.calls),
@@ -330,6 +353,7 @@ fn location(files: &[File], o: &Occurrence) -> Location {
 /// just the name. On one of the document's own units (`ü` of `units: (ü: auto)`), its key in `units: (…)`.
 pub fn definition(document: &str, context: &Context, offset: u32) -> Option<Location> {
     let a = Analysis::new(document, context);
+    if a.bindings.at(&a.doc, offset) { return None; }
     let (files, occurrences) = resolved(&a);
     let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::definition(&a, offset) };
     Some(location(&files, &occurrences[occurrences[i].definition?]))
@@ -341,6 +365,7 @@ pub fn definition(document: &str, context: &Context, offset: u32) -> Option<Loca
 /// On one of the document's own units, its keys and every use, prefixed ones (`mü`) and other units' values included.
 pub fn usages(document: &str, context: &Context, offset: u32) -> Vec<Location> {
     let a = Analysis::new(document, context);
+    if a.bindings.at(&a.doc, offset) { return Vec::new(); }
     let (files, occurrences) = resolved(&a);
     let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::usages(&a, offset).unwrap_or_default() };
     let Some(id) = occurrences[i].definition else { return Vec::new() };
@@ -350,6 +375,7 @@ pub fn usages(document: &str, context: &Context, offset: u32) -> Vec<Location> {
 /// The solveng name at `offset` that [`rename`] renames, as it's written there: its range and text.
 pub fn rename_target(document: &str, context: &Context, offset: u32) -> Option<RenameTarget> {
     let a = Analysis::new(document, context);
+    if a.bindings.at(&a.doc, offset) { return None; }
     let (files, occurrences) = resolved(&a);
     let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::rename_target(&a, offset) };
     let o = &occurrences[i];
@@ -363,6 +389,7 @@ pub fn rename_target(document: &str, context: &Context, offset: u32) -> Option<R
 /// with longer names quoted (`"tews"`, `t_"half"`). Empty if there's nothing to rename or the input is empty.
 pub fn rename(document: &str, context: &Context, offset: u32, name: &str) -> Vec<Edit> {
     let a = Analysis::new(document, context);
+    if a.bindings.at(&a.doc, offset) { return Vec::new(); }
     let (files, occurrences) = resolved(&a);
     let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::rename(&a, offset, name).unwrap_or_default() };
     let Some(id) = occurrences[i].definition else { return Vec::new() };

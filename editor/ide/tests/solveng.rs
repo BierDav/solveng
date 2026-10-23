@@ -76,7 +76,7 @@ fn highlights_brackets_and_functions() {
         tokens_of("P = [5 V] I sqrt(R) 2 pi f"),
         vec![
             t("P", TokenKind::VARIABLE), t("=", TokenKind::OPERATOR), t("5", TokenKind::NUMBER), t("V", TokenKind::UNIT),
-            t("I", TokenKind::VARIABLE), t("sqrt", TokenKind::FUNCTION), t("R", TokenKind::VARIABLE), t("2", TokenKind::NUMBER),
+            t("I", TokenKind::VARIABLE), t("sqrt", TokenKind::BUILTIN_FUNCTION), t("R", TokenKind::VARIABLE), t("2", TokenKind::NUMBER),
             t("pi", TokenKind::KEYWORD), t("f", TokenKind::VARIABLE),
         ]
     );
@@ -112,18 +112,72 @@ fn finds_bodies_of_solveng_code() {
 fn reads_whether_math_is_evaluated() {
     assert!(!evaluates("$x = 1$", &ctx("")));
     assert!(evaluates("#show: worksheet", &ctx("")));
-    // evaluate: false leaves its content's math alone, but not nested worksheets' or what's passed to one
+    // No worksheet around the math: nothing is evaluated, however the document is set up.
+    let plain = "#import \"@solveng/solveng:1.0.0\": *\n\n$R := 5\"cm\"$\n";
+    assert!(!evaluates(plain, &ctx("")));
+    assert!(math_tokens(plain, &ctx("")).is_empty());
+    assert!(document_tokens(plain, &ctx("")).is_empty());
+    // Worksheet content defaults to evaluated; only its own `evaluate: false` turns that off. Math outside every
+    // worksheet stays as written, also before a worksheet further down.
     let doc = "#worksheet[$a := 1$ #worksheet(evaluate: false)[$b := 2$ #worksheet[$c := 3$] #worksheet($d := 4$)] $e := 5$]";
     assert!(!math_tokens(doc, &ctx("")).is_empty());
-    let coloured = |needle: &str| {
+    let coloured = |doc: &str, needle: &str| {
         let at = doc[..doc.find(needle).unwrap()].encode_utf16().count() as u32;
         math_tokens(doc, &ctx("")).iter().any(|t| t.start <= at && at < t.start + t.length)
     };
-    assert!(coloured("a := 1") && coloured("c := 3") && coloured("d := 4") && coloured("e := 5"));
-    assert!(!coloured("b := 2"));
+    assert!(coloured(doc, "a := 1") && coloured(doc, "c := 3") && coloured(doc, "d := 4") && coloured(doc, "e := 5"));
+    assert!(!coloured(doc, "b := 2"));
+    let around = "$o := 1$\n#worksheet[$i := 2$]\n$p := 3$\n#show: worksheet\n$q := 4$\n";
+    assert!(!coloured(around, "o := 1") && coloured(around, "i := 2"));
+    assert!(!coloured(around, "p := 3") && coloured(around, "q := 4"));
     // also for the rest of the block after a show rule
     let shown = "#show: worksheet.with(evaluate: false)\n$x := 1$";
     assert!(math_tokens(shown, &ctx("")).is_empty());
+}
+
+#[test]
+fn follows_worksheet_aliases() {
+    let coloured = |doc: &str, needle: &str| {
+        let at = doc[..doc.find(needle).unwrap()].encode_utf16().count() as u32;
+        math_tokens(doc, &ctx("")).iter().any(|t| t.start <= at && at < t.start + t.length)
+    };
+    // `#let setup = worksheet…` wraps like the worksheet itself, with its options.
+    let doc = "#let setup = worksheet.with(evaluate: false)\n#show: setup\n$a := 1$";
+    assert!(!coloured(doc, "a := 1"));
+    let doc = "#let setup = worksheet.with(evaluate: false)\n#show: setup.with(evaluate: true)\n$a := 1$";
+    assert!(coloured(doc, "a := 1"));
+    let doc = "#let setup = worksheet\n#show: setup\n$a := 1$";
+    assert!(coloured(doc, "a := 1"));
+    // An alias imported from a file around, also renamed on the way.
+    let files = vec![
+        ContextFile { path: "defaults.typ".into(), text: "#let setup = worksheet.with(evaluate: false)\n#let plain = setup".into() },
+        ContextFile { path: "more.typ".into(), text: "#import \"defaults.typ\": plain as wrap".into() },
+    ];
+    let context = Context::new("").with_files(files).with_report(&Report::default(), "main.typ", true);
+    for (doc, want) in [("#import \"defaults.typ\": *\n#show: setup\n$a := 1$", false), ("#import \"more.typ\": *\n#show: wrap\n$a := 1$", false)] {
+        let at = doc[..doc.find("a := 1").unwrap()].encode_utf16().count() as u32;
+        assert_eq!(math_tokens(doc, &context).iter().any(|t| t.start <= at && at < t.start + t.length), want, "{doc}");
+    }
+}
+
+#[test]
+fn only_a_worksheet_that_includes_a_file_evaluates_it() {
+    let chapter = "$I := U / 2 Ω$\n";
+    let context = |main: &str| {
+        Context::new("")
+            .with_report(&Report::default(), "chapters/one.typ", false)
+            .with_files(vec![ContextFile { path: "main.typ".into(), text: main.into() }])
+            .with_main("main.typ")
+    };
+    let coloured = |main: &str| math_tokens(chapter, &context(main)).iter().any(|t| t.start == 1);
+    // The wrapping worksheet in main counts for what it includes.
+    assert!(coloured("#show: worksheet\n#include \"chapters/one.typ\"\n"));
+    assert!(coloured("#worksheet[\n#include \"chapters/one.typ\"\n]\n"));
+    // Before it, after it, or not included at all, the chapter stays as written.
+    assert!(!coloured("#include \"chapters/one.typ\"\n#show: worksheet\n"));
+    assert!(!coloured("#worksheet(evaluate: false)[\n#include \"chapters/one.typ\"\n]\n"));
+    assert!(!coloured("#worksheet[\n$U := 5 V$\n]\n#include \"chapters/one.typ\"\n"));
+    assert!(!coloured("#show: worksheet\n$U := 5 V$\n"));
 }
 
 #[test]
@@ -152,7 +206,7 @@ fn completes_units_where_a_value_is_written() {
     assert!(units.contains(&"mA".into()) && units.contains(&"kΩ".into()) && units.contains(&"h".into()));
     assert!(labels("```solveng\nP := [5 |] I\n```").contains(&"A".into()));
     assert!(labels("```solveng\ng := 9.81 m/|\n```").contains(&"s".into()));
-    assert!(labels("#worksheet-config(units: (bar: \"100 kPa\"))\n```solveng\np := 3 |\n```").contains(&"bar".into()));
+    assert!(labels("#worksheet(units: (bar: \"100 kPa\"), evaluate: false)[]\n```solveng\np := 3 |\n```").contains(&"bar".into()));
     assert!(!labels("```solveng\nU := 2 I |\n```").contains(&"mA".into()));
     // The word being typed is replaced.
     assert_eq!(complete_at("```solveng\nI := 30 mA|\n```").unwrap().from, "```solveng\nI := 30 ".len() as u32);
@@ -202,14 +256,14 @@ fn completes_in_math() {
 
 #[test]
 fn colors_math_like_code() {
-    let doc = "#show: worksheet\n$I := 30 mA dot R_\"load\" + sqrt(x) = 1 A$";
+    let doc = "#show: worksheet\n$I := 30 mA dot R_\"load\" + sqrt(x) = 1 \"A\"$";
     let found: Vec<String> = math_tokens(doc, &ctx("")).iter().map(|x| format!("{}:{}", slice(doc, x.start, x.length), x.kind)).collect();
     assert_eq!(
         found,
         vec![
             t("I", TokenKind::VARIABLE), t(":=", TokenKind::OPERATOR), t("30", TokenKind::NUMBER), t("mA", TokenKind::UNIT),
-            t("dot", TokenKind::OPERATOR), t("R", TokenKind::VARIABLE), t("\"load\"", TokenKind::VARIABLE), t("sqrt", TokenKind::FUNCTION),
-            t("x", TokenKind::VARIABLE), t("=", TokenKind::EVALUATE), t("1", TokenKind::NUMBER), t("A", TokenKind::UNIT),
+            t("dot", TokenKind::OPERATOR), t("R", TokenKind::VARIABLE), t("\"load\"", TokenKind::VARIABLE), t("sqrt", TokenKind::BUILTIN_FUNCTION),
+            t("x", TokenKind::VARIABLE), t("=", TokenKind::EVALUATE), t("1", TokenKind::NUMBER), t("\"A\"", TokenKind::UNIT),
         ]
     );
     // a letter alone after = is a variable: t = A compares
@@ -270,8 +324,8 @@ const WS: &str = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet\n";
 fn converts_math_to_code_and_back() {
     let i = WS;
     assert_eq!(convert(&format!("{i}$R := |7.2 kΩ$")), vec![format!("{i}```solveng\nR := 7.2 kΩ\n```")]);
-    assert_eq!(convert(&format!("{i}$t := Q_0/I = 1 h, digits(2)|$")), vec![format!("{i}```solveng\nt := Q_0/I = [h], digits(2)\n```")]);
-    assert_eq!(convert(&format!("{i}$I := frac(3450 mAh, 30 h) dot 2|$")), vec![format!("{i}```solveng\nI := (3450 mAh)/(30 h) * 2\n```")]);
+    assert_eq!(convert(&format!("{i}$t := Q_0/I = \"h\", digits(2)|$")), vec![format!("{i}```solveng\nt := Q_0/I = [h], digits(2)\n```")]);
+    assert_eq!(convert(&format!("{i}$I := frac(3450 mAh, 30 \"h\") dot 2|$")), vec![format!("{i}```solveng\nI := (3450 mAh)/(30 h) * 2\n```")]);
     assert_eq!(convert(&format!("{i}$x| := A unit(\"A\")$")), vec![format!("{i}```solveng\nx := A [A]\n```")]);
     assert_eq!(convert(&format!("{i}$x + y = 3, x - y = 1 -> solve(x, y)|$")), vec![format!("{i}```solveng\nx + y = 3; x - y = 1 -> solve(x, y)\n```")]);
     assert!(convert(&format!("{i}$a => b|$")).is_empty());
@@ -289,7 +343,7 @@ fn reads_the_files_around() {
         vec!["defaults.typ", "ch/1.typ"]
     );
     // A chapter of a main file that sets everything up.
-    let main = ctx("#show: worksheet\n#worksheet-config(units: (bar: \"100 kPa\"))\n$U := 5 V$");
+    let main = ctx("#show: worksheet\n#worksheet(units: (bar: \"100 kPa\"), evaluate: false)[]\n$U := 5 V$");
     assert!(evaluates("text", &main));
     let chapter = "```solveng\nP := U |\n```";
     let c = complete(&chapter.replace('|', ""), &main, chapter.find('|').unwrap() as u32).unwrap();

@@ -12,7 +12,7 @@ pub struct Report {
     pub elements: Vec<ReportElement>,
     /// Everything the blocks defined, with the values the compiler computed.
     pub defined: Vec<ReportValue>,
-    /// The units `worksheet-config(units: …)` set.
+    /// The units the `worksheet(units: …)` option set.
     pub units: Vec<ReportValue>,
     /// What went wrong calculating, where: the problems a `worksheet` shows in the document as red notes.
     pub errors: Vec<ReportError>,

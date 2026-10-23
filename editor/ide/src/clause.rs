@@ -82,8 +82,7 @@ pub(crate) fn clause_like(tail: &str, arrow: bool, unit: &dyn Fn(&str) -> bool) 
 }
 
 /// A unit as written in a clause: unit words, powers, `/`, `*`, brackets, `unit("…")`; no numbers but exponents
-/// and a leading 1. A single letter is a unit only after the 1 (`= 1 h`) or with a unit of more letters (`km/h`):
-/// alone it's a variable, and `t = h` compares.
+/// and a leading 1. Single-letter units need quotes; bare letters stay variables.
 fn unit_like(p: &str, unit: &dyn Fn(&str) -> bool) -> bool {
     if p.is_empty() {
         return false;
@@ -115,6 +114,9 @@ fn unit_like(p: &str, unit: &dyn Fn(&str) -> bool) -> bool {
                 i += 1;
             }
             let w: String = c[start..i].iter().collect();
+            let quoted = start > 0 && c[start - 1] == '"';
+            if crate::resolved_name(&w).chars().count() == 1 && !quoted && !p.contains('[') && w.chars().all(is_letter) { return false; }
+            named |= quoted;
             if w != "dot" && !crate::is_unit(&w) && !unit(&w) {
                 return false;
             }

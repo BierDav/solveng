@@ -6,6 +6,7 @@
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
+use crate::builtins::FnOpt;
 use crate::dim::Dim;
 use crate::expr::Val;
 use crate::num::{Num, Rat};
@@ -41,7 +42,7 @@ fn d_result() -> String {
 fn d_row() -> String {
     "row".into()
 }
-fn d_true() -> bool {
+pub(crate) fn d_true() -> bool {
     true
 }
 fn d_maxsol() -> usize {
@@ -54,7 +55,7 @@ fn d_prefixes() -> Prefixes {
     Prefixes::All
 }
 
-/// The options that matter for calculating and writing results (worksheet-config's, resolved by the Typst side).
+/// The options that matter for calculating and writing results (worksheet's, resolved by the Typst side).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default)]
 pub struct Cfg {
@@ -81,6 +82,16 @@ pub struct Cfg {
     pub prefixes: Prefixes,
     pub show_si: bool,
     pub units: IndexMap<String, UnitOpt>,
+    #[serde(default = "d_true")]
+    pub builtin_units: bool,
+    pub unit_layers: Vec<IndexMap<String, UnitOpt>>,
+    /// The built-in overlay of function names: standard names reach operations by plain lookup.
+    #[serde(default = "d_true")]
+    pub builtin_functions: bool,
+    /// The innermost user overlay of function names, `(conv: "convolve", tri: none)`.
+    pub functions: IndexMap<String, FnOpt>,
+    /// Every user overlay of function names, outermost first.
+    pub function_layers: Vec<IndexMap<String, FnOpt>>,
     pub preferred_units: Vec<String>,
     pub strict: bool,
     #[serde(default = "d_full")]
@@ -138,6 +149,11 @@ fn serde_json_like_default() -> Cfg {
         prefixes: Prefixes::All,
         show_si: false,
         units: IndexMap::new(),
+        builtin_units: true,
+        unit_layers: Vec::new(),
+        builtin_functions: true,
+        functions: IndexMap::new(),
+        function_layers: Vec::new(),
         preferred_units: vec![],
         strict: false,
         steps: "full".into(),
@@ -319,11 +335,8 @@ pub fn number(v: Num, raw: Option<&str>, cfg: &Cfg) -> (String, bool) {
         }
     }
     if let (Some(raw), true) = (raw, cfg.form != "decimal") {
-        let (m, e) = match raw.find(['e', 'E']) {
-            Some(i) => (&raw[..i], raw[i + 1..].replace('+', "").replace('−', "-").parse().ok()),
-            None => (raw, None),
-        };
-        return (num_markup(m, e, cfg), true);
+        // as typed: no e-notation, so the raw number has no exponent to show
+        return (num_markup(raw, None, cfg), true);
     }
     let x = v.f();
     let (m, e) = fmt(x, cfg);
@@ -381,10 +394,9 @@ pub fn pick(v: &Val, want: Option<&UnitExpr>, hint: Option<&UnitExpr>, units: &U
         if units.dim(u) == Some(v.d) {
             let f = units.factor(u);
             let n = si.div(f).unwrap_or(si);
-            let bare = v.raw.as_deref() == Some("1") && n.is_one();
             // as written: 7.20 kΩ keeps its zero
-            let raw = v.raw.clone().filter(|r| !bare && Rat::parse_decimal(r).is_some_and(|x| Num::R(x).same(n)));
-            return Ok(Shown { n, u: u.clone(), raw, bare });
+            let raw = v.raw.clone().filter(|r| Rat::parse_decimal(r).is_some_and(|x| Num::R(x).same(n)));
+            return Ok(Shown { n, u: u.clone(), raw, bare: false });
         }
     }
     if v.d.is_one() {

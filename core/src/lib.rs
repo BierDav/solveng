@@ -2,7 +2,9 @@
 //! calculates them like a Mathcad worksheet and writes the results as Typst math markup.
 
 pub mod api;
+pub mod builtins;
 pub mod calculus;
+pub mod convolution;
 pub mod dim;
 pub mod env;
 pub mod eval;

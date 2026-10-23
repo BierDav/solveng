@@ -32,7 +32,7 @@
 
 // names of more letters are quoted in math, as typst needs them to be; so are long subscripts, which may be grouped
 #worksheet[
-  $"tews" := 23 V$
+  $"tews" := 23 "V"$
   $"test"_("test" Delta) := 3$
   $"x"_"in" := 2$
   $R_(a b) := 4$

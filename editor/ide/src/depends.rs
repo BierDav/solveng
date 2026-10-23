@@ -60,12 +60,12 @@ pub(crate) fn dependencies(document: &str, context: &Context, definition: Locati
         if let Some(result) = tokens.iter().find(|t| t.start > assignment.start && t.start < end && t.kind == K::EVALUATE) {
             end = result.start;
         }
-        for token in tokens.iter().filter(|t| t.start > assignment.start && t.start < end && matches!(t.kind, K::VARIABLE | K::FUNCTION)) {
+        for token in tokens.iter().filter(|t| t.start > assignment.start && t.start < end && matches!(t.kind, K::VARIABLE | K::FUNCTION | K::FUNCTION_CALL | K::BUILTIN_FUNCTION)) {
             let target = crate::rename_target(source, &c, token.start);
             let name = key(&target.map_or_else(|| slice(source, token.start, token.start + token.length), |t| t.name));
             let definition = crate::definition(source, &c, token.start);
             // solveng's functions: sin(x)
-            if definition.is_none() && token.kind == K::FUNCTION {
+            if definition.is_none() && matches!(token.kind, K::FUNCTION | K::FUNCTION_CALL | K::BUILTIN_FUNCTION) {
                 continue;
             }
             if names.insert(name.clone()) {

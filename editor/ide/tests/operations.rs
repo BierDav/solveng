@@ -1,0 +1,49 @@
+// Operations in the editor: named arguments, indices, convolve and range, and names from the option functions.
+
+use solveng_ide::*;
+
+const DOC: &str = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet.with(functions: (conv: \"convolve\", rect: none))\n$N := 200$, $i := 0..N$\n$x[i] := tri(i/N)$\n$y := convolve(x, x, step: 2)$\n$f(x, n: 2) := x^n$, $a := f(3, n: 3) =$\n```solveng\nq := range(1, 10, step: 3)\nz := conv(x, x)\nw := x[2] + y[i]\nr := rect(0)\n```\n";
+
+fn kind_of(doc: &str, word: &str, nth: usize) -> u8 {
+    let at = doc.match_indices(word).nth(nth).unwrap().0;
+    let start = doc[..at].encode_utf16().count() as u32;
+    document_tokens(doc, &Context::default()).into_iter().find(|t| t.start == start).map_or(255, |t| t.kind)
+}
+
+fn hover_at(doc: &str, word: &str) -> String {
+    let at = doc.find(word).unwrap() + 1;
+    hover(doc, &Context::default(), doc[..at].encode_utf16().count() as u32).map(|h| h.markdown).unwrap_or_default()
+}
+
+#[test]
+fn named_arguments_are_parameters() {
+    assert_eq!(kind_of(DOC, "step", 0), TokenKind::PARAMETER);
+    assert_eq!(kind_of(DOC, "step", 1), TokenKind::PARAMETER);
+    // a call's named argument, and a function head's named parameter
+    assert_eq!(kind_of(DOC, "n: 3", 0), TokenKind::PARAMETER);
+    assert_eq!(kind_of(DOC, "n: 2", 0), TokenKind::PARAMETER);
+    // a type stays a unit: f(I: mA)
+    let typed = "#show: worksheet\n$q(I: mA) := I$\n";
+    assert_eq!(kind_of(typed, "mA", 0), TokenKind::UNIT);
+}
+
+#[test]
+fn indices_in_code_are_no_units() {
+    assert_ne!(kind_of(DOC, "i]", 1), TokenKind::UNIT);
+    let unit = "```solveng\nU := R [5 V]\n```\n";
+    assert_eq!(kind_of(unit, "V", 0), TokenKind::UNIT);
+}
+
+#[test]
+fn operations_and_overlays() {
+    assert_eq!(kind_of(DOC, "convolve(x", 0), TokenKind::BUILTIN_FUNCTION);
+    assert_eq!(kind_of(DOC, "range", 0), TokenKind::BUILTIN_FUNCTION);
+    assert_eq!(kind_of(DOC, "conv(", 0), TokenKind::BUILTIN_FUNCTION);
+    // hidden by the overlay: a call of a function to be defined
+    assert_eq!(kind_of(DOC, "rect(0)", 0), TokenKind::FUNCTION_CALL);
+    assert!(hover_at(DOC, "convolve(x").contains("Convolution"));
+    assert!(hover_at(DOC, "range(1").contains("range"));
+    assert!(hover_at(DOC, "conv(").contains("stands for `convolve`"));
+    // no problems reported for the new syntax
+    assert!(diagnostics(DOC, &Context::default()).is_empty(), "{:?}", diagnostics(DOC, &Context::default()));
+}

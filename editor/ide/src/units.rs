@@ -75,21 +75,55 @@ pub(crate) struct Custom {
 
 static UNITS_ARG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"units\s*:\s*\(").unwrap());
 static UNIT_ENTRY: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"([\p{L}][\p{L}\p{N}_]*|"[^"]+")\s*:\s*("[^"]*"|none|auto|[\d.]+(?:e-?\d+)?)"#).unwrap());
+    LazyLock::new(|| Regex::new(r#"([\p{L}][\p{L}\p{N}_]*|"[^"]+")\s*:\s*("[^"]*"|none|auto|[\d.]+)"#).unwrap());
 
-/// Units a text adds with `worksheet-config(units: (bar: "100 kPa", ü: auto, dozen: 12, …))`, later ones winning.
+/// Units a text adds with `worksheet(units: (bar: "100 kPa", ü: auto, dozen: 12, …))`, later ones winning.
 pub(crate) fn custom_units(text: &str, out: &mut Vec<Custom>) {
+    static BUILTIN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"builtin-units\s*:\s*(true|false)").unwrap());
+    for c in BUILTIN.captures_iter(text) {
+        out.retain(|u| !u.name.is_empty());
+        out.push(Custom { name: String::new(), value: c[1].into() });
+    }
     for m in UNITS_ARG.find_iter(text) {
         let start = m.end();
         let end = text[start..].find(')').map_or(text.len(), |i| start + i);
         for c in UNIT_ENTRY.captures_iter(&text[start..end]) {
-            let name = c[1].trim_matches('"').to_string();
+            let name = crate::resolved_name(c[1].trim_matches('"'));
             out.retain(|u| u.name != name);
-            if &c[2] != "none" {
-                out.push(Custom { name, value: c[2].trim_matches('"').to_string() });
-            }
+            out.push(Custom { name, value: c[2].trim_matches('"').to_string() });
         }
     }
+}
+
+static FUNCTIONS_ARG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|[^\w-])functions\s*:\s*\(").unwrap());
+static FUNCTION_ENTRY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"([\p{L}][\p{L}\p{N}_]*|"[^"]+")\s*:\s*("[^"]*"|none)"#).unwrap());
+
+/// Names a text maps with `worksheet(functions: (conv: "convolve", tri: none))`: the operation each stands for, or
+/// None for a hidden name; later ones winning.
+pub(crate) fn custom_functions(text: &str) -> Vec<(String, Option<String>)> {
+    let mut out: Vec<(String, Option<String>)> = Vec::new();
+    for m in FUNCTIONS_ARG.find_iter(text) {
+        let start = m.end();
+        let end = text[start..].find(')').map_or(text.len(), |i| start + i);
+        for c in FUNCTION_ENTRY.captures_iter(&text[start..end]) {
+            let name = crate::resolved_name(c[1].trim_matches('"'));
+            let target = (&c[2] != "none").then(|| crate::resolved_name(c[2].trim_matches('"')));
+            out.retain(|(n, _)| *n != name);
+            out.push((name, target));
+        }
+    }
+    // a name standing for another of the overlay: what that one stands for
+    let resolved: Vec<(String, Option<String>)> = out.iter().map(|(n, t)| {
+        let mut t = t.clone();
+        for _ in 0..8 {
+            match t.as_ref().and_then(|x| out.iter().find(|(m, _)| m == x && m != n)) {
+                Some((_, next)) if next.is_some() => t = next.clone(),
+                _ => break,
+            }
+        }
+        (n.clone(), t)
+    }).collect();
+    resolved
 }
 
 static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\p{L}°%‰µΩ]+").unwrap());
@@ -130,12 +164,18 @@ fn unit_filter(unit: &str, prefix: &str, name: &str) -> String {
 }
 
 /// Every unit a completion offers: the document's first, then the built-in ones with common prefixes.
-pub(crate) fn unit_items(custom: &[Custom]) -> Vec<Item> {
+pub(crate) fn unit_items(custom: &[Custom]) -> Vec<Item> { items(custom, true) }
+pub(crate) fn explicit_items(custom: &[Custom]) -> Vec<Item> { items(custom, false) }
+
+fn items(custom: &[Custom], implicit: bool) -> Vec<Item> {
     let mut items = Vec::new();
-    for u in custom {
+    for u in custom.iter().filter(|u| !u.name.is_empty() && u.value != "none") {
         let r = resolve(u, custom);
         let detail = if r.starts_with("defined") { r } else { format!("defined · {r}") };
-        items.push(Item::new(&u.name, ItemKind::UNIT, &detail, &u.name));
+        let mut item = Item::new(&u.name, ItemKind::UNIT, &detail, &u.name);
+        let spelling = crate::conceal::spelled(&u.name);
+        if spelling != u.name { item.filter = Some(format!("{} {spelling}", u.name)); }
+        items.push(item);
     }
     for (u, name) in PREFIXABLE {
         let mut item = Item::new(u, ItemKind::UNIT, &format!("{name} · built-in"), u);
@@ -159,6 +199,15 @@ pub(crate) fn unit_items(custom: &[Custom]) -> Vec<Item> {
     }
     let mut seen = std::collections::HashSet::new();
     items.retain(|i| seen.insert(i.label.clone()));
+    if implicit { items.retain(|item| visible(&item.insert, custom)); }
+    // Common engineering units precede uncommon prefixes; custom overlays stay first.
+    const COMMON: &[&str] = &["m", "s", "kg", "A", "K", "V", "Ω", "W", "Hz", "N", "Pa", "J", "C", "F", "H", "mol", "cd", "mm", "cm", "km", "ms", "mA", "mV", "kΩ", "kW", "kHz", "MHz", "µA", "uA", "nF", "µF", "uF", "pF", "h", "min", "°C", "L", "l", "mAh", "Wh", "kWh", "%", "rad", "°"];
+    items.sort_by_key(|item| {
+        if custom.iter().any(|u| u.name == item.label) { (0, 0) }
+        else if let Some(rank) = COMMON.iter().position(|name| *name == item.label) { (1, rank) }
+        else if PREFIXABLE.iter().chain(PLAIN).any(|(name, _)| *name == item.label) { (2, 0) }
+        else { (3, 0) }
+    });
     items
 }
 
@@ -272,12 +321,14 @@ pub(crate) fn describe(word: &str, custom: &[Custom]) -> Option<String> {
 
 /// Whether solveng reads `word` as a unit: one of its table or the document's, or any prefix and one.
 pub(crate) fn known(word: &str, custom: &[Custom]) -> bool {
+    let normalized = crate::resolved_name(word);
+    let word = normalized.as_str();
     if word.contains("\"\"") {
         return known(&crate::resolved_name(word), custom);
     }
     let table = |w: &str| {
         lookup(PREFIXABLE, w).is_some() || lookup(PLAIN, w).is_some() || lookup(SPELLINGS, w).is_some() || w == "\u{2126}"
-            || custom.iter().any(|u| u.name == w)
+            || custom.iter().any(|u| u.name == w && u.value != "none")
     };
     if table(word) {
         return true;
@@ -304,4 +355,21 @@ pub(crate) fn unknown_words(expr: &str, custom: &[Custom]) -> Vec<(usize, usize,
         out.push((crate::text::char_index(expr, w.start()), crate::text::char_index(expr, w.end()), w.as_str().to_string()));
     }
     out
+}
+
+/// A hidden name remains available to explicit unit references and definition expressions.
+pub(crate) fn visible(word: &str, custom: &[Custom]) -> bool {
+    let normalized = crate::resolved_name(word);
+    let word = normalized.as_str();
+    if custom.iter().any(|u| u.name == word && u.value == "none") { return false; }
+    let builtin = custom.iter().find(|u| u.name.is_empty()).is_none_or(|u| u.value != "false");
+    known(word, custom) && (builtin || !is_unit(word) || custom.iter().any(|u| u.name == word && u.value != "none"))
+}
+
+/// User overlays do not create Typst bindings for bare names.
+pub(crate) fn bare(word: &str, custom: &[Custom]) -> bool {
+    let normalized = crate::resolved_name(word);
+    let word = normalized.as_str();
+    is_unit(word) && custom.iter().find(|u| u.name.is_empty()).is_none_or(|u| u.value != "false")
+        && !custom.iter().any(|u| u.name == word && u.value == "none")
 }

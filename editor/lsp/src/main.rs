@@ -24,7 +24,7 @@ struct Server {
     /// Open documents by URI.
     open: HashMap<String, String>,
     root: Option<PathBuf>,
-    /// The file typst compiles, whose setup (`worksheet`, `worksheet-config`) counts for the files it includes.
+    /// The file typst compiles, whose setup (`worksheet`) counts for the files it includes.
     main: Option<PathBuf>,
     /// What the last compile reported, as the client sent it with `solveng/report`.
     report: Report,
@@ -74,7 +74,7 @@ fn capabilities() -> Value {
         "definitionProvider": true,
         "referencesProvider": true,
         "renameProvider": { "prepareProvider": true },
-        "codeActionProvider": { "codeActionKinds": ["refactor.rewrite"] },
+        "codeActionProvider": { "codeActionKinds": ["quickfix", "refactor.rewrite"] },
         "semanticTokensProvider": { "legend": { "tokenTypes": TOKEN_TYPES, "tokenModifiers": TOKEN_MODIFIERS }, "full": true },
     })
 }
@@ -300,12 +300,12 @@ impl Server {
             }
             "textDocument/codeAction" => {
                 let at = offset(&text, &p["range"]["start"]);
-                let actions: Vec<Value> = ide::conversions(&text, &context, at)
-                    .into_iter()
-                    .map(|c| {
+                let actions: Vec<Value> = ide::unit_fixes(&text, &context, at).into_iter().map(|c| (c, "quickfix"))
+                    .chain(ide::conversions(&text, &context, at).into_iter().map(|c| (c, "refactor.rewrite")))
+                    .map(|(c, kind)| {
                         json!({
                             "title": c.title,
-                            "kind": "refactor.rewrite",
+                            "kind": kind,
                             "edit": { "changes": { uri.clone(): [{ "range": range(&starts, c.start, c.end), "newText": c.text }] } },
                         })
                     })
@@ -321,7 +321,7 @@ impl Server {
                     // Tokens stop at the line's end.
                     let line_end = starts.get(l + 1).map_or(u32::MAX, |s| s - 1);
                     let length = t.length.min(line_end.saturating_sub(t.start));
-                    let (kind, modifiers) = if t.kind == ide::TokenKind::EVALUATE { (ide::TokenKind::OPERATOR, 1) } else { (t.kind, 0) };
+                    let (kind, modifiers) = if t.kind == ide::TokenKind::EVALUATE { (ide::TokenKind::OPERATOR, 1) } else if matches!(t.kind, ide::TokenKind::FUNCTION_CALL | ide::TokenKind::BUILTIN_FUNCTION) { (ide::TokenKind::FUNCTION, 0) } else if t.kind == ide::TokenKind::UNIT_REFERENCE { (ide::TokenKind::COMMENT, 0) } else { (t.kind, 0) };
                     if length == 0 || usize::from(kind) >= TOKEN_TYPES.len() {
                         continue;
                     }

@@ -22,19 +22,19 @@ fn code(lines: &[&str]) -> String {
 
 #[test]
 fn lists_what_a_definition_depends_on_as_code() {
-    let doc = "#show: worksheet\n$a := 2 A$\n$b := a + 3 A$\n$f(x: A) := b + x$\n$f(1 A) =$";
+    let doc = "#show: worksheet\n$a := 2 \"A\"$\n$b := a + 3 \"A\"$\n$f(x: A) := b + x$\n$f(1\"A\") =$";
     assert_eq!(dependencies(doc, &Context::default(), "f(").unwrap(), code(&["b = a + 3 A", "a: A = 2 A"]));
     // undefined names are marked, solveng's functions left out
     let doc = "#show: worksheet\n$ Sigma\"\"r := sin(x) + y^2 $\n$ Σ\"\"r -> $";
     assert_eq!(dependencies(doc, &Context::default(), "Σ").unwrap(), code(&["x // undefined", "y // undefined"]));
     // a given value depends on nothing and says nothing about it
-    assert_eq!(dependencies("#show: worksheet\n$a := 2 A$\n$a =$", &Context::default(), "a ="), None);
+    assert_eq!(dependencies("#show: worksheet\n$a := 2 \"A\"$\n$a =$", &Context::default(), "a ="), None);
 }
 
 #[test]
 fn shows_functions_with_their_signature_once() {
     // a function's line is its signature and body, without a second =: o(x: Ω) = x, not o = (x: Ω) = x
-    let doc = "#show: worksheet\n$o(x: Omega) := x$\n$y := o(2 Omega)$\n$y =$";
+    let doc = "#show: worksheet\n$o(x: Omega) := x$\n$y := o(2\"Omega\")$\n$y =$";
     assert_eq!(dependencies(doc, &Context::default(), "y =").unwrap(), code(&["o(x: Omega) = x"]));
     // with the compiler's values, what it returns too, and the value of what's computed
     let report = Report {

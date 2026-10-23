@@ -90,14 +90,16 @@ fn conceals_in(code: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<(usize, usize,
                     continue;
                 }
                 let n = word.chars().count();
-                // Omega, and glued to a prefix: k""Omega
-                if word == "Omega" || word.ends_with("\"\"Omega") {
-                    if n > 5 {
-                        out.push((start + n - 7, 1, '\0'));
-                        out.push((start + n - 6, 1, '\0'));
-                    }
-                    out.push((start + n - 5, 5, 'Ω'));
+                let characters = chars(&word);
+                let mut i = 0;
+                while i + 1 < characters.len() {
+                    if characters[i..i + 2] == ['"', '"'] {
+                        out.push((start + i, 1, '\0'));
+                        out.push((start + i + 1, 1, '\0'));
+                        i += 2;
+                    } else { i += 1; }
                 }
+                piece_conceals(&word, start, &mut out);
                 if n > 1 && word.starts_with('u') && crate::is_unit(&word[1..]) {
                     out.push((start, 1, 'µ'));
                 }
@@ -152,6 +154,16 @@ pub fn conceals(document: &str, context: &Context) -> Vec<Conceal> {
     };
     for e in a.elements.iter().filter(|e| !e.math && a.shown(e)) {
         push(e.body_start, conceals_in(&a.doc.c[e.body_start..e.body_end], &unit), (e.start, e.end));
+    }
+    let tokens = crate::document_tokens(document, context);
+    for e in a.elements.iter().filter(|e| e.math && a.shown(e)) {
+        for token in tokens.iter().filter(|t| t.kind == K::UNIT && a.doc.to16(e.body_start) <= t.start && t.start + t.length <= a.doc.to16(e.body_end)) {
+            let start = a.doc.from16(token.start as usize);
+            let end = a.doc.from16((token.start + token.length) as usize);
+            let mut found = Vec::new();
+            piece_conceals(&a.doc.sub(start, end), 0, &mut found);
+            push(start, found, (e.start, e.end));
+        }
     }
     // The strings of solveng's calls, each shown as typed while the caret is in it (quotes included).
     for t in a.calls.iter().flat_map(|c| &c.texts) {

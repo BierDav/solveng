@@ -154,3 +154,41 @@ fn shows_the_errors_a_client_reports() {
     assert!(child.wait().unwrap().success());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn leaves_math_outside_a_worksheet_as_written() {
+    let dir = std::env::temp_dir().join(format!("solveng-lsp-plain-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // A main file with a worksheet around other content says nothing about a file it doesn't include.
+    std::fs::write(dir.join("main.typ"), "#show: worksheet\n$U := 5 V$\n").unwrap();
+    let root = format!("file://{}", dir.display());
+    let uri = format!("{root}/doc.typ");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_solveng-lsp")).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"capabilities": {}, "rootUri": root, "initializationOptions": {"main": "main.typ"}}}));
+    wait(&mut stdout, |m| m["id"] == 1);
+    send(&mut stdin, json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}));
+    let text = "#import \"@solveng/solveng:1.0.0\": *\n\n$R := 5\"cm\"$\n";
+    send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri, "languageId": "typst", "version": 1, "text": text}}}));
+    wait(&mut stdout, |m| m["method"] == "textDocument/publishDiagnostics");
+    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 2, "method": "textDocument/semanticTokens/full", "params": {"textDocument": {"uri": uri}}}));
+    assert_eq!(wait(&mut stdout, |m| m["id"] == 2)["result"]["data"], json!([]));
+    // Wrapped in a worksheet it is solveng's, unless that worksheet says `evaluate: false`.
+    for (changed, tokens) in [
+        ("#show: worksheet\n$R := 5\"cm\"$\n", true),
+        ("#worksheet(evaluate: false)[$R := 5\"cm\"$]\n", false),
+    ] {
+        send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": uri, "version": 2}, "contentChanges": [{"text": changed}]}}));
+        wait(&mut stdout, |m| m["method"] == "textDocument/publishDiagnostics");
+        send(&mut stdin, json!({"jsonrpc": "2.0", "id": 3, "method": "textDocument/semanticTokens/full", "params": {"textDocument": {"uri": uri}}}));
+        let data = wait(&mut stdout, |m| m["id"] == 3)["result"]["data"].as_array().unwrap().clone();
+        assert_eq!(!data.is_empty(), tokens, "{changed}");
+    }
+    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null}));
+    wait(&mut stdout, |m| m["id"] == 4);
+    send(&mut stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    drop(stdin);
+    assert!(child.wait().unwrap().success());
+    let _ = std::fs::remove_dir_all(&dir);
+}

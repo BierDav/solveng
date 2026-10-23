@@ -46,10 +46,11 @@ pub fn conversions(document: &str, context: &Context, offset: u32) -> Vec<Conver
     Vec::new()
 }
 
-/// A unit as math writes it: a name of solveng's (`mA`, `kΩ`, a single letter), else `unit("…")`.
+/// A unit as math writes it: a quoted letter or exported name (`mA`, `kΩ`), else `unit("…")`.
 fn math_unit(unit: &str) -> String {
     let u = spell_unit(unit.trim());
-    let named = u.chars().count() == 1 || (is_unit(&u) && u.chars().all(|c| is_letter(c) || "°%‰µΩ".contains(c)));
+    if u.chars().count() == 1 { return format!("\"{u}\""); }
+    let named = is_unit(&u) && u.chars().all(|c| is_letter(c) || "°%‰µΩ".contains(c));
     if named { u } else { format!("unit(\"{u}\")") }
 }
 
@@ -64,9 +65,7 @@ fn math_clause(tail: &str) -> String {
             if is_keyword(&word) {
                 return p.to_string();
             }
-            // a letter alone after = is a variable in math; after a 1 it's the unit
-            let u = math_unit(p.trim_start_matches('[').trim_end_matches(']'));
-            if u.chars().count() == 1 { format!("1 {u}") } else { u }
+            math_unit(p.trim_start_matches('[').trim_end_matches(']'))
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -76,7 +75,7 @@ const MATH_FUNCTIONS: &[&str] = &["sqrt", "exp", "ln", "log", "sin", "cos", "tan
 static SPACES: LazyLock<Regex> = LazyLock::new(|| Regex::new(" {2,}").unwrap());
 
 /// A line of solveng code as math: `I := 30 mA` → `I := 30 mA`, `x = A [A]` → `x = A unit("A")`,
-/// `t := Q0/I = [h]` → `t := Q0/I = 1 h`; None for what math can't say the same way.
+/// `t := Q0/I = [h]` → `t := Q0/I = "h"`; None for what math can't say the same way.
 pub fn to_math(code: &str) -> Option<String> {
     if code.contains('@') || code.contains("//") || code.contains('$') {
         return None;
@@ -264,14 +263,15 @@ fn code_of(math: &str) -> Option<String> {
                 out.push_str(&format!("({})/({})", code_of(parts[0].trim())?, code_of(parts[1].trim())?));
                 i = close + 1;
                 after_value = false;
-            } else if (w.chars().count() > 1 && is_unit(&w)) || (after_value && is_unit(&w)) {
-                // solveng's names of units, and a letter after a number
+            } else if crate::resolved_name(&w).chars().count() > 1 && is_unit(&w) {
+                // Typst resolves multi-letter exported unit bindings.
                 unit(&mut out, &w, after_value);
                 after_value = true;
             } else {
                 if w.contains('.') {
                     return None;
                 }
+                if after_value && is_unit(&w) { out.push('*'); }
                 out.push_str(&w);
                 after_value = false;
             }

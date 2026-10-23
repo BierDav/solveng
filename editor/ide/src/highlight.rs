@@ -1,9 +1,9 @@
 //! Highlighting, regions, problems and hovers over a whole document.
 
 use crate::calls::Role;
-use crate::complete::{FUNCTIONS, defined};
+use crate::complete::{FUNCTIONS, defined, definitions};
 use crate::text::{Doc, chars, is_letter_or_digit};
-use crate::tokens::{CONSTANTS, Tok, code_tokens, formula_tokens, math_tokens as math_toks};
+use crate::tokens::{CONSTANTS, Tok, code_tokens, visible_code_tokens, formula_tokens, math_tokens as math_toks};
 use crate::units::{self, Custom};
 use crate::{Analysis, Context, Hover, Problem, Region, Token, TokenKind as K};
 
@@ -14,15 +14,55 @@ fn utf16(doc: &Doc, base: usize, toks: Vec<Tok>) -> impl Iterator<Item = Token> 
     })
 }
 
-fn local(text: &str, toks: Vec<Tok>) -> Vec<Token> {
+fn local(text: &str, toks: Vec<Tok>, math: bool) -> Vec<Token> {
     let doc = Doc::new(text);
-    utf16(&doc, 0, toks).collect()
+    let element = crate::elements::Element { start: 0, end: doc.c.len(), body_start: 0, body_end: doc.c.len(), tag: crate::TAG.into(), math, block: true };
+    let defs = definitions(&doc, &[element], &[], &|_| true);
+    let mut tokens = utf16(&doc, 0, toks).collect::<Vec<_>>();
+    function_styles(&doc, &mut tokens, &defs);
+    tokens
+}
+
+/// The operation a name calls: a standard name, unless the document's function overlays hide it, or a name they
+/// map (`functions: (conv: "convolve")`).
+pub(crate) fn operation(doc: &Doc, name: &str) -> Option<String> {
+    let text: String = doc.c.iter().collect();
+    match units::custom_functions(&text).into_iter().find(|(n, _)| n == name) {
+        Some((_, target)) => target.filter(|t| FUNCTIONS.contains(&t.as_str())),
+        None => FUNCTIONS.contains(&name).then(|| name.to_string()),
+    }
+}
+
+fn function_styles(doc: &Doc, tokens: &mut [Token], defs: &[crate::complete::Definition]) {
+    for token in tokens.iter_mut().filter(|t| t.kind == K::FUNCTION) {
+        let start = doc.from16(token.start as usize);
+        let end = doc.from16((token.start + token.length) as usize);
+        let mut tail = end;
+        while doc.c.get(tail).is_some_and(|c| c.is_whitespace()) { tail += 1; }
+        if doc.c.get(tail) == Some(&'(') {
+            let mut depth = 0;
+            while let Some(&c) = doc.c.get(tail) {
+                tail += 1;
+                if c == '(' { depth += 1; }
+                if c == ')' { depth -= 1; }
+                if depth == 0 { break; }
+            }
+        }
+        while doc.c.get(tail).is_some_and(|c| c.is_whitespace()) { tail += 1; }
+        let assigns = doc.c[tail..].starts_with(&[':', '=']) || doc.c.get(tail) == Some(&'≔');
+        if defs.iter().any(|d| d.function && d.start == start) || assigns { continue; }
+        let (text, _) = crate::text::unescape(&doc.c[start..end]);
+        let name = crate::resolved_name(&text.iter().collect::<String>());
+        token.kind = if operation(doc, &name).is_some() && !defs.iter().any(|d| d.function && d.base() == name) {
+            K::BUILTIN_FUNCTION
+        } else { K::FUNCTION_CALL };
+    }
 }
 
 /// Tokens of solveng code with kinds from [`K`]: numbers and their units, variables, functions, `@`-inlined
 /// formulas, relations and `->`, comments.
 pub fn tokens(code: &str) -> Vec<Token> {
-    local(code, code_tokens(&chars(code), &|_| false))
+    local(code, code_tokens(&chars(code), &|_| false), false)
 }
 
 /// solveng code as documentation shows it, with its tokens: powers and indices written out (`A^2` is A², `m^-1` m⁻¹,
@@ -96,29 +136,32 @@ pub fn pretty(code: &str, units: &[String]) -> (String, Vec<Token>) {
     at[c.len()] = out.len();
     let text: String = out.iter().collect();
     let moved = toks.into_iter().map(|(s, n, k)| (at[s], at[s + n] - at[s], k)).filter(|t| t.1 > 0).collect();
-    let tokens = local(&text, moved);
+    let tokens = local(&text, moved, false);
     (text, tokens)
 }
 
 /// [`tokens`], with the document's own unit names (`bar`) read as units after a number.
 pub fn tokens_with_units(code: &str, units: &[String]) -> Vec<Token> {
-    local(code, code_tokens(&chars(code), &|w| units.iter().any(|u| u == w)))
+    local(code, code_tokens(&chars(code), &|w| units.iter().any(|u| u == w)), false)
 }
 
 /// Tokens of one equation's body.
 pub fn math_tokens_of(math: &str) -> Vec<Token> {
-    local(math, math_toks(&chars(math), &|_| false))
+    local(math, math_toks(&chars(math), &crate::is_unit, &crate::is_unit, &|_| false), true)
 }
 
 /// Tokens of the equations solveng reads (in a `worksheet` that evaluates them, or passed to one),
 /// over the whole document, coloured like solveng code: numbers, quoted units, variables, functions.
 pub fn math_tokens(document: &str, context: &Context) -> Vec<Token> {
     let a = Analysis::new(document, context);
-    let unit = |w: &str| a.is_custom_unit(w);
+    let defs = definitions(&a.doc, &a.elements, &a.calls, &|e| a.active(e));
+    let defined = |w: &str| defs.iter().any(|d| d.base() == w);
     let mut out = Vec::new();
     for e in a.elements.iter().filter(|e| e.math && a.active(e)) {
-        out.extend(utf16(&a.doc, e.body_start, math_toks(&a.doc.c[e.body_start..e.body_end], &unit)));
+        let units = a.units_at(e.body_start);
+        out.extend(utf16(&a.doc, e.body_start, math_toks(&a.doc.c[e.body_start..e.body_end], &|w| units::visible(w, &units), &|w| units::bare(w, &units), &defined)));
     }
+    function_styles(&a.doc, &mut out, &defs);
     out
 }
 
@@ -147,10 +190,11 @@ fn call_tokens(a: &Analysis) -> Vec<Token> {
                 let lead = text.chars().take_while(|c| c.is_whitespace()).count();
                 vec![(lead, trimmed.chars().count(), kind)]
             };
+            let settings = a.units_at(t.start);
             let toks = match t.role {
                 // A graph's curves are formulas.
                 Role::Code if call.is_curve(t) => formula_tokens(code, &unit),
-                Role::Code => code_tokens(code, &unit),
+                Role::Code => visible_code_tokens(code, &unit, &|w| units::visible(w, &settings)),
                 Role::Unit => unit_tokens(code, &a.units),
                 Role::Name if !trimmed.is_empty() => whole(K::VARIABLE),
                 Role::Choice => {
@@ -172,10 +216,16 @@ fn call_tokens(a: &Analysis) -> Vec<Token> {
 pub fn document_tokens(document: &str, context: &Context) -> Vec<Token> {
     let a = Analysis::new(document, context);
     let unit = |w: &str| a.is_custom_unit(w);
+    let defs = definitions(&a.doc, &a.elements, &a.calls, &|e| a.shown(e));
+    let defined = |w: &str| defs.iter().any(|d| d.base() == w);
     let mut out = Vec::new();
     for e in a.elements.iter().filter(|e| a.shown(e)) {
         let body = &a.doc.c[e.body_start..e.body_end];
-        let toks = if e.math { math_toks(body, &unit) } else { code_tokens(body, &unit) };
+        let units = a.units_at(e.body_start);
+        let toks = if e.math { math_toks(body, &|w| units::visible(w, &units), &|w| units::bare(w, &units), &defined) } else {
+            let units = a.units_at(e.body_start);
+            visible_code_tokens(body, &unit, &|w| units::visible(w, &units))
+        };
         out.extend(utf16(&a.doc, e.body_start, toks));
     }
     out.extend(call_tokens(&a));
@@ -186,6 +236,15 @@ pub fn document_tokens(document: &str, context: &Context) -> Vec<Token> {
             t.kind = K::PARAMETER;
         }
     }
+    for token in &mut out {
+        if a.bindings.contains(a.doc.from16(token.start as usize)) { token.kind = K::VARIABLE; }
+    }
+    for at in a.bindings.unit_hashes(&a.doc) {
+        if a.elements.iter().any(|e| e.math && a.active(e) && e.body_start <= at && at < e.body_end) {
+            out.push(Token { start: a.doc.to16(at), length: 1, kind: K::UNIT_REFERENCE });
+        }
+    }
+    function_styles(&a.doc, &mut out, &defs);
     out.sort_by_key(|t| t.start);
     out
 }
@@ -217,7 +276,7 @@ pub fn diagnostics(document: &str, context: &Context) -> Vec<Problem> {
             out.push(Problem {
                 start: a.doc.to16(base + s),
                 end: a.doc.to16(base + e),
-                message: format!("unknown unit '{word}' – define it with worksheet-config(units: ({word}: \"…\"))"),
+                message: format!("unknown unit '{word}' – define it with the units option, worksheet(units: ({word}: \"…\"))"),
                 severity: "warning",
             });
         }
@@ -282,7 +341,8 @@ pub fn diagnostics(document: &str, context: &Context) -> Vec<Problem> {
                     let close = (i + 1..e.body_end).find(|&j| c[j] == '"').unwrap_or(e.body_end);
                     let before = c[e.body_start..i].iter().rev().find(|ch| !ch.is_whitespace());
                     let next = c.get(close + 1).copied().unwrap_or(' ');
-                    if before.is_some_and(|b| b.is_ascii_digit()) && !next.is_alphabetic() {
+                    if before.is_some_and(|b| b.is_ascii_digit()) && !next.is_alphabetic()
+                        && solveng_names::resolve(&a.doc.sub(i, (close + 1).min(e.body_end))).is_ok() {
                         let text: String = c[i + 1..close].iter().collect();
                         report(i + 1, &text);
                     }
@@ -298,7 +358,7 @@ pub fn diagnostics(document: &str, context: &Context) -> Vec<Problem> {
     for call in &a.calls {
         for t in &call.texts {
             match t.role {
-                Role::Unit => report(t.start, &a.doc.sub(t.start, t.end)),
+                Role::Unit if call.function.name != "unit" => report(t.start, &a.doc.sub(t.start, t.end)),
                 Role::Code => code(t.start, t.end, &mut report),
                 _ => {}
             }
@@ -317,6 +377,7 @@ pub fn diagnostics(document: &str, context: &Context) -> Vec<Problem> {
             severity: "warning",
         });
     }
+    out.extend(crate::bindings::problems(&a));
     out.extend(crate::scope::export_warnings(&a.doc));
     let mut reported = crate::errors::reported(&a);
     reported.append(&mut out);
@@ -366,6 +427,7 @@ pub fn hover(document: &str, context: &Context, offset: u32) -> Option<Hover> {
 
 fn hover_at(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     let a = Analysis::new(document, context);
+    if a.bindings.at(&a.doc, offset) { return None; }
     let at = a.doc.from16(offset as usize);
     let c = &a.doc.c;
     let part = |ch: char| is_letter_or_digit(ch) || "_°%‰µΩ".contains(ch);
@@ -377,7 +439,7 @@ fn hover_at(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     while e < c.len() && part(c[e]) {
         e += 1;
     }
-    // The functions themselves, by their whole identifier (worksheet-config, not solve), in code anywhere.
+    // The functions themselves, by their whole identifier (worksheet, not solve), in code anywhere.
     if let Some((start, end, name)) = identifier(&a.doc, at)
         && let Some(f) = crate::params::function(&name)
     {
@@ -385,6 +447,14 @@ fn hover_at(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     }
     if s == e {
         return None;
+    }
+    let tokens = document_tokens(document, context);
+    let start = a.doc.to16(s);
+    // A numeric coefficient and the symbol following it have separate token boundaries.
+    if let Some(number) = tokens.iter().find(|t| t.kind == K::NUMBER && t.start <= start && start < t.start + t.length
+        && t.start + t.length < a.doc.to16(e)) {
+        let end = a.doc.from16((number.start + number.length) as usize);
+        if at >= end { s = end; } else { e = end; }
     }
     let word = a.doc.sub(s, e);
     let hover = |markdown: String| Some(Hover { start: a.doc.to16(s), end: a.doc.to16(e), markdown });
@@ -402,7 +472,6 @@ fn hover_at(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     }
     // solveng's words: as casting where it's highlighted so (after a number it's the unit attosecond), any as a type
     let (start, end) = (a.doc.to16(s) as u32, a.doc.to16(e) as u32);
-    let tokens = document_tokens(document, context);
     let kind = tokens.iter().find(|t| t.start <= start && end <= t.start + t.length).map(|t| t.kind);
     if kind == Some(K::KEYWORD)
         && let Some((k, d)) = crate::clause::KEYWORDS.iter().find(|(k, _)| *k == word) {
@@ -440,14 +509,15 @@ fn hover_at(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     if let Some(d) = defined(&a, &word) {
         return hover(d);
     }
-    let builtin = if word == "sum_" { "sum" } else { word.as_str() };
-    if FUNCTIONS.contains(&builtin) {
-        return hover(crate::params::builtin(builtin).map(function_docs).unwrap_or_else(|| format!("`{word}()` built-in function")));
+    let builtin = if word == "sum_" { "sum".to_string() } else { word.clone() };
+    if let Some(op) = operation(&a.doc, &builtin).or_else(|| FUNCTIONS.contains(&builtin.as_str()).then(|| builtin.clone())) {
+        let docs = crate::params::builtin(&op).map(function_docs).unwrap_or_else(|| format!("`{op}()` built-in function"));
+        return hover(if op == builtin { docs } else { format!("`{builtin}` stands for `{op}` (option functions)\n\n{docs}") });
     }
     if let Some((_, d)) = CONSTANTS.iter().find(|(n, _)| *n == word) {
         return hover(format!("`{word}` {d}"));
     }
-    units::describe(&word, &a.units).and_then(hover)
+    units::visible(&word, &a.units_at(at)).then(|| units::describe(&word, &a.units)).flatten().and_then(hover)
 }
 
 /// The typst identifier in code at character `at` (or just before it), not a named argument's: its range and text.

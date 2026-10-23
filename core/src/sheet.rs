@@ -88,6 +88,7 @@ enum Sol {
 pub struct Sheet<'a> {
     pub env: &'a mut Env,
     pub units: Units,
+    pub functions: crate::builtins::Functions,
     pub cfg: Cfg,
     pub mode: Mode,
     pub listed: bool,
@@ -96,8 +97,9 @@ pub struct Sheet<'a> {
 
 impl<'a> Sheet<'a> {
     pub fn new(env: &'a mut Env, cfg: &Cfg, mode: Mode, listed: bool) -> Result<Sheet<'a>, String> {
-        let units = Units::build(&cfg.units)?;
-        Ok(Sheet { env, units, cfg: cfg.clone(), mode, listed, out: Out::default() })
+        let units = Units::configured(&cfg)?;
+        let functions = crate::builtins::Functions::configured(cfg)?;
+        Ok(Sheet { env, units, functions, cfg: cfg.clone(), mode, listed, out: Out::default() })
     }
 
     /// Calculates a line.
@@ -107,7 +109,7 @@ impl<'a> Sheet<'a> {
             let env = &*self.env;
             let is_fn = |n: &str| env.funs.contains_key(n);
             let is_var = |n: &str| env.vars.contains_key(n);
-            let ctx = Ctx { units: &self.units, mode: self.mode, is_fn: &is_fn, is_var: &is_var, strict: self.cfg.strict };
+            let ctx = Ctx { units: &self.units, functions: &self.functions, mode: self.mode, is_fn: &is_fn, is_var: &is_var, strict: self.cfg.strict };
             parse::parse_line(src, &ctx)
         };
         let line = match line {
@@ -198,7 +200,7 @@ impl<'a> Sheet<'a> {
         }
         if let Some((operation, variables)) = &clause.transform {
             if trail.is_some() {
-                let wrap = |body: &Ast| Ast::Call(operation.clone(), std::iter::once(body.clone()).chain(variables.iter().cloned().map(Ast::Name)).collect());
+                let wrap = |body: &Ast| Ast::Builtin(operation.clone(), std::iter::once(body.clone()).chain(variables.iter().cloned().map(Ast::Name)).collect());
                 let transformed = match s {
                     Stmt::Def { head, rhs, src } => Stmt::Def { head: head.clone(), rhs: wrap(rhs), src: src.clone() },
                     Stmt::Expr(body) => Stmt::Expr(wrap(body)),
@@ -216,6 +218,7 @@ impl<'a> Sheet<'a> {
                 self.define_fn(name, params, *rest, rhs, src, trail == Some(Trail::Sym), clause, cfg)
             }
             Stmt::Def { head: Head::Var(n), rhs, .. } => self.define_var(n, rhs, trail, clause, cfg),
+            Stmt::Def { head: Head::Index { name, indices }, rhs, .. } => self.define_elements(name, indices, rhs, trail, clause, cfg),
             Stmt::Expr(a) => match trail {
                 Some(Trail::Eval) => self.eval_expr(a, clause, cfg),
                 Some(Trail::Sym) => self.sym_expr(a, clause, cfg),
@@ -225,6 +228,103 @@ impl<'a> Sheet<'a> {
     }
 
     // ---------- definitions ----------
+
+    /// x[i] := …, A[i, j] := …: elements, as Mathcad defines them. An index that is a range variable (a name
+    /// whose value is a vector, i := 0 .. 10) defines an element for each of its values, the body calculated with
+    /// the name standing for that value; other indices are whole numbers. Elements not defined yet are 0; the
+    /// vector or matrix grows to hold the new ones and keeps its other elements.
+    fn define_elements(&mut self, n: &str, indices: &[Ast], rhs: &Ast, trail: Option<Trail>, clause: &Clause, cfg: &Cfg) -> Result<Vec<Stage>, String> {
+        if clause.solve.is_some() || !clause.substitute.is_empty() {
+            return Err(format!("{n}[…] := … defines elements – solve and substitute are for whole definitions"));
+        }
+        // each index: the values it takes, and the range variable standing for them
+        let mut axes: Vec<(Option<String>, Vec<usize>)> = vec![];
+        for a in indices {
+            let e = simp(&self.lower(a, &[], true)?);
+            let whole = |e: &Expr| -> Result<usize, String> {
+                let v = value(e).map_err(|e| self.no_value(e, &ast_text(a)))?;
+                v.v.as_int().filter(|i| *i >= 0 && v.d.is_one() && *i < 1_000_000).map(|i| i as usize)
+                    .ok_or_else(|| format!("{n}[…]: an index is a whole number from 0, or a range variable of them (i := 0 .. 10), got '{}'", ast_text(a)))
+            };
+            let var = match a { Ast::Name(v) => Some(v.clone()), _ => None };
+            match Array::of(&e) {
+                Some(arr) if arr.vector() => {
+                    let Some(v) = var else { return Err(format!("{n}[…]: a vector of indices is a range variable, written as its name: {n}[i] := …")) };
+                    axes.push((Some(v), arr.a.iter().map(whole).collect::<Result<_, _>>()?));
+                }
+                Some(arr) => return Err(format!("{n}[…]: an index can't be {}", arr.describe())),
+                None => axes.push((None, vec![whole(&e)?])),
+            }
+        }
+        let vars: Vec<String> = axes.iter().filter_map(|(v, _)| v.clone()).collect();
+        if let Some(v) = vars.iter().find(|v| vars.iter().filter(|w| w == v).count() > 1) {
+            return Err(format!("{n}[{v}, {v}] := …: each index needs a range variable of its own"));
+        }
+        let body = simp(&self.lower(rhs, &vars, true)?);
+        // what's there already
+        let old = self.env.vars.get(n).map(|v| simp(&self.env.bind_with_units(&v.expr, &BTreeSet::new(), &self.units).unwrap_or(v.expr.clone())));
+        let (mut rows, mut cols, mut cells): (usize, usize, BTreeMap<(usize, usize), Expr>) = (0, 0, BTreeMap::new());
+        if let Some(a) = old.as_ref().and_then(Array::of) {
+            if (indices.len() == 1) == a.vector() {
+                (rows, cols) = (a.rows, a.cols);
+                for i in 0..a.rows {
+                    for j in 0..a.cols {
+                        cells.insert((i, j), a.at(i, j).clone());
+                    }
+                }
+            }
+        }
+        let (is, js) = (axes[0].clone(), axes.get(1).cloned().unwrap_or((None, vec![0])));
+        if is.1.len() * js.1.len() > 1_000_000 {
+            return Err(format!("{n}[…] := …: too many elements at once"));
+        }
+        for &i in &is.1 {
+            for &j in &js.1 {
+                let mut m = BTreeMap::new();
+                if let Some(v) = &is.0 { m.insert(v.clone(), expr::int(i as i128)); }
+                if let Some(v) = &js.0 { m.insert(v.clone(), expr::int(j as i128)); }
+                let e = simp(&linalg::pick(&body.subst_all(&m)));
+                if let Some(msg) = linalg::problem(&e) {
+                    return Err(msg);
+                }
+                if linalg::is_array(&e) {
+                    return Err(format!("{n}[…] := …: an element is a single value, not {}", Array::of(&e).unwrap().describe()));
+                }
+                cells.insert((i, j), e);
+                rows = rows.max(i + 1);
+                cols = cols.max(j + 1);
+            }
+        }
+        let cols = if indices.len() == 1 { 1 } else { cols };
+        let at = |i: usize, j: usize| cells.get(&(i, j)).cloned().unwrap_or_else(|| expr::int(0));
+        let stored = if indices.len() == 1 {
+            Expr::Vector((0..rows).map(|i| at(i, 0)).collect())
+        } else {
+            linalg::matrix((0..rows).map(|i| (0..cols).map(|j| at(i, j)).collect()).collect())
+        };
+        let unit = clause.unit.clone();
+        self.env.define_var(n, Var { expr: stored.clone(), ast: None, unit: unit.clone(), rel: None }, Kind::Computed, self.listed);
+        self.out.defined.push(n.to_string());
+        let r = self.r(cfg, false);
+        let lhs = format!("{}[{}]", name(n), indices.iter().map(|a| r.ast(a, &|_| None).0).collect::<Vec<_>>().join(", "));
+        let f = r.ast(rhs, &|_| None).0;
+        match trail {
+            Some(Trail::Eval) => {
+                let (m, _) = self.eval_markup(&stored, unit.as_ref(), cfg).map_err(|e| self.no_value(e, n))?;
+                self.out.mark = Some("=".into());
+                self.out.result = Some(m.clone());
+                Ok(vec![stage(lhs, vec![part("≔", f, PartKind::Formula), part("=", format!("{} = {m}", name(n)), PartKind::Res)])])
+            }
+            Some(Trail::Sym) => {
+                let m = self.sym_markup(&stored, unit.as_ref(), cfg)?;
+                self.out.mark = Some("->".into());
+                self.out.result = Some(m.clone());
+                Ok(vec![stage(lhs, vec![part("≔", f, PartKind::Formula), part("->", m, PartKind::Res)])])
+            }
+            None if self.mode == Mode::Math => Ok(vec![]),
+            None => Ok(vec![stage(lhs, vec![part("≔", f, PartKind::Formula)])]),
+        }
+    }
 
     fn define_var(&mut self, n: &str, rhs: &Ast, trail: Option<Trail>, clause: &Clause, cfg: &Cfg) -> Result<Vec<Stage>, String> {
         let e = if let Some(xs) = &clause.solve { self.solve_body(rhs, &[], xs)? } else { self.lower(rhs, &[], true)? };
@@ -329,7 +429,15 @@ impl<'a> Sheet<'a> {
     #[allow(clippy::too_many_arguments)]
     fn define_fn(&mut self, n: &str, params: &[Param], rest: bool, rhs: &Ast, src: &str, sym: bool, clause: &Clause, cfg: &Cfg) -> Result<Vec<Stage>, String> {
         if parse::is_builtin(n) {
-            return Err(format!("{n} is a built-in function and can't be defined again"));
+            return Err(format!("{n} is Typst's math syntax and can't be defined"));
+        }
+        // named parameters: their defaults as they are now, as Typst evaluates them where the function is defined
+        let mut defaults = BTreeMap::new();
+        for p in params {
+            if let Some(d) = &p.default {
+                let e = self.lower(d, &[], true).map_err(|e| format!("the default value of {}: {e}", p.name))?;
+                defaults.insert(p.name.clone(), simp(&e));
+            }
         }
         let mut lo = Lower::new(self.env, &self.units);
         lo.params = params.iter().map(|p| p.name.clone()).collect();
@@ -351,7 +459,7 @@ impl<'a> Sheet<'a> {
         if rest {
             for s in body.syms() {
                 if !ps.iter().any(|p| p.name == s) && s != n {
-                    ps.push(Param { name: s, ty: None });
+                    ps.push(Param { name: s, ty: None, default: None });
                 }
             }
         }
@@ -371,7 +479,8 @@ impl<'a> Sheet<'a> {
             .iter()
             .filter_map(|p| match &p.ty {
                 Some(ParamType::Unit(u)) => self.units.dim(u).map(|d| (p.name.clone(), d)),
-                _ => None,
+                // a named parameter has the unit of its default
+                _ => defaults.get(&p.name).and_then(|d| value(d).ok()).map(|v| (p.name.clone(), v.d)),
             })
             .collect();
         let ret = if ps.iter().all(|p| pd.contains_key(&p.name)) {
@@ -382,7 +491,7 @@ impl<'a> Sheet<'a> {
         } else {
             None
         };
-        let f = Fun { params: ps.clone(), body: body.clone(), written, ast: if clause.solve.is_some() { None } else { Some(rhs.clone()) }, src: match &clause.solve { Some(xs) => format!("{src} -> solve({})", xs.join(", ")), None => src.to_string() }, ret };
+        let f = Fun { params: ps.clone(), body: body.clone(), written, ast: if clause.solve.is_some() { None } else { Some(rhs.clone()) }, src: match &clause.solve { Some(xs) => format!("{src} -> solve({})", xs.join(", ")), None => src.to_string() }, ret, defaults };
         self.env.define_fun(n, f, self.listed);
         self.out.defined.push(n.to_string());
         let lhs = self.fn_head(n, &ps, cfg);
@@ -552,8 +661,19 @@ impl<'a> Sheet<'a> {
         let mut sub = sub;
         if let Ast::Call(n, args) = a {
             if let Some(f) = self.env.funs.get(n) {
-                if f.params.len() == args.len() {
-                    let m: BTreeMap<String, Ast> = f.params.iter().map(|p| p.name.clone()).zip(args.iter().cloned()).collect();
+                // the arguments by parameter: positional ones in order, named ones by name, defaults for the rest
+                let mut m: BTreeMap<String, Ast> = BTreeMap::new();
+                let mut positional = f.params.iter().filter(|p| p.default.is_none());
+                for x in args {
+                    match x {
+                        Ast::Arg(k, v) => { m.insert(k.clone(), (**v).clone()); }
+                        x => if let Some(p) = positional.next() { m.insert(p.name.clone(), x.clone()); },
+                    }
+                }
+                for p in &f.params {
+                    if let (false, Some(d)) = (m.contains_key(&p.name), &p.default) { m.insert(p.name.clone(), d.clone()); }
+                }
+                if f.params.len() == m.len() {
                     let (bf, bs) = if let Some(ast) = &f.ast {
                         let body = subst_ast(ast, &m);
                         (r.ast(&body, &|_| None).0, r.ast(&body, &vals).0)
@@ -1122,6 +1242,10 @@ fn subst_ast(a: &Ast, m: &BTreeMap<String, Ast>) -> Ast {
         Ast::Div(x, y) => Ast::Div(s(x), s(y)),
         Ast::Pow(x, y) => Ast::Pow(s(x), s(y)),
         Ast::Call(n, args) => Ast::Call(n.clone(), args.iter().map(|x| subst_ast(x, m)).collect()),
+        Ast::Builtin(n, args) => Ast::Builtin(n.clone(), args.iter().map(|x| subst_ast(x, m)).collect()),
+        Ast::Arg(n, x) => Ast::Arg(n.clone(), s(x)),
+        Ast::Index(x, idx) => Ast::Index(s(x), idx.iter().map(|i| subst_ast(i, m)).collect()),
+        Ast::Range(x, y) => Ast::Range(s(x), s(y)),
         Ast::Matrix(rs) => Ast::Matrix(rs.iter().map(|r| r.iter().map(|x| subst_ast(x, m)).collect()).collect()),
         Ast::Cmp(f, rest) => Ast::Cmp(s(f), rest.iter().map(|(r, x)| (*r, subst_ast(x, m))).collect()),
         _ => a.clone(),
@@ -1140,7 +1264,7 @@ fn literal(a: &Ast) -> bool {
         Ast::Neg(x) => literal(x),
         // vectors and matrices of values
         Ast::Matrix(rs) => rs.iter().flatten().all(literal),
-        Ast::Call(n, args) if n == "vec" => args.iter().all(literal),
+        Ast::Builtin(n, args) if n == "vec" => args.iter().all(literal),
         _ => false,
     }
 }
@@ -1159,18 +1283,29 @@ pub(crate) fn ast_names(a: &Ast, out: &mut Vec<String>) {
             ast_names(x, out);
             ast_names(y, out);
         }
-        Ast::Call(n, args) if matches!(n.as_str(), "integrate" | "sum") && args.len() == 4 => {
-            // The integration variable or sum index is local to the body, not the bounds.
+        // a local variable (of an integral, a sum, a derivative, a convolution) is no name of the worksheet
+        Ast::Builtin(n, args) if matches!((n.as_str(), args.len()), ("integrate" | "sum", 4) | ("diff", 2) | ("convolve", 3 | 4)) => {
+            let (bodies, var) = if n == "convolve" { (&args[..2], &args[2]) } else { (&args[..1], &args[1]) };
             let mut body = vec![];
-            ast_names(&args[0], &mut body);
+            for b in bodies { ast_names(b, &mut body); }
             for n in body {
-                if !matches!(&args[1], Ast::Name(var) if *var == n) && !out.contains(&n) {
+                if !matches!(var, Ast::Name(v) if *v == n) && !out.contains(&n) {
                     out.push(n);
                 }
             }
-            for bound in &args[2..] { ast_names(bound, out); }
+            let rest = if n == "convolve" { &args[3..] } else if n == "diff" { &args[2..] } else { &args[2..] };
+            for bound in rest { ast_names(bound, out); }
         }
-        Ast::Call(_, args) => args.iter().for_each(|x| ast_names(x, out)),
+        Ast::Call(_, args) | Ast::Builtin(_, args) => args.iter().for_each(|x| ast_names(x, out)),
+        Ast::Arg(_, x) => ast_names(x, out),
+        Ast::Index(x, idx) => {
+            ast_names(x, out);
+            idx.iter().for_each(|i| ast_names(i, out));
+        }
+        Ast::Range(x, y) => {
+            ast_names(x, out);
+            ast_names(y, out);
+        }
         Ast::Matrix(rs) => rs.iter().flatten().for_each(|x| ast_names(x, out)),
         Ast::Cmp(f, rest) => {
             ast_names(f, out);
@@ -1203,7 +1338,10 @@ pub fn ast_text(a: &Ast) -> String {
             ),
             Ast::Div(x, y) => (format!("{}/{}", p(x, 3), p(y, 4)), 3),
             Ast::Pow(x, y) => (format!("{}^{}", p(x, 9), p(y, 9)), 5),
-            Ast::Call(n, args) => (format!("{n}({})", args.iter().map(|x| t(x).0).collect::<Vec<_>>().join(", ")), 9),
+            Ast::Call(n, args) | Ast::Builtin(n, args) => (format!("{n}({})", args.iter().map(|x| t(x).0).collect::<Vec<_>>().join(", ")), 9),
+            Ast::Arg(n, x) => (format!("{n}: {}", t(x).0), 0),
+            Ast::Index(x, idx) => (format!("{}[{}]", p(x, 9), idx.iter().map(|i| t(i).0).collect::<Vec<_>>().join(", ")), 9),
+            Ast::Range(x, y) => (format!("{} .. {}", p(x, 1), p(y, 1)), 0),
             Ast::Abs(x) => (format!("|{}|", t(x).0), 9),
             Ast::Matrix(rs) => (format!("mat({})", rs.iter().map(|r| r.iter().map(|x| t(x).0).collect::<Vec<_>>().join(", ")).collect::<Vec<_>>().join("; ")), 9),
             Ast::Cmp(f, rest) => {
@@ -1262,7 +1400,7 @@ mod tests {
         assert!(o.errors.is_empty(), "{:?}", o.errors);
         let o = t.ok("M ≔ 1 = 2 =");
         assert_eq!(o.result.as_deref(), Some("\"0\""));
-        let o = t.ok("M ≔ 1 A = 2 V →");
+        let o = t.ok("M ≔ 1 ⦃A⦄ = 2 ⦃V⦄ →");
         assert_eq!(o.result.as_deref(), Some("\"0\""));
         let o = t.ok("M =");
         assert_eq!(o.result.as_deref(), Some("\"0\""));
@@ -1277,7 +1415,7 @@ mod tests {
         assert_eq!(o.result.as_deref(), Some("\"1\" thin upright(\"m\") dot a x"));
         let o = t.ok("h(x: m) ≔ frac(U(x), a) →");
         assert_eq!(o.result.as_deref(), Some("\"1\" thin upright(\"m\") dot x"));
-        let o = t.ok("y ≔ h(2) =");
+        let o = t.ok("y ≔ h(2 ⦃m⦄) =");
         assert_eq!(o.result.as_deref(), Some("\"2\" thin upright(\"m\")^(2)"));
     }
 
@@ -1297,7 +1435,7 @@ mod tests {
         let mut t = T::new();
         t.ok("Q_0 ≔ 3450 ⦃mAh⦄");
         t.ok("I ≔ 30 ⦃mA⦄");
-        let o = t.ok("t ≔ frac(Q_0, I) = 1 h");
+        let o = t.ok("t ≔ frac(Q_0, I) = 1 ⦃h⦄");
         assert_eq!(o.result.as_deref(), Some("\"115\" thin upright(\"h\")"));
         let o = t.ok("frac(Q_0, 2) = I t → ⦅solve(t)⦆");
         assert_eq!(o.result.as_deref(), Some("t = \"57.5\" thin upright(\"h\")"));
@@ -1305,7 +1443,7 @@ mod tests {
         let o = t.ok("x^(2) + 2x - 3 = 0 → ⦅solve(x)⦆");
         assert!(o.result.unwrap().contains("x_(1) = \"−3\""));
         assert_eq!(t.val("x"), 1.0);
-        t.ok("U ≔ 5 V");
+        t.ok("U ≔ 5 ⦃V⦄");
         let o = t.ok("R ≤ frac(U, I) → ⦅solve(R)⦆");
         assert!(o.result.unwrap().starts_with("R <= \"166.7\""));
         let o = t.ok("c ≔ frac(1, 3) → ⦅frac⦆");
@@ -1314,7 +1452,7 @@ mod tests {
         assert!(o.errors.is_empty());
         assert_eq!(t.val("a"), 2.0);
         // a check that fails
-        let o = t.math("U = 6 V");
+        let o = t.math("U = 6 ⦃V⦄");
         assert!(o.errors[0].contains("another value"));
         // prose
         assert!(t.math("E = m c^(2)").prose);
@@ -1335,7 +1473,7 @@ mod tests {
         assert!(o.errors.is_empty());
         let o = t.code("U(x: A) := x [2 Ω]");
         assert!(o.errors.is_empty(), "{:?}", o.errors);
-        let o = t.code("z := U(3) =");
+        let o = t.code("z := U([3 A]) =");
         assert!(o.errors.is_empty(), "{:?}", o.errors);
         assert_eq!(t.val("z"), 6.0);
         let o = t.code("w := U([2 V])");

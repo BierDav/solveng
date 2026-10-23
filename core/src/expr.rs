@@ -680,6 +680,14 @@ fn simp_add(v: Vec<Expr>) -> Expr {
             None => groups.push((r, c)),
         }
     }
+    // constants of one unit that cancel are 0 of that unit (1 s − 1 s is 0 s, not a plain 0)
+    let zero = match groups.first() {
+        Some((None, c)) if groups.iter().all(|(r, g)| r.is_none() && g.d == c.d && g.is_zero()) && !c.d.is_one() => Some(c.d),
+        _ => None,
+    };
+    if let Some(d) = zero {
+        return Expr::C(Val::new(Num::ZERO, d));
+    }
     let mut ts: Vec<Expr> = groups
         .into_iter()
         // a zero term goes, unless it's all there is with a unit (0 V)

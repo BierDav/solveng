@@ -5,7 +5,7 @@
 ///
 /// > ⚠ solveng: 'U' in 'P := U I' isn't defined – define it first with :=, or solve for it: … -> solve(U)
 ///
-/// `#show: worksheet-config.with(errors: "panic")` stops the compilation instead (useful in CI). Unknown named arguments of `worksheet`, `worksheet-config`, `defined` and `graph` are reported the same way; those of `lambdify` stop the compilation.
+/// `#show: worksheet.with(errors: "panic")` stops the compilation instead (useful in CI). Unknown named arguments of `worksheet`, `defined` and `graph` are reported the same way; those of `lambdify` stop the compilation.
 ///
 /// ## HTML
 ///
@@ -57,7 +57,7 @@ div.solveng-error { border-left: 3px solid #b3261e; padding: 0.4em 0.7em; margin
   let e = math.equation(block: cf.block, _OWN + body)
   if cf.block and _target() == "html" { _css(); html.elem("div", attrs: (class: "solveng"), e) } else { e }
 }
-// problems are shown where they happen (worksheet-config(errors: "panic") stops instead)
+// problems are shown where they happen (worksheet(errors: "panic") stops instead)
 #let _errc(msg, cf, wide: false) = {
   if cf.at("errors", default: "document") == "panic" { panic("solveng: " + msg) }
   if _target() == "html" {

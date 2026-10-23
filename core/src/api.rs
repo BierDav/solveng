@@ -45,7 +45,7 @@ pub fn show_value(env: &Env, req: &LineReq) -> Result<String, String> {
         && n.end == chars.len()
         && let Some(f) = env.funs.get(&n.value)
     {
-        let units = Units::build(&req.cfg.units)?;
+        let units = Units::configured(&req.cfg)?;
         return Ok(R { units: &units, cfg: &req.cfg, exact: true, sub: None }.expr(&f.body).0);
     }
     let run = |src: &str| line(&mut env.clone(), &LineReq { src: src.into(), listed: false, ..req.clone() });
@@ -88,7 +88,7 @@ pub struct Row {
 }
 
 pub fn defined(env: &Env, req: &DefinedReq) -> Result<Vec<Row>, String> {
-    let units = Units::build(&req.cfg.units)?;
+    let units = Units::configured(&req.cfg)?;
     let cfg = &req.cfg;
     let r = R { units: &units, cfg, exact: true, sub: None };
     let mut rows = vec![];
@@ -174,7 +174,7 @@ pub struct UnitReq {
 
 /// Whether text reads as a unit (for restyling casts and types in an equation as written): its markup.
 pub fn unit_markup(req: &UnitReq) -> Option<String> {
-    let units = Units::build(&req.cfg.units).ok()?;
+    let units = Units::configured(&req.cfg).ok()?;
     let s = req.src.trim();
     if s == "any" || s == "\"any\"" {
         return Some(format::unit(&UnitExpr::one("any"), &units, &req.cfg));
@@ -185,7 +185,12 @@ pub fn unit_markup(req: &UnitReq) -> Option<String> {
 
 /// Problems with the option units: none or the message.
 pub fn check_units(cfg: &Cfg) -> Option<String> {
-    Units::build(&cfg.units).err()
+    Units::configured(&cfg).err()
+}
+
+/// Problems with the option functions: none or the message.
+pub fn check_functions(cfg: &Cfg) -> Option<String> {
+    crate::builtins::Functions::configured(cfg).err()
 }
 
 // ---------- lambdify ----------
@@ -215,10 +220,11 @@ pub struct Lam {
 }
 
 pub fn lambdify(env: &Env, req: &LamReq) -> Result<Lam, String> {
-    let units = Units::build(&req.cfg.units)?;
+    let units = Units::configured(&req.cfg)?;
     let is_fn = |n: &str| env.funs.contains_key(n);
     let is_var = |n: &str| env.vars.contains_key(n);
-    let ctx = Ctx { units: &units, mode: req.mode, is_fn: &is_fn, is_var: &is_var, strict: req.cfg.strict };
+    let functions = crate::builtins::Functions::configured(&req.cfg)?;
+    let ctx = Ctx { units: &units, functions: &functions, mode: req.mode, is_fn: &is_fn, is_var: &is_var, strict: req.cfg.strict };
     let line = parse::parse_line(&req.src, &ctx)?;
     let [parse::Stmt::Expr(a)] = line.stmts.as_slice() else { return Err("an expression, like \"U^2/R\"".into()) };
     let ps: Vec<String> = req.params.iter().map(|p| parse::greek(p)).collect();
@@ -279,7 +285,7 @@ pub fn lam_eval(l: &Lam, args: &[Arg]) -> Result<Option<f64>, String> {
     if args.len() != l.params.len() {
         return Err(format!("the function takes {} argument(s) ({}), got {}", l.params.len(), l.params.join(", "), args.len()));
     }
-    let units = Units::build(&l.cfg.units)?;
+    let units = Units::configured(&l.cfg)?;
     let mut xs = vec![];
     for (i, a) in args.iter().enumerate() {
         xs.push(match a {
@@ -301,10 +307,11 @@ pub fn lam_eval(l: &Lam, args: &[Arg]) -> Result<Option<f64>, String> {
 
 /// A value of an expression of defined names (for graph ranges): (SI value, dims) or a message.
 pub fn quantity(env: &Env, cfg: &Cfg, src: &str, mode: Mode) -> Result<(f64, crate::dim::Dim), String> {
-    let units = Units::build(&cfg.units)?;
+    let units = Units::configured(&cfg)?;
     let is_fn = |n: &str| env.funs.contains_key(n);
     let is_var = |n: &str| env.vars.contains_key(n);
-    let ctx = Ctx { units: &units, mode, is_fn: &is_fn, is_var: &is_var, strict: cfg.strict };
+    let functions = crate::builtins::Functions::configured(cfg)?;
+    let ctx = Ctx { units: &units, functions: &functions, mode, is_fn: &is_fn, is_var: &is_var, strict: cfg.strict };
     let line = parse::parse_line(src, &ctx)?;
     let [parse::Stmt::Expr(a)] = line.stmts.as_slice() else { return Err(format!("'{src}' isn't a value")) };
     let e = Lower::new(env, &units).expr(a)?;

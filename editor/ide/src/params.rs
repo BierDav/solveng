@@ -15,6 +15,7 @@ const SOURCES: &[&str] = &[
     include_str!("../../../src/value.typ"),
     include_str!("../../../src/keywords.typ"),
     include_str!("../../../src/unit-words.typ"),
+    include_str!("../../../src/operation.typ"),
 ];
 const CONFIG: &str = include_str!("../../../src/config.typ");
 
@@ -121,7 +122,7 @@ fn docs(lines: &[&str]) -> Docs {
             in_summary = false;
             let Some((head, doc)) = rest.split_once("):") else { continue };
             let Some((names, types)) = head.split_once(" (") else { continue };
-            // `digits, separator, form, … (auto)`: worksheet-config's options, documented there.
+            // `digits, separator, form, … (auto)`: worksheet's options, documented there.
             if names.contains('…') {
                 continue;
             }
@@ -195,8 +196,8 @@ fn read() -> Vec<Function> {
             functions.push(f);
         }
     }
-    // Options documented only at worksheet-config.
-    let config = functions.iter().find(|f| f.name == "worksheet-config").map(|f| f.named.clone()).unwrap_or_default();
+    // Options are documented at worksheet; defined and graph take the same ones.
+    let config = functions.iter().find(|f| f.name == "worksheet").map(|f| f.named.clone()).unwrap_or_default();
     for f in &mut functions {
         for p in &mut f.named {
             if p.doc.is_empty()

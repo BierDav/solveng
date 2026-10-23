@@ -1,9 +1,34 @@
 /// ## Built-in operations
 ///
-/// Built-in operations are always available in worksheet math, calculation strings and graphs.
-/// Import solveng with `*` to bring its additional math names into scope. These exported names
-/// are math content: write `$tri(t)$` or `#worksheet("tri(0) =")`, rather than `#tri(0)`.
-/// Use a worksheet function such as `$Lambda(t) := tri(t)$` for another name.
+/// Built-in operations work in worksheet math, calculation strings and graphs. Import solveng with `*`
+/// to bring its additional math names into scope. These exported names are math content: write
+/// `$tri(t)$` or `#worksheet("tri(0) =")`, rather than `#tri(0)`. Use a worksheet function such as
+/// `$Lambda(t) := tri(t)$`, or a function overlay, for another name.
+///
+/// **Function overlays.** Names reach operations as units do, through layers: the underlying
+/// operations, the built-in overlay, then user overlays in order. The built-in overlay gives the
+/// standard names (`tri`, `convolve`, …) to plain lookup: names in code lines and quoted names in
+/// math. `builtin-functions: false` disables it, never the operations. Each `functions: (…)` adds a
+/// user overlay, scoped to its worksheet: `(conv: "convolve", Λ: "tri")` maps names to operations
+/// (entries may refer to each other in any order, a self reference to the overlays below, cycles
+/// are rejected), `(rect: none)` hides a name from plain lookup. A worksheet's own function of a
+/// name takes precedence over plain lookup, so `tri(x) := …` in code replaces `tri` there.
+///
+/// An explicit reference is Typst's `math.op("name")`: what Typst's own `sin` and `det` are, and
+/// what solveng exports for math (`tri`, `convolve`). It resolves through the overlays active where
+/// it is used and always reaches an operation, even below a `none` or without the built-in overlay;
+/// a `math.op` of a name that is no operation (`min`) is a name like any other. In Typst math,
+/// named arguments (`step: 10 ms`) parse only for functions: `operation("name")` makes an explicit
+/// reference that is one, `#let conv = operation("conv")`, as `convolve` and `range` are.
+///
+/// ```typ
+/// #import "@preview/solveng:1.0.0": *
+/// #show: worksheet.with(functions: (conv: "convolve", Λ: "tri"))
+/// #let conv = operation("conv")
+/// $y := conv(vec(1, 2), vec(1, 1), step: 2) =$
+/// $a := "Λ"(1/2) =$
+/// #worksheet("b := conv(vec(1), vec(3)) =")
+/// ```
 ///
 /// The following operations use Typst's existing math names or syntax:
 ///
@@ -33,6 +58,8 @@
 /// $b := sum_(k=0)^3 k^2 =$
 /// $c := cases(0 & b < 0, b & "otherwise") =$
 /// ```
+
+#import "operation.typ": operation, _op-call
 
 /// Rectangular pulse: `rect(x)` is 1 for |x| < ½, ½ at x = ±½, and 0 otherwise.
 ///
@@ -107,6 +134,40 @@
 /// - upper (expression): Upper bound, including `infinity`.
 /// -> expression or value
 #let integrate = math.op("integrate")
+
+/// Convolution: `convolve(x, h)` of two sequences, `convolve(f(τ), g(τ), τ, t)` of two functions.
+///
+/// Of sequences (vectors) it is the discrete convolution, (x ∗ h)ₖ = Σᵢ xᵢ hₖ₋ᵢ, with n + m − 1
+/// elements; `step: Δt` multiplies it by the sampling step, the Riemann sum of the continuous convolution of
+/// the sampled signals. Of functions it is (f ∗ g)(t) = ∫ f(τ) g(t − τ) dτ over the whole line, τ local to
+/// the operation. Without `at`, the result is in the variable itself: `convolve(rect(t), rect(t), t)` is
+/// `tri(t)`. Piecewise polynomial signals – `rect`, `tri`, `sgn`, `abs`, `cases` steps, polynomials, with
+/// numeric affine arguments such as `tri((τ - 2 s)/(4 s))` – convolve exactly into a piecewise polynomial;
+/// `$y(t) := convolve(tri(tau), tri(tau), tau, t) ->$` shows the five pieces, `$y(1/2) =$` gives 23/48.
+/// Other signals (exp, sin, symbolic shifts) stay the integral, evaluated numerically for `=` and graphs.
+/// Units multiply: the result has f's unit times g's unit (times τ's unit, or the step's).
+///
+/// - f (expression): A sequence (vector), or a function of the variable.
+/// - g (expression): A sequence (vector), or a function of the variable.
+/// - variable (name): The integration variable of a convolution of functions.
+/// - at (expression): Where the convolution of functions is taken, usually the result's variable; default: the variable.
+/// - step (expression): Named: the sampling step of sequences, the result is multiplied by it.
+/// -> vector or expression
+#let convolve = operation("convolve")
+
+/// Values from start to end, as Typst's range: `range(end)`, `range(start, end, step: 1)`, the end left out.
+///
+/// `$range(0, 1, step: 1/4)$` is `vec(0, 1/4, 1/2, 3/4)`. Values may have a unit, then the step needs it too:
+/// `$range(0 s, 1 s, step: 250 ms)$`. The bounds and the step need values when the range is defined. A
+/// range variable, as Mathcad writes it, includes the end: `$i := 0 .. N$` (or `0...N`) counts from 0 to N in
+/// steps of 1. Used as an index, `$x[i] := tri(t[i])$` defines an element for each value. In Typst code
+/// (`#for i in range(5)`), `range` stays Typst's own.
+///
+/// - start (expression): The first value; default 0 with one argument.
+/// - end (expression): The bound, not included.
+/// - step (expression): Named: the distance between values, default 1; negative counts down.
+/// -> vector
+#let range = (..args) => if args.pos().all(a => type(a) in (int, float)) and args.named().values().all(a => type(a) in (int, float)) { std.range(..args) } else { _op-call("range", args) }
 
 /// Selects a vector component with a zero-based index: `at(vector, index)`, or a matrix
 /// element: `at(matrix, row, column)`.

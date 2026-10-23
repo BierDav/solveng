@@ -1,4 +1,4 @@
-//! The document's own units (`worksheet-config(units: (ü: auto, mü: "10ü"))`): where they're defined and used, for go
+//! The document's own units (`worksheet(units: (ü: auto, mü: "10ü"))`): where they're defined and used, for go
 //! to definition, usages and rename.
 
 use std::sync::LazyLock;
@@ -38,13 +38,15 @@ fn definitions(doc: &Doc, out: &mut Vec<Spot>) {
             let k = c.get(1).unwrap();
             let quoted = k.as_str().starts_with('"');
             let (s, e) = (start - 1 + k.start() + quoted as usize, start - 1 + k.end() - quoted as usize);
-            out.push(Spot { key: text[s..e].to_string(), start: char_index(text, s), end: char_index(text, e), bare_math: false });
+            out.push(Spot { key: crate::resolved_name(&text[s..e]), start: char_index(text, s), end: char_index(text, e), bare_math: false });
         }
     }
 }
 
 /// The custom unit a written unit word means: itself, or a prefix and one (`mü`), with the range of its name.
 fn resolve(word: &str, custom: &[Custom]) -> Option<(String, usize)> {
+    let normalized = crate::resolved_name(word);
+    let word = normalized.as_str();
     if custom.iter().any(|u| u.name == word) {
         return Some((word.into(), 0));
     }
@@ -65,19 +67,22 @@ fn uses(doc: &Doc, base: usize, toks: Vec<(usize, usize, u8)>, math: bool, custo
         for w in WORD.find_iter(&text) {
             let Some((key, skip)) = resolve(w.as_str(), custom) else { continue };
             let start = base + s + char_index(&text, w.start()) + skip;
-            out.push(Spot { start, end: start + key.chars().count(), key, bare_math: math && !quoted });
+            out.push(Spot { start, end: start + w.as_str().chars().count() - skip, key, bare_math: math && !quoted });
         }
     }
 }
 
 /// Every definition and use of a custom unit in a text.
-fn spots(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Element) -> bool, custom: &[Custom]) -> Vec<Spot> {
-    let unit = |w: &str| custom.iter().any(|u| u.name == w);
+fn spots(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Element) -> bool, custom: &[Custom], units_at: &dyn Fn(usize) -> Vec<Custom>) -> Vec<Spot> {
+    let unit = |w: &str| crate::units::visible(w, custom);
     let mut out = Vec::new();
     definitions(doc, &mut out);
+    let bindings = crate::bindings::Bindings::new(doc);
     for e in elements.iter().filter(|e| active(e)) {
         let body = &doc.c[e.body_start..e.body_end];
-        let toks = if e.math { math_tokens(body, &unit) } else { code_tokens(body, &unit) };
+        let settings = units_at(e.body_start);
+        let toks = if e.math { math_tokens(body, &|w| crate::units::visible(w, &settings), &|w| crate::units::bare(w, &settings), &|_| false) } else { code_tokens(body, &unit) };
+        let toks = toks.into_iter().filter(|(s, _, _)| !bindings.contains(e.body_start + s)).collect();
         uses(doc, e.body_start, toks, e.math, custom, &mut out);
     }
     for call in calls {
@@ -102,13 +107,14 @@ fn spots(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Eleme
 
 /// The spots of the document (`path` None) and the files around.
 fn all<'a>(a: &'a Analysis) -> Vec<(Option<String>, &'a Doc, Vec<Spot>)> {
-    let mut out = vec![(None, &a.doc, spots(&a.doc, &a.elements, &a.calls, &|e| a.active(e), &a.units))];
+    let mut out = vec![(None, &a.doc, spots(&a.doc, &a.elements, &a.calls, &|e| a.active(e), &a.units, &|at| a.units_at(at)))];
     for part in a.around() {
         let Some(path) = &part.path else { continue };
         if *path == a.context.path {
             continue;
         }
-        out.push((Some(path.clone()), &part.doc, spots(&part.doc, &part.elements, &part.calls, &|e| part.active(e), &a.units)));
+        let settings = Analysis::new(&part.doc.s, a.context);
+        out.push((Some(path.clone()), &part.doc, spots(&part.doc, &part.elements, &part.calls, &|e| part.active(e), &a.units, &|at| settings.units_at(at))));
     }
     out
 }

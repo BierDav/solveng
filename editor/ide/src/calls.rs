@@ -1,10 +1,14 @@
 //! Calls of solveng's functions, read with typst's parser: their string arguments are calculations, units or
 //! names, and their named arguments take the package's options.
 
+use std::collections::HashMap;
+
 use typst_syntax::{LinkedNode, SyntaxKind, SyntaxNode};
 
 use crate::params::{self, Function};
 use crate::text::Doc;
+use crate::units::Custom;
+use crate::ContextFile;
 
 /// What a string argument holds.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -40,16 +44,137 @@ pub(crate) struct Named {
 
 /// Where a `worksheet` reads content, in characters: one of its content blocks, or what follows a
 /// `#show: worksheet` rule in the block around it. `evaluate` is what it says about the math there.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct Scope {
     pub start: usize,
     pub end: usize,
     pub evaluate: bool,
+    pub units: Vec<crate::units::Custom>,
 }
 
 /// Whether the math at `at` is calculated as the innermost worksheet around says; None outside every one.
 pub(crate) fn evaluates_at(scopes: &[Scope], at: usize) -> Option<bool> {
     scopes.iter().filter(|s| s.start <= at && at < s.end).max_by_key(|s| s.start).map(|s| s.evaluate)
+}
+
+/// A worksheet wrapper's options, as `worksheet`, a `#let` alias of it or `.with(…)` sets them. Content it wraps
+/// evaluates its math unless `evaluate` is false.
+#[derive(Clone, Debug)]
+pub(crate) struct Wrapper {
+    pub evaluate: bool,
+    pub units: Vec<Custom>,
+}
+
+impl Default for Wrapper {
+    fn default() -> Wrapper {
+        Wrapper { evaluate: true, units: Vec::new() }
+    }
+}
+
+impl Wrapper {
+    /// These options with what a call's arguments set over them.
+    fn with(&self, args: Option<&LinkedNode>) -> Wrapper {
+        let mut wrapper = self.clone();
+        if let Some(args) = args {
+            wrapper.evaluate = evaluate(args);
+            wrapper.units.extend(unit_settings(args));
+        }
+        wrapper
+    }
+}
+
+/// The names a text binds to `worksheet` (or `worksheet.with(…)`), through `#let` and the files it imports.
+pub(crate) type Aliases = HashMap<String, Wrapper>;
+
+/// The worksheet aliases of a text, following `#let` chains and imports from the files around it.
+pub(crate) fn aliases(doc: &Doc, files: &[ContextFile], path: &str) -> Aliases {
+    let mut out = Aliases::new();
+    let mut seen = Vec::new();
+    collect_aliases(doc, files, path, &mut out, &mut seen);
+    out
+}
+
+fn collect_aliases(doc: &Doc, files: &[ContextFile], path: &str, out: &mut Aliases, seen: &mut Vec<String>) {
+    if seen.iter().any(|p| p == path) || seen.len() >= 32 {
+        return;
+    }
+    seen.push(path.to_string());
+    let root = typst_syntax::parse(&doc.s);
+    for node in LinkedNode::new(&root).children() {
+        match node.kind() {
+            SyntaxKind::LetBinding => {
+                let mut parts = node.children().filter(|c| !c.kind().is_trivia());
+                let (Some(kw), Some(name)) = (parts.next(), parts.next()) else { continue };
+                let Some(value) = node.children().rev().find(|c| matches!(c.kind(), SyntaxKind::Ident | SyntaxKind::FuncCall)) else { continue };
+                if kw.kind() != SyntaxKind::Let || name.kind() != SyntaxKind::Ident {
+                    continue;
+                }
+                if let Some(wrapper) = wrapper_of(&value, out) {
+                    out.insert(name.get().leaf_text().to_string(), wrapper);
+                }
+            }
+            SyntaxKind::ModuleImport => {
+                let Some(source) = node.children().find(|c| c.kind() == SyntaxKind::Str) else { continue };
+                let source = source.get().leaf_text().trim_matches('"').to_string();
+                if source.starts_with('@') {
+                    continue;
+                }
+                let target = crate::scope::resolve(&source, path);
+                let Some(file) = files.iter().find(|f| f.path == target) else { continue };
+                let mut theirs = Aliases::new();
+                collect_aliases(&Doc::new(&file.text), files, &file.path, &mut theirs, seen);
+                let items = node.children().find(|c| c.kind() == SyntaxKind::ImportItems);
+                match items.as_ref().map(imported) {
+                    // `*`, or an import Typst doesn't take names from.
+                    None | Some(None) => out.extend(theirs),
+                    Some(Some(list)) => {
+                        for (original, name) in list {
+                            if let Some(wrapper) = theirs.get(&original) {
+                                out.insert(name, wrapper.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The wrapper an expression names: `worksheet`, an alias, or either with `.with(…)`.
+fn wrapper_of(node: &LinkedNode, aliases: &Aliases) -> Option<Wrapper> {
+    match node.kind() {
+        SyntaxKind::Ident => match node.get().leaf_text().as_str() {
+            "worksheet" => Some(Wrapper::default()),
+            name => aliases.get(name).cloned(),
+        },
+        SyntaxKind::FuncCall => {
+            let name = callee(node.children().next()?.get())?;
+            let base = match name.as_str() {
+                "worksheet" => Wrapper::default(),
+                name => aliases.get(name)?.clone(),
+            };
+            Some(base.with(node.children().find(|c| c.kind() == SyntaxKind::Args).as_ref()))
+        }
+        _ => None,
+    }
+}
+
+/// The names an import takes: `None` for `*`, else (as written there, as here).
+fn imported(items: &LinkedNode) -> Option<Vec<(String, String)>> {
+    let mut out = Vec::new();
+    if items.children().any(|c| c.kind() == SyntaxKind::Star) {
+        return None;
+    }
+    for item in items.children() {
+        let names: Vec<String> = item.children().filter(|c| c.kind() == SyntaxKind::Ident).map(|c| c.get().leaf_text().to_string()).collect();
+        match (item.kind(), names.as_slice()) {
+            (SyntaxKind::ImportItemPath, [name]) => out.push((name.clone(), name.clone())),
+            (SyntaxKind::RenamedImportItem, [original, name]) => out.push((original.clone(), name.clone())),
+            _ => {}
+        }
+    }
+    Some(out)
 }
 
 #[derive(Clone, Debug)]
@@ -68,7 +193,7 @@ pub(crate) struct Call {
     pub items: Vec<(usize, usize, bool)>,
 }
 
-/// The function a callee names: `worksheet`, `solveng.worksheet`, `worksheet-config.with`.
+/// The function a callee names: `worksheet`, `solveng.worksheet`, `worksheet.with`.
 pub(crate) fn callee(node: &SyntaxNode) -> Option<String> {
     match node.kind() {
         // in math too: unit("bar")
@@ -111,6 +236,7 @@ fn role(function: &str, param: Option<&str>, index: usize) -> Option<Role> {
 
 struct Reader<'a> {
     doc: &'a Doc,
+    aliases: &'a Aliases,
     calls: Vec<Call>,
     scopes: Vec<Scope>,
 }
@@ -157,23 +283,37 @@ impl Reader<'_> {
         }
     }
 
-    /// `#show: worksheet` and `#show: worksheet.with(…)`: a worksheet for the rest of the block around.
+    /// `#show: worksheet`, `#show: worksheet.with(…)` and their aliases: a worksheet for the rest of the block around.
     fn show_rule(&mut self, node: &LinkedNode) {
         let Some(transform) = node.children().rev().find(|c| !c.kind().is_trivia()) else { return };
         let (function, args) = match transform.kind() {
             SyntaxKind::FuncCall => (transform.children().next(), transform.children().find(|c| c.kind() == SyntaxKind::Args)),
             _ => (Some(transform.clone()), None),
         };
-        if function.and_then(|f| callee(f.get())).as_deref() != Some("worksheet") {
-            return;
-        }
+        let Some(name) = function.and_then(|f| callee(f.get())) else { return };
+        let base = match name.as_str() {
+            "worksheet" => Wrapper::default(),
+            name => match self.aliases.get(name) {
+                Some(wrapper) => wrapper.clone(),
+                None => return,
+            },
+        };
+        let wrapper = base.with(args.as_ref());
         let end = node.parent().map_or(self.doc.c.len(), |p| self.chars(p).1);
-        self.scopes.push(Scope { start: self.chars(node).1, end, evaluate: args.is_none_or(|a| evaluate(&a)) });
+        self.scopes.push(Scope { start: self.chars(node).1, end, evaluate: wrapper.evaluate, units: wrapper.units });
     }
 
     fn call(&mut self, node: &LinkedNode) {
         let Some(first) = node.children().next() else { return };
-        let Some(function) = callee(first.get()).and_then(|n| params::function(&n)) else { return };
+        let name = callee(first.get());
+        // A `#let` alias of `worksheet.with(…)` is a worksheet too.
+        let (function, base) = match name.as_deref().and_then(params::function) {
+            Some(function) => (function, Wrapper::default()),
+            None => {
+                let Some(wrapper) = name.as_deref().and_then(|n| self.aliases.get(n)) else { return };
+                (params::function("worksheet").expect("worksheet is a function"), wrapper.clone())
+            }
+        };
         let Some(args) = node.children().find(|c| matches!(c.kind(), SyntaxKind::Args | SyntaxKind::MathArgs)) else { return };
         let (open, close) = self.chars(&args);
         let closes = args.children().any(|c| c.kind() == SyntaxKind::RightParen);
@@ -194,7 +334,8 @@ impl Reader<'_> {
                 SyntaxKind::ContentBlock => {
                     if function.name == "worksheet" {
                         let (start, end) = self.chars(&arg);
-                        self.scopes.push(Scope { start, end, evaluate: evaluate(&args) });
+                        let wrapper = base.with(Some(&args));
+                        self.scopes.push(Scope { start, end, evaluate: wrapper.evaluate, units: wrapper.units });
                     }
                 }
                 SyntaxKind::LeftParen | SyntaxKind::RightParen | SyntaxKind::Comma => {}
@@ -257,6 +398,17 @@ impl Call {
     }
 }
 
+fn unit_settings(args: &LinkedNode) -> Vec<crate::units::Custom> {
+    let mut units = Vec::new();
+    for named in args.children().filter(|node| node.kind() == SyntaxKind::Named) {
+        let name = named.children().find(|child| !child.kind().is_trivia());
+        if name.is_some_and(|name| matches!(name.get().leaf_text().as_str(), "units" | "builtin-units")) {
+            crate::units::custom_units(&named.get().clone().full_text(), &mut units);
+        }
+    }
+    units
+}
+
 /// Whether a worksheet's arguments calculate the math of its content: unless `evaluate: false`.
 fn evaluate(args: &LinkedNode) -> bool {
     !args.children().filter(|c| c.kind() == SyntaxKind::Named).any(|named| {
@@ -266,9 +418,27 @@ fn evaluate(args: &LinkedNode) -> bool {
 }
 
 /// Every call of a solveng function in a document, outer ones first, and where worksheets read content.
-pub(crate) fn read(doc: &Doc) -> (Vec<Call>, Vec<Scope>) {
+pub(crate) fn read(doc: &Doc, aliases: &Aliases) -> (Vec<Call>, Vec<Scope>) {
     let root = typst_syntax::parse(&doc.s);
-    let mut reader = Reader { doc, calls: Vec::new(), scopes: Vec::new() };
+    let mut reader = Reader { doc, aliases, calls: Vec::new(), scopes: Vec::new() };
     reader.visit(&LinkedNode::new(&root));
     (reader.calls, reader.scopes)
+}
+
+/// The files a document includes (`#include "…"`), as written, and where in it (in characters).
+pub(crate) fn includes(doc: &Doc) -> Vec<(String, usize)> {
+    let root = typst_syntax::parse(&doc.s);
+    let mut out = Vec::new();
+    collect_includes(&LinkedNode::new(&root), doc, &mut out);
+    out
+}
+
+fn collect_includes(node: &LinkedNode, doc: &Doc, out: &mut Vec<(String, usize)>) {
+    if node.kind() == SyntaxKind::ModuleInclude
+        && let Some(path) = node.children().find(|c| c.kind() == SyntaxKind::Str) {
+            out.push((path.get().leaf_text().trim_matches('"').to_string(), doc.of_byte(node.offset())));
+        }
+    for child in node.children() {
+        collect_includes(&child, doc, out);
+    }
 }

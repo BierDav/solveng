@@ -57,6 +57,28 @@ fn quoted_math_names_are_variables() {
 }
 
 #[test]
+fn quoted_unit_names_can_be_variables() {
+    let doc = format!("{FULL}$ \"km\" := 23 $\n$ x := \"km\" + 3 km $\n$ y := 2 \"km\" $\n{}",
+                      code("y2 := \"km\" * 2\nz := km * 2\nw := 2 km"));
+    assert_eq!(kind_at(&doc, "km\" := 23"), Some(TokenKind::VARIABLE));
+    assert_eq!(kind_at(&doc, "km\" +"), Some(TokenKind::VARIABLE));
+    assert_eq!(kind_at(&doc, "km\" * 2"), Some(TokenKind::VARIABLE));
+    assert_eq!(kind_at(&doc, "km * 2"), Some(TokenKind::VARIABLE));
+    // Unquoted unit words stay units; quoted names use the worksheet variable.
+    assert_eq!(kind_at(&doc, "km $\n"), Some(TokenKind::UNIT));
+    assert_eq!(kind_at(&doc, "km\" $"), Some(TokenKind::VARIABLE));
+    assert_eq!(kind_at(&doc, "km\n```"), Some(TokenKind::UNIT));
+    // The definition, and every use: quoted in math and in code, bare in code.
+    let at = u16_at(&doc, "km * 2");
+    let d = definition(&doc, &Context::default(), at).unwrap();
+    assert_eq!(text_at(&doc, d.start, d.end), "\"km\"");
+    let uses: Vec<String> = usages(&doc, &Context::default(), at).iter().map(|l| text_at(&doc, l.start, l.end)).collect();
+    assert_eq!(uses, ["\"km\"", "\"km\"", "\"km\"", "\"km\"", "km"]);
+    let h = hover(&doc, &Context::default(), at).unwrap().markdown;
+    assert!(h.contains("km") && !h.contains("kilometre"), "{h}");
+}
+
+#[test]
 fn long_subscripts_belong_to_the_name() {
     let doc = format!("{FULL}$ \"test\"_(\"test\" Delta) := 3 $\n{}$ R_\"load\" := 1 $ {}", code("y := test_test\"\"Delta * 2"), code("q := R_load"));
     let d = definition(&doc, &Context::default(), u16_at(&doc, "test\"\"Delta *")).unwrap();
@@ -97,10 +119,10 @@ fn renames_in_each_spelling() {
 
 #[test]
 fn docs_of_the_whole_function_name() {
-    let doc = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet-config.with(digits: 4)\n#show: worksheet-config\n";
-    for needle in ["worksheet-config.with", "worksheet-config\n"] {
+    let doc = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet.with(digits: 4)\n#show: worksheet\n";
+    for needle in ["worksheet.with", "worksheet\n"] {
         let h = hover(doc, &Context::default(), u16_at(doc, needle) + 2).unwrap();
-        assert!(h.markdown.starts_with("`worksheet-config`"), "{}", h.markdown);
+        assert!(h.markdown.starts_with("`worksheet`"), "{}", h.markdown);
     }
     // Like the completion's docs, every parameter shows.
     let doc = "#worksheet(evaluate: true)[]";
@@ -116,7 +138,7 @@ fn a_graph_plots_against_its_parameter() {
     assert_eq!(kind_at(doc, "A\", "), Some(TokenKind::PARAMETER));
     assert_eq!(kind_at(doc, "A\")"), Some(TokenKind::PARAMETER));
     assert_eq!(kind_at(doc, "k A"), Some(TokenKind::VARIABLE));
-    assert_eq!(kind_at(doc, "q(.."), Some(TokenKind::FUNCTION));
+    assert_eq!(kind_at(doc, "q(.."), Some(TokenKind::FUNCTION_CALL));
     // Both of .. show, though the graph can't plot against two.
     assert_eq!(kind_at(doc, "U^2"), Some(TokenKind::PARAMETER));
     assert_eq!(kind_at(doc, "R\")"), Some(TokenKind::PARAMETER));
@@ -146,7 +168,7 @@ fn parameters_stand_out_and_resolve() {
 
 #[test]
 fn functions_in_math() {
-    let doc = format!("{FULL}#worksheet-config(units: (ü: auto))\n$ q(x) := x unit(\"ü\") $\n{}", code("y := q(3)\nx := 5"));
+    let doc = format!("{FULL}#worksheet(units: (ü: auto), evaluate: false)[]\n$ q(x) := x unit(\"ü\") $\n{}", code("y := q(3)\nx := 5"));
     let d = definition(&doc, &Context::default(), u16_at(&doc, "q(3)")).unwrap();
     assert_eq!(d.start, u16_at(&doc, "q(x)"));
     // x is the parameter, not the variable defined below.
@@ -168,8 +190,8 @@ fn quoted_functions_in_math() {
 
 #[test]
 fn custom_units_are_found_and_renamed() {
-    let doc = "#show: worksheet\n#worksheet-config(units: (ü: auto, mü: \"10ü\", \"kq\": \"2 ü\"))\n$ a := 3 ü $\n$ b := 2 \"kü\" $\n```solveng\nc := 4 ü\nd := a + c = [ü]\n```\n#lambdify(\"a\", \"a\", unit: \"ü\")\n";
-    let at = u16_at(doc, "ü $");
+    let doc = "#show: worksheet\n#worksheet(units: (ü: auto, mü: \"10ü\", \"kq\": \"2 ü\"), evaluate: false)[]\n$ a := 3 \"ü\" $\n$ b := 2 \"kü\" $\n```solveng\nc := 4 ü\nd := a + c = [ü]\n```\n#lambdify(\"a\", \"a\", unit: \"ü\")\n";
+    let at = u16_at(doc, "\"ü\" $") + 1;
     let d = definition(doc, &Context::default(), at).unwrap();
     assert_eq!(d.start, u16_at(doc, "ü: auto"));
     // The key, the values of other units, prefixed and quoted uses, code and call strings; not mü, a unit of its own.
@@ -214,7 +236,7 @@ fn variables_show_their_unit() {
 #[test]
 fn implicit_parameters_as_set() {
     let lines = code("f() := x^2 + k\ng(y) := y + n");
-    let with = |mode: &str| format!("{FULL}#worksheet-config(implicit-parameters: \"{mode}\")\n{lines}");
+    let with = |mode: &str| format!("{FULL}#worksheet(implicit-parameters: \"{mode}\", evaluate: false)[]\n{lines}");
     // "no", the default: only .. takes the undefined rest.
     let doc = format!("{FULL}{lines}");
     assert_eq!(kind_at(&doc, "x^2"), Some(TokenKind::VARIABLE));

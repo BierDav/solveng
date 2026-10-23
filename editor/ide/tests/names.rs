@@ -158,7 +158,7 @@ fn acute_accents_are_part_of_completion_and_navigation_names() {
 
 const USER_WORKSHEET: &str = r#"#import "@solveng/solveng:1.0.0": *
 
-//#show: worksheet-config.with(
+//#show: worksheet.with(
 //units: (über: auto, üm: "10^3 über"),
 //)
 
@@ -199,4 +199,36 @@ fn builtin_functions_without_bindings_are_not_graph_parameters() {
     let ctx = Context::default();
     assert!(usages(document, &ctx, document.find("tri(x)").unwrap() as u32).is_empty());
     assert!(usages(document, &ctx, document.find("sin(x)").unwrap() as u32).is_empty());
+}
+
+#[test]
+fn invalid_quoted_names_stay_variables_instead_of_units() {
+    for name in [r#""e-"10"#, r#""a+b""#, r#""bad/name"2"#, r#""q!""#] {
+        let expression = format!("1{name}");
+        let tokens = math_tokens_of(&expression);
+        assert!(tokens.iter().any(|t| t.start == 1 && t.length == name.encode_utf16().count() as u32 && t.kind == TokenKind::VARIABLE), "{expression}: {tokens:?}");
+        let document = format!("#show: worksheet\n$y(x) := {expression}$");
+        assert!(diagnostics(&document, &Context::default()).iter().all(|p| !p.message.contains("unknown unit")), "{document}");
+    }
+    for unit in [r#""mA""#, r#""km""#, r#""k"Omega"#] {
+        assert!(math_tokens_of(&format!("1{unit}")).iter().any(|t| t.start == 1 && t.kind == TokenKind::UNIT), "{unit}");
+    }
+}
+
+#[test]
+fn function_definitions_calls_and_builtins_have_distinct_styles() {
+    let code = "f(x) := sin(x) + cos(x)\ny := f(tri(1)) + rect(2)";
+    for (source, tokens) in [
+        (code.to_string(), tokens(code)),
+        (format!("#show: worksheet\n${}$", code.replace('\n', "$\n$")), document_tokens(&format!("#show: worksheet\n${}$", code.replace('\n', "$\n$")), &Context::default())),
+        (format!("```solveng\n{code}\n```"), document_tokens(&format!("```solveng\n{code}\n```"), &Context::default())),
+        (format!("#worksheet(\"{code}\")"), document_tokens(&format!("#worksheet(\"{code}\")"), &Context::default())),
+    ] {
+        let source: Vec<u16> = source.encode_utf16().collect();
+        let functions: Vec<_> = tokens.iter().filter_map(|t| {
+            let name = String::from_utf16(&source[t.start as usize..(t.start + t.length) as usize]).unwrap();
+            ["f", "sin", "cos", "tri", "rect"].contains(&name.as_str()).then_some((name, t.kind))
+        }).collect();
+        assert_eq!(functions, vec![("f".into(), TokenKind::FUNCTION), ("sin".into(), TokenKind::BUILTIN_FUNCTION), ("cos".into(), TokenKind::BUILTIN_FUNCTION), ("f".into(), TokenKind::FUNCTION_CALL), ("tri".into(), TokenKind::BUILTIN_FUNCTION), ("rect".into(), TokenKind::BUILTIN_FUNCTION)]);
+    }
 }

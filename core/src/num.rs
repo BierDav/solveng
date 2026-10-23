@@ -125,16 +125,12 @@ impl Rat {
         };
         Rat::new(r(self.n)?, r(self.d)?)
     }
-    /// A decimal written out: "7.20" → 36/5, "1e-3" → 1/1000.
+    /// A decimal written out: "7.20" → 36/5, "0,5" → 1/2. No e-notation.
     pub fn parse_decimal(s: &str) -> Option<Rat> {
-        let s = s.trim().replace(',', ".");
-        let (mant, exp) = match s.find(['e', 'E']) {
-            Some(i) => (&s[..i], s[i + 1..].replace('+', "").parse::<i64>().ok()?),
-            None => (&s[..], 0),
-        };
+        let mant = s.trim().replace(',', ".");
         let (ip, fp) = match mant.find('.') {
             Some(i) => (&mant[..i], &mant[i + 1..]),
-            None => (mant, ""),
+            None => (mant.as_str(), ""),
         };
         if ip.is_empty() && fp.is_empty() {
             return None;
@@ -148,12 +144,12 @@ impl Rat {
             return None;
         }
         let n: i128 = if digits.is_empty() { 0 } else { digits.parse().ok()? };
-        let e = exp.checked_sub(fp.len() as i64)?;
+        let e = -(fp.len() as i64);
         if e.abs() > 36 {
             return None;
         }
         let p = 10i128.checked_pow(e.unsigned_abs() as u32)?;
-        if e >= 0 { Rat::new(n.checked_mul(p)?, 1) } else { Rat::new(n, p) }
+        Rat::new(n, p)
     }
     /// The closest fraction with a denominator ≤ `max` that equals `x` (within 1e-12), by continued fractions.
     pub fn approx(x: f64, max: i128) -> Option<Rat> {
@@ -367,9 +363,10 @@ mod tests {
     #[test]
     fn decimals() {
         assert_eq!(Rat::parse_decimal("7.20"), Rat::new(36, 5));
-        assert_eq!(Rat::parse_decimal("1e-3"), Rat::new(1, 1000));
+        assert_eq!(Rat::parse_decimal("0.001"), Rat::new(1, 1000));
         assert_eq!(Rat::parse_decimal("0,5"), Rat::new(1, 2));
         assert_eq!(Rat::parse_decimal(".5"), Rat::new(1, 2));
+        assert_eq!(Rat::parse_decimal("1e-3"), None);
         assert_eq!(Rat::parse_decimal("x"), None);
     }
 

@@ -51,6 +51,9 @@ pub struct Fun {
     pub src: String,
     /// The dimension of the result, when every parameter has a unit.
     pub ret: Option<Dim>,
+    /// The values of the named parameters, as they were when the function was defined.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub defaults: BTreeMap<String, Expr>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -318,7 +321,40 @@ impl<'a> Lower<'a> {
                 Expr::Cast(Box::new(self.raw(x)?), f, d, u.clone())
             }
             Ast::Call(n, args) => self.call(n, args)?,
+            Ast::Builtin(n, args) => self.builtin(n, args)?,
+            Ast::Arg(n, _) => return Err(format!("'{n}: …' is a named argument – it goes in the parentheses of a call, f(x, {n}: …)")),
+            Ast::Index(x, idx) => {
+                let mut args = vec![self.raw(x)?];
+                for i in idx {
+                    args.push(self.raw(i)?);
+                }
+                self.op(Op::At, args)?
+            }
+            Ast::Range(a, b) => {
+                let (a, b) = (self.raw(a)?, self.raw(b)?);
+                range(self.known(&a, "the start of a range")?, self.known(&b, "the end of a range")?, None, true)?
+            }
         })
+    }
+
+    /// The value of a bound of a range or a step: known now, since it decides the number of elements.
+    fn known(&self, e: &Expr, what: &str) -> Result<Val, String> {
+        let b = simp(&self.env.bind_with_units(e, &self.params, self.units)?);
+        crate::eval::value(&b).map_err(|e| match e {
+            crate::eval::NoValue::Unknown(ns) => format!("{what} needs a value now – {} {} not defined", ns.join(", "), if ns.len() == 1 { "is" } else { "are" }),
+            crate::eval::NoValue::Error(m) => m,
+        })
+    }
+
+    /// A matrix operation: what can't be done with the values known now is an error now; a name may still
+    /// become a matrix.
+    fn op(&self, op: Op, args: Vec<Expr>) -> Result<Expr, String> {
+        let e = Expr::Op(op, args);
+        let bound = simp(&if self.bind { self.env.bind_with_units(&e, &self.params, self.units)? } else { e.clone() });
+        if let Some(m) = crate::linalg::problem(&bound) {
+            return Err(m);
+        }
+        Ok(e)
     }
 
     /// Whether what's written is a vector or matrix with the values known now.
@@ -347,31 +383,33 @@ impl<'a> Lower<'a> {
         })
     }
 
-    fn call(&mut self, n: &str, args: &[Ast]) -> Result<Expr, String> {
+    /// A built-in operation, its arguments bound as in Typst.
+    fn builtin(&mut self, n: &str, args: &[Ast]) -> Result<Expr, String> {
+        let b = crate::builtins::builtin(n).ok_or_else(|| format!("'{n}' is no built-in operation"))?;
+        let written: Vec<crate::builtins::Arg<&Ast>> = args.iter().map(|a| match a {
+            Ast::Arg(k, v) => crate::builtins::Arg::Named(k.clone(), &**v),
+            a => crate::builtins::Arg::Pos(a),
+        }).collect();
+        let bound = crate::builtins::bind(b, written)?;
+        let args: Vec<&Ast> = bound.positional.clone();
+        let n = b.name;
         if n == "cases" {
             if args.is_empty() { return Err("cases needs a value and condition for each branch, with an optional final default value".into()); }
             let mut branches = vec![];
             for pair in args.chunks(2) {
-                branches.push((self.raw(&pair[0])?, if pair.len() == 2 { self.raw(&pair[1])? } else { expr::int(1) }));
+                branches.push((self.raw(pair[0])?, if pair.len() == 2 { self.raw(pair[1])? } else { expr::int(1) }));
             }
             return Ok(Expr::Cases(branches));
         }
         if n == "vec" { return Ok(Expr::Vector(args.iter().map(|a| self.raw(a)).collect::<Result<_, _>>()?)); }
-        if let Some(op) = Op::of(n).filter(|_| !self.env.funs.contains_key(n)) {
+        if let Some(op) = Op::of(n) {
             if !op.arity().contains(&args.len()) {
                 return Err(op.usage());
             }
             let args = args.iter().map(|a| self.raw(a)).collect::<Result<Vec<_>, _>>()?;
-            // what can't be done with the values known now is an error now; a name may still become a matrix
-            let e = Expr::Op(op, args);
-            let bound = simp(&if self.bind { self.env.bind_with_units(&e, &self.params, self.units)? } else { e.clone() });
-            if let Some(m) = crate::linalg::problem(&bound) {
-                return Err(m);
-            }
-            return Ok(e);
+            return self.op(op, args);
         }
         if n == "laplace" || n == "invlaplace" {
-            if !(1..=3).contains(&args.len()) { return Err(format!("{n} takes an expression and up to two variable names")); }
             let inverse = n == "invlaplace";
             let variable = |i: usize, default: &str| -> Result<String, String> {
                 match args.get(i) {
@@ -383,39 +421,120 @@ impl<'a> Lower<'a> {
             let input = variable(1, if inverse { "s" } else { "t" })?;
             let output = variable(2, if inverse { "t" } else { "s" })?;
             let added = self.params.insert(input.clone());
-            let body = self.expr(&args[0]);
+            let body = self.expr(args[0]);
             if added { self.params.remove(&input); }
             return crate::transforms::transform(&body?, &input, &output, inverse);
         }
         if n == "diff" || n == "integrate" || n == "sum" {
-            let count = if n == "diff" { 2 } else { 4 };
-            if args.len() != count { return Err(format!("{n} takes {count} arguments")); }
-            let Ast::Name(var) = &args[1] else { return Err("the calculus variable must be a name".into()); };
-            let added = self.params.insert(var.clone());
-            let body = self.expr(&args[0]);
-            if added { self.params.remove(var); }
-            let body = body?;
+            let Ast::Name(var) = args[1] else { return Err("the calculus variable must be a name".into()); };
+            let body = self.local(var, args[0])?;
             if n == "diff" { return Ok(body.diff(var)); }
-            let lo = self.raw(&args[2])?;
-            let hi = self.raw(&args[3])?;
+            let lo = self.raw(args[2])?;
+            let hi = self.raw(args[3])?;
             return Ok(if n == "sum" { crate::calculus::sum(body, var.clone(), lo, hi) } else { crate::calculus::integral(body, var.clone(), lo, hi) });
         }
-        if n == "sqrt" || Func::of(n).is_some() {
-            if args.len() != 1 {
-                return Err(format!("{n} takes one argument, got {}", args.len()));
+        if n == "convolve" {
+            let step = bound.named.get("step").map(|s| self.raw(s)).transpose()?;
+            if args.len() == 2 {
+                // sequences: the discrete convolution, times the step if one is given (a Riemann sum)
+                let (x, h) = (self.raw(args[0])?, self.raw(args[1])?);
+                let e = self.op(Op::Convolve, vec![x, h])?;
+                return Ok(match step { Some(s) => expr::mul(vec![e, s]), None => e });
             }
-            let a = self.raw(&args[0])?;
+            if step.is_some() {
+                return Err("convolve: step is for sequences, convolve(x, h, step: …); a convolution of functions, convolve(f(τ), g(τ), τ, t), is exact".into());
+            }
+            let Ast::Name(var) = args[2] else { return Err("convolve: the variable must be a name, convolve(f(τ), g(τ), τ, t)".into()); };
+            let f = self.local(var, args[0])?;
+            let g = self.local(var, args[1])?;
+            let at = match args.get(3) {
+                Some(a) => self.raw(a)?,
+                None => Expr::Sym(var.clone()),
+            };
+            return Ok(crate::convolution::continuous(&f, &g, var, &at));
+        }
+        if n == "range" {
+            let (start, end) = match args.len() {
+                1 => (None, args[0]),
+                _ => (Some(args[0]), args[1]),
+            };
+            let end = self.raw(end)?;
+            let end = self.known(&end, "range: the end")?;
+            let start = match start {
+                Some(a) => { let a = self.raw(a)?; self.known(&a, "range: the start")? }
+                None => Val::new(Num::ZERO, end.d),
+            };
+            let step = match bound.named.get("step") {
+                Some(s) => { let s = self.raw(s)?; Some(self.known(&s, "range: the step")?) }
+                None => None,
+            };
+            return range(start, end, step, false);
+        }
+        if n == "sqrt" || Func::of(n).is_some() {
+            let a = self.raw(args[0])?;
             return Ok(if n == "sqrt" { expr::sqrt(a) } else { expr::func(Func::of(n).unwrap(), a) });
         }
+        Err(format!("'{n}' is no built-in operation"))
+    }
+
+    /// An expression in a local variable (of an integral, a sum, a convolution): the variable stays a name.
+    fn local(&mut self, var: &str, a: &Ast) -> Result<Expr, String> {
+        let added = self.params.insert(var.to_string());
+        let body = self.expr(a);
+        if added { self.params.remove(var); }
+        body
+    }
+
+    fn call(&mut self, n: &str, args: &[Ast]) -> Result<Expr, String> {
         let Some(f) = self.env.funs.get(n) else {
             if self.env.vars.contains_key(n) { return Err(format!("{n} is a variable – it can't be called as a function")); }
+            if let Some(Ast::Arg(k, _)) = args.iter().find(|a| matches!(a, Ast::Arg(..))) {
+                return Err(format!("{n} isn't defined yet, so it has no parameter {k} – define {n} before calling it with named arguments"));
+            }
             return Ok(Expr::Call(n.to_string(), args.iter().map(|a| self.raw(a)).collect::<Result<_, _>>()?));
         };
-        if args.len() != f.params.len() {
-            return Err(format!("{n} takes {} argument{} ({}), got {}", f.params.len(), if f.params.len() == 1 { "" } else { "s" }, f.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", "), args.len()));
+        // as in Typst: positional arguments for the parameters without a default, in order; named ones for those with
+        let positional: Vec<&Param> = f.params.iter().filter(|p| p.default.is_none()).collect();
+        let mut given: Vec<Option<&Ast>> = vec![None; f.params.len()];
+        let mut k = 0;
+        for a in args {
+            match a {
+                Ast::Arg(name, v) => {
+                    let Some(i) = f.params.iter().position(|p| &p.name == name) else {
+                        return Err(format!("{n}: unexpected argument: {name}{}", signature(n, f)));
+                    };
+                    if f.params[i].default.is_none() {
+                        return Err(format!("{n}: unexpected argument: {name} – {name} is positional, pass it without its name"));
+                    }
+                    if given[i].replace(v).is_some() {
+                        return Err(format!("{n}: duplicate argument: {name}"));
+                    }
+                }
+                a => {
+                    let Some(p) = positional.get(k) else {
+                        return Err(format!("{n} takes {} argument{} ({}), got {}", positional.len(), if positional.len() == 1 { "" } else { "s" }, positional.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", "), args.iter().filter(|a| !matches!(a, Ast::Arg(..))).count()));
+                    };
+                    let i = f.params.iter().position(|q| q.name == p.name).unwrap();
+                    given[i] = Some(a);
+                    k += 1;
+                }
+            }
         }
+        if let Some(p) = positional.get(k) {
+            return Err(if f.params.iter().all(|p| p.default.is_none()) {
+                format!("{n} takes {} argument{} ({}), got {}", f.params.len(), if f.params.len() == 1 { "" } else { "s" }, f.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", "), k)
+            } else {
+                format!("{n}: missing argument: {}{}", p.name, signature(n, f))
+            });
+        }
+        let params = f.params.clone();
+        let defaults = f.defaults.clone();
         let mut lowered = vec![];
-        for (p, a) in f.params.iter().zip(args) {
+        for (p, a) in params.iter().zip(given) {
+            let Some(a) = a else {
+                lowered.push(defaults.get(&p.name).cloned().ok_or_else(|| format!("{n}: missing argument: {}", p.name))?);
+                continue;
+            };
             if let (Ast::Name(x), Some(t)) = (a, &p.ty) {
                 if self.params.contains(x) { self.inferred.entry(x.clone()).or_insert(t.clone()); }
             }
@@ -426,8 +545,15 @@ impl<'a> Lower<'a> {
         self.apply(n, lowered)
     }
 
-    fn apply(&self, n: &str, args: Vec<Expr>) -> Result<Expr, String> {
+    fn apply(&self, n: &str, mut args: Vec<Expr>) -> Result<Expr, String> {
         let f = &self.env.funs[n];
+        // a call written before the function was defined: its named parameters take their defaults
+        while args.len() < f.params.len() {
+            match f.defaults.get(&f.params[args.len()].name) {
+                Some(d) => args.push(d.clone()),
+                None => break,
+            }
+        }
         if args.len() != f.params.len() {
             return Err(format!("{n} takes {} arguments, got {}", f.params.len(), args.len()));
         }
@@ -444,19 +570,15 @@ impl<'a> Lower<'a> {
         Ok(body.subst_all(&m))
     }
 
-    /// An argument for a parameter with a unit: a plain number gets the unit (f(2) is f(2 mA)), a value must
-    /// have its dimension.
+    /// Typed arguments must carry the declared dimension, including literal numbers.
     fn typed(&self, x: Expr, u: &UnitExpr, f: &str, p: &str) -> Result<Expr, String> {
-        let (k, d) = self.unit(u)?;
+        let (_, d) = self.unit(u)?;
         let s = simp(&x);
         if let Expr::C(v) = &s {
             if v.d == d {
                 return Ok(x);
             }
-            if v.d.is_one() {
-                return Ok(Expr::C(Val { v: v.v.mul(k), d, u: Some(u.clone()), raw: v.raw.clone() }));
-            }
-            return Err(format!("{f} takes {p} in {}, got {}", u.text(), self.units.auto(&v.d).text()));
+            return Err(format!("{f} takes {p} in {}, got {}", u.text(), if v.d.is_one() { "1 (no unit)".into() } else { self.units.auto(&v.d).text() }));
         }
         // a dimension that can be told without values: a parameter of the caller with a unit
         if let Expr::Sym(n) = &s {
@@ -467,7 +589,7 @@ impl<'a> Lower<'a> {
             }
         }
         if let Ok(Some(dx)) = crate::eval::dim_of(&s, &|n| self.param_dim(n)) {
-            if dx != d && !(dx.is_one() && matches!(s, Expr::C(_))) {
+            if dx != d {
                 return Err(format!("{f} takes {p} in {}, got {}", u.text(), if dx.is_one() { "1 (no unit)".into() } else { self.units.auto(&dx).text() }));
             }
         }
@@ -480,6 +602,44 @@ impl<'a> Lower<'a> {
             _ => None,
         }
     }
+}
+
+/// How a worksheet function is called, for messages: " – f(x, n: …)".
+fn signature(n: &str, f: &Fun) -> String {
+    let ps: Vec<String> = f.params.iter().map(|p| if p.default.is_some() { format!("{}: …", p.name) } else { p.name.clone() }).collect();
+    format!(" – {n}({})", ps.join(", "))
+}
+
+/// The values from `start` to `end`: with `inclusive`, a range variable a .. b (steps of 1, counting down when
+/// b < a); else Typst's range(start, end, step: …), without the end.
+pub fn range(start: Val, end: Val, step: Option<Val>, inclusive: bool) -> Result<Expr, String> {
+    if start.d != end.d {
+        return Err("a range's start and end must have the same unit".into());
+    }
+    let step = match step {
+        Some(s) => s,
+        None if !start.d.is_one() => {
+            return Err(if inclusive { "a range of values with a unit takes a step: range(start, end, step: …)".into() } else { "range: values with a unit take a step of that unit, step: …".into() });
+        }
+        None => Val::num(if inclusive && end.v.cmp(start.v) == std::cmp::Ordering::Less { Num::int(-1) } else { Num::ONE }),
+    };
+    if step.d != start.d {
+        return Err("range: the step must have the unit of the start and end".into());
+    }
+    if step.v.is_zero() {
+        return Err("range: the step can't be 0".into());
+    }
+    let span = end.v.sub(start.v).f() / step.v.f();
+    if !span.is_finite() {
+        return Err("a range needs finite bounds".into());
+    }
+    // the last index: within rounding of the end, which counts when the range includes it
+    let last = if inclusive { (span + 1e-9).floor() } else { (span - 1e-9).ceil() - 1.0 };
+    if last >= 100_000.0 {
+        return Err(format!("a range of {} values is too long – at most 100000", last + 1.0));
+    }
+    let count = if last < 0.0 { 0 } else { last as i128 + 1 };
+    Ok(Expr::Vector((0..count).map(|k| Expr::C(Val::new(start.v.add(step.v.mul(Num::int(k))), start.d))).collect()))
 }
 
 /// e^(p/q) for a value's dims with a rational exponent.

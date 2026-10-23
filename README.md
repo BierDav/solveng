@@ -97,7 +97,7 @@ $g_2(t) := sum_(k=0)^infinity Lambda(t-k+1/2) ->$
 #graph("g_2(t)", xrange: (-2, 3))
 ```
 
-Standard operation names are always available. Define an ordinary worksheet function such as `$Lambda(t) := tri(t)$` to use another name; `Λ` and `Lambda` name the same function in math and code strings.
+`Λ` and `Lambda` name the same function in math and code strings. Names reach the operations through overlays, as units do: `functions: (conv: "convolve", Λ: "tri")` maps names of your own to operations, `(rect: none)` hides a standard name from code lines and quoted names, and `builtin-functions: false` turns the standard names off. The names solveng exports for math (`$tri(t)$`, `$convolve(x, h)$`) are explicit references – Typst's `math.op` – resolved through the overlays where they're used, so they always reach an operation; `#let conv = operation("conv")` makes one of your own that takes named arguments. A worksheet's own function of a standard name, `tri(x) := …` in code, takes precedence over plain lookup. See [Built-in operations](docs/reference.md#built-in-operations).
 
 `inherit` and `export` control worksheet scope independently: `inherit` reads definitions from the parent; `export` passes the final definitions back. Both default to `auto`: true for expression calls and false for content blocks.
 
@@ -125,11 +125,11 @@ $T := 2 s$, $f := 1/T = Hz$      // f ≔ 1/T = 0.5 Hz
 
 ![Units and variables](docs/units.png)
 
-Your own units: `#worksheet-config(units: (bar: "100 kPa", rpm: "1/min", T: none))` – `none` removes one and frees its name.
+Unit overlays: `#show: worksheet.with(units: (bar: "100 kPa", rpm: "1/min", T: none))` adds a user overlay above the built-in overlay and underlying built-in units. Lookup falls back layer by layer; `none` hides only that name, while explicit `unit("T")` references still work. `builtin-units: false` disables the built-in overlay; `units: (s: "s")` restores quoted `"s"`, but does not create a bare Typst binding. Prefer `$34"s"$`; a single-letter binding `#let s = unit("s")` needs `$34#s$`. A `unit("…")` binding resolves through the overlays at its use, so the same binding can mean different values in nested worksheets. See [Unit overlays](docs/reference.md#units-and-variables) for definitions, fallback and cycle detection.
 
 ## Functions
 
-A function's body is symbolic too, so it needn't define everything it uses: what isn't a parameter and isn't defined stays a name, looked up when the function is evaluated – and cancels where the algebra lets it. Undefined function calls also stay symbolic: `$f(t) := integral_(-infinity)^t sigma(tau) dif tau$` is valid before `sigma` is defined, and uses its definition when evaluated later. Numerical evaluation requires its dependencies to be defined and the integral to converge. Parameters can have a unit (plain numbers passed get it), and `..` makes the body's other undefined names parameters.
+A function's body is symbolic too, so it needn't define everything it uses: what isn't a parameter and isn't defined stays a name, looked up when the function is evaluated – and cancels where the algebra lets it. Undefined function calls also stay symbolic: `$f(t) := integral_(-infinity)^t sigma(tau) dif tau$` is valid before `sigma` is defined, and uses its definition when evaluated later. Numerical evaluation requires its dependencies to be defined and the integral to converge. Parameters can have a unit (arguments must carry that dimension), and `..` makes the body's other undefined names parameters.
 
 ```typ
 #import "@preview/solveng:1.0.0": *
@@ -140,6 +140,26 @@ $g(x: m) := U(x)/a ->$                     // a cancels: g(x) ≔ U(x)/a → 1 m
 $q(x: A, ..) := 1 + 3/3 x + y^2 -> simplify$   // q(x, y) → x + y² + 1
 $g(3 m) =$                                 // 3 m²
 ```
+
+Named parameters have a default value, as in Typst: after `$f(x, n: 2) := x^n$`, `$f(3) =$` is 9 and `$f(3, n: 3) =$` is 27. A unit after the colon is a type (`I: mA`), a value a default (`n: 2`, `R: 2 Ω`); defaults are taken where the function is defined.
+
+## Sequences and convolution
+
+Range variables and indices work as in Mathcad: `$i := 0..N$` counts from 0 to N, `x[i]` is an element (counted from 0), and `$x[i] := …$` defines one for every value of `i`. `convolve(x, h)` convolves sequences, `step: Δt` makes it the Riemann sum of the convolution integral; `convolve(f(τ), g(τ), τ, t)` convolves functions – exactly for piecewise polynomial signals (`rect`, `tri`, `sgn`, steps written with `cases`), numerically otherwise. Graphs plot a vector over its index, `#graph("y")`, or over another vector, `#graph("y(tau)")`, with function curves alongside:
+
+```typ
+#import "@preview/solveng:1.0.0": *
+#show: worksheet
+$N := 200$, $Delta""t := 10 ms$, $i := 0..N$
+$t[i] := -1 "s" + i Delta""t$, $x[i] := tri(t[i] / (1 "s"))$
+$y := convolve(x, x, step: Delta""t)$              // the samples' convolution: 401 values
+$k := 0..2N$, $tau[k] := -2 "s" + k Delta""t$
+$c(t) := convolve(tri(tau), tri(tau), tau, t) ->$  // exact: five cubic pieces
+$c(1/2) =$                                          // 23/48
+#graph("y(tau)")                                    // the samples over their time axis
+```
+
+`range(start, end, step: …)` is Typst's range, the end left out, with units too: `$range(0 "s", 1 "s", step: 250 ms)$`; in Typst code, `range(5)` stays Typst's own. In math, named arguments like `step:` parse only for functions, which `convolve`, `range` and `operation("…")` are. An index follows its name without a space; in math, `a[b + c]` is therefore an element of a, write `a dot [b + c]` for the product.
 
 ## Plots
 
@@ -161,10 +181,10 @@ Every option works for the rest of the document, for a part, or for a few equati
 
 ```typ
 #import "@preview/solveng:1.0.0": *
-#show: worksheet-config.with(digits: 3, layout: "column")   // your defaults
-#show: worksheet
+#show: worksheet.with(digits: 3, layout: "column")     // your defaults, the whole document
 $U := 5 V$, $I := 30 mA$
-#worksheet-config(form: "fraction")[$I/3 =$]            // only inside the brackets
+#worksheet($I/3 =$, form: "fraction")                  // only this equation
+#worksheet(evaluate: false)[Equations like $E = m c^2$ stay as written.]  // options, no calculation
 #worksheet($R := U/I =$, digits: 2, separator: ",")     // only these equations
 #defined(show-si: true, style: "inline")
 ```
@@ -181,7 +201,7 @@ solveng's engine is written in Rust and runs as a WebAssembly plugin (`src/solve
 
 ## Editors
 
-`solveng-lsp` (in [`editor/`](editor)) is a language server for solveng that runs next to tinymist and answers only where solveng reads the document: ```` ```solveng ```` code blocks, math in a `worksheet`, the strings of `worksheet`, `graph`, `lambdify` and `value`, and the options of solveng's calls. It completes defined names, functions, units (also your own from `worksheet-config(units: …)`), keywords after `=` and `->`, and option values like `steps: "value"`; highlights calculations (the evaluating `=` bold); shows values and units on hover; converts a code line ⇄ math as a code action; goes to a name's definition and finds its usages as the compile sees them (in its `worksheet`, up to a redefinition or `clear`, through `#include`d files when `main` is set); and warns about unknown units. A client that compiles can send what the compile reported (`query(<solveng>)`) as the notification `solveng/report`; then solveng's errors show as errors where they happened. Sum indices have local scopes for rename, definition, references, completion, and hover; nested sums can reuse an index without changing outer variables. Settings, imports and includes of local files count; set `main` to the file you compile so its `worksheet` counts in the files it includes.
+`solveng-lsp` (in [`editor/`](editor)) is a language server for solveng that runs next to tinymist and answers only where solveng reads the document: ```` ```solveng ```` code blocks, math in a `worksheet`, the strings of `worksheet`, `graph`, `lambdify` and `value`, and the options of solveng's calls. It completes defined names, functions, units (also your own from the `units` option, `worksheet(units: …)`), keywords after `=` and `->`, and option values like `steps: "value"`; highlights calculations (the evaluating `=` bold); shows values and units on hover; converts a code line ⇄ math as a code action; goes to a name's definition and finds its usages as the compile sees them (in its `worksheet`, up to a redefinition or `clear`, through `#include`d files when `main` is set); and warns about unknown units. A client that compiles can send what the compile reported (`query(<solveng>)`) as the notification `solveng/report`; then solveng's errors show as errors where they happened. Sum indices have local scopes for rename, definition, references, completion, and hover; nested sums can reuse an index without changing outer variables. Settings, imports and includes of local files count; set `main` to the file you compile so its `worksheet` counts in the files it includes.
 
 ```sh
 cargo install --git https://github.com/BierDav/solveng solveng-lsp

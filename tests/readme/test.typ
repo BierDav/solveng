@@ -38,10 +38,10 @@
 ]
 
 // Options
-#worksheet[
-  #show: worksheet-config.with(digits: 3, layout: "column")
+#worksheet(digits: 3, layout: "column")[
   $U := 5 V$, $I := 30 mA$
-  #worksheet-config(form: "fraction")[$I/3 =$]
+  #worksheet($I/3 =$, form: "fraction")
+  #worksheet(evaluate: false)[Equations like $E = m c^2$ stay as written.]
   #worksheet($R := U/I =$, digits: 2, separator: ",")
   #defined(show-si: true, style: "inline")
 ]

@@ -1,8 +1,7 @@
 #import "/lib.typ": *
 #import "/tests/util.typ": expect, undefined, passes
 #set page(width: 18cm, height: auto)
-#show: worksheet-config.with(errors: "panic")
-#show: worksheet
+#show: worksheet.with(errors: "panic")
 
 // Auto exports expressions and keeps blocks local.
 $x := 10$
@@ -31,8 +30,8 @@ $x := 10$
 
 // Export functions, solved values, code and graph definitions as well as variables.
 #worksheet(export: true, hidden: true)[
-  $U := 12 V$
-  $R := 100 Ω$
+  $U := 12 "V"$
+  $R := 100 "Ω"$
   $U = I R -> solve(I)$
   $f(t) := t^2+1$
   ```solveng

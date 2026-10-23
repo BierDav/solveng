@@ -64,3 +64,23 @@ fn attached_sum_notation_has_the_same_documentation() {
     assert!(result.markdown.contains("Inclusive integer sum"));
     assert!(result.markdown.contains("### Parameters"));
 }
+
+#[test]
+fn adjacent_coefficients_do_not_hide_symbol_documentation() {
+    for (expression, name, description) in [("1e^10", "e", "Euler"), ("2pi", "pi", "3,14159"), ("12infinity", "infinity", "infinite"), ("1.5e^2", "e", "Euler"), ("2.5e-10", "e", "Euler")] {
+        for doc in [format!("#show: worksheet\n${expression}$"), format!("```solveng\n{expression}\n```"), format!("#value(\"{expression}\")")] {
+            let at = offset(&doc, expression) + offset(expression, name);
+            for caret in [at, at + name.len() as u32] {
+                let result = hover(&doc, &Context::default(), caret).unwrap_or_else(|| panic!("{doc} at {caret}"));
+                assert_eq!((result.start, result.end), (at, at + name.len() as u32), "{doc}");
+                assert!(result.markdown.contains(description), "{}", result.markdown);
+            }
+        }
+    }
+    // no e-notation: `1e10` is a coefficient and the name e10, which has no documentation
+    for doc in ["#value(\"1e10\")", "```solveng\n2.5e10\n```", "#show: worksheet\n$3e4$"] {
+        let at = doc[..doc.rfind('e').unwrap()].encode_utf16().count() as u32;
+        assert!(hover(doc, &Context::default(), at).is_none());
+        assert!(hover(doc, &Context::default(), at + 1).is_none());
+    }
+}

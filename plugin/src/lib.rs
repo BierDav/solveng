@@ -68,6 +68,13 @@ pub fn check_units(cfg: &[u8]) -> Result<Vec<u8>, String> {
     en(&api::check_units(&c))
 }
 
+/// Problems with the option functions, or none.
+#[wasm_func]
+pub fn check_functions(cfg: &[u8]) -> Result<Vec<u8>, String> {
+    let c: Cfg = de(cfg, "options")?;
+    en(&api::check_functions(&c))
+}
+
 /// (env, request) → the prepared function as bytes, or an error message as (err: …).
 #[wasm_func]
 pub fn lambdify(env: &[u8], req: &[u8]) -> Result<Vec<u8>, String> {

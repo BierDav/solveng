@@ -19,6 +19,7 @@ pub(crate) fn reported(a: &Analysis) -> Vec<Problem> {
             None
         };
         let Some((start, end)) = range else { continue };
+        let (start, end) = invalid_name(a, start, end, &err.message).unwrap_or((start, end));
         let problem = Problem { start: a.doc.to16(start), end: a.doc.to16(end), message: err.message.clone(), severity: "error" };
         if !out.contains(&problem) {
             out.push(problem);
@@ -63,4 +64,23 @@ fn trimmed(a: &Analysis, start: usize, end: usize) -> (usize, usize) {
     let s = (start..end).find(|&i| !c[i].is_whitespace()).unwrap_or(start);
     let e = (s..end).rev().find(|&i| !c[i].is_whitespace()).map_or(s, |i| i + 1);
     (s, e)
+}
+
+// Match validation errors to their name while preserving escaped source offsets.
+fn invalid_name(a: &Analysis, start: usize, end: usize, message: &str) -> Option<(usize, usize)> {
+    let transported = a.calls.iter().flat_map(|c| &c.texts).any(|t| t.start <= start && end <= t.end);
+    let source = &a.doc.c[start..end];
+    let (text, offsets) = if transported { crate::text::unescape(source) }
+        else { (source.to_vec(), (0..=source.len()).collect()) };
+    let mut i = 0;
+    while i < text.len() {
+        if text[i] == '"' || solveng_names::is_start(text[i]) || solveng_names::numeric_start(&text, i) {
+            let end = crate::tokens::name_end(&text, i);
+            if solveng_names::scan(&text, i).is_err_and(|error| error == message) {
+                return Some((start + offsets[i], start + offsets[end]));
+            }
+            i = end;
+        } else { i += 1; }
+    }
+    None
 }

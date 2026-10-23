@@ -257,7 +257,7 @@ fn events(file: &File) -> Vec<(usize, u8, Event)> {
 }
 
 /// A path as written in `#include`, from the file at `from`, normalized; `/` starts at the root.
-fn resolve(reference: &str, from: &str) -> String {
+pub(crate) fn resolve(reference: &str, from: &str) -> String {
     let joined = match reference.strip_prefix('/') {
         Some(rest) => rest.to_string(),
         None => match from.rfind('/') {
@@ -369,7 +369,7 @@ impl Run<'_, '_> {
 
 /// Every name of the flattened document with the definition it means: from `main` (an index into `files`) when
 /// it reaches `document`, else the document alone.
-/// `implicit`: what `worksheet-config(implicit-parameters: …)` says, `"empty"` makes `f()` take what `f(..)` does,
+/// `implicit`: what `implicit-parameters: …` says, `"empty"` makes `f()` take what `f(..)` does,
 /// `"allow"` every function.
 pub(crate) fn occurrences(files: &[File], document: usize, main: Option<usize>, implicit: String) -> (Vec<Occurrence>, Params) {
     let run = |start: usize| {
@@ -463,6 +463,8 @@ fn parameters(files: &[File], out: &mut [Occurrence], implicit: &str, locals: &[
             for i in 0..out.len() {
                 let o = &out[i];
                 if o.file == index && o.start > open && o.end <= close {
+                    let before = file.doc.sub(open + 1, o.start);
+                    if before.rsplit(',').next().is_some_and(|p| p.contains(':')) { continue; }
                     declared.push((o.key.clone(), i));
                     out[i].definition = Some(i);
                     params.uses.push(i);
