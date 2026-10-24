@@ -23,17 +23,20 @@ const SOLVENG: &str = "#import \"@preview/solveng:1.0.0\": *\n";
 
 #[test]
 fn imported_names_are_coloured_and_renamed_module_names_are_not() {
-    let doc = format!("{SOLVENG}#import units: km, s as test\n#import constants: pi\n#import functions: tri\n#show: worksheet\n$x := 2 km = #test$ $y := pi tri(x)$");
+    let doc = format!("{SOLVENG}#import units: km, s as test\n#import constants: pi\n#import functions: tri\n#import modifiers: solve as löse\n#show: worksheet\n$x := 2 km = #test$ $y := pi tri(x)$ $x^2 = 4 -> löse(x)$");
     let tokens = document_tokens(&doc, &Context::default());
     let kind = |offset: u32| tokens.iter().find(|t| t.start == offset).map(|t| t.kind);
     assert_eq!(kind(at(&doc, "km,")), Some(TokenKind::UNIT));
     assert_eq!(kind(at(&doc, "test\n")), Some(TokenKind::UNIT));
     assert_eq!(kind(at(&doc, "s as")), Some(TokenKind::FUNCTION_CALL));
-    assert_eq!(kind(at(&doc, "pi\n")), Some(TokenKind::KEYWORD));
+    assert_eq!(kind(at(&doc, "pi\n")), Some(TokenKind::CONSTANT));
+    assert_eq!(kind(at(&doc, "löse\n")), Some(TokenKind::KEYWORD));
+    assert_eq!(kind(at(&doc, "solve as")), Some(TokenKind::FUNCTION_CALL));
+    assert_eq!(kind(at(&doc, "löse(x)")), Some(TokenKind::KEYWORD));
     assert_eq!(kind(at(&doc, "tri\n")), Some(TokenKind::BUILTIN_FUNCTION));
     assert_eq!(kind(at(&doc, "km =")), Some(TokenKind::UNIT));
     assert_eq!(kind(at(&doc, "test$")), Some(TokenKind::UNIT));
-    assert_eq!(kind(at(&doc, "pi tri")), Some(TokenKind::KEYWORD));
+    assert_eq!(kind(at(&doc, "pi tri")), Some(TokenKind::CONSTANT));
     assert_eq!(kind(at(&doc, "tri(x)")), Some(TokenKind::BUILTIN_FUNCTION));
 }
 

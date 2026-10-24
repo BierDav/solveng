@@ -4,6 +4,7 @@
 #import "/lib.typ": *
 #import "/tests/util.typ": expect, passes
 #import functions: *
+#import modifiers: simplify
 #set page(width: 18cm, height: auto)
 #show: worksheet.with(errors: "panic")
 $

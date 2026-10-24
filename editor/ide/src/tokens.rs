@@ -1,5 +1,6 @@
 //! Highlighting of the math solveng reads.
 
+use crate::clause::Modifiers;
 use crate::TokenKind as K;
 use crate::text::{is_digit, is_letter, is_letter_or_digit, starts_with, sub};
 
@@ -54,9 +55,9 @@ fn called_subscripted(math: &[char], start: usize) -> Option<usize> {
     (subscripted && math.get(j) == Some(&'(')).then_some(j)
 }
 
-/// The tokens of a clause, `start..end` after its marker: keywords, the names `solve` and `substitute` take, units.
-/// `unit` says which words are units there; quoted text is a name.
-fn clause_tokens(text: &[char], start: usize, end: usize, unit: &dyn Fn(&str) -> bool) -> Vec<Tok> {
+/// The tokens of a clause, `start..end` after its marker: modifiers, the names `solve` and `substitute` take, units.
+/// `unit` says which words are units there, `modifier` which are modifiers; quoted text is a name.
+fn clause_tokens(text: &[char], start: usize, end: usize, unit: &dyn Fn(&str) -> bool, modifier: Modifiers) -> Vec<Tok> {
     let mut out = Vec::new();
     let (mut i, mut solve, mut in_solve) = (start, false, false);
     while i < end {
@@ -68,9 +69,10 @@ fn clause_tokens(text: &[char], start: usize, end: usize, unit: &dyn Fn(&str) ->
         } else if solveng_names::is_start(c) || solveng_names::numeric_start(text, i) {
             let j = name_end(text, i).min(end);
             let word = sub(text, i, j);
-            let kind = if crate::clause::is_keyword(&word) {
-                solve = crate::clause::NAMES.contains(&word.as_str());
-                K::KEYWORD
+            let kind = if let Some(m) = modifier(&word) {
+                solve = crate::clause::NAMES.contains(&m.name.as_str());
+                // spelled as one but not imported: Typst doesn't know it
+                if m.bound { K::KEYWORD } else { K::VARIABLE }
             } else if in_solve {
                 K::VARIABLE
             } else if word == "dot" {
@@ -146,11 +148,12 @@ const MATH_OPERATORS: &[&str] = &["dot", "times", "div", "approx", "plus", "minu
 
 /// Tokens of one equation's body: numbers, variables (quoted text too), functions, operators, the clause after the
 /// `=` or `->` showing a result. `unit` says which words are units: Typst bindings of units (see `bindings`), which
-/// also colour them where they're used; a bare single letter is a math symbol, a variable.
-pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok> {
+/// also colour them where they're used; a bare single letter is a math symbol, a variable. `modifier` says which words
+/// of a clause are modifiers.
+pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool, modifier: Modifiers) -> Vec<Tok> {
     let spans = crate::text::equation_ranges(math);
     if spans.len() > 1 {
-        return spans.into_iter().flat_map(|(s, e)| math_tokens(&math[s..e], unit).into_iter().map(move |(a, l, k)| (s + a, l, k))).collect();
+        return spans.into_iter().flat_map(|(s, e)| math_tokens(&math[s..e], unit, modifier).into_iter().map(move |(a, l, k)| (s + a, l, k))).collect();
     }
     let mut out = Vec::new();
     let mut emit = |start: usize, end: usize, kind: u8| {
@@ -162,7 +165,7 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok
     let mut i = 0;
     let (mut unit_mode, mut subscript) = (false, false);
     let mut named = Vec::new();
-    let marker = crate::clause::marker(math, unit);
+    let marker = crate::clause::marker(math, unit, modifier);
     while i < n {
         let c = math[i];
         let sub_ = subscript;
@@ -170,7 +173,7 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok
         if let Some((s, e, _)) = marker.filter(|m| m.0 == i) {
             // the = or -> showing a result, then its clause
             emit(s, e, K::EVALUATE);
-            for (ts, tl, k) in clause_tokens(math, e, n, unit) {
+            for (ts, tl, k) in clause_tokens(math, e, n, unit, modifier) {
                 emit(ts, ts + tl, k);
             }
             i = n;
@@ -226,7 +229,7 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok
                     if depth == 0 { break; }
                     end += 1;
                 }
-                for (s, l, k) in math_tokens(&math[i + 2..end], unit) { emit(i + 2 + s, i + 2 + s + l, k); }
+                for (s, l, k) in math_tokens(&math[i + 2..end], unit, modifier) { emit(i + 2 + s, i + 2 + s + l, k); }
                 i = (end + 1).min(n);
                 continue;
             }
@@ -287,7 +290,7 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<Tok
             } else if MATH_OPERATORS.contains(&base) {
                 K::OPERATOR
             } else if CONSTANTS.iter().any(|(name, _)| crate::resolved_name(name) == word) {
-                K::KEYWORD
+                K::CONSTANT
             } else {
                 K::VARIABLE
             };

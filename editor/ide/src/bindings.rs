@@ -1,6 +1,6 @@
-//! The Typst bindings solveng reads in math: units, constants and operations. They come from solveng's modules
-//! (`#import units: km`, `#import constants: pi`, `#import functions: tri`) or are made with `base-unit`, `unit`,
-//! `constant`, `operation` and `math.op`. Typst resolves them lexically, so a binding means the same in every
+//! The Typst bindings solveng reads in math: units, constants, operations and modifiers. They come from solveng's
+//! modules (`#import units: km`, `#import constants: pi`, `#import functions: tri`, `#import modifiers: solve`) or are
+//! made with `base-unit`, `unit`, `constant`, `operation` and `math.op`. Typst resolves them lexically, so a binding means the same in every
 //! worksheet; solveng sees their values. Quoted text in math is a worksheet variable and never one of them.
 //!
 //! Limits: bindings are read from the document itself; names imported from other local files (`#import
@@ -18,6 +18,7 @@ pub(crate) enum Module {
     Units,
     Functions,
     Constants,
+    Modifiers,
 }
 
 impl Module {
@@ -26,11 +27,12 @@ impl Module {
             Module::Units => "units",
             Module::Functions => "functions",
             Module::Constants => "constants",
+            Module::Modifiers => "modifiers",
         }
     }
 
     fn of(name: &str) -> Option<Module> {
-        [Module::Units, Module::Functions, Module::Constants].into_iter().find(|m| m.name() == name)
+        [Module::Units, Module::Functions, Module::Constants, Module::Modifiers].into_iter().find(|m| m.name() == name)
     }
 
     /// Every name the module exports, read from the package.
@@ -39,6 +41,7 @@ impl Module {
             Module::Units => crate::units::shorthands(),
             Module::Functions => crate::params::automatic_names(),
             Module::Constants => MODULE_CONSTANTS.iter().map(|(name, _)| name.clone()).collect(),
+            Module::Modifiers => crate::clause::KEYWORDS.iter().map(|(name, _)| name.to_string()).collect(),
         }
     }
 
@@ -48,6 +51,7 @@ impl Module {
             Module::Units => crate::units::shorthand(name).then(|| Meaning::ModuleUnit(name.into())),
             Module::Functions => crate::params::automatic_math(name).then(|| Meaning::Operation(name.into())),
             Module::Constants => MODULE_CONSTANTS.iter().find(|(n, _)| n == name).map(|(_, m)| m.clone()),
+            Module::Modifiers => crate::clause::KEYWORDS.iter().any(|(k, _)| *k == name).then(|| Meaning::Modifier(name.into())),
         }
     }
 
@@ -57,6 +61,7 @@ impl Module {
             Module::Units => include_str!("../../../src/unit-words.typ"),
             Module::Functions => include_str!("../../../src/builtins.typ"),
             Module::Constants => include_str!("../../../src/constants.typ"),
+            Module::Modifiers => include_str!("../../../src/modifiers.typ"),
         }
     }
 }
@@ -80,6 +85,8 @@ pub(crate) enum Meaning {
     Constant { identity: Option<String>, expression: String },
     /// An operation: `math.op("tri")`, `operation("convolve")` or one of the `functions` module.
     Operation(String),
+    /// A modifier of the clause after a result, by its name in the `modifiers` module: `solve`.
+    Modifier(String),
     /// Anything else Typst binds, which solveng reads as a plain value.
     Other,
 }
@@ -98,6 +105,7 @@ impl Meaning {
             Meaning::Constant { identity: Some(identity), expression } => format!("constant {identity} = {expression}"),
             Meaning::Constant { identity: None, expression } => format!("constant = {expression}"),
             Meaning::Operation(name) => format!("operation {name}"),
+            Meaning::Modifier(name) => crate::clause::KEYWORDS.iter().find(|(k, _)| k == name).map_or_else(|| "modifier".into(), |(_, d)| format!("modifier · {d}")),
             Meaning::Other => String::new(),
         }
     }
@@ -113,6 +121,7 @@ impl Meaning {
                 format!("constant: `{expression}`{identity}")
             }
             Meaning::Operation(name) => crate::params::builtin(name).map(crate::highlight::function_docs).unwrap_or_else(|| format!("`{name}()` operation")),
+            Meaning::Modifier(name) => crate::highlight::modifier_docs(name),
             Meaning::Other => String::new(),
         }
     }
@@ -122,6 +131,7 @@ impl Meaning {
         match self {
             Meaning::Constant { .. } => "constant",
             Meaning::Operation(_) => "operation",
+            Meaning::Modifier(_) => "modifier",
             Meaning::Other => "",
             _ => "unit",
         }
@@ -478,6 +488,15 @@ impl Bindings {
         self.binding(at, name).map(|id| &self.definitions[id].meaning)
     }
 
+    /// The modifier `word` is at `at`: by the binding in scope, else by its spelling (see [`crate::clause::Modifier`]).
+    pub(crate) fn modifier(&self, at: usize, word: &str) -> Option<crate::clause::Modifier> {
+        match self.bound(at, word) {
+            Some(Meaning::Modifier(name)) => Some(crate::clause::Modifier { name: name.clone(), bound: true }),
+            Some(_) => None,
+            None => crate::clause::spelled(word),
+        }
+    }
+
     /// The unit binding `name` visible at `at`.
     pub(crate) fn unit_at(&self, at: usize, name: &str) -> Option<&Meaning> {
         self.bound(at, name).filter(|m| m.is_unit())
@@ -577,7 +596,7 @@ fn nudges(a: &crate::Analysis) -> Vec<Nudge> {
 /// Names in calculated math no binding resolves that one of solveng's modules exports: `km` without
 /// `#import units: km`, which Typst can't find.
 fn importable(a: &crate::Analysis) -> Vec<(usize, usize, String, Module)> {
-    let modules = [Module::Units, Module::Constants, Module::Functions];
+    let modules = [Module::Units, Module::Constants, Module::Functions, Module::Modifiers];
     a.bindings.unbound.iter().filter(|(start, end, _)| a.calculated_at(*start, *end).is_some())
         .filter_map(|(start, end, name)| modules.into_iter().find(|m| m.meaning(name).is_some()).map(|m| (*start, *end, name.clone(), m)))
         .collect()

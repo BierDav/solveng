@@ -52,22 +52,24 @@ pub fn math_tokens_of(math: &str) -> Vec<Token> {
     let context = Context::default();
     let a = Analysis::new(math, &context);
     let element = crate::elements::Element { start: 0, end: a.doc.c.len(), body_start: 0, body_end: a.doc.c.len() };
-    let defs = definitions(&a.doc, &[element], &|_| true);
-    let mut tokens: Vec<Token> = utf16(&a.doc, 0, math_toks(&a.doc.c, &crate::is_unit)).collect();
+    let defs = definitions(&a.doc, &[element], &a.bindings, &|_| true);
+    // On its own, no import says what's bound: the modules' names are their units and modifiers.
+    let modifier = |w: &str| crate::clause::spelled(w).map(|m| crate::clause::Modifier { bound: true, ..m });
+    let mut tokens: Vec<Token> = utf16(&a.doc, 0, math_toks(&a.doc.c, &crate::is_unit, &modifier)).collect();
     function_styles(&a, &mut tokens, &defs);
     tokens
 }
 
 /// Tokens of an equation's body, its unit bindings read where it is.
 fn equation_tokens(a: &Analysis, e: &crate::elements::Element) -> Vec<Tok> {
-    math_toks(&a.doc.c[e.body_start..e.body_end], &|w| a.is_unit_at(e.body_start, w))
+    math_toks(&a.doc.c[e.body_start..e.body_end], &|w| a.is_unit_at(e.body_start, w), &|w| a.bindings.modifier(e.body_start, w))
 }
 
 /// Tokens of the equations solveng reads (in a `worksheet` that evaluates them, or passed to one), over the whole
 /// document: numbers, variables, functions, operators, results and their clauses.
 pub fn math_tokens(document: &str, context: &Context) -> Vec<Token> {
     let a = Analysis::new(document, context);
-    let defs = definitions(&a.doc, &a.elements, &|e| a.active(e));
+    let defs = definitions(&a.doc, &a.elements, &a.bindings, &|e| a.active(e));
     let mut out = Vec::new();
     for e in a.elements.iter().filter(|e| a.active(e)) {
         out.extend(utf16(&a.doc, e.body_start, equation_tokens(&a, e)));
@@ -126,7 +128,7 @@ fn call_tokens(a: &Analysis) -> Vec<Token> {
 /// calls.
 pub fn document_tokens(document: &str, context: &Context) -> Vec<Token> {
     let a = Analysis::new(document, context);
-    let defs = definitions(&a.doc, &a.elements, &|e| a.active(e));
+    let defs = definitions(&a.doc, &a.elements, &a.bindings, &|e| a.active(e));
     let mut out = Vec::new();
     for e in a.elements.iter().filter(|e| a.active(e)) {
         out.extend(utf16(&a.doc, e.body_start, equation_tokens(&a, e)));
@@ -143,13 +145,15 @@ pub fn document_tokens(document: &str, context: &Context) -> Vec<Token> {
         if a.bindings.contains(a.doc.from16(token.start as usize)) { token.kind = K::VARIABLE; }
     }
     function_styles(&a, &mut out, &defs);
-    // Units, constants and operations where calculated math uses their bindings, with the `#` before them gray.
+    // Units, constants, operations and modifiers where calculated math uses their bindings, with the `#` before
+    // them gray.
     for (start, end, meaning) in a.bindings.solveng_uses() {
         if a.calculated_at(start, end).is_none() { continue; }
         let kind = match meaning {
             Meaning::Operation(op) if FUNCTIONS.contains(&op.as_str()) => K::BUILTIN_FUNCTION,
             Meaning::Operation(_) => continue,
-            Meaning::Constant { .. } => K::KEYWORD,
+            Meaning::Constant { .. } => K::CONSTANT,
+            Meaning::Modifier(_) => K::KEYWORD,
             _ => K::UNIT,
         };
         let from = a.doc.to16(start);
@@ -159,10 +163,15 @@ pub fn document_tokens(document: &str, context: &Context) -> Vec<Token> {
             out.push(Token { start: a.doc.to16(start - 1), length: 1, kind: K::UNIT_REFERENCE });
         }
     }
-    // Names imported from solveng's modules are units, constants or operations where they're imported too; a
+    // Names imported from solveng's modules are units, constants, operations or modifiers where they're imported too; a
     // renamed one's module name isn't a name in the document, so it's plain text.
     for ((start, end), meaning, original) in a.bindings.shorthand_imports() {
-        let kind = match meaning { Meaning::Operation(_) => K::BUILTIN_FUNCTION, Meaning::Constant { .. } => K::KEYWORD, _ => K::UNIT };
+        let kind = match meaning {
+            Meaning::Operation(_) => K::BUILTIN_FUNCTION,
+            Meaning::Constant { .. } => K::CONSTANT,
+            Meaning::Modifier(_) => K::KEYWORD,
+            _ => K::UNIT,
+        };
         let spans = std::iter::once((start, end, kind))
             .chain(original.map(|(s, e)| (s, e, K::FUNCTION_CALL)));
         for (s, e, kind) in spans {
@@ -199,7 +208,7 @@ pub fn diagnostics(document: &str, context: &Context) -> Vec<Problem> {
     let a = Analysis::new(document, context);
     let mut out = Vec::new();
     // A name assigned again in its scope: the last assignment wins, so the earlier one counts only until there.
-    let defs = crate::complete::definitions(&a.doc, &a.elements, &|e| a.active(e));
+    let defs = crate::complete::definitions(&a.doc, &a.elements, &a.bindings, &|e| a.active(e));
     for (earlier, later) in crate::navigate::replaced(&a) {
         let Some(d) = defs.iter().find(|d| d.start == earlier) else { continue };
         let line = a.doc.c[..later].iter().filter(|&&ch| ch == '\n').count() + 1;
@@ -219,6 +228,17 @@ pub fn diagnostics(document: &str, context: &Context) -> Vec<Problem> {
 }
 
 /// A function's docs as its hover: the summary and every parameter, with its types, default and description.
+/// A modifier's docs, by its name in the `modifiers` module.
+pub(crate) fn modifier_docs(name: &str) -> String {
+    match crate::params::function(name) {
+        Some(f) => format!("{}\n\nA modifier after `=` or `->`, from `#import modifiers: {name}`.", function_docs(f)),
+        None => {
+            let what = crate::clause::KEYWORDS.iter().find(|(k, _)| *k == name).map_or("", |(_, d)| d);
+            format!("`{name}` (solveng)\n\nA modifier after `=` or `->`, from `#import modifiers: {name}`: {what}.")
+        }
+    }
+}
+
 pub(crate) fn function_docs(f: &crate::params::Function) -> String {
     let mut out = format!("`{}` (solveng)\n\n{}", f.name, f.doc);
     let params: Vec<String> = f.positional.iter().chain(&f.named).map(|p| {
@@ -235,7 +255,7 @@ pub(crate) fn function_docs(f: &crate::params::Function) -> String {
 }
 
 /// What the word at `offset` is: a defined name with its value (or formula) and what it depends on, a unit,
-/// constant or operation binding, solveng's keywords and functions, or a parameter of solveng's functions with its
+/// constant or operation binding, solveng's modifiers and functions, or a parameter of solveng's functions with its
 /// docs.
 pub fn hover(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     let found = hover_at(document, context, offset);
@@ -337,12 +357,12 @@ fn hover_at(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     if !inside {
         return None;
     }
-    // solveng's words: the keywords of a clause, any as a type
+    // solveng's words: the modifiers of a clause (their bindings' hovers), any as a type
     let (start, end) = (a.doc.to16(s), a.doc.to16(e));
     let kind = tokens.iter().find(|t| t.start <= start && end <= t.start + t.length).map(|t| t.kind);
     if kind == Some(K::KEYWORD)
-        && let Some((k, d)) = crate::clause::KEYWORDS.iter().find(|(k, _)| *k == word) {
-            return hover(format!("`{k}` keyword after `=` or `->`: {d}"));
+        && let Some(m) = a.bindings.modifier(s, &word).filter(|m| m.bound) {
+            return hover(modifier_docs(&m.name));
         }
     if kind == Some(K::EVALUATE) || word.is_empty() {
         return None;

@@ -44,7 +44,7 @@ const SOLVENG: &str = "#import \"@preview/solveng:1.0.0\": *\n";
 
 #[test]
 fn highlights_values_units_and_variables() {
-    let ws = "#import units: h, mA, m, s, kΩ\n#show: worksheet\n";
+    let ws = "#import units: h, mA, m, s, kΩ\n#import modifiers: solve, digits, sci\n#show: worksheet\n";
     let found = tokens_of(&format!("{ws}$t := Q0 / (2 I) = #h$"));
     assert_eq!(
         found,
@@ -53,7 +53,7 @@ fn highlights_values_units_and_variables() {
             t("I", TokenKind::VARIABLE), t("=", TokenKind::EVALUATE), t("#", TokenKind::UNIT_REFERENCE), t("h", TokenKind::UNIT),
         ]
     );
-    // the clause: keywords, the names solve takes
+    // the clause: modifiers, the names solve takes
     assert_eq!(
         tokens_of(&format!("{ws}$x^2 = 4 -> solve(x), digits(3)$")),
         vec![
@@ -83,7 +83,7 @@ fn highlights_bindings_and_functions() {
         vec![
             t("P", TokenKind::VARIABLE), t("=", TokenKind::OPERATOR), t("5", TokenKind::NUMBER), t("#", TokenKind::UNIT_REFERENCE),
             t("V", TokenKind::UNIT), t("I", TokenKind::VARIABLE), t("sqrt", TokenKind::BUILTIN_FUNCTION), t("R", TokenKind::VARIABLE),
-            t("2", TokenKind::NUMBER), t("pi", TokenKind::KEYWORD), t("f", TokenKind::VARIABLE),
+            t("2", TokenKind::NUMBER), t("pi", TokenKind::CONSTANT), t("f", TokenKind::VARIABLE),
         ]
     );
     // A letter after a number is a variable: units are bindings.
@@ -216,9 +216,9 @@ fn completes_units_where_a_value_is_written() {
     let ws = format!("{SOLVENG}#import units: mA\n#let bar = unit($100 kPa$)\n#show: worksheet\n");
     let units = labels(&format!("{ws}$I := 30 m|$"));
     assert!(units.contains(&"mA".into()) && units.contains(&"kΩ".into()) && units.contains(&"h".into()) && units.contains(&"bar".into()));
-    // after a # only units, the # kept
+    // after a # only units and constants, the # kept
     let c = complete_at(&format!("{ws}$I := 30 #|$")).unwrap();
-    assert!(c.exclusive && c.items.iter().all(|i| i.kind == ItemKind::UNIT));
+    assert!(c.exclusive && c.items.iter().all(|i| i.kind == ItemKind::UNIT || i.kind == ItemKind::CONSTANT));
     assert_eq!(c.items.iter().find(|i| i.label == "s").unwrap().insert, "s");
     // a variable after a term isn't a value
     assert!(!labels(&format!("{ws}$U := 2 I |$")).contains(&"mA".into()));

@@ -15,6 +15,7 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 - [`digits`](#digits)
 - [`sci`](#sci)
 - [`eng`](#eng)
+- [`fraction`](#fraction)
 - [`defined`](#defined)
 - [`graph`](#graph)
 - [`lambdify`](#lambdify)
@@ -44,6 +45,7 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 - [`acos`](#acos)
 - [`atan`](#atan)
 - [Options](#options)
+- [Modifiers](#modifiers)
 - [Calculating like Mathcad](#calculating-like-mathcad)
 - [Writing values](#writing-values)
 - [Complex numbers](#complex-numbers)
@@ -69,6 +71,7 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 | [`digits`](#digits) | Decimals with n significant digits: `$t = #h, digits(2)$`. |
 | [`sci`](#sci) | Scientific notation: `$C = sci$` → 2.2 · 10⁻⁶ F. |
 | [`eng`](#eng) | Engineering notation, exponents in steps of 3: `$f = eng$`. |
+| [`fraction`](#fraction) | Exact fractions: `$I / 3 = fraction$` → ⅙ A. |
 | [`defined`](#defined) | Lists the definitions made so far, in order. |
 | [`graph`](#graph) | Plots an equation with `simple-plot`: ranges, nice ticks, axis labels and units are picked automatically. |
 | [`lambdify`](#lambdify) | Turns an expression into a plain Typst function of numbers, for value tables, other plotting packages (lilaq, cetz-plot, simple-plot) or your own calculations. |
@@ -115,12 +118,12 @@ so it lasts $t := Q_0 / I = #h$.
 
 - `:=` defines (shown as ≔), symbolically: `$I := 30 mA$`, `$P := U I$`, `$f(x) := x^2 + 1$`. Names not defined yet stay names until they are, see *Calculating like Mathcad*.
 - `=` inside an expression compares, 1 or 0: `$M := 1 = 2 =$` is 0.
-- `=` at the end shows the value, with a bold =: `$t =$` → t **=** 115 h, `$t := Q_0/I =$` defines and shows it. What follows it is the unit and keywords: `$t = #h$`, `$t = min, digits(2)$`.
+- `=` at the end shows the value, with a bold =: `$t =$` → t **=** 115 h, `$t := Q_0/I =$` defines and shows it. What follows it is the unit and modifiers: `$t = #h$`, `$t = min, digits(2)$`.
 - `->` at the end shows the symbolic result, the known values put in, exactly: `$f := (x^2 - 1)/(x - 1) -> simplify$`. With `solve(x)` it solves an equation for x (and defines it when the solution is a value): `$Q_0/2 = I t -> solve(t)$`, `$x^2 - 4 = 0 -> solve(x)$`, `$x + y = 3, x - y = 1 -> solve(x, y)$`, `$R <= U/I -> solve(R)$`.
 
-Keywords: `solve(x, …)`, `substitute(x, …)` (these variables' formulas put in, other names kept), `simplify`, `fraction` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
+Modifiers, imported from `modifiers` where you use them (`#import modifiers: solve, digits`): `solve(x, …)`, `substitute(x, …)` (these variables' formulas put in, other names kept), `simplify`, `fraction` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
 
-**Units, constants and operations** are Typst bindings, imported where you use them: `#import units: mA, s`, `#import constants: pi, i`, `#import functions: tri`, then `$30 mA$`, `$2 #s$`, `$2 pi$`. A binding of a single letter needs a `#` in math. Quoted text names worksheet variables; it never means a unit or operation. Raw blocks, also ```` ```solveng ```` ones, are ordinary text.
+**Units, constants, operations and modifiers** are Typst bindings, imported where you use them: `#import units: mA, s`, `#import constants: pi, i`, `#import functions: tri`, `#import modifiers: solve`, then `$30 mA$`, `$2 #s$`, `$2 pi$`. A binding of a single letter needs a `#` in math. Quoted text names worksheet variables; it never means a unit or operation. Raw blocks, also ```` ```solveng ```` ones, are ordinary text.
 
 **Calls.** `#worksheet($U := 5 #V$, $I := U/R =$)` calculates its equations where it stands, with the definitions made before. Its options are for these only; with content, for the content.
 
@@ -367,6 +370,10 @@ Scientific notation: `$C = sci$` → 2.2 · 10⁻⁶ F.
 ## `eng`
 
 Engineering notation, exponents in steps of 3: `$f = eng$`.
+
+## `fraction`
+
+Exact fractions: `$I / 3 = fraction$` → ⅙ A.
 
 ## `defined`
 
@@ -960,13 +967,33 @@ Options of `worksheet`, and of `defined` and `graph`. Each one defaults to `auto
 |---|---|---|---|
 | `constants` | auto, dictionary | `(:)` | How constants are shown, by identity: `(imaginary: $j$, "standard-gravity": $g_0$)`, over the built-in displays of `pi` (π), `euler` (e), `imaginary` (i) and `speed-of-light` (c) and the ones of the worksheets around. Results show them the same way. See `constant`. |
 
+## Modifiers
+
+The clause after a trailing `=` or `->` takes a unit and modifiers, separated by commas: `$t = #h, digits(2)$`,
+`$x^2 = 4 -> solve(x)$`. Modifiers are Typst bindings of solveng's `modifiers` module, and importing them is the
+only way to use them: `#import modifiers: solve, simplify` (or `#import modifiers: *`). Like any import, it holds
+only where it's written; `#import "@preview/solveng:1.0.0": *` brings none. Renamed imports
+(`#import modifiers: solve as löse`) work as the original. `solve`, `substitute` and `digits` are functions,
+called with what they take; `simplify`, `sci`, `eng` and `fraction` are written on their own.
+
+```typ
+#import "@preview/solveng:1.0.0": *
+#import modifiers: solve, digits, sci
+#import units: h, mA, mAh
+#show: worksheet
+$I := 30 mA$, $Q := 3450 mAh$
+$Q/2 = I t -> solve(t)$
+$t = #h, digits(3)$
+$I = sci$
+```
+
 ## Calculating like Mathcad
 
 Three operators, and `=` keeps its meaning from maths:
 
 - **`:=` defines**, symbolically. Names defined by then are put in right away, names that aren't stay names until they are: `$h := 5 z$` works before `z` is defined, and after `$z := 20 cm$`, `$h =$` shows 1 m. What's put in is the value at that point – defining a name again later changes what comes after, not what came before.
 - **`=` inside an expression compares**, as Mathcad's bold =: `$M := 1 = 2 =$` gives 0, `$M := 2 #A = 2000 mA$` gives 1. Values of different units are never equal (`1 A = 2 V` is 0, `1 A != 2 V` is 1); `<`, `<=`, `>`, `>=` and `!=` compare too, chains like `$0 < x <= 1$` hold when every step does.
-- **A trailing `=` shows the value**, numerically, with a bold =. After it come a unit and keywords: `$t = #h, digits(3)$`. Every name in it must have a value by then.
+- **A trailing `=` shows the value**, numerically, with a bold =. After it come a unit and modifiers (from `modifiers`): `$t = #h, digits(3)$`. Every name in it must have a value by then.
 - **A trailing `->` shows the symbolic result**: defined values put in, exactly (fractions, roots and π stay), undefined names kept: `$x + 3/3 y -> simplify$` is x + y. With `solve(x)` it solves – symbolically when it can (`$0 = 1 + 3/x + y^2 -> solve(x)$` is x = −3/(y² + 1)), numerically when every other name has a value – and defines x when the solution is a value. `substitute(U, …)` shows the result with these variables' formulas put in and every other name kept: after `$U := R I$`, `$P := U^2/R -> substitute(U)$` is I² R.
 - **Any other `=`** states something: it's checked when everything in it has a value (`$U = R I$`), and left alone as prose when not (`$E = m c^2$`).
 
@@ -986,6 +1013,7 @@ $k := 2 #m = 200 cm =$                     // k = 1: the comparison holds
 
 ```typ
 #import units: kΩ, A, V, m, mA, mAh, s
+#import modifiers: substitute
 #show: worksheet
 $R := 4.7 kΩ$                                 // a number and a unit
 $I := frac(2, 4) #A$, $Q_0 := 3450/2 mAh$     // arithmetic in the number
@@ -1022,6 +1050,7 @@ Values are complex numbers: `$sqrt(-4) =$` is 2i, `$ln(-1) ->$` is iπ, also wit
 #import units: Ω, Hz, mH
 #import constants: pi, e, i
 #import functions: conj
+#import modifiers: solve
 #show: worksheet.with(constants: (imaginary: $j$))
 $(1 + 2 #i)(3 - #i) ->$                       // 5 + 5j
 $#e^(#i pi) ->$, $sin(pi/4) ->$               // −1, √2/2
@@ -1032,7 +1061,7 @@ $x^2 - 2 #i x - 2 = 0 -> solve(x)$            // x₁ = −1 + j, x₂ = 1 + j
 
 ## Units
 
-Units, constants and operations are Typst bindings, so solveng never guesses what a name means: in math `A` is a variable and, after `#import units: A`, `#A` is the ampere; quoted text (`$"mA"$`) is always a variable. Imports are lexical: they hold in the file or block where they're written and the blocks nested in it, whatever worksheet is around, and nothing comes along with `#import "@preview/solveng:1.0.0": *`. A unit binding hides a Typst function of the same name in code: after `#import units: h`, spacing is `std.h(1em)`.
+Units, constants, operations and modifiers are Typst bindings, so solveng never guesses what a name means: in math `A` is a variable and, after `#import units: A`, `#A` is the ampere; quoted text (`$"mA"$`) is always a variable. Imports are lexical: they hold in the file or block where they're written and the blocks nested in it, whatever worksheet is around, and nothing comes along with `#import "@preview/solveng:1.0.0": *`. A unit binding hides a Typst function of the same name in code: after `#import units: h`, spacing is `std.h(1em)`.
 
 After a trailing `=` or `->`, the unit to show is an expression of unit values too: `$t = #h$`, `$v -> km/#h$`, `$P = mW, digits(2)$`. Without one, results are shown in the unit of the option `preferred-units` (`preferred-units: ($#m / #s$,)`), else in a unit of the inputs, else in SI units with a prefix.
 

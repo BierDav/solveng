@@ -176,9 +176,10 @@ fn hovers_names_units_and_options() {
     let unit = hover(doc, &Context::default(), at("kΩ$")).unwrap().markdown;
     assert!(unit.contains("`kΩ` kiloohm · built-in unit\n\n`kΩ = 10³ Ω` · `Ω = V/A = kg·m²·s⁻³·A⁻²`"), "{unit}");
     assert!(hover("text R here", &Context::default(), 6).is_none());
-    // the keywords of a clause
-    let doc = "#import units: h, min\n#show: worksheet\n$t := 3 #h$ $t = min, digits(2)$";
-    assert!(hover(doc, &Context::default(), u16len(&doc[..doc.find("digits").unwrap()]) + 1).unwrap().markdown.starts_with("`digits` keyword"));
+    // the modifiers of a clause
+    let doc = "#import units: h, min\n#import modifiers: digits\n#show: worksheet\n$t := 3 #h$ $t = min, digits(2)$";
+    let md = hover(doc, &Context::default(), u16len(&doc[..doc.rfind("digits").unwrap()]) + 1).unwrap().markdown;
+    assert!(md.contains("`digits` (solveng)") && md.contains("modifiers"), "{md}");
 }
 
 #[test]
@@ -229,7 +230,7 @@ fn value_reads_its_equation_as_a_calculation() {
 #[test]
 fn substitute_takes_names_of_the_worksheet() {
     // highlighted as names, also where a variable is spelled like a unit
-    let doc = "#import units: m\n#show: worksheet\n$V := 2 #m^3$\n$Q_0 := V a$\n$w := Q_0 + 1 -> substitute(Q_0, V)$";
+    let doc = "#import units: m\n#import modifiers: substitute\n#show: worksheet\n$V := 2 #m^3$\n$Q_0 := V a$\n$w := Q_0 + 1 -> substitute(Q_0, V)$";
     let tokens = found(doc);
     assert!(tokens.contains(&"substitute:0".to_string()), "{tokens:?}");
     assert_eq!(tokens.iter().filter(|t| *t == "V:6").count(), 3, "{tokens:?}");
@@ -243,8 +244,8 @@ fn substitute_takes_names_of_the_worksheet() {
     let at = u16len(&doc[..doc.rfind('k').unwrap()]);
     assert_eq!(usages(doc, &Context::default(), at).len(), 3);
     assert_eq!(rename(doc, &Context::default(), at, "q").len(), 3);
-    // it completes as a keyword, and the defined names inside its parentheses
-    let doc = "#show: worksheet\n$k := a b$\n$z := k c -> subst|$";
+    // it completes as a modifier where it's imported, and the defined names inside its parentheses
+    let doc = "#import modifiers: substitute\n#show: worksheet\n$k := a b$\n$z := k c -> subst|$";
     assert!(labels(doc).contains(&"substitute".to_string()), "{:?}", labels(doc));
     let doc = "#show: worksheet\n$k := a b$\n$z := k c -> substitute(|$";
     assert!(labels(doc).contains(&"k".to_string()), "{:?}", labels(doc));
@@ -317,9 +318,18 @@ fn completes_keywords() {
     // any and 1 where a type goes, quoted as math needs them
     assert_eq!(insert("#worksheet[$ f(x: |) := x $]", "any").as_deref(), Some("any"));
     assert_eq!(insert("#worksheet($f(x: |) := x$)", "1").as_deref(), Some("1"));
-    // the keywords of a clause
-    assert_eq!(insert("#worksheet[$ x^2 = 4 -> s| $]", "solve").as_deref(), Some("solve($0)"));
-    assert_eq!(insert("#import units: h, min\n#worksheet[$ t := 2 #h = min, | $]", "sci").as_deref(), Some("sci"));
+    // the modifiers of a clause: those in scope, the module's others imported along
+    assert_eq!(insert("#import modifiers: solve\n#worksheet[$ x^2 = 4 -> s| $]", "solve").as_deref(), Some("solve($0)"));
+    assert_eq!(insert("#import units: h, min\n#import modifiers: sci\n#worksheet[$ t := 2 #h = min, | $]", "sci").as_deref(), Some("sci"));
+    let doc = "#import \"@preview/solveng:1.0.0\": *\n#worksheet[$ x^2 = 4 -> s| $]";
+    let solve = complete_at(doc, &Context::default()).unwrap().items.into_iter().find(|i| i.label == "solve").unwrap();
+    assert_eq!((solve.kind, solve.insert.as_str()), (ItemKind::KEYWORD, "solve($0)"));
+    assert_eq!(solve.edits.iter().map(|e| e.text.as_str()).collect::<Vec<_>>(), ["\n#import modifiers: solve"]);
+    // renamed, under the name it's bound to
+    let insert_renamed = insert("#import modifiers: solve as löse\n#worksheet[$ x^2 = 4 -> l| $]", "löse");
+    assert_eq!(insert_renamed.as_deref(), Some("löse($0)"));
+    // without solveng's import there's nothing to import them along with
+    assert!(insert("#worksheet[$ x^2 = 4 -> s| $]", "solve").is_none());
 }
 
 #[test]
@@ -330,7 +340,8 @@ fn hovers_keywords() {
         hover(&doc, &Context::default(), at).map(|h| h.markdown).unwrap_or_default()
     };
     assert!(md("$f(x: any) := x$", "any").starts_with("`any` type"));
-    assert!(md("$ x^2 = 4 -> solve(x) $", "solve").starts_with("`solve` keyword"));
+    let doc = "#import modifiers: solve\n$ x^2 = 4 -> solve(x) $";
+    assert!(md(doc, "solve(x)").contains("`solve` (solveng)"), "{}", md(doc, "solve(x)"));
 }
 
 #[test]
@@ -421,7 +432,7 @@ fn completes_module_units_with_their_import() {
 
 #[test]
 fn assignments_statements_and_results() {
-    let doc = "#import units: mA, mW, kΩ, V\n#show: worksheet\n$I := 30 mA$\n$I = 0.03 mA$\n$R := 2 kΩ$\n$R := 3 kΩ$\n$U(x: #V) := 2 x$\n$y := I R = mW$\n$x^2 = 4 -> solve(x)$\n";
+    let doc = "#import units: mA, mW, kΩ, V\n#import modifiers: solve\n#show: worksheet\n$I := 30 mA$\n$I = 0.03 mA$\n$R := 2 kΩ$\n$R := 3 kΩ$\n$U(x: #V) := 2 x$\n$y := I R = mW$\n$x^2 = 4 -> solve(x)$\n";
     // := highlights as one operator; the = and -> showing a result bold
     let toks = found(doc);
     assert_eq!(toks.iter().filter(|t| t.starts_with(":=:")).count(), 5, "{toks:?}");
@@ -491,6 +502,31 @@ fn reads_no_exponent_notation() {
     // the constant e is a binding, with its documentation
     let doc = "#import constants: e\n#value($2.5 #e^(-10)$)";
     let at = u16len(&doc[..doc.rfind('e').unwrap()]);
-    assert!(found(doc).contains(&"e:0".to_string()), "{:?}", found(doc));
+    assert!(found(doc).contains(&format!("e:{}", TokenKind::CONSTANT)), "{:?}", found(doc));
     assert!(hover(doc, &Context::default(), at).unwrap().markdown.contains("euler"));
+}
+
+#[test]
+fn modifiers_are_bindings_of_their_module() {
+    // renamed, a modifier is still one: highlighted, solving defines, hover reaches its docs
+    let doc = format!("{SOLVENG}#import modifiers: solve as löse, digits\n#show: worksheet\n$2 w = 6 -> löse(w)$\n$v := w + 1$\n$w = digits(2)$");
+    let toks = found(&doc);
+    for want in ["löse:0", "digits:0", "->:11", "=:11"] { assert!(toks.contains(&want.to_string()), "{want}: {toks:?}"); }
+    let at = u16len(&doc[..doc.rfind("w + 1").unwrap()]);
+    assert_eq!(definition(&doc, &Context::default(), at).unwrap().start, u16len(&doc[..doc.rfind("(w)").unwrap()]) + 1);
+    let at = u16len(&doc[..doc.rfind("löse(").unwrap()]) + 1;
+    assert!(hover(&doc, &Context::default(), at).unwrap().markdown.contains("`solve` (solveng)"));
+    // a binding of another kind under a modifier's name isn't one
+    let doc = format!("{SOLVENG}#let solve = 3\n#show: worksheet\n$x^2 = 4 -> solve(x)$");
+    assert!(!found(&doc).contains(&"solve:0".to_string()), "{:?}", found(&doc));
+    // unimported, it's written as one but Typst can't read it: not highlighted, the import offered
+    let doc = format!("{SOLVENG}#show: worksheet\n$x^2 = 4 -> solve(x)$");
+    let toks = found(&doc);
+    assert!(toks.contains(&"->:11".to_string()) && !toks.contains(&"solve:0".to_string()), "{toks:?}");
+    let at = u16len(&doc[..doc.find("solve(").unwrap()]) + 1;
+    let fix = unit_fixes(&doc, &Context::default(), at).into_iter().find(|f| f.title == "Import solve from solveng's modifiers").unwrap();
+    assert_eq!(fix.edits.iter().map(|e| e.text.as_str()).collect::<Vec<_>>(), ["\n#import modifiers: solve"]);
+    // inside a renamed solve(…), the names of the worksheet complete
+    let doc = format!("{SOLVENG}#import modifiers: solve as löse\n#show: worksheet\n$k := a b$\n$k = 2 c -> löse(|$");
+    assert!(labels(&doc).contains(&"c".to_string()), "{:?}", labels(&doc));
 }

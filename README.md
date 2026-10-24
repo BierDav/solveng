@@ -5,6 +5,7 @@ Engineering calculations in Typst math. `:=` defines a worksheet variable or fun
 ```typ
 #import "@preview/solveng:1.0.0": *
 #import units: mA, mAh, h
+#import modifiers: solve
 #show: worksheet
 
 $Q_0 := 3450 mAh$, $I := 30 mA$
@@ -14,7 +15,7 @@ $Q_0/2 = I t -> solve(t)$
 
 ## Imported values
 
-Units, constants, and operations use Typst's lexical bindings. Import the ones you use from `units`, `constants`, or `functions`. Imports follow Typst's normal file and block scopes; worksheet scope does not change their meaning. Single-letter bindings need `#` in math, for example `$2 #s$` and `$#e^x$`.
+Units, constants, operations and modifiers use Typst's lexical bindings. Import the ones you use from `units`, `constants`, `functions`, or `modifiers`. Imports follow Typst's normal file and block scopes; worksheet scope does not change their meaning. Single-letter bindings need `#` in math, for example `$2 #s$` and `$#e^x$`.
 
 ```typ
 #import "@preview/solveng:1.0.0": *
@@ -74,6 +75,7 @@ Values are complex numbers: `$sqrt(-4) =$` and `$sqrt(-4) ->$` are 2i, also when
 #import units: Ω, Hz, mH
 #import constants: pi, i
 #import functions: Re, Im
+#import modifiers: substitute
 #show: worksheet.with(constants: (imaginary: $j$))
 
 $Z := 100 #Ω + #i 2 pi 50 Hz dot 300 mH =$
@@ -87,7 +89,7 @@ There is no worksheet unit table or automatic constant/function lookup. The form
 
 `#show: worksheet` calculates the remaining math. `#worksheet[…]` starts an isolated worksheet; `scope: "inherit"` reads outer definitions and `scope: "shared"` also keeps its changes. Equations passed directly to `worksheet` share definitions by default. `hidden: true` hides calculations, and `evaluate: false` leaves ordinary math alone.
 
-Use `#value($expression$)` for a result in text, `#defined()` to list definitions, and `#clear("x")` or `#clear(all: true)` to forget worksheet definitions. Keywords after a result marker are bindings too: `solve`, `substitute`, `simplify`, `digits`, `sci`, `eng` and `fraction`; `any` is the type of a parameter that takes every unit.
+Use `#value($expression$)` for a result in text, `#defined()` to list definitions, and `#clear("x")` or `#clear(all: true)` to forget worksheet definitions. The modifiers after a result marker – `solve`, `substitute`, `simplify`, `digits`, `sci`, `eng` and `fraction` – are bindings of the `modifiers` module and only come from it: `#import modifiers: solve, digits` (renamed imports such as `solve as löse` work too). `any`, the type of a parameter that takes every unit, comes with the package import.
 
 The engine supports symbolic algebra, complex numbers, real calculus, matrices, finite and convergent infinite sums, signal operations, Laplace transforms, and graphs. Unit targets are expressions too: `preferred-units: ($#m / #s$,)` or `lambdify($U^2/R$, "U", unit: $#W$, units: (U: $#V$))`.
 

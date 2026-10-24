@@ -3,6 +3,7 @@
 #import "/src/builtins.typ": *
 #import "/lib.typ": *
 #import "/tests/util.typ": expect, undefined, passes, fails, reported
+#import modifiers: solve
 #set page(width: 18cm, height: auto)
 #show: worksheet
 

@@ -1,9 +1,11 @@
 //! The clause after the `=` or `->` that shows a result, as in Mathcad: `t = h, digits(2)`, `x^2 = 4 -> solve(x)`.
-//! A trailing `=` is followed by nothing, a unit or keywords; `->` by keywords (or nothing).
+//! A trailing `=` is followed by nothing, a unit or modifiers; `->` by modifiers (or nothing). Modifiers are Typst
+//! bindings of solveng's `modifiers` module (`#import modifiers: solve`), so a word is one by the binding in scope:
+//! `#import modifiers: solve as löse` makes `löse` solve.
 
 use crate::text::{is_letter, sub};
 
-/// The keywords, with what they do.
+/// The modifiers, by their name in the `modifiers` module, with what they do.
 pub(crate) const KEYWORDS: &[(&str, &str)] = &[
     ("solve", "solve(x, …): solves the equation for these names and defines them"),
     ("substitute", "substitute(x, #c, …): the result with these variables' formulas and constants' expressions put in, other names kept"),
@@ -14,17 +16,63 @@ pub(crate) const KEYWORDS: &[(&str, &str)] = &[
     ("eng", "engineering notation, exponents in steps of 3"),
 ];
 
-/// The keywords whose arguments are names of the worksheet.
+/// The modifiers whose arguments are names of the worksheet.
 pub(crate) const NAMES: &[&str] = &["solve", "substitute"];
 
-pub(crate) fn is_keyword(word: &str) -> bool {
-    KEYWORDS.iter().any(|(k, _)| *k == word)
+/// Whether a modifier takes arguments.
+pub(crate) fn called(name: &str) -> bool {
+    NAMES.contains(&name) || name == "digits"
+}
+
+/// A word of a clause that is a modifier: its name in the `modifiers` module, and whether a binding in scope makes
+/// it one. An unbound word spelled as one of the module's names counts for the clause's shape (Typst can't read it
+/// unimported anyway, and editors offer the import), but isn't one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Modifier {
+    pub name: String,
+    pub bound: bool,
+}
+
+/// What clause words are modifiers, by a binding in scope or by spelling.
+pub(crate) type Modifiers<'a> = &'a dyn Fn(&str) -> Option<Modifier>;
+
+/// A word as one of the module's names, where no binding says otherwise.
+pub(crate) fn spelled(word: &str) -> Option<Modifier> {
+    KEYWORDS.iter().any(|(k, _)| *k == word).then(|| Modifier { name: word.to_string(), bound: false })
+}
+
+/// The modifiers called in a clause's text, in order: (byte offset of the word, byte offset after its `(`, the
+/// modifier).
+fn calls(tail: &str, modifier: Modifiers) -> Vec<(usize, usize, Modifier)> {
+    let mut out = Vec::new();
+    let mut chars = tail.char_indices().peekable();
+    let mut previous: Option<char> = None;
+    while let Some((i, c)) = chars.next() {
+        if is_letter(c) && !previous.is_some_and(|p| is_letter(p) || p.is_ascii_digit() || p == '_' || p == '"') {
+            let mut end = i + c.len_utf8();
+            while let Some(&(j, d)) = chars.peek() {
+                if !(is_letter(d) || d.is_ascii_digit()) { break; }
+                end = j + d.len_utf8();
+                chars.next();
+            }
+            let rest = &tail[end..];
+            let open = rest.len() - rest.trim_start().len();
+            if rest[open..].starts_with('(')
+                && let Some(m) = modifier(&tail[i..end]) {
+                    out.push((i, end + open + 1, m));
+                }
+            previous = tail[..end].chars().last();
+            continue;
+        }
+        previous = Some(c);
+    }
+    out
 }
 
 /// The marker of an equation's body: the last `->` (or `→`) at the top level, else the last `=` at the top level
-/// that only a unit and keywords follow. Its range in characters, and whether it's an arrow. `unit` says which words
-/// are units: the unit bindings in scope.
-pub(crate) fn marker(text: &[char], unit: &dyn Fn(&str) -> bool) -> Option<(usize, usize, bool)> {
+/// that only a unit and modifiers follow. Its range in characters, and whether it's an arrow. `unit` says which words
+/// are units: the unit bindings in scope; `modifier` which are modifiers.
+pub(crate) fn marker(text: &[char], unit: &dyn Fn(&str) -> bool, modifier: Modifiers) -> Option<(usize, usize, bool)> {
     let n = text.len();
     let (mut depth, mut quoted) = (0i32, false);
     let (mut arrow, mut equals) = (None, None);
@@ -54,15 +102,15 @@ pub(crate) fn marker(text: &[char], unit: &dyn Fn(&str) -> bool) -> Option<(usiz
     }
     if let Some((s, e)) = arrow {
         // Only a clause follows an arrow: its words are units, known or not.
-        return clause_like(&sub(text, e, n), true, &|_| true).then_some((s, e, true));
+        return clause_like(&sub(text, e, n), true, &|_| true, modifier).then_some((s, e, true));
     }
     let (s, e) = equals?;
-    clause_like(&sub(text, e, n), false, unit).then_some((s, e, false))
+    clause_like(&sub(text, e, n), false, unit, modifier).then_some((s, e, false))
 }
 
-/// Whether text after a marker is a clause: parts split at top-level commas, each a keyword (`digits(3)`) or a unit
+/// Whether text after a marker is a clause: parts split at top-level commas, each a modifier (`digits(3)`) or a unit
 /// (`mA`, `#h`, `#m / #s^2`). A number makes it a step: `= 2 A`.
-pub(crate) fn clause_like(tail: &str, arrow: bool, unit: &dyn Fn(&str) -> bool) -> bool {
+pub(crate) fn clause_like(tail: &str, arrow: bool, unit: &dyn Fn(&str) -> bool, modifier: Modifiers) -> bool {
     let parts = split_top(tail);
     if parts.len() == 1 && parts[0].trim().is_empty() {
         return true;
@@ -70,7 +118,7 @@ pub(crate) fn clause_like(tail: &str, arrow: bool, unit: &dyn Fn(&str) -> bool) 
     parts.iter().all(|p| {
         let p = p.trim();
         let word: String = p.chars().take_while(|c| is_letter(*c)).collect();
-        if is_keyword(&word) && p[word.len()..].trim().chars().next().is_none_or(|c| c == '(') {
+        if modifier(&word).is_some() && p[word.len()..].trim().chars().next().is_none_or(|c| c == '(') {
             return true;
         }
         if arrow && p.is_empty() {
@@ -149,18 +197,22 @@ pub(crate) fn split_top(s: &str) -> Vec<String> {
 }
 
 /// The names a clause solves for: `x` and `y` of `-> solve(x, y)`, as written.
-pub(crate) fn solved(tail: &str) -> Vec<String> {
+pub(crate) fn solved(tail: &str, modifier: Modifiers) -> Vec<String> {
     split_top(tail)
         .iter()
-        .filter_map(|p| p.trim().strip_prefix("solve").map(str::trim).and_then(|r| r.strip_prefix('(')).map(|r| r.trim_end().trim_end_matches(')').to_string()))
+        .filter_map(|p| {
+            let p = p.trim();
+            let (start, open, m) = calls(p, modifier).into_iter().next()?;
+            (start == 0 && m.name == "solve").then(|| p[open..].trim_end().trim_end_matches(')').to_string())
+        })
         .flat_map(|args| split_top(&args).into_iter().map(|a| a.trim().to_string()).filter(|a| !a.is_empty()).collect::<Vec<_>>())
         .collect()
 }
 
 /// Inside `solve(…)` or `substitute(…)` of a clause the caret ends `line` in: where the marker starts (in
-/// characters of `line`), the keyword, and the names listed before the one being typed, as written.
-pub(crate) fn names_call(line: &str) -> Option<(usize, &'static str, Vec<String>)> {
-    at_clause(line).filter(|names| *names)?;
+/// characters of `line`), the modifier, and the names listed before the one being typed, as written.
+pub(crate) fn names_call(line: &str, modifier: Modifiers) -> Option<(usize, String, Vec<String>)> {
+    at_clause(line, modifier).filter(|names| *names)?;
     let c: Vec<char> = line.chars().collect();
     let (mut depth, mut quoted, mut marker) = (0i32, false, None);
     for (i, &ch) in c.iter().enumerate() {
@@ -181,7 +233,7 @@ pub(crate) fn names_call(line: &str) -> Option<(usize, &'static str, Vec<String>
     }
     let (start, end) = marker?;
     let tail = sub(&c, end, c.len());
-    let (keyword, open) = NAMES.iter().filter_map(|k| tail.rfind(&format!("{k}(")).filter(|o| !tail[*o..].contains(')')).map(|o| (*k, o + k.len() + 1))).max_by_key(|(_, o)| *o)?;
+    let (open, keyword) = open_names_call(&tail, modifier)?;
     let mut listed = split_top(&tail[open..]);
     listed.pop();
     Some((start, keyword, listed.into_iter().map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).collect()))
@@ -189,7 +241,7 @@ pub(crate) fn names_call(line: &str) -> Option<(usize, &'static str, Vec<String>
 
 /// Whether the caret, at the end of `line`, is in a clause: after a top-level `->`, or after a top-level `=` that
 /// only words, brackets and commas follow. `Some(true)` inside `solve(…)` or `substitute(…)`, where names go.
-pub(crate) fn at_clause(line: &str) -> Option<bool> {
+pub(crate) fn at_clause(line: &str, modifier: Modifiers) -> Option<bool> {
     let c: Vec<char> = line.chars().collect();
     let (mut depth, mut quoted, mut found) = (0i32, false, None);
     for (i, &ch) in c.iter().enumerate() {
@@ -210,8 +262,8 @@ pub(crate) fn at_clause(line: &str) -> Option<bool> {
     let tail: String = c[from..].iter().collect();
     // a number makes it a step (= 2 A); digits(3) and exponents (m^2) hold numbers that aren't values
     let mut plain = tail.clone();
-    while let Some(i) = plain.find("digits(") {
-        let end = plain[i..].find(')').map_or(plain.len(), |j| i + j + 1);
+    for (i, open, _) in calls(&tail, modifier).into_iter().rev().filter(|c| c.2.name == "digits") {
+        let end = tail[open..].find(')').map_or(tail.len(), |j| open + j + 1);
         plain.replace_range(i..end, " ");
     }
     let t: Vec<char> = plain.chars().collect();
@@ -219,5 +271,11 @@ pub(crate) fn at_clause(line: &str) -> Option<bool> {
     if !arrow && value {
         return None;
     }
-    Some(NAMES.iter().any(|k| tail.rfind(&format!("{k}(")).is_some_and(|o| !tail[o..].contains(')'))))
+    Some(open_names_call(&tail, modifier).is_some())
+}
+
+/// The call of `solve` or `substitute` still open at the end of a clause's text: after its `(`, and the modifier.
+fn open_names_call(tail: &str, modifier: Modifiers) -> Option<(usize, String)> {
+    calls(tail, modifier).into_iter().rev().find(|(_, open, m)| NAMES.contains(&m.name.as_str()) && !tail[*open..].contains(')'))
+        .map(|(_, open, m)| (open, m.name))
 }

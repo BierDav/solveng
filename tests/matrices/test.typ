@@ -3,6 +3,7 @@
 #import "/tests/util.typ": expect, passes, fails, result
 #import functions: at
 #import units: Ω, V
+#import modifiers: solve
 #set page(width: 18cm, height: auto)
 #show: worksheet.with(errors: "panic")
 

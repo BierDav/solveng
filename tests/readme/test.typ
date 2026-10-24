@@ -1,5 +1,6 @@
 // The examples of the README, compared with reference images.
 #import "/lib.typ": *
+#import modifiers: solve, substitute
 #set page(width: 16cm, height: auto, margin: 1cm)
 
 // Engineering calculations in Typst math

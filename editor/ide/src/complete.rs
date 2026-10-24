@@ -68,9 +68,9 @@ pub(crate) fn definition(line: &str) -> Option<Definition> {
         return None;
     }
     let assign = true;
-    // what's after the = or -> showing a result is its clause: a unit and keywords
+    // what's after the = or -> showing a result is its clause: a unit and modifiers
     let rc = chars(rest);
-    let rest = match crate::clause::marker(&rc, &|_| false) {
+    let rest = match crate::clause::marker(&rc, &|_| false, &crate::clause::spelled) {
         Some((s, _, _)) => crate::text::sub(&rc, 0, s),
         None => rest.to_string(),
     };
@@ -90,10 +90,10 @@ pub(crate) fn definition(line: &str) -> Option<Definition> {
 
 /// The names a statement solves for (`x^2 = 4 -> solve(x)`): definitions at the names in the clause, which
 /// starts at `clause` in `doc`; `equation` is what's solved.
-fn solved_definitions(doc: &Doc, clause: usize, end: usize, equation: &str, found: &mut Vec<Definition>) {
+fn solved_definitions(doc: &Doc, clause: usize, end: usize, equation: &str, modifier: crate::clause::Modifiers, found: &mut Vec<Definition>) {
     if equation.contains(":=") || equation.contains('≔') { return; }
     let tail = doc.sub(clause, end);
-    let names = crate::clause::solved(&tail);
+    let names = crate::clause::solved(&tail, modifier);
     let mut from = 0;
     for name in names {
         let Some(at) = tail[from..].find(&name).map(|i| from + i) else { continue };
@@ -106,8 +106,9 @@ fn solved_definitions(doc: &Doc, clause: usize, end: usize, equation: &str, foun
     }
 }
 
-/// Names defined in a text, in order: the equations that `active` says are calculated.
-pub(crate) fn definitions(doc: &Doc, elements: &[Element], active: &dyn Fn(&Element) -> bool) -> Vec<Definition> {
+/// Names defined in a text, in order: the equations that `active` says are calculated. `bindings` are the text's
+/// Typst bindings, which say what's a modifier.
+pub(crate) fn definitions(doc: &Doc, elements: &[Element], bindings: &crate::bindings::Bindings, active: &dyn Fn(&Element) -> bool) -> Vec<Definition> {
     let mut found = Vec::new();
     let equations: Vec<Element> = elements.iter().filter(|e| active(e)).flat_map(|e| {
         crate::text::equation_ranges(&doc.c[e.body_start..e.body_end]).into_iter().map(|(a, b)| {
@@ -119,9 +120,10 @@ pub(crate) fn definitions(doc: &Doc, elements: &[Element], active: &dyn Fn(&Elem
     }).collect();
     for e in &equations {
         // Math writes Q_0, t_"half", "tews" and units as names: Q_0 := 3450 mAh.
-        let marker = crate::clause::marker(&doc.c[e.body_start..e.body_end], &|_| false);
+        let modifier = |w: &str| bindings.modifier(e.body_start, w);
+        let marker = crate::clause::marker(&doc.c[e.body_start..e.body_end], &|_| false, &modifier);
         if let Some((s, m, _)) = marker {
-            solved_definitions(doc, e.body_start + m, e.body_end, &doc.sub(e.body_start, e.body_start + s), &mut found);
+            solved_definitions(doc, e.body_start + m, e.body_end, &doc.sub(e.body_start, e.body_start + s), &modifier, &mut found);
         }
         let c = &doc.c[e.body_start..marker.map_or(e.body_end, |m| e.body_start + m.0)];
         let relation = c.iter().position(|ch| "=<>≤≥≔".contains(*ch)).unwrap_or(c.len());
@@ -303,11 +305,11 @@ fn definition_items(a: &Analysis, seen: &mut HashSet<String>, math: bool, functi
     for part in a.around() {
         let path = part.path.clone().filter(|p| *p != a.context.path);
         let document = part.path.as_ref().is_some_and(|p| *p == a.context.path);
-        defs.extend(definitions(&part.doc, &part.elements, &|e| part.active(e)).into_iter().filter(|_| !document).map(|d| (path.clone(), false, d)));
+        defs.extend(definitions(&part.doc, &part.elements, &part.bindings, &|e| part.active(e)).into_iter().filter(|_| !document).map(|d| (path.clone(), false, d)));
     }
     // = on a name already defined in its scope states something about it and defines nothing
     let statements = crate::navigate::statements(a);
-    defs.extend(definitions(&a.doc, &a.elements, &|e| a.active(e)).into_iter().filter(|d| !statements.contains(&d.start)).map(|d| (None, true, d)));
+    defs.extend(definitions(&a.doc, &a.elements, &a.bindings, &|e| a.active(e)).into_iter().filter(|d| !statements.contains(&d.start)).map(|d| (None, true, d)));
     let visible = at.and_then(|at| crate::navigate::visible_at(a, at));
     // Files the compile order didn't read (and the joined text of unknown files) can't be judged.
     let shown = |path: &Option<String>, document: bool, d: &Definition| match &visible {
@@ -411,17 +413,19 @@ fn variable_item(name: &str, detail: &str, insert: &str) -> Item {
     item
 }
 
-/// In the clause after the `=` or `->` showing a result: its keywords and units, or the names `solve(…)` and
+/// In the clause after the `=` or `->` showing a result: its modifiers and units, or the names `solve(…)` and
 /// `substitute(…)` take (see [`crate::navigate::clause_names`]). `line` is the equation's text up to the word being
 /// typed, from `line_start` (in characters) on; `hash` whether a `#` is typed before it.
 fn clause_items(a: &Analysis, names: bool, at: usize, line_start: usize, line: &str, hash: bool) -> Vec<Item> {
     if names {
         return clause_name_items(a, at, line_start, line);
     }
-    let mut items: Vec<Item> = crate::clause::KEYWORDS
-        .iter()
-        .map(|(k, d)| Item::new(k, ItemKind::KEYWORD, d, &if crate::clause::NAMES.contains(k) || *k == "digits" { format!("{k}($0)") } else { k.to_string() }))
-        .collect();
+    // The modifiers in scope and the `modifiers` module's others, imported along; those taking arguments with them.
+    let mut items: Vec<Item> = if hash { Vec::new() } else { binding_items(a, at, hash, &|m| matches!(m, Meaning::Modifier(_)), Module::Modifiers) };
+    for item in &mut items {
+        let called = a.bindings.modifier(at, &item.label).is_some_and(|m| crate::clause::called(&m.name));
+        if called { item.insert = format!("{}($0)", item.insert); }
+    }
     items.extend(binding_items(a, at, hash, &|m| m.is_unit(), Module::Units));
     items
 }
@@ -431,7 +435,12 @@ fn clause_items(a: &Analysis, names: bool, at: usize, line_start: usize, line: &
 /// `hash` says it's typed before the word.
 fn binding_items(a: &Analysis, at: usize, hash: bool, kind: &dyn Fn(&Meaning) -> bool, module: Module) -> Vec<Item> {
     let insert = |name: &str| if !hash && name.chars().count() == 1 { format!("#{name}") } else { name.to_string() };
-    let item_kind = |m: &Meaning| match m { Meaning::Constant { .. } => ItemKind::CONSTANT, Meaning::Operation(_) => ItemKind::FUNCTION, _ => ItemKind::UNIT };
+    let item_kind = |m: &Meaning| match m {
+        Meaning::Constant { .. } => ItemKind::CONSTANT,
+        Meaning::Operation(_) => ItemKind::FUNCTION,
+        Meaning::Modifier(_) => ItemKind::KEYWORD,
+        _ => ItemKind::UNIT,
+    };
     let bound = a.bindings.items(at);
     let mut items: Vec<Item> = bound.iter().filter(|(_, m)| kind(m)).map(|(name, m)| Item::new(name, item_kind(m), &m.detail(), &insert(name))).collect();
     // The units module's by their table, which knows their names: `ohm` finds Ω.
@@ -455,16 +464,16 @@ fn binding_items(a: &Analysis, at: usize, hash: bool, kind: &dyn Fn(&Meaning) ->
 }
 
 fn clause_name_items(a: &Analysis, at: usize, line_start: usize, line: &str) -> Vec<Item> {
-    let Some((marker, keyword, listed)) = crate::clause::names_call(line) else { return Vec::new() };
+    let Some((marker, keyword, listed)) = crate::clause::names_call(line, &|w| a.bindings.modifier(at, w)) else { return Vec::new() };
     let c = chars(line);
     // The statement's head: from where its equation starts up to the marker.
     let head_start = crate::text::equation_ranges(&c[..marker]).into_iter().map(|r| r.0).filter(|&s| s <= marker).max().unwrap_or(0);
     let key = |n: &str| crate::navigate::math_name_of(&chars(n)).map_or_else(|| crate::resolved_name(n.trim_matches('"')), |m| m.0);
     let listed: Vec<String> = listed.iter().map(|n| key(n)).collect();
-    let names = crate::navigate::clause_names(a, keyword, (line_start + head_start, line_start + marker), &listed);
+    let names = crate::navigate::clause_names(a, &keyword, (line_start + head_start, line_start + marker), &listed);
     let defined = definition_items(a, &mut HashSet::new(), false, false, Some(at));
     names.into_iter().map(|(name, definition)| {
-        let detail = match (keyword, definition) {
+        let detail = match (keyword.as_str(), definition) {
             (_, Some(_)) => defined.iter().find(|i| before(&i.label, ":") == name).map_or_else(|| "defined".to_string(), |i| i.detail.clone()),
             ("solve", None) => "unknown: solve for it".into(),
             _ => "undefined".into(),
@@ -643,7 +652,7 @@ fn complete_math(a: &Analysis, e: &Element, from: usize) -> Option<Completions> 
     let hash = from > e.body_start && a.doc.c[from - 1] == '#';
     let before_ = a.doc.sub(e.body_start, from - usize::from(hash));
     let replacement = a.doc.to16(from);
-    if let Some(names) = crate::clause::at_clause(&before_) {
+    if let Some(names) = crate::clause::at_clause(&before_, &|w| a.bindings.modifier(from, w)) {
         return Some(Completions { to: None, from: replacement, items: clause_items(a, names, from, e.body_start, &before_, hash), exclusive: !names });
     }
     let units = || binding_items(a, from, hash, &|m| m.is_unit(), Module::Units);
@@ -652,9 +661,10 @@ fn complete_math(a: &Analysis, e: &Element, from: usize) -> Option<Completions> 
         let items = keyword_items(&before_).into_iter().filter(|_| !hash).chain(units()).collect();
         return Some(Completions { to: None, from: replacement, items, exclusive: true });
     }
-    // after a number: its unit, or a variable it multiplies
+    // after a number: its unit, or a constant or variable it multiplies
     if before_.trim_end().chars().last().is_some_and(is_digit) {
         let mut items = units();
+        items.extend(constants(a, from, hash));
         if hash { return Some(Completions { to: None, from: replacement, items, exclusive: true }); }
         let mut seen: HashSet<String> = items.iter().map(|i| i.label.clone()).collect();
         items.extend(local_items(a, &mut seen, from));
@@ -666,7 +676,7 @@ fn complete_math(a: &Analysis, e: &Element, from: usize) -> Option<Completions> 
     }
     let mut items = if hash { Vec::new() } else { name_items(a, from) };
     // Constants and operations: the bindings in scope, the `constants` module's imported along.
-    items.extend(binding_items(a, from, hash, &|m| matches!(m, Meaning::Constant { .. }), Module::Constants));
+    items.extend(constants(a, from, hash));
     for (name, meaning) in a.bindings.items(from) {
         if let Meaning::Operation(op) = meaning && FUNCTIONS.contains(&op.as_str()) {
             items.push(Item::new(&name, ItemKind::FUNCTION, &format!("math.op(\"{op}\")"), &format!("{name}($0)")));
@@ -674,6 +684,11 @@ fn complete_math(a: &Analysis, e: &Element, from: usize) -> Option<Completions> 
     }
     if !hash { items.extend(keyword_items(&before_)); }
     if items.is_empty() { None } else { Some(Completions { to: None, from: replacement, items, exclusive: false }) }
+}
+
+/// The constants in scope at `at`, then the `constants` module's others, imported along.
+fn constants(a: &Analysis, at: usize, hash: bool) -> Vec<Item> {
+    binding_items(a, at, hash, &|m| matches!(m, Meaning::Constant { .. }), Module::Constants)
 }
 
 /// In a string argument: names or the option's values, as the parameter takes.

@@ -7,7 +7,7 @@
 ///
 /// - **`:=` defines**, symbolically. Names defined by then are put in right away, names that aren't stay names until they are: `$h := 5 z$` works before `z` is defined, and after `$z := 20 cm$`, `$h =$` shows 1 m. What's put in is the value at that point – defining a name again later changes what comes after, not what came before.
 /// - **`=` inside an expression compares**, as Mathcad's bold =: `$M := 1 = 2 =$` gives 0, `$M := 2 #A = 2000 mA$` gives 1. Values of different units are never equal (`1 A = 2 V` is 0, `1 A != 2 V` is 1); `<`, `<=`, `>`, `>=` and `!=` compare too, chains like `$0 < x <= 1$` hold when every step does.
-/// - **A trailing `=` shows the value**, numerically, with a bold =. After it come a unit and keywords: `$t = #h, digits(3)$`. Every name in it must have a value by then.
+/// - **A trailing `=` shows the value**, numerically, with a bold =. After it come a unit and modifiers (from `modifiers`): `$t = #h, digits(3)$`. Every name in it must have a value by then.
 /// - **A trailing `->` shows the symbolic result**: defined values put in, exactly (fractions, roots and π stay), undefined names kept: `$x + 3/3 y -> simplify$` is x + y. With `solve(x)` it solves – symbolically when it can (`$0 = 1 + 3/x + y^2 -> solve(x)$` is x = −3/(y² + 1)), numerically when every other name has a value – and defines x when the solution is a value. `substitute(U, …)` shows the result with these variables' formulas put in and every other name kept: after `$U := R I$`, `$P := U^2/R -> substitute(U)$` is I² R.
 /// - **Any other `=`** states something: it's checked when everything in it has a value (`$U = R I$`), and left alone as prose when not (`$E = m c^2$`).
 ///
@@ -27,6 +27,7 @@
 ///
 /// ```typ
 /// #import units: kΩ, A, V, m, mA, mAh, s
+/// #import modifiers: substitute
 /// #show: worksheet
 /// $R := 4.7 kΩ$                                 // a number and a unit
 /// $I := frac(2, 4) #A$, $Q_0 := 3450/2 mAh$     // arithmetic in the number
@@ -63,6 +64,7 @@
 /// #import units: Ω, Hz, mH
 /// #import constants: pi, e, i
 /// #import functions: conj
+/// #import modifiers: solve
 /// #show: worksheet.with(constants: (imaginary: $j$))
 /// $(1 + 2 #i)(3 - #i) ->$                       // 5 + 5j
 /// $#e^(#i pi) ->$, $sin(pi/4) ->$               // −1, √2/2
@@ -73,7 +75,7 @@
 ///
 /// ## Units
 ///
-/// Units, constants and operations are Typst bindings, so solveng never guesses what a name means: in math `A` is a variable and, after `#import units: A`, `#A` is the ampere; quoted text (`$"mA"$`) is always a variable. Imports are lexical: they hold in the file or block where they're written and the blocks nested in it, whatever worksheet is around, and nothing comes along with `#import "@preview/solveng:1.0.0": *`. A unit binding hides a Typst function of the same name in code: after `#import units: h`, spacing is `std.h(1em)`.
+/// Units, constants, operations and modifiers are Typst bindings, so solveng never guesses what a name means: in math `A` is a variable and, after `#import units: A`, `#A` is the ampere; quoted text (`$"mA"$`) is always a variable. Imports are lexical: they hold in the file or block where they're written and the blocks nested in it, whatever worksheet is around, and nothing comes along with `#import "@preview/solveng:1.0.0": *`. A unit binding hides a Typst function of the same name in code: after `#import units: h`, spacing is `std.h(1em)`.
 ///
 /// After a trailing `=` or `->`, the unit to show is an expression of unit values too: `$t = #h$`, `$v -> km/#h$`, `$P = mW, digits(2)$`. Without one, results are shown in the unit of the option `preferred-units` (`preferred-units: ($#m / #s$,)`), else in a unit of the inputs, else in SI units with a prefix.
 ///

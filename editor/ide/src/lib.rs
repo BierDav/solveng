@@ -1,8 +1,8 @@
 //! Editor support for solveng (`@preview/solveng`), calculations in Typst math: math in a `worksheet` (unless the
 //! innermost one says `evaluate: false`) and equations passed to `#worksheet(…)`. Like Mathcad, `:=` defines, a
 //! trailing `=` shows a value and `->` a symbolic result or a solution, each followed by a clause of a unit and
-//! keywords. Units, constants and operations are Typst bindings: imported from solveng's `units`, `constants` and
-//! `functions` modules or made with `base-unit`, `unit`, `constant` and `operation`.
+//! modifiers. Units, constants, operations and modifiers are Typst bindings: imported from solveng's `units`,
+//! `constants`, `functions` and `modifiers` modules or made with `base-unit`, `unit`, `constant` and `operation`.
 //!
 //! Everything is a pure function of the document and a [`Context`] (the files around it, what the compiler
 //! reported). Offsets are UTF-16 code units, as editors and LSP count them.
@@ -72,6 +72,8 @@ impl TokenKind {
     pub const BUILTIN_FUNCTION: u8 = 13;
     /// The gray hash before a unit, constant or operation binding in math: `#s`.
     pub const UNIT_REFERENCE: u8 = 14;
+    /// A constant binding: π, e, i, c and `constant(…)`s, and `infinity`. Editors without it show a keyword.
+    pub const CONSTANT: u8 = 15;
 }
 
 /// Kinds of [`Item`].
@@ -85,7 +87,7 @@ impl ItemKind {
     pub const PARAMETER: u8 = 4;
     /// One of an option's values: `"value"`.
     pub const VALUE: u8 = 5;
-    /// A word of solveng's own: `any`, a clause keyword.
+    /// A word of solveng's own: `any`, a clause's modifier.
     pub const KEYWORD: u8 = 6;
 }
 

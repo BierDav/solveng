@@ -151,3 +151,18 @@ fn documents_highlight_their_unit_bindings() {
     // an import ends with its block
     assert_ne!(kind("mA$", 0), Some(TokenKind::UNIT));
 }
+
+#[test]
+fn constants_complete_after_numbers() {
+    let doc = "#import \"@preview/solveng:1.0.0\": *\n#import constants: pi\n#show: worksheet\n";
+    for (typed, e_insert) in [("$y := 2 |$", "#e"), ("$y := 2 #|$", "e"), ("$y := 2 #p|$", "e")] {
+        let items = complete_marked(&format!("{doc}{typed}"));
+        let constant = |label: &str| items.iter().find(|i| i.label == label && i.kind == ItemKind::CONSTANT).unwrap_or_else(|| panic!("{typed} {label}: {items:?}"));
+        assert!(constant("pi").edits.is_empty(), "{typed}");
+        let e = constant("e");
+        assert_eq!((e.insert.as_str(), e.edits.iter().map(|e| e.text.as_str()).collect::<Vec<_>>()), (e_insert, vec![", e"]), "{typed}");
+    }
+    // units still come first after a number
+    let items = complete_marked(&format!("{doc}$y := 2 |$"));
+    assert!(items.iter().position(|i| i.kind == ItemKind::UNIT) < items.iter().position(|i| i.kind == ItemKind::CONSTANT));
+}

@@ -71,8 +71,8 @@ pub(crate) fn math_name_of(math: &[char]) -> Option<(String, usize, usize)> {
     let text: String = math.iter().collect();
     let doc = Doc::new(&text);
     let mut out = Vec::new();
-    math_names(&doc, 0, math_tokens(math, &crate::is_unit), &mut out);
-    let toks = math_tokens(math, &crate::is_unit);
+    math_names(&doc, 0, math_tokens(math, &crate::is_unit, &crate::clause::spelled), &mut out);
+    let toks = math_tokens(math, &crate::is_unit, &crate::clause::spelled);
     // Nothing but the name: no units, numbers or operators around it.
     let covered = |t: &Tok| out.first().is_some_and(|n| n.start <= t.0 && t.0 + t.1 <= n.end);
     if out.len() != 1 || !toks.iter().all(covered) || out[0].key.is_empty() {
@@ -91,7 +91,7 @@ fn names(doc: &Doc, elements: &[Element], calls: &[Call], bindings: &crate::bind
     let mut out = Vec::new();
     for e in elements.iter().filter(|e| active(e)) {
         let body = &doc.c[e.body_start..e.body_end];
-        math_names(doc, e.body_start, math_tokens(body, &|w| bindings.unit_at(e.body_start, w).is_some()), &mut out);
+        math_names(doc, e.body_start, math_tokens(body, &|w| bindings.unit_at(e.body_start, w).is_some(), &|w| bindings.modifier(e.body_start, w)), &mut out);
     }
     for t in calls.iter().flat_map(|c| &c.texts) {
         if t.role == Role::Name {
@@ -329,8 +329,8 @@ fn resolved_all<'a>(a: &'a Analysis) -> (Vec<File<'a>>, Vec<Occurrence>, Vec<usi
 /// The document and the files around, the document first.
 fn files<'a>(a: &'a Analysis) -> Vec<File<'a>> {
     let named = |n: Vec<Name>| n.into_iter().map(|n| (n.key, n.start, n.end)).collect::<Vec<_>>();
-    let file = |path: String, doc: &'a Doc, elements: &'a [Element], calls: &'a [Call], bindings: &crate::bindings::Bindings, active: &dyn Fn(&Element) -> bool| {
-        let definitions = definitions(doc, elements, active);
+    let file = |path: String, doc: &'a Doc, elements: &'a [Element], calls: &'a [Call], bindings: &'a crate::bindings::Bindings, active: &dyn Fn(&Element) -> bool| {
+        let definitions = definitions(doc, elements, bindings, active);
         let names = named(names(doc, elements, calls, bindings, active));
         File {
             path,
@@ -342,6 +342,7 @@ fn files<'a>(a: &'a Analysis) -> Vec<File<'a>> {
             graphs: graphs(doc, calls),
             functions: curve_functions(doc, calls),
             locals: locals(doc, elements, active),
+            bindings,
         }
     };
     let mut files = vec![file(a.context.path.clone(), &a.doc, &a.elements, &a.calls, &a.bindings, &|e| a.active(e))];

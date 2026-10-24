@@ -17,8 +17,9 @@ use solveng_ide::{self as ide, Context, ContextFile, ItemKind, Location, Report}
 // Function parameters, and what a graph plots against.
 const TOKEN_TYPES: [&str; 11] =
     ["keyword", "string", "comment", "number", "function", "type", "variable", "decorator", "operator", "enumMember", "parameter"];
-/// The `=` or `->` showing a result is an operator with this modifier, for themes to set bold.
-const TOKEN_MODIFIERS: [&str; 1] = ["evaluate"];
+/// The `=` or `->` showing a result is an operator with `evaluate`, for themes to set bold; constants are variables
+/// with LSP's standard `readonly`, as themes style constants.
+const TOKEN_MODIFIERS: [&str; 2] = ["evaluate", "readonly"];
 
 struct Server {
     /// Open documents by URI.
@@ -325,7 +326,7 @@ impl Server {
                     // Tokens stop at the line's end.
                     let line_end = starts.get(l + 1).map_or(u32::MAX, |s| s - 1);
                     let length = t.length.min(line_end.saturating_sub(t.start));
-                    let (kind, modifiers) = if t.kind == ide::TokenKind::EVALUATE { (ide::TokenKind::OPERATOR, 1) } else if matches!(t.kind, ide::TokenKind::FUNCTION_CALL | ide::TokenKind::BUILTIN_FUNCTION) { (ide::TokenKind::FUNCTION, 0) } else if t.kind == ide::TokenKind::UNIT_REFERENCE { (ide::TokenKind::COMMENT, 0) } else { (t.kind, 0) };
+                    let (kind, modifiers) = if t.kind == ide::TokenKind::EVALUATE { (ide::TokenKind::OPERATOR, 1) } else if matches!(t.kind, ide::TokenKind::FUNCTION_CALL | ide::TokenKind::BUILTIN_FUNCTION) { (ide::TokenKind::FUNCTION, 0) } else if t.kind == ide::TokenKind::UNIT_REFERENCE { (ide::TokenKind::COMMENT, 0) } else if t.kind == ide::TokenKind::CONSTANT { (ide::TokenKind::VARIABLE, 2) } else { (t.kind, 0) };
                     if length == 0 || usize::from(kind) >= TOKEN_TYPES.len() {
                         continue;
                     }

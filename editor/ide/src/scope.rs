@@ -255,6 +255,8 @@ pub(crate) struct File<'a> {
     pub functions: Vec<(usize, usize, usize)>,
     /// Sum index declarations and the summands they bind.
     pub locals: Vec<crate::locals::Local>,
+    /// The Typst bindings it has: which clause words are modifiers.
+    pub bindings: &'a crate::bindings::Bindings,
 }
 
 /// A name in the flattened document: in `file` (an index into the files), and the definition it means (an index
@@ -561,10 +563,11 @@ fn parameters(files: &[File], out: &mut [Occurrence], implicit: &str, locals: &[
                     params.owners.push(params.signatures.len());
                 }
             }
-            if let Some((_, marker_end, _)) = crate::clause::marker(&c[close + 1..statement_end], &|_| false) {
+            let modifier = |w: &str| file.bindings.modifier(start, w);
+            if let Some((_, marker_end, _)) = crate::clause::marker(&c[close + 1..statement_end], &|_| false, &modifier) {
                 let clause_start = close + 1 + marker_end;
                 let tail = file.doc.sub(clause_start, statement_end);
-                let locals = crate::clause::solved(&tail).into_iter().map(|n| crate::resolved_name(&n)).collect::<Vec<_>>();
+                let locals = crate::clause::solved(&tail, &modifier).into_iter().map(|n| crate::resolved_name(&n)).collect::<Vec<_>>();
                 for i in 0..out.len() {
                     if out[i].file == index && out[i].start >= clause_start && out[i].end <= statement_end
                         && locals.contains(&out[i].key) && !declared.iter().any(|(k, _)| *k == out[i].key) {

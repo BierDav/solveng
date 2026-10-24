@@ -4,6 +4,7 @@
 #import units: A, V, W, Ω, m, s, cm, mA, mAh, mV
 #import constants: e
 #import functions: number
+#import modifiers: solve, simplify, digits, fraction
 
 #worksheet[
   // Mathcad's =: a comparison, 1 or 0; different units are never equal
@@ -245,4 +246,15 @@ v_c := 4 m / t_c
     assert(r.any(x => x.element == none and x.source == "q_v + 1" and x.message.contains("q_v")), message: "value error reported")
     assert(not r.any(x => x.source in ("U_v", "f_v(2)")), message: "value reported an error")
   }
+]
+
+// modifiers are bindings of the modifiers module, only there: renamed imports work, the package root has none
+#import "/lib.typ" as package
+#assert(("solve", "substitute", "simplify", "digits", "sci", "eng", "fraction").all(k => k not in dictionary(package)))
+#[
+  #import modifiers: solve as löse, digits as stellen
+  #worksheet[
+    $2 w = 6 -> löse(w)$ #expect("w", 3)
+    $w = stellen(2)$
+  ]
 ]

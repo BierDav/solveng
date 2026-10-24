@@ -221,7 +221,7 @@ fn bindings_and_operation_references_have_their_tokens_and_hovers() {
     wait(&mut stdout, |m| m["id"] == 1);
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}));
     let uri = "file:///tmp/solveng-bindings.typ";
-    let text = "#import units: km, ms\n#let cusom = unit($1000 km$)\n#show: worksheet\n$t := 1 cusom$\n$y := op(\"tri\")(x)$\n$y := 1 km$\n$y := 1 ms$\n";
+    let text = "#import units: km, ms\n#let cusom = unit($1000 km$)\n#show: worksheet\n$t := 1 cusom$\n$y := op(\"tri\")(x)$\n$y := 1 km$\n$y := 1 ms$\n#import constants: pi\n$z := 2 pi$\n";
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri, "languageId": "typst", "version": 1, "text": text}}}));
     wait(&mut stdout, |m| m["method"] == "textDocument/publishDiagnostics");
     send(&mut stdin, json!({"jsonrpc": "2.0", "id": 2, "method": "textDocument/semanticTokens/full", "params": {"textDocument": {"uri": uri}}}));
@@ -234,7 +234,10 @@ fn bindings_and_operation_references_have_their_tokens_and_hovers() {
         line += delta;
         col = if delta == 0 { col + token[1].as_u64().unwrap() } else { token[1].as_u64().unwrap() };
         found.push((line, col, token[2].as_u64().unwrap(), token[3].as_u64().unwrap()));
+        // a constant: a readonly variable, as themes style constants
+        if (line, col) == (8, 8) { assert_eq!((token[2].as_u64(), token[3].as_u64(), token[4].as_u64()), (Some(2), Some(6), Some(2))); }
     }
+    assert!(found.iter().any(|t| (t.0, t.1) == (8, 8)), "{found:?}");
     // the unit's expression is math solveng reads: its number and unit
     assert!(found.contains(&(1, 19, 4, 3)) && found.contains(&(1, 24, 2, 9)), "{found:?}");
     // the binding's use, the operation's name only, the imported units

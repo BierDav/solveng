@@ -12,8 +12,8 @@ import os, re, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "docs", "reference.md")
 # public functions in the order they are documented; worksheet comes with the option tables
-FUNCTIONS = ["worksheet", "base-unit", "unit", "constant", "operation", "solve", "substitute", "simplify", "digits", "sci", "eng", "defined", "graph", "lambdify", "value", "clear", "rect", "tri", "sgn", "Re", "Im", "conj", "number", "floor", "factorial", "diff", "integrate", "laplace", "invlaplace", "convolve", "range", "at", "rank", "identity", "rows", "cols", "asin", "acos", "atan"]
-CHAPTERS = ["src/builtins.typ", "src/engine.typ", "src/display.typ", "tests/util.typ"]
+FUNCTIONS = ["worksheet", "base-unit", "unit", "constant", "operation", "solve", "substitute", "simplify", "digits", "sci", "eng", "fraction", "defined", "graph", "lambdify", "value", "clear", "rect", "tri", "sgn", "Re", "Im", "conj", "number", "floor", "factorial", "diff", "integrate", "laplace", "invlaplace", "convolve", "range", "at", "rank", "identity", "rows", "cols", "asin", "acos", "atan"]
+CHAPTERS = ["src/builtins.typ", "src/modifiers.typ", "src/engine.typ", "src/display.typ", "tests/util.typ"]
 PARAM = re.compile(r"^- ((?:\.\.)?[a-z][\w-]*(?:, [a-z][\w-]*)*(?:, …)?) \(([^)]*)\): (.*)$")
 
 
