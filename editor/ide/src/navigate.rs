@@ -405,7 +405,8 @@ pub fn usages(document: &str, context: &Context, offset: u32) -> Vec<Location> {
 pub fn rename_target(document: &str, context: &Context, offset: u32) -> Option<RenameTarget> {
     let a = Analysis::new(document, context);
     if let Some((s, e, name)) = a.bindings.shorthand_target(a.doc.from16(offset as usize)) {
-        return Some(RenameTarget { start: a.doc.to16(s), end: a.doc.to16(e), name });
+        let import_alias = a.bindings.in_import_list(a.doc.from16(offset as usize));
+        return Some(RenameTarget { start: a.doc.to16(s), end: a.doc.to16(e), name, import_alias });
     }
     if a.bindings.at(&a.doc, offset) { return None; }
     let (files, occurrences) = resolved(&a);
@@ -413,7 +414,7 @@ pub fn rename_target(document: &str, context: &Context, offset: u32) -> Option<R
     let o = &occurrences[i];
     o.definition?;
     let l = location(&files, o);
-    Some(RenameTarget { start: l.start, end: l.end, name: a.doc.sub(o.start, o.end) })
+    Some(RenameTarget { start: l.start, end: l.end, name: a.doc.sub(o.start, o.end), import_alias: false })
 }
 
 /// Renames the solveng name at `offset` and its [`usages`] to `name`, typed plain (`R_load`, `Delta""r`) or as

@@ -150,6 +150,9 @@ struct Binding {
     /// For a name an import lists, the module's name as written there: `s` of `s as test` (the bound name's
     /// range when not renamed).
     original: Option<(usize, usize)>,
+    /// For a name a wildcard import gives (`#import constants: *`): where an import renaming it goes, the end of that
+    /// import's line, and the line's indentation.
+    wildcard: Option<(usize, String)>,
 }
 
 /// An explicit operation reference in math (`op("tri")`) that can show just its name.
@@ -248,7 +251,7 @@ impl Bindings {
             for name in binding.kind().bindings() {
                 visit(node, &mut |leaf| {
                     if std::ptr::eq(leaf.get(), name.to_untyped()) {
-                        result.definitions.push(Binding { name: name.as_str().into(), start: doc.of_byte(leaf.offset()), end: doc.of_byte(leaf.offset() + leaf.len()), visible: doc.of_byte(node.offset() + node.len()), scope_end, meaning: meaning.clone(), module: None, original: None });
+                        result.definitions.push(Binding { name: name.as_str().into(), start: doc.of_byte(leaf.offset()), end: doc.of_byte(leaf.offset() + leaf.len()), visible: doc.of_byte(node.offset() + node.len()), scope_end, meaning: meaning.clone(), module: None, original: None, wildcard: None });
                     }
                 });
             }
@@ -358,9 +361,12 @@ impl Bindings {
         if import.imports().is_some() {
             self.imports.push(Import { module: Some(module), names: listed, append, line_end, visible, scope_end });
         }
+        let line_start = doc.c[..doc.of_byte(node.offset())].iter().rposition(|&c| c == '\n').map_or(0, |i| i + 1);
+        let indent: String = doc.c[line_start..].iter().take_while(|c| **c == ' ' || **c == '\t').collect();
+        let wildcard = matches!(import.imports(), Some(ast::Imports::Wildcard)).then(|| (line_end, indent));
         let mut push = |name: &str, original: &str, start: usize, end: usize, written: Option<(usize, usize)>| {
             if let Some(meaning) = module.meaning(original) {
-                self.definitions.push(Binding { name: name.into(), start, end, visible, scope_end, meaning, module: Some((module, original.into())), original: written });
+                self.definitions.push(Binding { name: name.into(), start, end, visible, scope_end, meaning, module: Some((module, original.into())), original: written, wildcard: wildcard.clone() });
             }
         };
         match import.imports() {
@@ -403,11 +409,23 @@ impl Bindings {
         self.shorthand_at(at).filter(|&id| self.definitions[id].original.is_some())
     }
 
-    /// The imported name at `at` where it's imported and every use.
+    /// [`Self::shorthand_at`], when its import lists it or gives it with `*`: a name that can be renamed.
+    fn renamable_at(&self, at: usize) -> Option<usize> {
+        self.shorthand_at(at).filter(|&id| self.definitions[id].original.is_some() || self.definitions[id].wildcard.is_some())
+    }
+
+    /// The imported name at `at` where its import lists it, and every use.
     pub(crate) fn shorthand_usages(&self, at: usize) -> Vec<(usize, usize)> {
-        let Some(id) = self.listed_at(at) else { return Vec::new() };
-        std::iter::once((self.definitions[id].start, self.definitions[id].end))
+        let Some(id) = self.renamable_at(at) else { return Vec::new() };
+        let b = &self.definitions[id];
+        b.original.map(|_| (b.start, b.end)).into_iter()
             .chain(self.uses.iter().filter(|u| u.2 == id).map(|&(s, e, _)| (s, e))).collect()
+    }
+
+    /// Whether `at` is on a name in an import list, where renaming writes an alias (`pi as tau`).
+    pub(crate) fn in_import_list(&self, at: usize) -> bool {
+        let within = |(s, e): (usize, usize)| s <= at && at <= e;
+        self.definitions.iter().any(|b| b.module.is_some() && b.original.is_some_and(|o| within(o) || within((b.start, b.end))))
     }
 
     /// The module name at `at` in an import of solveng's modules, with its range.
@@ -429,18 +447,24 @@ impl Bindings {
 
     /// The name at `at` that renaming the imported name there changes.
     pub(crate) fn shorthand_target(&self, at: usize) -> Option<(usize, usize, String)> {
-        let id = self.listed_at(at)?;
+        let id = self.renamable_at(at)?;
         let b = &self.definitions[id];
         let (s, e) = self.uses.iter().find(|&&(s, e, i)| i == id && s <= at && at <= e).map(|&(s, e, _)| (s, e)).unwrap_or((b.start, b.end));
         Some((s, e, b.name.clone()))
     }
 
     /// Renames the imported name at `at` and its uses to `name`, an alias in its import (`s as test`); back to the
-    /// module's own name the alias goes. Edits as (start, end, text); None if `name` isn't a Typst identifier.
+    /// module's own name the alias goes. A name `*` gives gets an import of its own after that one
+    /// (`#import constants: pi as tau`). Edits as (start, end, text); None if `name` isn't a Typst identifier.
     pub(crate) fn shorthand_rename(&self, doc: &Doc, at: usize, name: &str) -> Option<Vec<(usize, usize, String)>> {
-        let id = self.listed_at(at)?;
+        let id = self.renamable_at(at)?;
         if !typst_syntax::is_ident(name) { return None; }
         let b = &self.definitions[id];
+        let uses = self.uses.iter().filter(|u| u.2 == id).map(|&(s, e, _)| (s, e, name.to_string()));
+        if let (None, Some((line_end, indent)), Some((module, original))) = (b.original, &b.wildcard, &b.module) {
+            let import = (name != original).then(|| (*line_end, *line_end, format!("\n{indent}#import {}: {original} as {name}", module.name())));
+            return Some(import.into_iter().chain(uses).collect());
+        }
         let (os, oe) = b.original?;
         let original = doc.sub(os, oe);
         let import = if name == original {
@@ -450,7 +474,7 @@ impl Bindings {
         } else {
             (os, oe, format!("{original} as {name}"))
         };
-        Some(std::iter::once(import).chain(self.uses.iter().filter(|u| u.2 == id).map(|&(s, e, _)| (s, e, name.to_string()))).collect())
+        Some(std::iter::once(import).chain(uses).collect())
     }
 
     /// The names imports list from solveng's modules: their range, what they mean, and where a renamed one's module

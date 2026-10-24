@@ -194,6 +194,10 @@ pub struct RenameTarget {
     pub start: u32,
     pub end: u32,
     pub name: String,
+    /// The name is in an import list, where renaming writes an alias (`pi as tau`): editors show the typed name
+    /// there while it's being renamed and apply the alias once the rename is done.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub import_alias: bool,
 }
 
 /// One of the files around a document, by its path relative to the root.

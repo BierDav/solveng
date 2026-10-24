@@ -66,6 +66,32 @@ fn renaming_makes_or_drops_an_alias() {
 }
 
 #[test]
+fn renaming_in_the_import_list_is_marked_for_editors() {
+    let ctx = Context::default();
+    let doc = format!("{SOLVENG}#import constants: pi, e as euler\n#show: worksheet\n$x := 2 pi euler$");
+    assert!(rename_target(&doc, &ctx, at(&doc, "pi,")).unwrap().import_alias);
+    assert!(rename_target(&doc, &ctx, at(&doc, "euler\n")).unwrap().import_alias);
+    assert!(rename_target(&doc, &ctx, at(&doc, "e as") ).unwrap().import_alias);
+    assert!(!rename_target(&doc, &ctx, at(&doc, "pi euler")).unwrap().import_alias);
+}
+
+#[test]
+fn renaming_a_name_a_wildcard_gives_imports_it_under_the_new_name() {
+    let ctx = Context::default();
+    let rename_at = |doc: &str, offset: u32, name: &str| apply(doc, rename(doc, &ctx, offset, name).into_iter().map(|e| (e.start, e.end, e.text)).collect());
+    let doc = format!("{SOLVENG}#[\n  #import constants: *\n  #show: worksheet\n  $x := 2 pi + pi$\n]");
+    let target = rename_target(&doc, &ctx, nth(&doc, "pi", 0)).unwrap();
+    assert_eq!((target.name.as_str(), target.import_alias), ("pi", false));
+    assert_eq!(usages(&doc, &ctx, nth(&doc, "pi", 1)).len(), 2);
+    let renamed = rename_at(&doc, nth(&doc, "pi", 1), "tau");
+    assert_eq!(renamed, format!("{SOLVENG}#[\n  #import constants: *\n  #import constants: pi as tau\n  #show: worksheet\n  $x := 2 tau + tau$\n]"));
+    // the new import is a listed name, renamed back like any other
+    let back = rename_at(&renamed, at(&renamed, "tau +"), "pi");
+    assert!(back.contains("#import constants: pi\n") && back.contains("2 pi + pi"), "{back}");
+    assert!(rename(&doc, &ctx, nth(&doc, "pi", 0), "pi").iter().all(|e| e.text == "pi"));
+}
+
+#[test]
 fn modules_and_imported_names_hover_with_their_docs() {
     let doc = format!("{SOLVENG}#import units: km, s as test\n#import constants: pi\n#import functions: tri\n#show: worksheet\n$x := 1 #test$ $y := tri(2) km$ $z := 2 pi$");
     let ctx = Context::default();
