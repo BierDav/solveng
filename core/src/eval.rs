@@ -275,9 +275,9 @@ fn eval_z(e: &Expr, dom: Domain) -> Result<(Z, Dim), String> {
             let bound = |e: &Expr| if let Expr::C(v) = e { Ok((v.v.f(), v.d.clone())) } else { real(e, "an integral bound") };
             let (l, ld) = bound(lo)?;
             let (h, hd) = bound(hi)?;
-            if ld != hd { return Err("integral bounds have different units".into()); }
+            let ld = bound_dim(Some(ld), lo, Some(hd), hi)?.unwrap_or(Dim::ONE);
             let sample = |x| body.subst(var, &Expr::C(Val::new(Num::F(x), ld.clone())));
-            let d = dim_of(body, &|n| if n == var { Some(ld.clone()) } else { None })?.ok_or("unknown integrand dimension")?;
+            let d = dim_of(body, &|n| if n == var { Some(ld.clone()) } else { None }).map_err(|e| unitless_variable(e, var, lo, hi))?.ok_or("unknown integrand dimension")?;
             let points = crate::calculus::signal_points(body, var, &|_| None);
             let part = |im: bool| crate::calculus::piecewise_quadrature(&|x| eval_z(&sample(x), dom).ok().filter(|(_, sd)| *sd == d).map(|(v, _)| if im { v.im } else { v.re }), l, h, &points);
             let im = if dom == Domain::Complex { part(true)? } else { 0.0 };
@@ -295,6 +295,38 @@ fn eval_z(e: &Expr, dom: Domain) -> Result<(Z, Dim), String> {
         return Err(if r.0.is_nan() { "not a number here".into() } else { "too large (overflow)".into() });
     }
     Ok(r)
+}
+
+/// Whether an integral bound is 0 or ±∞ without a unit: these fit every unit.
+pub fn unit_free_bound(e: &Expr) -> bool {
+    unitless_number(e).is_some_and(|v| v == 0.0 || v.is_infinite())
+}
+
+/// A number without a unit, ±∞ included (−∞ is −1 · ∞).
+pub fn unitless_number(e: &Expr) -> Option<f64> {
+    match e {
+        Expr::C(v) if v.d.is_one() => Some(v.v.f()),
+        Expr::Mul(fs) => fs.iter().try_fold(1.0, |p, f| Some(p * unitless_number(f)?)),
+        _ => None,
+    }
+}
+
+/// An integrand's unit error when only 0 and ∞ bound it: they leave the variable without a unit.
+fn unitless_variable(e: String, var: &str, lo: &Expr, hi: &Expr) -> String {
+    if !(unit_free_bound(lo) && unit_free_bound(hi)) { return e; }
+    format!("{e} – bounds of 0 and ∞ give {var} no unit: write it on a bound, like integral_(0 s)^infinity")
+}
+
+/// The unit of an integral's variable from its bounds' dimensions (None: unknown); a bound of 0 or ±∞ without a
+/// unit takes the other's.
+fn bound_dim(ld: Option<Dim>, lo: &Expr, hd: Option<Dim>, hi: &Expr) -> Result<Option<Dim>, String> {
+    match (ld, hd) {
+        (Some(l), Some(h)) if l == h => Ok(Some(l)),
+        (Some(l), Some(h)) if h.is_one() && unit_free_bound(hi) => Ok(Some(l)),
+        (Some(l), Some(h)) if l.is_one() && unit_free_bound(lo) => Ok(Some(h)),
+        (Some(_), Some(_)) => Err("integral bounds have different units".into()),
+        (l, h) => Ok(l.or(h)),
+    }
 }
 
 /// A plain number, symbols from `vars`; None where it isn't defined (domain, division by zero, unknown names).
@@ -486,10 +518,8 @@ pub fn dim_of(e: &Expr, sd: &dyn Fn(&str) -> Option<Dim>) -> Result<Option<Dim>,
             dim_of(body, &|n| if n == var { Some(Dim::ONE) } else { sd(n) })?
         }
         Expr::Integral(body, var, lo, hi) => {
-            let ld = dim_of(lo, sd)?;
-            let hd = dim_of(hi, sd)?;
-            if let (Some(l), Some(h)) = (&ld, &hd) { if l != h { return Err("integral bounds have different units".into()); } }
-            match (ld.clone().or(hd.clone()), dim_of(body, &|n| if n == var { ld.clone().or(hd.clone()) } else { sd(n) })?) {
+            let ld = bound_dim(dim_of(lo, sd)?, lo, dim_of(hi, sd)?, hi)?;
+            match (ld.clone(), dim_of(body, &|n| if n == var { ld.clone() } else { sd(n) }).map_err(|e| unitless_variable(e, var, lo, hi))?) {
                 (Some(x), Some(y)) => Some(y.mul(&x)),
                 _ => None,
             }

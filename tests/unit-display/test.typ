@@ -26,6 +26,13 @@
 #assert(not restyled($3 inC$).contains(dot))
 #assert(not restyled($2 x$).contains(dot))
 #assert(not restyled($x := #inch$).contains(dot))
+// operators apply to what follows: no dot after them, also when they end in a digit or unit
+#assert(not restyled($sum_(k=1)^10 2^k$).contains(dot))
+#assert(not restyled($integral_0^(2 #s) 3 #m dif t$).contains(dot))
+#assert(not restyled($sin 2$).contains(dot))
+#assert(not restyled($dif / (dif x) 2 x$).contains(dot))
+#assert(not restyled($(dif^2) / (dif x^2) 2 x$).contains(dot))
+#assert(restyled($x^2 3$).contains(dot))
 // and parentheses around one under a power
 #assert(restyled($#inch^2$).contains("lr("))
 #assert(not restyled($#m^2$).contains("lr("))

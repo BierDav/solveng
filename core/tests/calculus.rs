@@ -169,3 +169,103 @@ fn typed_function_arguments_require_explicit_dimensions() {
     assert!(out.errors.is_empty(), "{out:?}");
     assert_eq!(value(&env.vars["answer"].expr).unwrap().v.f(), 2.0);
 }
+
+/// The differential ends the integrand wherever it stands: after it, closing a group around it, in a numerator.
+#[test]
+fn differentials_end_the_integrand_where_they_stand() {
+    let cases = [
+        ("z := integral_(0)^(pi/2) (e^(#i t) dif t) + 12 ->", r#""13" + #svconst("imaginary")"#),
+        ("integral_(0)^(1) (x^2 dif x) ->", r#"frac("1", "3")"#),
+        ("integral_(0)^(1) (x^2 + 1 dif x) * 2 ->", r#"frac("8", "3")"#),
+        ("integral_(0)^(1) ((x dif x)) + 1 ->", r#"frac("3", "2")"#),
+        ("integral_(0)^(1) x^2 + 1 dif x ->", r#"frac("4", "3")"#),
+        ("integral_(0)^(1) x dif x / 2 ->", r#"frac("1", "4")"#),
+        ("integral_(0)^(1) x dif x integral_(0)^(1) y dif y ->", r#"frac("1", "4")"#),
+        ("integral_(0)^(2) dif x ->", r#""2""#),
+        ("integral_(0)^(2) dif x + 1 ->", r#""3""#),
+        ("integral_(0)^(1) frac(dif x, x + 1) ->", r#"ln("2")"#),
+        ("integral_(0)^(1) frac(2 dif x, 1) ->", r#""2""#),
+        ("integral_(0)^(1) (integral_(0)^(x) y dif y) dif x ->", r#"frac("1", "6")"#),
+        ("integral_(0)^(1) integral_(0)^(x) (y dif y) dif x ->", r#"frac("1", "6")"#),
+        ("integral_(0)^(1) \"xy\" dif \"xy\" ->", r#"frac("1", "2")"#),
+    ];
+    for (source, want) in cases {
+        assert_eq!(run(&mut Env::default(), source).result.as_deref(), Some(want), "{source}");
+    }
+    let refused = [
+        ("integral_(0)^(1) dif x x ->", "differential ends the integrand"),
+        ("integral_(0)^(1) x dif x dif y ->", "dif stands for a differential"),
+        ("integral_(0)^(1) sin(x dif x) ->", "dif stands for a differential"),
+        ("integral_(0)^(1) x^(dif x) ->", "dif stands for a differential"),
+        ("integral_(0)^(1) frac(1, dif x) ->", "dif stands for a differential"),
+        ("integral_(0)^(1) |x dif x| ->", "dif stands for a differential"),
+        ("integral_(0)^(1) x ->", "ends with dif"),
+        ("x dif x ->", "dif stands for a differential"),
+        ("∫ x dif x ->", "indefinite integrals"),
+        ("∑ k ->", "both bounds"),
+        ("∏ k ->", "products"),
+    ];
+    for (source, message) in refused {
+        let out = line(&mut Env::default(), source);
+        assert!(out.errors.iter().any(|e| e.contains(message)), "{source}: {out:?}");
+    }
+    // unreadable lines asking for a result are errors, not prose
+    let out = line(&mut Env::default(), "integral_(0)^(1) (x dif =");
+    assert!(!out.errors.is_empty() && !out.prose, "{out:?}");
+    assert!(line(&mut Env::default(), "x -> (").prose);
+}
+
+/// Leibniz's notation, partial derivatives, higher and mixed orders; dif / (dif x) applies to one term.
+#[test]
+fn derivatives_in_leibniz_notation() {
+    let mut env = Env::default();
+    run(&mut env, "f(x, y) := x^2 y^3");
+    run(&mut env, "L := 2");
+    let cases = [
+        ("frac(dif x^2, dif x) ->", r#""2" x"#),
+        ("frac(dif (x^2 + x), dif x) + 1 ->", r#""2" x + "2""#),
+        ("frac(dif^(2) x^3, dif x^(2)) ->", r#""6" x"#),
+        ("frac(dif^(2), dif x^(2)) x^3 ->", r#""6" x"#),
+        ("frac(∂ f(x, y), ∂ x) ->", r#""2" x y^("3")"#),
+        ("frac(∂^(2) f(x, y), ∂ x ∂ y) ->", r#""6" x y^("2")"#),
+        ("frac(∂^(3) f(x, y), ∂ x ∂ y^(2)) ->", r#""12" x y"#),
+        ("frac(∂^(2), ∂ x^(2)) f(x, y) ->", r#""2" dot y^("3")"#),
+        ("dif / (dif x) x^2 + x ->", r#""3" x"#),
+        ("L dif / (dif x) x^2 ->", r#""4" x"#),
+        ("2 dif / (dif x) x^2 ->", r#""4" x"#),
+        ("frac(dif, dif x) x^3 + x ->", r#""3" dot x^("2") + x"#),
+    ];
+    for (source, want) in cases {
+        assert_eq!(run(&mut env, source).result.as_deref(), Some(want), "{source}");
+    }
+    for (source, message) in [
+        ("frac(dif^(2) x^3, dif x) ->", "order 2"),
+        ("frac(∂ f(x, y), dif x) ->", "below a derivative"),
+        ("∂ x ->", "partial derivative"),
+        ("frac(dif^(0) x, dif x^(0)) ->", "positive whole number"),
+    ] {
+        let out = line(&mut env, source);
+        assert!(out.errors.iter().any(|e| e.contains(message)), "{source}: {out:?}");
+    }
+}
+
+/// 0 and ±∞ fit every unit, so the other bound gives the variable its unit; ∞ shows as ∞.
+#[test]
+fn integral_bounds_of_zero_and_infinity_take_the_other_unit() {
+    for source in ["integral_(0)^(2 s) 3 A dif t =", "integral_(0)^(2 s) 3 A dif t ->", "integral_(0 s)^(2 s) 3 A dif t ="] {
+        assert_eq!(run(&mut Env::default(), source).result.as_deref(), Some(r#""6" thin upright("C")"#), "{source}");
+    }
+    assert_eq!(run(&mut Env::default(), "integral_(2 s)^(0) 3 A dif t =").result.as_deref(), Some(r#""−6" thin upright("C")"#));
+    let mut env = Env::default();
+    run(&mut env, "q(T) := integral_(0)^(T) 3 A dif t");
+    assert_eq!(run(&mut env, "q(2 s) =").result.as_deref(), Some(r#""6" thin upright("C")"#));
+    assert_eq!(run(&mut Env::default(), "integral_(0 s)^(infinity) e^(-t/[1 s]) dif t =").result.as_deref(), Some(r#""1" thin upright("s")"#));
+    assert_eq!(run(&mut Env::default(), "integral_(-infinity)^(0 s) e^(t/[1 s]) dif t =").result.as_deref(), Some(r#""1" thin upright("s")"#));
+    // only 0 and ∞ adapt; with both, the variable has no unit
+    let out = line(&mut Env::default(), "integral_(1)^(2 s) 3 A dif t =");
+    assert!(out.errors.iter().any(|e| e.contains("different units")), "{out:?}");
+    let out = line(&mut Env::default(), "integral_(0)^(infinity) e^(-t/[1 s]) dif t =");
+    assert!(out.errors.iter().any(|e| e.contains("write it on a bound")), "{out:?}");
+    let shown = run(&mut Env::default(), "integral_(0)^(infinity) e^(-t) dif t ->").result.unwrap();
+    assert!(shown.contains("^(infinity)") && !shown.contains("inf\""), "{shown}");
+}

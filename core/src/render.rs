@@ -96,6 +96,11 @@ impl R<'_> {
     }
 
     pub fn val(&self, v: &Val) -> (String, u8) {
+        // ∞ as math writes it, whatever its unit
+        let x = v.v.f();
+        if x.is_infinite() {
+            return if x > 0.0 { ("infinity".into(), P_ATOM) } else { ("-infinity".into(), P_NEG) };
+        }
         if v.d.is_one() && v.u.is_none() {
             if let (true, Num::R(r)) = (self.exact, v.v) {
                 if !r.is_int() && r.denom() <= self.cfg.max_denominator.max(1000) as i128 {

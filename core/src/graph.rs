@@ -61,6 +61,9 @@ pub struct Series {
     /// Sampled data with few points: each point is drawn as a dot too.
     #[serde(default)]
     pub dots: bool,
+    /// Sampled data rather than a function: it can be drawn as points alone.
+    #[serde(default)]
+    pub data: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -84,6 +87,14 @@ pub struct GraphOut {
     pub ylabels: Vec<String>,
     pub xlabel: String,
     pub ylabel: String,
+    /// Which ticks write a marked value rather than a step of the scale (these get no grid line).
+    pub xmarked: Vec<bool>,
+    pub ymarked: Vec<bool>,
+    /// The axes' names and units as math, empty without one (for the values an interactive graph shows).
+    pub xname: String,
+    pub yname: String,
+    pub xunit: String,
+    pub yunit: String,
     /// Where the axes cross: 0 when it's in range.
     pub x_axis_zero: bool,
     pub y_axis_zero: bool,
@@ -900,7 +911,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
                     used.push((run[b].0, run[b].1));
                 }
             }
-            series.push(Series { points: run.iter().map(|p| (p.0, p.1)).collect(), curve: i, label: lab.then(|| label.clone()), label_pos: lp, dots: c.data.as_ref().is_some_and(|d| d.xs.len() <= DOTS_MAX) });
+            series.push(Series { points: run.iter().map(|p| (p.0, p.1)).collect(), curve: i, label: lab.then(|| label.clone()), label_pos: lp, dots: c.data.as_ref().is_some_and(|d| d.xs.len() <= DOTS_MAX), data: c.data.is_some() });
         }
     }
     // marks
@@ -1012,9 +1023,9 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         points.push(Point { x: px, y: py, guides: gl.into() });
     }
     // marked values are written on the axes; regular ticks too close to them make room
-    let relabel = |tk: &mut (Vec<f64>, Vec<String>), ls: &[f64], w: f64| {
+    let relabel = |tk: &mut (Vec<f64>, Vec<String>), ls: &[f64], w: f64| -> Vec<bool> {
         if ls.is_empty() {
-            return;
+            return vec![false; tk.0.len()];
         }
         let mut keep_ls: Vec<f64> = vec![];
         for a in ls {
@@ -1023,14 +1034,16 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
             }
         }
         let mut all: Vec<(f64, String)> = tk.0.iter().zip(&tk.1).filter(|(p, _)| keep_ls.iter().all(|a| (a - **p).abs() > 0.08 * w)).map(|(p, l)| (*p, l.clone())).collect();
-        for a in keep_ls {
+        for &a in &keep_ls {
             all.push((a, number(Num::F(a), None, cfg).0));
         }
         all.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let marked = all.iter().map(|p| keep_ls.contains(&p.0)).collect();
         *tk = (all.iter().map(|p| p.0).collect(), all.into_iter().map(|p| p.1).collect());
+        marked
     };
-    relabel(&mut xt, &labx, x1 - x0);
-    relabel(&mut yt, &laby, y1 - y0);
+    let xmarked = relabel(&mut xt, &labx, x1 - x0);
+    let ymarked = relabel(&mut yt, &laby, y1 - y0);
     let axlabel = |n: &str, u: &UnitExpr| if u.is_empty() { n.to_string() } else {
         // a compound display is one unit: t / (2.54 cm)
         let m = format::unit(u, &units, cfg);
@@ -1046,6 +1059,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         None => String::new(),
     };
     let _ = dim_text;
+    let xname = xlabel.unwrap_or_else(|| name(&x));
     Ok(GraphOut {
         x0,
         x1,
@@ -1055,8 +1069,14 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         xlabels: xt.1,
         yticks: yt.0,
         ylabels: yt.1,
-        xlabel: axlabel(&xlabel.unwrap_or_else(|| name(&x)), &xunit),
+        xlabel: axlabel(&xname, &xunit),
         ylabel: axlabel(&ylab, &yunit),
+        xmarked,
+        ymarked,
+        yname: ylab.clone(),
+        xname,
+        xunit: if xunit.is_empty() { String::new() } else { format::unit(&xunit, &units, cfg) },
+        yunit: if yunit.is_empty() { String::new() } else { format::unit(&yunit, &units, cfg) },
         x_axis_zero: yc,
         y_axis_zero: xc,
         series,
@@ -1410,7 +1430,7 @@ mod tests {
             let s = &g.series[0];
             let f = if src == "2 y" { 2.0 } else { 1.0 };
             assert_eq!(s.points, vec![(0.0, f), (1.0, 4.0 * f), (2.0, 9.0 * f)], "{src}");
-            assert!(s.dots);
+            assert!(s.dots && s.data);
             assert_eq!((g.x0, g.x1), (0.0, 2.0));
             assert!(g.y0 <= f && g.y1 >= 9.0 * f);
         }
@@ -1418,7 +1438,7 @@ mod tests {
         assert_eq!(g.ylabel, name("y"));
         // a vector with a free variable is still several curves over it
         let g = graph(&env, &data_req(&["vec(t, t^2)"], vec![])).unwrap();
-        assert!(g.series.len() >= 2 && !g.series[0].dots);
+        assert!(g.series.len() >= 2 && !g.series[0].dots && !g.series[0].data);
         // a single sample is a dot
         let env = data_env(&["one := vec(3)"]);
         let g = graph(&env, &data_req(&["one"], vec![])).unwrap();

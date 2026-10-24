@@ -33,3 +33,9 @@
 // a long vector: a line without dots
 #worksheet(eval("$n := vec(" + range(200).map(k => str(calc.round(calc.sin(k / 10) * calc.exp(-k / 80), digits: 4))).join(", ") + ")$"), hidden: true)
 #graph($n$, ymark: 0.5, errors: "panic")
+
+// data as points alone, next to joined data and a function; custom dashes
+#graph($y(τ) \ c(τ)$, lines: false, mark: "crossings", errors: "panic")
+#worksheet($z := vec(1, 2, 1.8, 0.9, 0, -0.4, 0.2) * 1 #V$, hidden: true)
+#graph($y(τ) \ z(τ) \ c(τ)$, lines: (true, false), dashes: ("dotted", (4pt, 2pt)), errors: "panic")
+#graph($y$, dashes: none, lines: (false,), errors: "panic")

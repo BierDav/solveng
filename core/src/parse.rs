@@ -108,6 +108,16 @@ pub fn lex(s: &str) -> Result<Vec<Tok>, String> {
             continue;
         }
         match c {
+            // ∂ as in (∂ f) / (∂ x): a partial derivative
+            '∂' => {
+                out.push(Tok::Name("∂".into()));
+                i += 1;
+                continue;
+            }
+            // what Typst writes for ∫ and ∑ without both bounds, and products
+            '∫' | '∬' | '∭' | '∮' => return Err("an integral needs both bounds: integral_a^b f dif x – indefinite integrals aren't supported".into()),
+            '∑' => return Err("a sum needs its index and both bounds: sum_(k=1)^n f".into()),
+            '∏' => return Err("products (∏) aren't supported – write the factors out".into()),
             '∞' => {
                 out.push(Tok::Name("infinity".into()));
                 i += 1;
@@ -381,6 +391,17 @@ struct P<'a, 'b> {
     abs_depth: usize,
     /// Inside an exponent: numbers take no units.
     in_exp: usize,
+    integrand: Integrand,
+}
+
+/// The integrand being read. Its differential (dif x) is a factor of 1 that ends it, wherever it stands: after
+/// the integrand, at the end of a group around it, in the numerator of a fraction (dif x / (1 + x^2)).
+#[derive(Clone, Default)]
+struct Integrand {
+    /// A differential may stand here: not in arguments, exponents, indices, denominators.
+    open: bool,
+    /// The differential's variable, once read.
+    var: Option<String>,
 }
 
 fn visible_tokens(source: &str) -> Result<Vec<Tok>, String> {
@@ -419,6 +440,35 @@ impl<'a, 'b> P<'a, 'b> {
     }
     fn expect(&mut self, o: &str, what: &str) -> Result<(), String> {
         if self.eat(o) { Ok(()) } else { Err(format!("missing '{o}' {what}")) }
+    }
+    /// Reads where no differential may stand (arguments, exponents, denominators); the integrand's state stays.
+    fn closed<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        let outer = std::mem::take(&mut self.integrand);
+        let r = f(self);
+        self.integrand = outer;
+        r
+    }
+    /// Whether the integrand ended with its differential: nothing after it belongs to it.
+    fn ended(&self) -> bool {
+        self.integrand.var.is_some()
+    }
+    /// The variable of a differential, after dif.
+    fn differential_var(&mut self, what: &str) -> Result<String, String> {
+        let var = match self.peek() {
+            Some(Tok::Name(n)) if n != "dif" => n.clone(),
+            Some(Tok::Quoted(q)) => greek(q),
+            _ => return Err(format!("{what} after dif")),
+        };
+        self.i += 1;
+        Ok(var)
+    }
+    /// An optional order ^n of a differential: dif^2, dif x^2.
+    fn order(&mut self) -> Result<i32, String> {
+        if self.op() != Some("^") { return Ok(1); }
+        match self.small_int(self.i + 1) {
+            Some((n, end)) if n >= 1 => { self.i = end; Ok(n) }
+            _ => Err("the order of a derivative is a positive whole number: dif^2 / (dif x^2)".into()),
+        }
     }
 
     /// Whether the token at k can be read as a unit right after a number.
@@ -560,7 +610,7 @@ impl<'a, 'b> P<'a, 'b> {
     fn cmp(&mut self) -> Result<Ast, String> {
         let a = self.sum()?;
         let mut rest = vec![];
-        while let Some(r) = self.op().and_then(Rel::of) {
+        while let Some(r) = self.op().and_then(Rel::of).filter(|_| !self.ended()) {
             self.i += 1;
             rest.push((r, self.sum()?));
         }
@@ -575,7 +625,7 @@ impl<'a, 'b> P<'a, 'b> {
             false
         };
         terms.push((neg, self.term()?));
-        loop {
+        while !self.ended() {
             let n = match self.op() {
                 Some("+") => false,
                 Some("-") => true,
@@ -592,14 +642,13 @@ impl<'a, 'b> P<'a, 'b> {
             Some(Tok::Op(o)) => matches!(*o, "(" | "|" | "‖"),
             Some(Tok::Quoted(_)) => true,
             Some(Tok::Kw(_)) => false,
-            Some(Tok::Name(n)) => n != "dif",
             Some(Tok::Builtin(_) | Tok::Bound(_)) => true,
             _ => true,
         }
     }
     fn term(&mut self) -> Result<Ast, String> {
         let mut fs: Vec<(MulOp, Ast)> = vec![(MulOp::Implicit, self.unary()?)];
-        loop {
+        while !self.ended() {
             match self.op() {
                 Some(o @ ("*" | "·" | "×")) => {
                     self.i += 1;
@@ -630,8 +679,12 @@ impl<'a, 'b> P<'a, 'b> {
     }
     fn power(&mut self) -> Result<Ast, String> {
         let mut b = self.atom()?;
+        if self.ended() {
+            return Ok(b);
+        }
         // x[i], A[i, j], f(x)[0]
         while self.eat("[") {
+            let outer = std::mem::take(&mut self.integrand);
             let x = std::mem::take(&mut self.in_exp);
             let mut idx = vec![];
             loop {
@@ -642,12 +695,13 @@ impl<'a, 'b> P<'a, 'b> {
                 break;
             }
             self.in_exp = x;
+            self.integrand = outer;
             self.expect("]", "closing the index")?;
             b = Ast::Index(Box::new(b), idx);
         }
         let mut e = if self.eat("^") {
             self.in_exp += 1;
-            let x = if self.eat("-") { self.power().map(|x| Ast::Neg(Box::new(x))) } else { self.power() };
+            let x = self.closed(|p| if p.eat("-") { p.power().map(|x| Ast::Neg(Box::new(x))) } else { p.power() });
             self.in_exp -= 1;
             Ast::Pow(Box::new(b), Box::new(x?))
         } else {
@@ -665,6 +719,9 @@ impl<'a, 'b> P<'a, 'b> {
         Ok(e)
     }
     fn args(&mut self, name: &str) -> Result<Vec<Ast>, String> {
+        self.closed(|p| p.args_in(name))
+    }
+    fn args_in(&mut self, name: &str) -> Result<Vec<Ast>, String> {
         let mut args = vec![];
         if self.eat(")") {
             return Ok(args);
@@ -693,6 +750,9 @@ impl<'a, 'b> P<'a, 'b> {
     }
     /// The rows of mat(a, b; c, d), after its opening parenthesis.
     fn rows(&mut self) -> Result<Vec<Vec<Ast>>, String> {
+        self.closed(|p| p.rows_in())
+    }
+    fn rows_in(&mut self) -> Result<Vec<Vec<Ast>>, String> {
         let mut rows: Vec<Vec<Ast>> = vec![vec![]];
         loop {
             rows.last_mut().unwrap().push(self.cmp()?);
@@ -761,16 +821,18 @@ impl<'a, 'b> P<'a, 'b> {
             }
             Tok::Op("|") => {
                 self.abs_depth += 1;
-                let e = self.sum()?;
+                let e = self.closed(|p| p.sum());
                 self.abs_depth -= 1;
+                let e = e?;
                 self.expect("|", "closing the absolute value")?;
                 Ok(Ast::Abs(Box::new(e)))
             }
             // ‖v‖, as Typst writes norm(v)
             Tok::Op("‖") => {
                 self.abs_depth += 1;
-                let e = self.sum()?;
+                let e = self.closed(|p| p.sum());
                 self.abs_depth -= 1;
+                let e = e?;
                 self.expect("‖", "closing the norm")?;
                 Ok(Ast::Builtin("norm".into(), vec![e]))
             }
@@ -779,14 +841,11 @@ impl<'a, 'b> P<'a, 'b> {
         }
     }
     fn name(&mut self, n: String) -> Result<Ast, String> {
-        if n == "dif" && self.eat("/") {
-            self.expect("(", "around the differential")?;
-            if !matches!(self.peek(), Some(Tok::Name(n)) if n == "dif") { return Err("expected dif in the denominator".into()); }
-            self.i += 1;
-            let Some(Tok::Name(var)) = self.peek().cloned() else { return Err("a differentiation variable after dif".into()); };
-            self.i += 1;
-            self.expect(")", "after the differential")?;
-            return Ok(Ast::Builtin("diff".into(), vec![self.sum()?, Ast::Name(var)]));
+        if n == "dif" {
+            return self.differential();
+        }
+        if n == "∂" {
+            return Err("∂ makes a partial derivative: (∂ f) / (∂ x), (∂^2 f) / (∂ x ∂ y)".into());
         }
         if n == "sum_" {
             self.expect("(", "around the sum index and lower bound")?;
@@ -805,28 +864,12 @@ impl<'a, 'b> P<'a, 'b> {
             return Ok(Ast::Builtin("sum".into(), vec![body, Ast::Name(var), lo, hi]));
         }
         if n == "integral_" {
-            let lo = self.atom()?;
-            self.expect("^", "before the upper integral bound")?;
-            let hi = self.atom()?;
-            let body = self.sum()?;
-            if !matches!(self.peek(), Some(Tok::Name(n)) if n == "dif") { return Err("an integral ends with dif and its variable".into()); }
-            self.i += 1;
-            let Some(Tok::Name(var)) = self.peek().cloned() else { return Err("an integration variable after dif".into()); };
-            self.i += 1;
-            return Ok(Ast::Builtin("integrate".into(), vec![body, Ast::Name(var), lo, hi]));
+            return self.integral();
         }
         // Typst's frac(a, b), as math writes a fraction out: one factor
+        // Typst's frac(a, b), as math writes a fraction out: one factor
         if n == "frac" && self.op() == Some("(") {
-            self.i += 1;
-            let x = std::mem::take(&mut self.in_exp);
-            let a = self.args("frac");
-            self.in_exp = x;
-            let mut a = a?;
-            if a.len() != 2 {
-                return Err("frac takes two arguments".into());
-            }
-            let d = a.pop().unwrap();
-            return Ok(Ast::Div(Box::new(a.pop().unwrap()), Box::new(d)));
+            return self.frac();
         }
         if n == "mat" && self.op() == Some("(") {
             self.i += 1;
@@ -836,6 +879,111 @@ impl<'a, 'b> P<'a, 'b> {
             return Ok(Ast::Matrix(rows?));
         }
         self.call_or_name(n, false)
+    }
+    /// dif / (dif x) f: a derivative (as Typst writes frac(dif, dif x)); dif x in an integrand: its differential.
+    fn differential(&mut self) -> Result<Ast, String> {
+        if self.eat("/") {
+            self.expect("(", "around the differential")?;
+            if !matches!(self.peek(), Some(Tok::Name(n)) if n == "dif") { return Err("expected dif in the denominator".into()); }
+            self.i += 1;
+            let var = self.differential_var("a differentiation variable")?;
+            let order = self.order()?;
+            self.expect(")", "after the differential")?;
+            let body = self.term()?;
+            return Ok(derivative(body, &vec![var; order as usize]));
+        }
+        if !self.integrand.open {
+            return Err("dif stands for a differential: it ends an integral (integral_a^b f(x) dif x) or makes a derivative (dif / (dif x) f, (dif f) / (dif x))".into());
+        }
+        if self.ended() {
+            return Err("an integral has one differential – nest integrals for several variables".into());
+        }
+        let var = self.differential_var("an integration variable")?;
+        self.integrand.var = Some(var);
+        Ok(Ast::Num("1".into(), Num::R(Rat::ONE)))
+    }
+    /// integral_a^b f dif x: the integrand ends with its differential.
+    fn integral(&mut self) -> Result<Ast, String> {
+        let lo = self.closed(|p| p.atom())?;
+        self.expect("^", "before the upper integral bound")?;
+        let hi = self.closed(|p| p.atom())?;
+        let start = self.i;
+        let outer = std::mem::replace(&mut self.integrand, Integrand { open: true, var: None });
+        let body = self.sum();
+        let inner = std::mem::replace(&mut self.integrand, outer);
+        let body = body?;
+        let Some(var) = inner.var else { return Err("an integral ends with dif and its variable".into()) };
+        // ∫ dif x f(x): the differential ended an empty integrand, and f(x) would multiply the integral
+        if matches!(self.t.get(start), Some(Tok::Name(n)) if n == "dif") && self.starts_factor() {
+            return Err(format!("the differential ends the integrand: write integral … f dif {var}, not dif {var} f"));
+        }
+        Ok(Ast::Builtin("integrate".into(), vec![body, Ast::Name(var), lo, hi]))
+    }
+    /// frac(a, b); in Leibniz's notation frac(dif f, dif x), frac(dif^2 f, dif x^2), frac(dif, dif x) f: a derivative.
+    fn frac(&mut self) -> Result<Ast, String> {
+        self.i += 1;
+        let x = std::mem::take(&mut self.in_exp);
+        let r = if self.leibniz() { self.closed(|p| p.leibniz_frac()) } else { self.plain_frac().map(Frac::Value) };
+        self.in_exp = x;
+        match r? {
+            Frac::Value(v) => Ok(v),
+            // frac(dif, dif x) f: what it differentiates follows
+            Frac::Operator(vars) => {
+                let body = self.term()?;
+                Ok(derivative(body, &vars))
+            }
+        }
+    }
+    /// Whether the fraction after its parenthesis is a derivative: both its parts start with dif.
+    fn leibniz(&self) -> bool {
+        let is_dif = |k: usize| matches!(self.t.get(k), Some(Tok::Name(n)) if n == "dif" || n == "∂");
+        if !is_dif(self.i) { return false; }
+        let mut d = 0;
+        for k in self.i..self.t.len() {
+            match &self.t[k] {
+                Tok::Op("(" | "[") => d += 1,
+                Tok::Op(")" | "]") if d == 0 => return false,
+                Tok::Op(")" | "]") => d -= 1,
+                Tok::Op(",") if d == 0 => return is_dif(k + 1),
+                _ => {}
+            }
+        }
+        false
+    }
+    fn plain_frac(&mut self) -> Result<Ast, String> {
+        let a = self.cmp()?;
+        if !self.eat(",") { return Err("frac takes two arguments".into()); }
+        let b = self.closed(|p| p.cmp())?;
+        if self.op() == Some(",") { return Err("frac takes two arguments".into()); }
+        self.expect(")", "after the arguments of frac")?;
+        Ok(Ast::Div(Box::new(a), Box::new(b)))
+    }
+    /// frac(dif^n f, dif x^n), frac(∂^2 f, ∂ x ∂ y) after the parenthesis.
+    fn leibniz_frac(&mut self) -> Result<Frac, String> {
+        let Some(Tok::Name(d)) = self.peek().cloned() else { unreachable!() };
+        self.i += 1;
+        let order = self.order()?;
+        let body = if self.op() == Some(",") { None } else { Some(self.cmp()?) };
+        self.expect(",", "between the differentials")?;
+        // below: one differential per variable, each with its order
+        let mut vars = vec![];
+        while self.op() != Some(")") {
+            if !matches!(self.peek(), Some(Tok::Name(n)) if *n == d) {
+                return Err(format!("below a derivative stand differentials: {d} x, {d} x^2, {d} x {d} y"));
+            }
+            self.i += 1;
+            let var = self.differential_var("a differentiation variable")?;
+            let n = self.order()?;
+            vars.extend(std::iter::repeat_n(var, n as usize));
+        }
+        self.i += 1;
+        if vars.len() != order as usize {
+            return Err(format!("a derivative of order {order} has {order} differentials below ({d} x^{order}), not {}", vars.len()));
+        }
+        Ok(match body {
+            Some(b) => Frac::Value(derivative(b, &vars)),
+            None => Frac::Operator(vars),
+        })
     }
     /// f(x), tri(t), sin x, or a name alone.
     fn call_or_name(&mut self, n: String, explicit: bool) -> Result<Ast, String> {
@@ -869,6 +1017,17 @@ impl<'a, 'b> P<'a, 'b> {
         }
         Ok(a)
     }
+}
+
+/// A fraction read: a value, or d^n/dx^n applying to what follows it.
+enum Frac {
+    Value(Ast),
+    Operator(Vec<String>),
+}
+
+/// The derivative by each variable in turn, the last one first.
+fn derivative(body: Ast, vars: &[String]) -> Ast {
+    vars.iter().rev().fold(body, |b, v| Ast::Builtin("diff".into(), vec![b, Ast::Name(v.clone())]))
 }
 
 /// An expression of numbers only (a quantity's numeric part).
@@ -1122,11 +1281,11 @@ fn params(t: &[Tok], c: &Ctx) -> Result<(Vec<Param>, bool), String> {
             // an expression of unit bindings only (and any, 1) is a type (I: mA); anything else a default value
             // (n: 2, t: 1 s), as in Typst a named parameter
             let value = {
-                let mut p = P { t: sub.clone(), i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0 };
+                let mut p = P { t: sub.clone(), i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0, integrand: Integrand::default() };
                 !(p.unit_spec().is_ok() && p.i == p.t.len())
             };
             if value {
-                let mut q = P { t: sub, i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0 };
+                let mut q = P { t: sub, i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0, integrand: Integrand::default() };
                 let d = q.cmp().map_err(|e| format!("the default value of {name}: {e}"))?;
                 if q.i < q.t.len() {
                     return Err(format!("the default value of {name}: can't read '{}'", q.t[q.i..].iter().map(tok_text).collect::<Vec<_>>().join(" ")));
@@ -1134,7 +1293,7 @@ fn params(t: &[Tok], c: &Ctx) -> Result<(Vec<Param>, bool), String> {
                 default = Some(d);
                 None
             } else {
-                let mut p = P { t: sub, i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0 };
+                let mut p = P { t: sub, i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0, integrand: Integrand::default() };
                 let u = p.unit_spec().map_err(|e| format!("the unit of {name}: {}", e.trim_start_matches("the unit: ")))?;
                 if p.i < p.t.len() {
                     return Err(format!("the unit of {name}: can't read '{}'", p.t[p.i..].iter().map(tok_text).collect::<Vec<_>>().join(" ")));
@@ -1168,9 +1327,12 @@ fn src_text(t: &[Tok]) -> String {
     s
 }
 
-/// Whether a line with a trailing -> is meant for solveng though it can't be read: what comes before the arrow
-/// uses a unit or a defined name (`1 "min" -> s`), or a keyword follows it, unlike prose such as `f: X -> Y`.
+/// Whether a line is meant for solveng though it can't be read: it ends with a bare = or ->, or what comes before
+/// its arrow uses a unit or a defined name (`1 "min" -> s`), or a keyword follows it, unlike prose such as `f: X -> Y`.
 pub fn meant(src: &str, c: &Ctx) -> bool {
+    // a bare trailing = or -> asks for a result, also of what can't be lexed
+    let end = src.trim_end();
+    if end.ends_with("->") || end.ends_with('→') || (end.ends_with('=') && !end.ends_with("<=") && !end.ends_with(">=") && !end.ends_with("!=")) { return true; }
     let Ok(t) = visible_tokens(src) else { return false };
     let mut depth = 0i32;
     let mut arrow = None;
@@ -1230,7 +1392,7 @@ pub fn parse_line(src: &str, c: &Ctx) -> Result<Line, String> {
 
 fn stmt(t: &[Tok], c: &Ctx) -> Result<Stmt, String> {
     let def = t.iter().position(|k| *k == Tok::Op(":="));
-    let mut p = P { t: vec![], i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0 };
+    let mut p = P { t: vec![], i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0, integrand: Integrand::default() };
     if let Some(d) = def {
         let lhs = &t[..d];
         let rhs = &t[d + 1..];
@@ -1241,7 +1403,7 @@ fn stmt(t: &[Tok], c: &Ctx) -> Result<Stmt, String> {
             [Tok::Name(n)] => Head::Var(n.clone()),
             [Tok::Quoted(n)] => Head::Var(greek(n)),
             [Tok::Name(n) | Tok::Quoted(n), Tok::Op("["), inner @ .., Tok::Op("]")] => {
-                let mut q = P { t: inner.to_vec(), i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0 };
+                let mut q = P { t: inner.to_vec(), i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0, integrand: Integrand::default() };
                 let mut indices = vec![];
                 loop {
                     indices.push(q.cmp()?);
@@ -1424,7 +1586,7 @@ pub fn parse_curve(src: &str, c: &Ctx) -> Result<Curve, String> {
         }
     }
     let body = |toks: &[Tok], defining: Option<String>| -> Result<Ast, String> {
-        let mut p = P { t: toks.to_vec(), i: 0, c, defining: defining.into_iter().collect(), abs_depth: 0, in_exp: 0 };
+        let mut p = P { t: toks.to_vec(), i: 0, c, defining: defining.into_iter().collect(), abs_depth: 0, in_exp: 0, integrand: Integrand::default() };
         let e = p.sum()?;
         if p.i < p.t.len() {
             return Err(format!("unexpected '{}' in '{src}'", tok_text(&p.t[p.i])));

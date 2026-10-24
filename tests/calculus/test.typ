@@ -1,6 +1,7 @@
 #import "/lib.typ": *
 #import "/tests/util.typ": expect, passes, result, undefined
-#import constants: e
+#import constants: e, i, pi
+#import units: s, A
 #set page(width: 18cm, height: auto)
 #show: worksheet
 #worksheet($
@@ -68,3 +69,16 @@ $q(t) := t^2$
 $"lateDerivative" =$
 #passes()
 #expect("lateDerivative", 4)
+
+// the differential ends the integrand, also inside a group or a numerator
+$ z := integral_0^(pi/2)(#e^(#i t) dif t) + 12 -> $
+#passes()
+#result("\"13\" + i")
+$ integral_0^1 (dif x)/(x + 1) -> $
+#passes()
+$ (partial^2 x^2 y^3)/(partial x partial y) -> $
+#passes()
+#result("\"6\" x y^(\"2\")")
+$ "charge" := integral_0^(2 #s) 3 #A dif t = $
+#passes()
+#expect("charge", 6)

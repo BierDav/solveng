@@ -349,10 +349,23 @@
   _plain(x).trim().match(_starts-number) != none
 }
 #let _ends-number = regex("\\p{N}$")
+// an operator applies to what follows (sin 2, ∑_(k=1)^10 2^k, ∫_0^(2 s) 3 A dif t, d/(dif x) 2x): no factor ends with it
+#let _operator(x) = {
+  if type(x) not in (symbol, content) { return false }
+  if type(x) == symbol { return str(x) in ("∫", "∬", "∭", "∮", "∑", "∏") }
+  if x.has("label") and x.label in (<solveng-operation>, <solveng-function>) { return true }
+  let f = x.func()
+  if f == math.op { return true }
+  if f == math.attach or f == math.limits or f == math.scripts { return _operator(x.at(if f == math.attach { "base" } else { "body" })) }
+  // d/(dif x), d^2/(dif x^2), ∂/(∂ x): a derivative without its operand
+  let differential(n) = n == math.dif or _plain(n).trim() in ("d", "ⅆ", "∂") or (type(n) == content and n.func() == math.attach and differential(n.base))
+  if f == math.frac { return differential(x.num) }
+  _plain(x).trim() in ("∫", "∬", "∭", "∮", "∑", "∏")
+}
 // factors written next to each other, joined as results are written: by a dot where digits would meet
 // (1 · 2.54 cm), a number and its unit by a thin space (3 in)
 #let _dotted(out) = {
-  let ends(x) = _binding-meta(x).len() > 0 or _plain(x).trim().match(_ends-factor) != none
+  let ends(x) = not _operator(x) and (_binding-meta(x).len() > 0 or _plain(x).trim().match(_ends-factor) != none)
   let (joined, prev) = ((), none)
   for x in out {
     if not _blank(x) {

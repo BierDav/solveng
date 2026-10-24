@@ -176,6 +176,10 @@
 /// worksheet value for it does not replace it while differentiating. Unsupported piecewise
 /// or distributional derivatives stay symbolic and cannot be evaluated numerically.
 ///
+/// In math, Leibniz's notation does the same: `$(dif x^3)/(dif x) ->$`, `$dif/(dif x) x^3 ->$`,
+/// higher orders `$(dif^2 f(x))/(dif x^2)$` and partial derivatives `$(partial^2 f(x, y))/(partial x partial y)$`.
+/// `dif/(dif x)` applies to the term after it: `$dif/(dif x) x^2 + x ->$` is 2x + x.
+///
 /// - expression (expression): Expression to differentiate.
 /// - variable (name): Differentiation variable, written as a name rather than a value.
 /// -> expression
@@ -184,11 +188,18 @@
 /// Definite integral: `integrate(expression, variable, lower, upper)`.
 ///
 /// `$integrate(x^2, x, 0, 3) =$` gives 9. The variable is local to the operation.
-/// Bounds must have matching units; the result has the integrand's unit times the
+/// Bounds must have matching units (0 and ±∞ match any); the result has the integrand's unit times the
 /// variable's unit. Either bound may be infinite. Recognized antiderivatives simplify
 /// exactly; remaining integrals stay symbolic with `->` and use adaptive quadrature for
 /// `=` or graphs. Affine signal arguments are split at their corners so narrow pulses
 /// are not skipped. Undefined integrands or failure to converge report an error.
+///
+/// In math, `$integral_0^3 x^2 dif x =$` does the same. The differential ends the integrand
+/// wherever it stands: `$integral_0^1 x^2 + 1 dif x$` integrates x² + 1, `$integral_0^1 (x dif x) + 1$`
+/// adds 1 to the integral, `$integral_0^1 (dif x)/(1 + x^2)$` and `$integral_0^1 dif x$` are
+/// integrals too. A bound of 0 or ±∞ takes the other bound's unit (`$integral_0^(2 #s) 3 #A dif t$`);
+/// when both are, write the unit on one: `$integral_(0 #s)^infinity #e^(-t/tau) dif t$`. Indefinite
+/// integrals aren't supported.
 ///
 /// - expression (expression): Integrand.
 /// - variable (name): Integration variable, written as a name rather than a value.

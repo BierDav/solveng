@@ -73,7 +73,7 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 | [`eng`](#eng) | Engineering notation, exponents in steps of 3: `$f = eng$`. |
 | [`fraction`](#fraction) | Exact fractions: `$I / 3 = fraction$` → ⅙ A. |
 | [`defined`](#defined) | Lists the definitions made so far, in order. |
-| [`graph`](#graph) | Plots an equation with `simple-plot`: ranges, nice ticks, axis labels and units are picked automatically. |
+| [`graph`](#graph) | Plots an equation: ranges, nice ticks, axis labels and units are picked automatically. |
 | [`lambdify`](#lambdify) | Turns an expression into a plain Typst function of numbers, for value tables, other plotting packages (lilaq, cetz-plot, simple-plot) or your own calculations. |
 | [`value`](#value) | The result of an expression alone, where the text needs it: what `$U =$` shows after its `=`. |
 | [`clear`](#clear) | Forgets definitions: the names given, or with `all: true` every one made so far. |
@@ -411,7 +411,7 @@ Returns content.
 
 ## `graph`
 
-Plots an equation with `simple-plot`: ranges, nice ticks, axis labels and units are picked automatically.
+Plots an equation: ranges, nice ticks, axis labels and units are picked automatically.
 
 Math holds the curves, separated by a backslash: `$cos(w) \ w$`, or a function such as
 `$P(U: #V) = U^2/R$`. A parameter annotation supplies the axis unit; `..` takes the one undefined variable.
@@ -425,20 +425,20 @@ With `:=`, curves also define their names for later calculations. Curves share t
 #graph($y(x) = x^2 \ y(x) = 2x + 3$, xrange: (-3, 5))
 ```
 
-Uses `@preview/simple-plot:1.1.0`. Ticks use the document's decimal separator, axis labels read `U / V`; curves of the same unit share one graph, with a legend.
+Drawn with `@preview/lilaq:0.6.0` in the schoolbook style: axes through the origin with arrows, a faint grid at the regular ticks. Ticks use the document's decimal separator, axis labels read `U / V`; curves of the same unit share one graph, with a legend in the corner the curves leave emptiest. In HTML export the graph is drawn in the browser instead, in the same style: the curves draw themselves in when the graph comes into view, and the pointer shows the values of every curve with their units. The static picture stays in the page for readers without scripts.
 
 **Ranges:** values and expressions in `xrange` / `yrange` must have the axis unit (`$f(20) #Ω$` is fine) – `xrange: ($10 #Ω$, $f(20)$)` with a unitless `f(20)` is an error, since it isn't clear what was meant. Without a range: around the marks; else around what's interesting – roots, extrema, poles, edges of the domain (√, ln) and, above all, where curves cross – rounded to nice ticks, starting at 0 when everything interesting is positive. With `ymark`, the y range is around the marked values (steep curves leave the picture). **Units** follow from what's plotted: y's from the curves (shown in the SI unit with a fitting prefix; `preferred-units` picks others), x's from the curve's parameter (`U(I: mA) = …`) or a function x is passed to whose parameter has one (`$q(I: mA) := I R$`, then `#graph($U(I) = q(I)$)` is over I in mA), else from the units in `xrange` and the marks, else from the curve and the units of the y values (`P(..) = U_0^2/R_2` with `ymark: $2 #W$`: R₂ in Ω).
 
-**Data:** a vector of values is plotted as the points through its elements, joined in index order (with a dot at each when there are at most 30): `#graph($y$)` against the zero-based index k (as in `at(y, k)`), `#graph($y(τ)$)` over the vector `tau` of the same length – or over any expression without free names that is one, `y(2 tau)`. Units come from the elements (each vector needs one unit for all its elements; every element must have a value). Function curves can go alongside: `#graph($y(τ) \ c(τ)$)` with a function `c`, or an expression in `tau` (`$2 tau$`), where `tau` stands for the x axis and the function is sampled over it; the x range is from the data's first to last x value unless `xrange` says otherwise, and the units of x and y must agree. Marks work on data too, with linear interpolation between the points: x values, `"roots"` and `"crossings"` (with data and with functions) where the values change sign, `"extrema"` as the local extreme points, and `ymark`. A vector with a free name is several curves instead, one per element (`$vec(t, t^2)$`).
+**Data:** a vector of values is plotted as the points through its elements, joined in index order (with a dot at each when there are at most 30): `#graph($y$)` against the zero-based index k (as in `at(y, k)`), `#graph($y(τ)$)` over the vector `tau` of the same length – or over any expression without free names that is one, `y(2 tau)`. Units come from the elements (each vector needs one unit for all its elements; every element must have a value). Function curves can go alongside: `#graph($y(τ) \ c(τ)$)` with a function `c`, or an expression in `tau` (`$2 tau$`), where `tau` stands for the x axis and the function is sampled over it; the x range is from the data's first to last x value unless `xrange` says otherwise, and the units of x and y must agree. Marks work on data too, with linear interpolation between the points: x values, `"roots"` and `"crossings"` (with data and with functions) where the values change sign, `"extrema"` as the local extreme points, and `ymark`. A vector with a free name is several curves instead, one per element (`$vec(t, t^2)$`). For measurements, `lines: false` draws the data as points alone, without the line: `#graph($y(τ) \ c(τ)$, lines: (false, true))` shows measured points next to the curve `c`.
 
 **Marks** default to none. Requested marks are always visible – the ranges grow to show them. Combine them in an array, `(auto, $R_1$)`.
 
-**Size:** `width` / `height` are the whole graph, labels included; `auto` makes the plot area 8 × 5 cm. Any other named argument goes straight to simple-plot's `plot` (e.g. `show-grid: false`), other positional ones (series from simple-plot) are added as they are. For full control, plot with simple-plot directly.
+**Size:** `width` / `height` are the whole graph, labels included; `auto` makes the plot area 8 × 5 cm. Any other named argument goes straight to lilaq's `diagram` (e.g. `title: [Load]`, `grid: none`); it shapes the printed graph, not the one drawn in HTML. For full control, plot with lilaq directly.
 
 | parameter | type | default | |
 |---|---|---|---|
 | `equation` | content |  | Math curves separated by a backslash. |
-| `..args` | any |  | Named options passed on to simple-plot's `plot` (e.g. `show-grid: false`). |
+| `..args` | any |  | Named options passed on to lilaq's `diagram` (e.g. `title: [Load]`). |
 | `xrange` | auto, array, content, int, float | `auto` | x values that must be visible: numbers in the x axis's unit (`(1, 2)`), values (`($10 #Ω$, $1 kΩ$)`) or expressions of defined variables (`(0, $2 R$)`). Two or more give the range from the smallest to the largest; a single one widens the picked range. `auto`: around the marked x values, else picked from the curves. |
 | `yrange` | auto, array, content, int, float | `auto` | y values that must be visible, like `xrange` (numbers in the y axis's SI unit). Two or more give the exact y range. `auto`: fitted to the curves. |
 | `mark` | none, auto, array, content, int, float | `none` | What to mark, with both coordinates written on the axes: x values like `xrange` (`$R$`, `2`, `$5 #V$`; a point with guide lines on every curve, the range grows to show it), `"crossings"`, `"roots"`, `"extrema"` (searched within the range) and `auto`: where two curves cross. An array combines them: `(auto, $R_1$)`. `()` or `none` (default): no marks. |
@@ -447,7 +447,9 @@ Uses `@preview/simple-plot:1.1.0`. Ticks use the document's decimal separator, a
 | `samples` | int | `400` | Number of sample points. |
 | `width` | auto, length, ratio, relative, fraction | `auto` | Width of the whole graph, labels included: `12cm`, `300pt` or a share like `100%`. `1fr` is the container's width – in a grid, the column's. `auto`: a plot area of 8 cm. |
 | `height` | auto, length, ratio, relative, fraction | `auto` | Like `width`; `auto`: a plot area of 5 cm. A share is of the container's height, or of the width when the page grows with its content. |
-| `colors` | array, color | `(blue, red.darken(10%), green.darken(25%), orange.darken(10%))` | Colors of the curves, e.g. `(gray, blue, rgb("#f98eff"))`. |
+| `colors` | array, color | `(rgb("#3f90da"), rgb("#ffa90e"), rgb("#bd1f01"), rgb("#94a4a2"), rgb("#832db6"), rgb("#a96b59"), rgb("#e76300"), rgb("#b9ac70"), rgb("#717581"), rgb("#92dadd"))` | Colors of the curves, e.g. `(gray, blue, rgb("#f98eff"))`. The default is Petroff's ten colors, chosen to stay apart for color-blind readers (lilaq's default too). |
+| `dashes` | array, str, dictionary, none | `("solid", "dashed", "dotted", "dash-dotted")` | Line styles of the curves, so they can be told apart without color (color-blind readers, grayscale prints): Typst dash patterns such as `"solid"`, `"dashed"`, `"dotted"`, `"dash-dotted"`, `"densely-dashed"`, `"loosely-dotted"`, or an array of lengths like `(4pt, 2pt)`. The default is the order of scientific plotting tools (MATLAB, matplotlib, gnuplot): solid, dashed, dotted, dash-dotted. `"solid"` or `none`: every curve solid. Curve n takes color n and dash n, each list repeating on its own. |
+| `lines` | bool, array | `true` | Whether data curves are joined by lines, per curve and repeating like `colors`: `false` draws the data as points alone (a scatter plot), `(false, true)` only the first curve. Points are circles, squares, triangles and diamonds, curve after curve, so they can be told apart without color too. Functions are always lines. |
 | `digits`, `separator`, `form`, … | auto | `auto` | Every option of `worksheet` works here too, for this call only. See [Options](#options). |
 
 Returns content.
@@ -656,6 +658,10 @@ Symbolically differentiates an expression with respect to a name: `diff(expressi
 worksheet value for it does not replace it while differentiating. Unsupported piecewise
 or distributional derivatives stay symbolic and cannot be evaluated numerically.
 
+In math, Leibniz's notation does the same: `$(dif x^3)/(dif x) ->$`, `$dif/(dif x) x^3 ->$`,
+higher orders `$(dif^2 f(x))/(dif x^2)$` and partial derivatives `$(partial^2 f(x, y))/(partial x partial y)$`.
+`dif/(dif x)` applies to the term after it: `$dif/(dif x) x^2 + x ->$` is 2x + x.
+
 | parameter | type | default | |
 |---|---|---|---|
 | `expression` | expression |  | Expression to differentiate. |
@@ -668,11 +674,18 @@ Returns expression.
 Definite integral: `integrate(expression, variable, lower, upper)`.
 
 `$integrate(x^2, x, 0, 3) =$` gives 9. The variable is local to the operation.
-Bounds must have matching units; the result has the integrand's unit times the
+Bounds must have matching units (0 and ±∞ match any); the result has the integrand's unit times the
 variable's unit. Either bound may be infinite. Recognized antiderivatives simplify
 exactly; remaining integrals stay symbolic with `->` and use adaptive quadrature for
 `=` or graphs. Affine signal arguments are split at their corners so narrow pulses
 are not skipped. Undefined integrands or failure to converge report an error.
+
+In math, `$integral_0^3 x^2 dif x =$` does the same. The differential ends the integrand
+wherever it stands: `$integral_0^1 x^2 + 1 dif x$` integrates x² + 1, `$integral_0^1 (x dif x) + 1$`
+adds 1 to the integral, `$integral_0^1 (dif x)/(1 + x^2)$` and `$integral_0^1 dif x$` are
+integrals too. A bound of 0 or ±∞ takes the other bound's unit (`$integral_0^(2 #s) 3 #A dif t$`);
+when both are, write the unit on one: `$integral_(0 #s)^infinity #e^(-t/tau) dif t$`. Indefinite
+integrals aren't supported.
 
 | parameter | type | default | |
 |---|---|---|---|

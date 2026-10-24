@@ -2,6 +2,7 @@ use crate::expr::{Expr, Func, add, div, func, int, mul, neg, pow, simp, sub, sym
 use crate::num::Num;
 
 pub fn integral(body: Expr, var: String, lo: Expr, hi: Expr) -> Expr {
+    let (lo, hi) = unit_bounds(lo, hi);
     if lo == hi && !lo.contains(&infinite) { return int(0); }
     let bounds_match = match (crate::eval::dim_of(&lo, &|_| None), crate::eval::dim_of(&hi, &|_| None)) {
         (Ok(Some(a)), Ok(Some(b))) => a == b,
@@ -19,6 +20,21 @@ pub fn integral(body: Expr, var: String, lo: Expr, hi: Expr) -> Expr {
         }
     }
     Expr::Integral(Box::new(body), var, Box::new(lo), Box::new(hi))
+}
+
+/// 0 and ±∞ fit every unit: such a bound without one takes the other bound's (integral_0^(2 s)).
+fn unit_bounds(lo: Expr, hi: Expr) -> (Expr, Expr) {
+    let dim = |e: &Expr| crate::eval::dim_of(e, &|_| None).ok().flatten().filter(|d| !d.is_one());
+    let with = |free: Expr, other: &Expr| match (crate::eval::unit_free_bound(&free), dim(other)) {
+        (true, Some(d)) => match free {
+            Expr::C(v) => Expr::C(crate::expr::Val::new(v.v, d)),
+            free => crate::eval::unitless_number(&free).map_or(free, |v| Expr::C(crate::expr::Val::new(Num::F(v), d))),
+        },
+        _ => free,
+    };
+    let lo2 = with(lo.clone(), &hi);
+    let hi2 = with(hi, &lo);
+    (lo2, hi2)
 }
 
 fn infinite(e: &Expr) -> bool {
