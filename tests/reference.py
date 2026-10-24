@@ -14,7 +14,7 @@ OUT = os.path.join(ROOT, "docs", "reference.md")
 # public functions (worksheet comes with the option tables) and the operations of the `operations` module,
 # in the order they are documented
 FUNCTIONS = ["worksheet", "base-unit", "unit", "constant", "operation", "solve", "substitute", "simplify", "digits", "sci", "eng", "fraction", "defined", "graph", "lambdify", "value", "clear"]
-OPERATIONS = ["rect", "tri", "sgn", "Re", "Im", "conj", "number", "floor", "factorial", "diff", "integrate", "laplace", "invlaplace", "convolve", "range", "at", "rank", "identity", "rows", "cols", "asin", "acos", "atan"]
+OPERATIONS = ["rect", "tri", "sgn", "Re", "Im", "conj", "number", "floor", "ceil", "factorial", "diff", "integrate", "laplace", "invlaplace", "convolve", "range", "at", "rank", "identity", "rows", "cols", "asin", "acos", "atan"]
 DOCUMENTED = FUNCTIONS + OPERATIONS
 CHAPTERS = ["src/builtins.typ", "src/modifiers.typ", "src/engine.typ", "src/display.typ", "tests/util.typ"]
 PARAM = re.compile(r"^- ((?:\.\.)?[a-z][\w-]*(?:, [a-z][\w-]*)*(?:, …)?) \(([^)]*)\): (.*)$")

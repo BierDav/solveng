@@ -992,7 +992,7 @@ Options of `worksheet`, and of `defined` and `graph`. Each one defaults to `auto
 | option | type | default | |
 |---|---|---|---|
 | `words` | auto, dictionary | `(any: "any")` | The word shown for any-unit types, for documents in other languages: `(any: "beliebig")`. What you type stays `any`. |
-| `chips` | auto, dictionary, function | `auto` | The colours of the type chips, `(type: (fill: …, mark: …, ink: …))` (`mark` is the colour of `:`, `ink` the unit's), or a function `(kind, mark, unit) => content` drawing them, with `kind` `"type"` and `mark` and `unit` as content. |
+| `chips` | auto, dictionary, function | `auto` | The colours of the type chips, `(type: (fill: …, mark: …, ink: …))` (`mark` is the colour of `:`, `ink` the unit's), or a function `(kind, mark, unit) => content` drawing them, with `kind` `"type"` and `mark` and `unit` as content. In HTML export `dark: (fill: …, mark: …, ink: …)` beside them gives the colours of a dark page; a colour set only for the light page keeps there. |
 | `unit-style` | auto, function | `auto` | A function given every shown unit as content, `u => text(fill: blue, u)`. |
 | `unit-separator` | auto, content, str, symbol | `auto` | What goes between units, a thin dot by default (A·as): `sym.times`, `h(0.2em)`. |
 
@@ -1168,7 +1168,7 @@ Problems (a missing value, units that don't match, a real calculation that would
 
 ## HTML
 
-With `typst compile --features html --format html`, equations become MathML, `defined` columns that reflow with the width (or a table with `style: "column"`), graphs inline SVGs (via `html.frame`) that shrink with the page, errors styled notes. One small stylesheet is added to the page (math font STIX Two Math / Cambria Math / Latin Modern Math, spacing, table stripes; classes `solveng`, `solveng-defs`, `solveng-list`, `solveng-plot`, `solveng-error`; types are `solveng-chip` with `solveng-type`, coloured inline). HTML export is experimental in Typst; in column layout browsers drop the space after a leading `=`.
+With `typst compile --features html --format html`, equations become MathML, `defined` columns that reflow with the width (or a table with `style: "column"`), graphs inline SVGs (via `html.frame`) that shrink with the page, errors styled notes. One small stylesheet is added to the page (math font STIX Two Math / Cambria Math / Latin Modern Math, spacing, table stripes; classes `solveng`, `solveng-defs`, `solveng-list`, `solveng-plot`, `solveng-error`; types are `solveng-chip` with `solveng-type`, coloured inline). It follows the reader's light or dark scheme: chips and errors take their dark colours, graphs are drawn live in the page's `Canvas`/`currentColor` (the static picture only shows without scripts). HTML export is experimental in Typst; in column layout browsers drop the space after a leading `=`.
 
 ## Testing
 

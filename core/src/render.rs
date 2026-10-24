@@ -180,6 +180,8 @@ impl R<'_> {
             // as math writes them: |x|, x̄, e^x, Typst's own operators by name; the others as their bindings show them
             Expr::F(Func::Conj, a) => (format!("overline({})", self.expr(a).0), P_ATOM),
             Expr::F(Func::Abs, a) => (format!("abs({})", self.expr(a).0), P_ATOM),
+            Expr::F(Func::Floor, a) => (format!("floor({})", self.expr(a).0), P_ATOM),
+            Expr::F(Func::Ceil, a) => (format!("ceil({})", self.expr(a).0), P_ATOM),
             Expr::F(Func::Exp, a) => (format!("{}^({})", constant("euler", None), self.expr(a).0), P_POW),
             Expr::F(f, a) => (format!("{}({})", self.operation(f.name()), self.expr(a).0), P_ATOM),
             Expr::Cmp(v, rs) => {
@@ -370,6 +372,8 @@ impl R<'_> {
                     "integrate" if a.len() == 2 => (format!("integral {} dif {}", operand(P_NEG), a[1]), P_PROD),
                     "sqrt" => (format!("sqrt({})", a.join(", ")), P_ATOM),
                     "abs" => (format!("abs({})", a.join(", ")), P_ATOM),
+                    // Typst's floor(x) and ceil(x): ⌊x⌋, ⌈x⌉
+                    "floor" | "ceil" => (format!("{n}({})", a.join(", ")), P_ATOM),
                     "exp" => (format!("e^({})", a.join(", ")), P_POW),
                     "det" | "tr" | "vec" | "at" | "norm" => (format!("{n}({})", a.join(", ")), P_ATOM),
                     n if Func::of(n).is_some() => (format!("{}({})", function(Func::of(n).unwrap().name()), a.join(", ")), P_ATOM),

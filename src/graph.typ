@@ -69,7 +69,7 @@
 ///
 /// **Data:** a vector of values is plotted as the points through its elements, joined in index order (with a dot at each when there are at most 30): `#graph($y$)` against the zero-based index k (as in `at(y, k)`), `#graph($y(τ)$)` over the vector `tau` of the same length – or over any expression without free names that is one, `y(2 tau)`. Units come from the elements (each vector needs one unit for all its elements; every element must have a value). Function curves can go alongside: `#graph($y(τ) \ c(τ)$)` with a function `c`, or an expression in `tau` (`$2 tau$`), where `tau` stands for the x axis and the function is sampled over it; the x range is from the data's first to last x value unless `xrange` says otherwise, and the units of x and y must agree. Marks work on data too, with linear interpolation between the points: x values, `"roots"` and `"crossings"` (with data and with functions) where the values change sign, `"extrema"` as the local extreme points, and `ymark`. A vector with a free name is several curves instead, one per element (`$vec(t, t^2)$`). For measurements, `lines: none` draws the data as points alone, without the line: `#graph($y(τ) \ c(τ)$, lines: (none, auto))` shows measured points next to the curve `c`.
 ///
-/// **Piecewise functions** (`cases`) break their line where a branch changes with a jump; a value that holds at a single x – `2 & "for" x = 1`, or a point set apart from the line – is drawn as a dot. `joined: true` joins the pieces through them instead.
+/// **Piecewise functions** (`cases`) break their line where a branch changes with a jump; a value that holds at a single x – `2 & "for" x = 1`, or a point set apart from the line – is drawn as a dot. `joined: true` joins the pieces through them instead. The steps of `rect`, `sgn`, `floor` and `ceil` break the line the same way, without dots for the values right on their edges; with `joined: true` each step is joined by a vertical line.
 ///
 /// **Layers:** curves are drawn in the order written, each over the ones before and over the axes: a function written after measured points runs over them, one written before runs under them. Every dot has a thin ring of the page's color, so dots stand apart from lines and from each other; a dot right on a dot of another curve is drawn smaller, the one below showing as a ring around it.
 ///
@@ -261,10 +261,11 @@
     let origin = g.x-axis-zero and g.y-axis-zero and 0 not in g.xticks and 0 not in g.yticks
     if origin { plots.push(_lq.place(0, 0, align: top + right, box(inset: (right: 0.35em, top: 0.3em), $0$))) }
     // regular ticks get a grid line, marked values are only written on the axis. The grid stays open at the
-    // edges, no line closes the plot area on any side; the arrow's end has its axis label, not a tick.
+    // edges, no line closes the plot area on any side. The x axis writes its last value at the arrow's end too,
+    // without a grid line; the y axis's end has its label instead.
     let axis(kind, ticks, labels, marked, position, lim) = {
       let at(v, e) = calc.abs(v - e) <= 1e-9 * (lim.at(1) - lim.at(0))
-      let all = ticks.zip(labels, marked).filter(t => not at(t.at(0), lim.at(1))).map(((v, l, m)) => (v, l, m or at(v, lim.at(0))))
+      let all = ticks.zip(labels, marked).filter(t => kind == "x" or not at(t.at(0), lim.at(1))).map(((v, l, m)) => (v, l, m or at(v, lim.at(0)) or at(v, lim.at(1))))
       let regular = all.filter(t => not t.at(2))
       (position: position, mirror: false, subticks: none,
         ticks: regular.map(t => (t.at(0), $#M(t.at(1))$)),
@@ -272,12 +273,17 @@
     }
     let xm = g.at("xmarked", default: g.xticks.map(_ => false))
     let ym = g.at("ymarked", default: g.yticks.map(_ => false))
+    // the x axis's label beside the arrow's end, clear of the value written there; the graph makes room for it on
+    // the right, where lilaq places it outside the diagram
+    let end = g.xticks.position(v => calc.abs(v - g.x1) <= 1e-9 * (g.x1 - g.x0))
+    let xlabel = { if end != none { std.h(measure($#M(g.xlabels.at(end))$).width / 2 + 0.25em) }; $#M(g.xlabel)$ }
     let make(w, h) = {
       // schoolbook: axes through the origin with arrows, a faint grid at the regular ticks only
       show: _lq.theme.schoolbook
       show: _lq.set-grid(stroke: luma(225) + 0.5pt, stroke-sub: none)
+      show: pad.with(right: measure(xlabel).width)
       _lq.diagram(width: w, height: h, xlim: (g.x0, g.x1), ylim: (g.y0, g.y1), legend: legend,
-        xlabel: $#M(g.xlabel)$, ylabel: $#M(g.ylabel)$,
+        xlabel: xlabel, ylabel: $#M(g.ylabel)$,
         xaxis: axis("x", g.xticks, g.xlabels, xm, if g.x-axis-zero { 0 } else { bottom }, (g.x0, g.x1)),
         yaxis: axis("y", g.yticks, g.ylabels, ym, if g.y-axis-zero { 0 } else { left }, (g.y0, g.y1)),
         ..args.named(), ..plots)

@@ -139,6 +139,9 @@
 #let _word-end = regex("[\\p{L}\\p{N}\"⦆⦈)]$")
 #let _word-start = regex("^[\\p{L}\\p{N}\"⦅⦇]")
 #let _align-point = $&$.body.func()
+#let _number = regex("^[0-9]*\\.?[0-9]+$")
+// In a cases condition, quoted text is the branch's label ("für", "sonst."), not a name: text that isn't a number.
+#let _label(c) = c.func() == text and c.text.match(_number) == none
 // math content -> the equation as text for the engine: letters as they are, quoted text "…" (names of several
 // letters, as), solveng's bindings (units, constants) by their token, operations ⦇tri⦈, keywords ⦅solve(x)⦆; or an
 // error for what isn't a formula
@@ -174,9 +177,8 @@
       if at.len() > 1 { return _err("cases: one & separates a value from its condition") }
       let value = _src(if at.len() == 0 { row } else { parts.slice(0, at.first()).join() })
       if _E(value) { return value }
-      let condition = if at.len() == 0 { () } else { parts.slice(at.first() + 1).filter(p => p.func() != _space and p.func() != h) }
-      if condition.len() > 0 and condition.first().func() == text and condition.first().text.trim() in ("für", "if", "for", "wenn", "falls") { condition = condition.slice(1) }
-      if condition.len() == 1 and condition.first().func() == text and condition.first().text.trim() in ("otherwise", "else", "sonst", "andernfalls") { condition = () }
+      // A condition's quoted text labels it, whatever it says: only a label leaves the default branch.
+      let condition = if at.len() == 0 { () } else { parts.slice(at.first() + 1).filter(p => p.func() != _space and p.func() != h and not _label(p)) }
       if condition.len() == 0 and i != c.children.len() - 1 { return _err("cases: only the last branch can omit its condition") }
       let test = if condition.len() == 0 { "1" } else { _src(condition.join()) }
       if _E(test) { return test }

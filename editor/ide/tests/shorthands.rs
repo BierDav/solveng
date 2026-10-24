@@ -166,10 +166,11 @@ fn names_typst_math_owns_warn_and_get_their_import() {
     // the import fix is offered where the name is
     let fix = unit_fixes(&doc, &ctx, at(&doc, "at(") + 1).into_iter().find(|f| f.title == "Import at from solveng's operations").unwrap();
     assert!(applied_fix(&doc, &fix).contains("#import operations: at\n"));
-    // other names Typst's math owns warn too
+    // other names Typst's math owns warn too; not floor: Typst's ⌊x⌋ is solveng's floor
     let more = format!("{SOLVENG}#show: worksheet\n$f := floor(2.5) + Re(z) + rect(t)$");
     let warned: Vec<_> = diagnostics(&more, &ctx).into_iter().filter(|p| p.message.contains("Typst's own")).collect();
-    assert_eq!(warned.len(), 3, "{warned:?}");
+    assert_eq!(warned.len(), 2, "{warned:?}");
+    assert!(warned.iter().all(|p| !p.message.contains("floor")), "{warned:?}");
     // imported, by name or through `*`: nothing to say, nothing to fix
     for import in ["#import operations: at", "#import operations: *"] {
         let imported = format!("{SOLVENG}{import}\n#show: worksheet\n$y := at(vec(3, 5), 0)$");

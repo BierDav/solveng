@@ -207,7 +207,7 @@
 /// - errors (auto, str): `"document"` (default): problems are shown as red notes · `"panic"`: stop the compilation.
 /// - show-types (auto, str): How types (`f(I: mA)`) are shown in the equations as written: `"chip"` (default): as a blue chip · `"plain"`: as written, f(I: mA) · `"no"`: left out (`$f(I: mA) := 2 I$` shows as f(I) ≔ 2 I).
 /// - words (auto, dictionary): The word shown for any-unit types, for documents in other languages: `(any: "beliebig")`. What you type stays `any`.
-/// - chips (auto, dictionary, function): The colours of the type chips, `(type: (fill: …, mark: …, ink: …))` (`mark` is the colour of `:`, `ink` the unit's), or a function `(kind, mark, unit) => content` drawing them, with `kind` `"type"` and `mark` and `unit` as content.
+/// - chips (auto, dictionary, function): The colours of the type chips, `(type: (fill: …, mark: …, ink: …))` (`mark` is the colour of `:`, `ink` the unit's), or a function `(kind, mark, unit) => content` drawing them, with `kind` `"type"` and `mark` and `unit` as content. In HTML export `dark: (fill: …, mark: …, ink: …)` beside them gives the colours of a dark page; a colour set only for the light page keeps there.
 /// - unit-style (auto, function): A function given every shown unit as content, `u => text(fill: blue, u)`.
 /// - unit-separator (auto, content, str, symbol): What goes between units, a thin dot by default (A·as): `sym.times`, `h(0.2em)`.
 /// - constants (auto, dictionary): How constants are shown, by identity: `(imaginary: $j$, "standard-gravity": $g_0$)`, over the built-in displays of `pi` (π), `euler` (e), `imaginary` (i) and `speed-of-light` (c) and the ones of the worksheets around. Results show them the same way. See `constant`.

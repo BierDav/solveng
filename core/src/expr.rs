@@ -102,6 +102,7 @@ pub enum Func {
     Tri,
     Sgn,
     Floor,
+    Ceil,
     Factorial,
     /// Real part, imaginary part, complex conjugate and argument (angle) of a complex number.
     Re,
@@ -130,6 +131,7 @@ impl Func {
             "tri" => Func::Tri,
             "sgn" => Func::Sgn,
             "floor" => Func::Floor,
+            "ceil" => Func::Ceil,
             "factorial" => Func::Factorial,
             "Re" | "re" => Func::Re,
             "Im" | "im" => Func::Im,
@@ -157,6 +159,7 @@ impl Func {
             Func::Tri => "tri",
             Func::Sgn => "sgn",
             Func::Floor => "floor",
+            Func::Ceil => "ceil",
             Func::Factorial => "factorial",
             Func::Re => "Re",
             Func::Im => "Im",
@@ -197,6 +200,7 @@ impl Func {
             Func::Tri => (1.0 - x.abs()).max(0.0),
             Func::Sgn => if x == 0.0 { 0.0 } else { x.signum() },
             Func::Floor => x.floor(),
+            Func::Ceil => x.ceil(),
             Func::Factorial if (0.0..=170.0).contains(&x) && x.fract() == 0.0 => (1..=x as u32).fold(1.0, |a, b| a * b as f64),
             Func::Re | Func::Conj => x,
             Func::Im => 0.0,
@@ -498,7 +502,7 @@ impl Expr {
                     }
                     // linear: the part (or conjugate) of the derivative, for a real variable
                     Func::Re | Func::Im | Func::Conj => return func(*f, a.d(x)),
-                    Func::Rect | Func::Sgn | Func::Floor | Func::Factorial | Func::Arg => return Expr::Derivative(Box::new(self.clone()), x.into()),
+                    Func::Rect | Func::Sgn | Func::Floor | Func::Ceil | Func::Factorial | Func::Arg => return Expr::Derivative(Box::new(self.clone()), x.into()),
                     Func::Abs => mul(vec![a0.clone(), pow(func(Func::Abs, a0), int(-1))]),
                 };
                 mul(vec![inner, a.d(x)])
@@ -1003,6 +1007,7 @@ fn simp_f(f: Func, a: Expr) -> Expr {
             (Func::Tri, x) => return exact(if x.abs().cmp(Num::ONE) == Ordering::Less { Num::ONE.sub(x.abs()) } else { Num::ZERO }),
             (Func::Sgn, x) => return exact(if x.is_zero() { Num::ZERO } else if x.is_neg() { Num::int(-1) } else { Num::ONE }),
             (Func::Floor, Num::R(r)) => return int(r.numer().div_euclid(r.denom())),
+            (Func::Ceil, Num::R(r)) => return int(-(-r.numer()).div_euclid(r.denom())),
             (Func::Factorial, x) if x.as_int().is_some_and(|k| (0..=33).contains(&k)) => return int((1..=x.as_int().unwrap() as i128).product()),
             (_, Num::F(x)) => {
                 if let Some(y) = f.eval(x) {

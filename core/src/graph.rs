@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::dim::Dim;
 use crate::env::{Env, Lower};
 use crate::eval::{dim_of, eval_f, value};
-use crate::expr::{self, Expr, simp};
+use crate::expr::{self, Expr, Func, simp};
 use crate::format::{self, Cfg, dim_text, name, num_markup, number};
 use crate::num::Num;
 use crate::parse::{self, Ctx, ParamType};
@@ -294,27 +294,53 @@ struct Read {
     eq: String,
 }
 
-fn branches(e: &Expr, vars: &dyn Fn(&str) -> Option<f64>, selected: &mut Vec<usize>) {
-    if let Expr::Cases(v) = e {
-        let branch = v.iter().position(|(_, condition)| eval_f(condition, vars).is_some_and(|v| v != 0.0));
-        selected.push(branch.unwrap_or(usize::MAX));
-        if let Some(i) = branch { branches(&v[i].0, vars, selected); }
-    } else {
-        for child in e.children() { branches(child, vars, selected); }
+/// The functions that jump: rect, sgn, floor and ceil, which are piecewise like cases.
+fn jumps(e: &Expr) -> bool {
+    matches!(e, Expr::Cases(_) | Expr::F(Func::Rect | Func::Sgn | Func::Floor | Func::Ceil, _))
+}
+
+/// Which piece of each jumping part holds: the branch of a case, the region rect's or sgn's argument is in,
+/// floor's or ceil's value. Where it differs between two samples, the curve jumps between them.
+/// Each entry says whether it is a case's (true) or a jump function's (false).
+fn branches(e: &Expr, vars: &dyn Fn(&str) -> Option<f64>, selected: &mut Vec<(bool, usize)>) {
+    match e {
+        Expr::Cases(v) => {
+            let branch = v.iter().position(|(_, condition)| eval_f(condition, vars).is_some_and(|v| v != 0.0));
+            selected.push((true, branch.unwrap_or(usize::MAX)));
+            if let Some(i) = branch { branches(&v[i].0, vars, selected); }
+        }
+        Expr::F(f @ (Func::Rect | Func::Sgn | Func::Floor | Func::Ceil), a) => {
+            let piece = eval_f(a, vars).filter(|u| u.is_finite()).map_or(usize::MAX, |u| match f {
+                Func::Rect => (u.abs() - 0.5).total_cmp(&0.0) as usize,
+                Func::Sgn => u.total_cmp(&0.0) as usize,
+                Func::Floor => u.floor() as i64 as usize,
+                _ => u.ceil() as i64 as usize,
+            });
+            selected.push((false, piece));
+            branches(a, vars, selected);
+        }
+        _ => for child in e.children() { branches(child, vars, selected); },
     }
 }
 
-fn case_boundaries(e: &Expr, x: &str, scale: f64, points: &mut Vec<f64>) {
+/// Where a case's condition changes (`points`) and where rect and sgn jump (`edges`).
+fn case_boundaries(e: &Expr, x: &str, scale: f64, points: &mut Vec<f64>, edges: &mut Vec<f64>) {
     fn conditions(e: &Expr, x: &str, scale: f64, points: &mut Vec<f64>) {
         if let Expr::Cmp(values, _) = e {
             for pair in values.windows(2) { points.extend(scan(&expr::sub(pair[0].clone(), pair[1].clone()), x, scale)); }
         }
         for child in e.children() { conditions(child, x, scale, points); }
     }
-    if let Expr::Cases(v) = e {
-        for (_, condition) in v { conditions(condition, x, scale, points); }
+    match e {
+        Expr::Cases(v) => for (_, condition) in v { conditions(condition, x, scale, points); },
+        // rect's edges at ±½, sgn's at 0; floor and ceil jump at every integer, found between the samples alone
+        Expr::F(Func::Rect, a) => for h in [-0.5, 0.5] {
+            edges.extend(scan(&simp(&expr::sub((**a).clone(), Expr::C(crate::expr::Val::new(Num::F(h), Dim::ONE)))), x, scale));
+        },
+        Expr::F(Func::Sgn, a) => edges.extend(scan(a, x, scale)),
+        _ => {}
     }
-    for child in e.children() { case_boundaries(child, x, scale, points); }
+    for child in e.children() { case_boundaries(child, x, scale, points, edges); }
 }
 
 fn read(env: &Env, req: &GraphReq, units: &Units) -> Result<Read, String> {
@@ -643,11 +669,18 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
             }
         }
     }
-    let mut boundaries = vec![];
-    for c in curves.iter().filter(|c| c.data.is_none()) { case_boundaries(&c.e, &x, xf, &mut boundaries); }
-    boundaries.retain(|point| point.is_finite());
-    boundaries.sort_by(f64::total_cmp);
-    boundaries.dedup();
+    // where cases change, and with them where rect and sgn jump: every curve's sampled exactly; each curve's own
+    // (cases, edges) – single points only at its cases' changes, the vertical joins at its own steps
+    let tidy = |v: &mut Vec<f64>| { v.retain(|point| point.is_finite()); v.sort_by(f64::total_cmp); v.dedup(); };
+    let own: Vec<(Vec<f64>, Vec<f64>)> = curves.iter().map(|c| {
+        let (mut cases_at, mut edges_at) = (vec![], vec![]);
+        if c.data.is_none() { case_boundaries(&c.e, &x, xf, &mut cases_at, &mut edges_at); }
+        tidy(&mut cases_at);
+        tidy(&mut edges_at);
+        (cases_at, edges_at)
+    }).collect();
+    let mut boundaries: Vec<f64> = own.iter().flat_map(|(cs, es)| cs.iter().chain(es)).copied().collect();
+    tidy(&mut boundaries);
     let mut need: Vec<f64> = mv.iter().map(|m| m.0).chain(yneed).collect();
     if rv.is_empty() { need.extend(&boundaries); }
     let mut dedup_rv = rv.clone();
@@ -841,8 +874,9 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
             Some(nm) if names.iter().filter(|m| m.as_ref() == Some(nm)).count() > 1 => format!("{} = {}", name(nm), c.label),
             Some(nm) => name(nm),
         };
+        let (cases_at, edges_at) = &own[i];
         let mut runs: Vec<Vec<(f64, f64, usize)>> = vec![vec![]];
-        let piecewise = c.e.contains(&|e| matches!(e, Expr::Cases(_)));
+        let piecewise = c.e.contains(&jumps);
         let branch = |t: f64| {
             let mut selected = vec![];
             branches(&c.e, &|n| (n == x).then_some(t), &mut selected);
@@ -867,9 +901,18 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
                         if mid == a || mid == b { break; }
                         if branch(mid) == before { a = mid; } else { b = mid; }
                     }
-                    if let Some(y) = f(c, a) { runs.last_mut().unwrap().push((a / xf, y / yf, q.2)); }
+                    // a step of rect, sgn, floor or ceil: both pieces end at the one x of its edge – exactly the jump's
+                    // where it's known – so a join (joined: true) is vertical
+                    let cases = |s: Vec<(bool, usize)>| s.into_iter().filter(|e| e.0).collect::<Vec<_>>();
+                    let (xa, xb) = if cases(branch(a)) == cases(branch(b)) {
+                        let e = edges_at.iter().copied().find(|&e| a <= e && e <= b).unwrap_or(b);
+                        (e, e)
+                    } else {
+                        (a, b)
+                    };
+                    if let Some(y) = f(c, a) { runs.last_mut().unwrap().push((xa / xf, y / yf, q.2)); }
                     runs.push(vec![]);
-                    if let Some(y) = f(c, b) { runs.last_mut().unwrap().push((b / xf, y / yf, j)); }
+                    if let Some(y) = f(c, b) { runs.last_mut().unwrap().push((xb / xf, y / yf, j)); }
                 }
                 if (q.1 > 0.0) != (p.1 > 0.0) && (q.1 - p.1).abs() > 2.0 * (y1 - y0) {
                     runs.push(vec![]);
@@ -877,8 +920,12 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
             }
             runs.last_mut().unwrap().push(p);
         }
+        // a point sampled right on a step's edge is there twice
+        for r in &mut runs { r.dedup_by(|p, q| p.0 == q.0 && p.1 == q.1); }
         // a run that is one point, sampled twice where branches switch, has no line to draw
-        runs.retain(|r| r.len() > 1 && r.iter().any(|p| p.0 != r[0].0));
+        // – nor one too narrow to see, the value right on a step at the graph's edge (⌈x⌉ at x = −2), drawn as a dot
+        let narrow = 1e-9 * (x1 - x0);
+        runs.retain(|r| r.len() > 1 && r.iter().any(|p| (p.0 - r[0].0).abs() > narrow));
         // single points: where a branch holds at one x alone (2 for x = 1), the value there differs from the
         // values on both sides, or there are none; drawn as a dot
         // (point, outside what the graph shows)
@@ -890,7 +937,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
                 let apart = |o: Option<f64>| o.is_none_or(|o| !o.is_finite() || (o - y).abs() > tol);
                 apart(f(c, b - dx)) && apart(f(c, b + dx))
             });
-            for &b in boundaries.iter().filter(|&&b| b >= x0 * xf && b <= x1 * xf) {
+            for &b in cases_at.iter().filter(|&&b| b >= x0 * xf && b <= x1 * xf) {
                 if let Some(y) = lone(b) {
                     single.push(((b / xf, y / yf), y < y0 * yf || y > y1 * yf));
                 }
@@ -900,10 +947,10 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
             // right on the edge (x for x < 0 in a graph from 0): its end is where the join starts.
             let near = |b: f64, side: f64| lone(b).or_else(|| finite(f(c, b + side * dx))).map(|y| (b / xf, y / yf));
             if finite(f(c, x0 * xf)).is_none() {
-                if let Some(p) = boundaries.iter().rev().filter(|&&b| b <= x0 * xf).find_map(|&b| near(b, -1.0)) { single.push((p, true)); }
+                if let Some(p) = cases_at.iter().rev().filter(|&&b| b <= x0 * xf).find_map(|&b| near(b, -1.0)) { single.push((p, true)); }
             }
             if finite(f(c, x1 * xf)).is_none() {
-                if let Some(p) = boundaries.iter().filter(|&&b| b >= x1 * xf).find_map(|&b| near(b, 1.0)) { single.push((p, true)); }
+                if let Some(p) = cases_at.iter().filter(|&&b| b >= x1 * xf).find_map(|&b| near(b, 1.0)) { single.push((p, true)); }
             }
         }
         if c.data.is_some() {
@@ -1644,5 +1691,76 @@ mod tests {
         let env = data_env(&["xs := vec(0, 2, 1)", "ys := vec(0, 2, 4)"]);
         let ps = graph(&env, &data_req(&["ys(xs)"], vec![Mark::Val(XV::Num(1.5))])).unwrap().points;
         assert!(has(&ps, 1.5, 1.5) && has(&ps, 1.5, 3.0), "{ps:?}");
+    }
+}
+
+#[cfg(test)]
+mod jump_tests {
+    use super::*;
+
+    fn plot(c: &str, a: f64, b: f64) -> GraphOut {
+        let env = Env::default();
+        graph(&env, &GraphReq {
+            cfg: Cfg::default(), curves: vec![crate::test_support::curve(c, &env)],
+            xrange: vec![XV::Num(a), XV::Num(b)], yrange: vec![], marks: vec![], ymark: vec![], samples: 100,
+        }).unwrap()
+    }
+
+    /// The pieces: each level, from where to where.
+    fn pieces(g: &GraphOut) -> Vec<(f64, f64, f64)> {
+        g.series.iter().map(|s| {
+            assert!(s.points.len() > 1, "a dot at {:?}", s.points);
+            assert!(s.points.iter().all(|p| p.1 == s.points[0].1), "a slope in {:?}", s.points);
+            (s.points[0].0, s.points.last().unwrap().0, s.points[0].1)
+        }).collect()
+    }
+
+    #[test]
+    fn steps_break_at_their_edges() {
+        // level pieces, no dots for the values on the edges, ends exactly on the edges: a join is vertical
+        let p = pieces(&plot("rect(x)", -2.0, 2.0));
+        assert_eq!(p, vec![(-2.0, -0.5, 0.0), (-0.5, 0.5, 1.0), (0.5, 2.0, 0.0)]);
+        let p = pieces(&plot("sgn(x)", -2.0, 2.0));
+        assert_eq!(p, vec![(-2.0, 0.0, -1.0), (0.0, 2.0, 1.0)]);
+        let p = pieces(&plot("floor(x)", -1.3, 2.7));
+        assert_eq!(p.len(), 5);
+        assert!(p.windows(2).all(|w| (w[0].1 - w[1].0).abs() < 1e-12), "{p:?}");
+        // the value right on a step at the graph's edge is no piece
+        assert_eq!(pieces(&plot("ceil(x)", -2.0, 1.0)).len(), 3);
+        let p = pieces(&plot("ceil(x)", -1.3, 2.7));
+        assert_eq!(p.iter().map(|q| q.2).collect::<Vec<_>>(), vec![-1.0, 0.0, 1.0, 2.0, 3.0]);
+        assert!(p.windows(2).all(|w| (w[0].1 - w[1].0).abs() < 1e-12), "{p:?}");
+        // as Typst's math writes it
+        let p = pieces(&plot("2⌊x / 2⌋", -1.3, 2.7));
+        assert_eq!(p.iter().map(|q| q.2).collect::<Vec<_>>(), vec![-2.0, 0.0, 2.0]);
+        // a pulse narrower than a sample step, and steps of scaled, shifted arguments
+        let p = pieces(&plot("rect((x - 1) / 0.01)", 0.0, 2.0));
+        assert_eq!(p.len(), 3);
+        assert!((p[1].0 - 0.995).abs() < 1e-12 && (p[1].1 - 1.005).abs() < 1e-12 && p[1].2 == 1.0, "{p:?}");
+        let p = pieces(&plot("3 rect((x - 2) / 4) - sgn(x - 1)", -1.0, 5.0));
+        assert!(p.windows(2).all(|w| w[0].1 == w[1].0), "{p:?}");
+    }
+
+    #[test]
+    fn curves_keep_their_own_breakpoints() {
+        // another curve's breakpoints, right on a step's edges, make no dots there: the step looks as it does alone
+        let mut env = Env::default();
+        let r = crate::test_support::req("g(x) := ⦇cases⦈(2x, 0 ≤ x ∧ x ≤ 1, 4 - 2x, 1 < x ∧ x ≤ 2, 0, 1)", &env);
+        assert!(crate::api::line(&mut env, &r).errors.is_empty());
+        let plot = |cs: &[&str]| graph(&env, &GraphReq {
+            cfg: Cfg::default(), curves: cs.iter().map(|c| crate::test_support::curve(c, &env)).collect(),
+            xrange: vec![XV::Num(-0.5), XV::Num(2.8)], yrange: vec![], marks: vec![], ymark: vec![], samples: 100,
+        }).unwrap();
+        let of = |g: &GraphOut, i: usize| GraphOut { series: g.series.iter().filter(|s| s.curve == i).cloned().collect(), ..g.clone() };
+        for step in ["rect(x - 1/2) + rect(x - 3/2)", "rect((x - 1) / 2)", "sgn(x) + sgn(x - 2)"] {
+            let alone = pieces(&plot(&[step]));
+            for cs in [[step, "g(x)"], ["g(x)", step]] {
+                let both = plot(&cs);
+                let i = cs.iter().position(|c| *c == step).unwrap();
+                assert_eq!(pieces(&of(&both, i)), alone, "{cs:?}");
+                // and the cases curve no dots at the steps' edges either
+                assert!(both.series.iter().filter(|s| s.curve != i).all(|s| s.points.len() > 1), "{cs:?}");
+            }
+        }
     }
 }

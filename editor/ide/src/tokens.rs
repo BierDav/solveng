@@ -55,6 +55,53 @@ fn called_subscripted(math: &[char], start: usize) -> Option<usize> {
     (subscripted && math.get(j) == Some(&'(')).then_some(j)
 }
 
+/// Where quoted text labels a `cases` branch, as math writes `0 & "für" t < 0` and `1 & "sonst."`: the first thing
+/// after a branch's `&` in a `cases(…)` call. A label is text, not a name.
+fn case_labels(math: &[char]) -> Vec<usize> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < math.len() {
+        if !solveng_names::is_start(math[i]) {
+            i += 1;
+            continue;
+        }
+        let end = name_end(math, i);
+        let mut open = end;
+        while math.get(open).is_some_and(|c| c.is_whitespace()) {
+            open += 1;
+        }
+        if crate::resolved_name(&sub(math, i, end)) != "cases" || math.get(open) != Some(&'(') {
+            i = end;
+            continue;
+        }
+        // a `&` at the call's own level starts its condition column
+        let mut j = open;
+        let mut depth = 0;
+        while j < math.len() {
+            depth += match math[j] {
+                '(' | '[' | '{' => 1,
+                ')' | ']' | '}' => -1,
+                _ => 0,
+            };
+            if depth == 0 {
+                break;
+            }
+            if math[j] == '&' && depth == 1 {
+                let mut label = j + 1;
+                while math.get(label).is_some_and(|c| c.is_whitespace()) {
+                    label += 1;
+                }
+                if math.get(label) == Some(&'"') {
+                    out.push(label);
+                }
+            }
+            j += 1;
+        }
+        i = end;
+    }
+    out
+}
+
 /// The tokens of a clause, `start..end` after its marker: modifiers, the names `solve` and `substitute` take, units.
 /// `unit` says which words are units there, `modifier` which are modifiers; quoted text is a name.
 fn clause_tokens(text: &[char], start: usize, end: usize, unit: &dyn Fn(&str) -> bool, modifier: Modifiers) -> Vec<Tok> {
@@ -171,6 +218,7 @@ fn code_tokens(math: &[char], unit: &dyn Fn(&str) -> bool, modifier: Modifiers) 
         return spans.into_iter().flat_map(|(s, e)| code_tokens(&math[s..e], unit, modifier).into_iter().map(move |(a, l, k)| (s + a, l, k))).collect();
     }
     let mut out = Vec::new();
+    let labels = case_labels(math);
     let mut emit = |start: usize, end: usize, kind: u8| {
         if end > start {
             out.push((start, end - start, kind));
@@ -217,7 +265,7 @@ fn code_tokens(math: &[char], unit: &dyn Fn(&str) -> bool, modifier: Modifiers) 
             }
             unit_mode = false;
             i = j;
-        } else if let Some(end) = called_subscripted(math, i).filter(|_| !sub_ && (c == '"' || solveng_names::is_start(c))) {
+        } else if let Some(end) = called_subscripted(math, i).filter(|_| !sub_ && !labels.contains(&i) && (c == '"' || solveng_names::is_start(c))) {
             // a function with a subscript, called: m_2(x), R_"load"(t), as one name
             let word = crate::resolved_name(&sub(math, i, end));
             let operator = MATH_OPERATORS.iter().any(|o| word.split('_').next() == Some(*o));
@@ -225,12 +273,19 @@ fn code_tokens(math: &[char], unit: &dyn Fn(&str) -> bool, modifier: Modifiers) 
             unit_mode = false;
             i = end;
         } else if c == '"' {
-            let end = name_end(math, i);
-            let end = subscript_at(math, i, end).unwrap_or(end);
-            let call = math[end..].iter().find(|c| !c.is_whitespace()) == Some(&'(');
-            emit(i, end, if call { K::FUNCTION } else { K::VARIABLE });
+            if labels.contains(&i) {
+                // a cases branch's label: text, not a name
+                let end = solveng_names::quoted(math, i).map_or_else(|_| name_end(math, i), |(_, end)| end);
+                emit(i, end, K::STRING);
+                i = end;
+            } else {
+                let end = name_end(math, i);
+                let end = subscript_at(math, i, end).unwrap_or(end);
+                let call = math[end..].iter().find(|c| !c.is_whitespace()) == Some(&'(');
+                emit(i, end, if call { K::FUNCTION } else { K::VARIABLE });
+                i = end;
+            }
             if !sub_ { unit_mode = false; }
-            i = end;
         } else if c == '_' && math.get(i + 1) == Some(&'(') {
             // A sum's lower attachment contains an index declaration and a bound,
             // rather than a subscript that belongs to a variable name.

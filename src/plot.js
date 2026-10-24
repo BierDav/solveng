@@ -108,9 +108,10 @@
 
   function render(root, animate) {
     const spec = JSON.parse(root.querySelector('.solveng-plot-spec').textContent);
-    // the arrow's end has the axis label, not a tick (labels keep their index in the engine's list)
+    // the y arrow's end has the axis label, not a tick; the x axis writes its last value there too, the label
+    // beside it (labels keep their index in the engine's list)
     const far = (v, a, b) => Math.abs(v - b) <= 1e-9 * (b - a);
-    spec.xt = spec.xt.map((t, i) => [...t, i]).filter(([v]) => !far(v, spec.x0, spec.x1));
+    spec.xt = spec.xt.map((t, i) => [...t, i]);
     spec.yt = spec.yt.map((t, i) => [...t, i]).filter(([v]) => !far(v, spec.y0, spec.y1));
     const store = root.querySelector('.solveng-plot-labels');
     const labelOf = k => { const s = store.querySelector(`[data-k="${k}"]`); return s && s.childNodes.length ? s : null; };
@@ -127,6 +128,9 @@
     const xls = spec.xt.map(t => lab('xt' + t[2])), yls = spec.yt.map(t => lab('yt' + t[2]));
     const xl = lab('x'), yl = lab('y');
     const size = e => ({w: e.offsetWidth, h: e.offsetHeight});
+    // the x axis's label clear of the value written at the arrow's end
+    const endX = spec.xt.findIndex(([v]) => far(v, spec.x0, spec.x1));
+    const xlAt = Math.max(16, endX < 0 ? 0 : size(xls[endX]).w / 2 + 8);
     const maxW = Math.max(0, ...yls.map(e => size(e).w)), tickH = Math.max(12, ...xls.map(e => size(e).h));
     // the legend, measured now: beside the plot it takes room on the right
     const named = spec.curves.map((c, i) => [c, i]).filter(([c]) => c.named);
@@ -141,7 +145,7 @@
     // the printed size, scaled to the larger type of a screen
     const W = Math.min(avail, Math.max(360, spec.size.w * 2));
     const H = Math.round(W * spec.size.h / spec.size.w);
-    const m = {l: (spec.yz && spec.x0 < 0 ? 8 : maxW + 12), r: size(xl).w + 18 + beside, t: size(yl).h + 14, b: (spec.xz && spec.y0 < 0 ? 8 : tickH + 10)};
+    const m = {l: (spec.yz && spec.x0 < 0 ? 8 : maxW + 12), r: size(xl).w + xlAt + 2 + beside, t: size(yl).h + 14, b: (spec.xz && spec.y0 < 0 ? 8 : tickH + 10)};
     live.style.width = W + 'px';
     const svg = el('svg', {width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img'});
     live.insertBefore(svg, live.firstChild);
@@ -169,7 +173,7 @@
     const both0 = spec.xz && spec.yz && spec.yt.some(([v]) => v === 0);
     xls.forEach((e, i) => { if (both0 && spec.xt[i][0] === 0) e.remove(); else put(e, X(spec.xt[i][0]), axY + 5, 0.5, 0); });
     yls.forEach((e, i) => put(e, axX - 6, Y(spec.yt[i][0]), 1, 0.5));
-    put(xl, right + 16, axY, 0, 0.5);
+    put(xl, right + xlAt, axY, 0, 0.5);
     put(yl, axX - 4, top - 12, 1, 1);
     if (spec.origin) { const o = document.createElement('span'); o.className = 'sp-lab'; o.textContent = '0'; live.appendChild(o); put(o, axX - 4, axY + 4, 1, 0); }
 

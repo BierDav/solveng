@@ -1,6 +1,6 @@
 #let _operation-displays = state("solveng-binding-displays", (:))
 #let _operation-display(name, shown) = _operation-displays.update(d => { d.insert("operation:" + name, shown); d })
-/// Shorthands for solveng's operations in math: `tri`, `rect`, `sgn`, `floor`, `convolve`, `range`, `at`, `Re`, `Im`, `conj`, `laplace`, ….
+/// Shorthands for solveng's operations in math: `tri`, `rect`, `sgn`, `floor`, `ceil`, `convolve`, `range`, `at`, `Re`, `Im`, `conj`, `laplace`, ….
 ///
 /// Import only the ones you use, where you use them: `#import operations: tri, sgn`. Typst imports are lexical, so
 /// they apply to that file or block and the ones nested in it; nothing comes along with
@@ -116,6 +116,15 @@
 /// - x (number): Unitless real value.
 /// -> integer
 #let floor = [#math.op("floor")<solveng-builtin-operation>]
+
+/// Least integer greater than or equal to x: `ceil(x)`.
+///
+/// The argument and result are unitless. Typst's math writes it ⌈x⌉, which solveng reads as well.
+/// Its derivative stays symbolic.
+///
+/// - x (number): Unitless real value.
+/// -> integer
+#let ceil = [#math.op("ceil")<solveng-builtin-operation>]
 
 /// Factorial of a nonnegative integer: `factorial(k)`.
 ///

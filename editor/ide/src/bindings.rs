@@ -674,8 +674,9 @@ fn importable(a: &crate::Analysis) -> Vec<(usize, usize, String, Module)> {
 
 /// Names of solveng's `operations` module that Typst's math reads itself, so math gets no unknown-variable error
 /// and solveng's operation needs its import: Typst's symbols `at` (@), `Re` (ℜ), `Im` (ℑ), `rect` (⊐), `laplace`
-/// (Δ) and `convolve` (∗), and its `floor`. Names a later Typst adds to its math belong here too.
-const TYPST_OWNS: &[&str] = &["at", "Re", "Im", "rect", "laplace", "convolve", "floor"];
+/// (Δ) and `convolve` (∗). Names a later Typst adds to its math belong here too. Not `floor`: Typst's ⌊x⌋ is
+/// solveng's floor as well.
+const TYPST_OWNS: &[&str] = &["at", "Re", "Im", "rect", "laplace", "convolve"];
 
 /// Solveng's operations called in calculated math without their import where Typst's math reads the name itself:
 /// Typst reports nothing then (see [`importable`] for the import fix as well).

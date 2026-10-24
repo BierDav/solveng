@@ -36,4 +36,19 @@ $b_1 := 1 < 2 and 3 < 2 or 1 = 1 =$ #expect("b_1", 1)
 $b_2 := 1 < 2 and (3 < 2 or 1 = 2) =$ #expect("b_2", 0)
 $b_3 := 0 < 1 and 1 < 2 and 2 < 3 =$ #expect("b_3", 1)
 #graph($p(x)$, xrange: (-2, 4))
+// a branch's quoted text is its label, whatever it says: "für" and "sonst." are labels, not names
+$
+  g_1(t) := cases(
+    2t & "für" 0 <= t <= 1/2,
+    2-2t & "für" 1/2 < t <= 1,
+    2t-2 & "für" 1 < t <= 3/2,
+    4-2t & "für" 3/2 < t <= 2,
+    0 & "sonst."
+  )
+$
+$"corner" := g_1(1/2) =$ #expect("corner", 1)
+$"fallback" := g_1(2) =$ #expect("fallback", 0)
+$h(x) := cases(1 & "wenn nicht" x > 0, 0 & "sonst gilt nichts")$
+$"wenn" := h(1) =$ #expect("wenn", 1)
+$"sonst" := h(-1) =$ #expect("sonst", 0)
 #defined()

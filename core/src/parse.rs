@@ -28,6 +28,8 @@ const OPS: &[(&str, &str)] = &[
     ("≠", "≠"), ("=", "="), ("<", "<"), (">", ">"), ("+", "+"), ("-", "-"), ("−", "-"), ("*", "*"), ("∗", "*"),
     ("·", "·"), ("⋅", "·"), ("×", "×"), ("/", "/"), ("^", "^"), ("(", "("), (")", ")"), ("[", "("), ("]", ")"),
     (",", ","), (";", ";"), (":", ":"), ("..", ".."), ("…", ".."), ("|", "|"), ("‖", "‖"), ("±", "±"),
+    // ⌊x⌋ and ⌈x⌉, as Typst writes floor(x) and ceil(x)
+    ("⌊", "⌊"), ("⌋", "⌋"), ("⌈", "⌈"), ("⌉", "⌉"),
     // Typst's math writes `and` and `or` as these symbols
     ("∧", "∧"), ("∨", "∨"),
 ];
@@ -385,7 +387,7 @@ pub fn is_builtin(n: &str) -> bool {
 }
 /// Operations that apply to what follows without parentheses: sin x, det A.
 fn applies_bare(op: &str) -> bool {
-    matches!(op, "sqrt" | "exp" | "ln" | "log" | "sin" | "cos" | "tan" | "arcsin" | "arccos" | "arctan" | "sinh" | "cosh" | "tanh" | "abs" | "rect" | "tri" | "sgn" | "floor" | "factorial" | "det" | "tr")
+    matches!(op, "sqrt" | "exp" | "ln" | "log" | "sin" | "cos" | "tan" | "arcsin" | "arccos" | "arctan" | "sinh" | "cosh" | "tanh" | "abs" | "rect" | "tri" | "sgn" | "floor" | "ceil" | "factorial" | "det" | "tr")
 }
 /// The keywords of a clause, as their bindings name them (frac is Typst's fraction).
 const KEYWORDS: &[&str] = &["solve", "substitute", "simplify", "digits", "sci", "eng", "frac"];
@@ -671,7 +673,7 @@ impl<'a, 'b> P<'a, 'b> {
     fn starts_factor(&self) -> bool {
         match self.peek() {
             None => false,
-            Some(Tok::Op(o)) => matches!(*o, "(" | "|" | "‖"),
+            Some(Tok::Op(o)) => matches!(*o, "(" | "|" | "‖" | "⌊" | "⌈"),
             Some(Tok::Quoted(_)) => true,
             Some(Tok::Kw(_)) => false,
             Some(Tok::Builtin(_) | Tok::Bound(_)) => true,
@@ -873,6 +875,16 @@ impl<'a, 'b> P<'a, 'b> {
                 let e = e?;
                 self.expect("‖", "closing the norm")?;
                 Ok(Ast::Builtin("norm".into(), vec![e]))
+            }
+            // ⌊x⌋ and ⌈x⌉, as Typst writes floor(x) and ceil(x)
+            Tok::Op(o @ ("⌊" | "⌈")) => {
+                let x = std::mem::take(&mut self.in_exp);
+                let e = self.closed(|p| p.sum());
+                self.in_exp = x;
+                let e = e?;
+                let (close, n) = if o == "⌊" { ("⌋", "floor") } else { ("⌉", "ceiling") };
+                self.expect(close, &format!("closing the {n}"))?;
+                Ok(Ast::Builtin(if o == "⌊" { "floor" } else { "ceil" }.into(), vec![e]))
             }
             Tok::Op(o) => Err(format!("unexpected '{o}'")),
             Tok::Kw(k) => Err(format!("unexpected keyword '{k}'")),
@@ -1581,6 +1593,17 @@ mod tests {
             }
             s => panic!("{s:?}"),
         }
+    }
+
+    #[test]
+    fn floor_brackets() {
+        // ⌊x⌋, as Typst writes floor(x): a factor like (x), also inside |…|
+        let l = format!("{:?}", line("y := 2⌊x / 2⌋ + |⌊x⌋ - 1|"));
+        assert_eq!(l.matches("Builtin(\"floor\"").count(), 2, "{l}");
+        assert!(read("y := ⌊x").unwrap_err().contains("closing the floor"));
+        let l = format!("{:?}", line("y := ⌈x / 2⌉ - ⌊x⌋"));
+        assert!(l.contains("Builtin(\"ceil\"") && l.contains("Builtin(\"floor\""), "{l}");
+        assert!(read("y := ⌈x⌋").unwrap_err().contains("closing the ceiling"));
     }
 
     #[test]

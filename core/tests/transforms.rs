@@ -194,6 +194,9 @@ fn delay_series_scaling_scoping_and_numeric_helpers() {
     {
         let mut env = Env::default();
         equal(&mut env, "floor(-3/2)", "-2");
+        equal(&mut env, "ceil(-3/2)", "-1");
+        equal(&mut env, "ceil(7/2)", "4");
+        equal(&mut env, "ceil(3)", "3");
         equal(&mut env, "factorial(0)+factorial(5)", "121");
         // The output name must not be captured by the generated summation index.
         run(&mut env, "response(k) := invlaplace((1+exp(-2*p))/(2*p+4+3*exp(-p)), p, k)");

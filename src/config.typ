@@ -99,6 +99,9 @@
   constants: (dictionary,),
   graph-colors: (array, color, gradient, content), graph-lines: (array, str, dictionary, type(none), content), graph-dots: (array, str, type(none), content), graph-joined: (array, bool, content),
 )
+// the colours of a kind of chip: fill, mark and ink, and the ones a dark page takes in `dark`
+#let _chip-colours(v) = type(v) == dictionary and v.keys().all(c => c in ("fill", "mark", "ink", "dark"))
+  and ("dark" not in v or (type(v.dark) == dictionary and v.dark.keys().all(c => c in ("fill", "mark", "ink"))))
 #let _tyname(ts) = ts.map(t => if t == type(none) { "none" } else if t == type(auto) { "auto" } else { str(t) }).join(" or ")
 // units are checked by the engine once a worksheet sets them (see #worksheet)
 #let _check(o) = {
@@ -116,7 +119,7 @@
   if "prefixes" in o and type(o.prefixes) == str and o.prefixes != "all" { return (err: "prefixes: \"all\", none or an array like (\"m\", \"k\")") }
   if "prefixes" in o and type(o.prefixes) == array and o.prefixes.any(p => type(p) != str) { return (err: "prefixes: the array must hold strings like \"m\"") }
   if "words" in o and o.words.keys().any(k => k != "any") { return (err: "words: the word shown for any-unit types, (any: \"beliebig\")") }
-  if "chips" in o and type(o.chips) == dictionary and o.chips.pairs().any(((k, v)) => k != "type" or type(v) != dictionary or v.keys().any(c => c not in ("fill", "mark", "ink"))) { return (err: "chips: the colours of type chips, (type: (fill: …, mark: …, ink: …)), or a function (kind, mark, unit) => content") }
+  if "chips" in o and type(o.chips) == dictionary and o.chips.pairs().any(((k, v)) => k != "type" or not _chip-colours(v)) { return (err: "chips: the colours of type chips, (type: (fill: …, mark: …, ink: …, dark: (fill: …, mark: …, ink: …))), or a function (kind, mark, unit) => content") }
   if "constants" in o and o.constants.values().any(v => type(v) not in (content, symbol)) { return (err: "constants: how constants are shown, by identity: (imaginary: $j$)") }
   for k in _GRAPH {
     if k in o { let v = _graph-style(k, o.at(k)); if _E(v) { return v }; o.insert(k, v) }
