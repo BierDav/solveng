@@ -1,7 +1,7 @@
 // Imperial units made from imported ones, used in math, value and lambdify.
 #import "/tests/util.typ": *
 #import units: m, s, cm, kg, g, ml, l
-#import functions: tri
+#import operations: tri
 #worksheet(errors: "panic")[
   #let inch = unit($2.54 cm$, display: () => math.upright("in"))
   #let foot = unit($12 inch$, display: () => math.upright("ft"))

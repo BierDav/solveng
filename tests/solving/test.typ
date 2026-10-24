@@ -3,7 +3,7 @@
 #import "/tests/util.typ": *
 #import units: A, V, W, Ω, m, s, cm, mA, mAh, mV
 #import constants: e
-#import functions: number
+#import operations: number
 #import modifiers: solve, simplify, digits, fraction
 
 #worksheet[

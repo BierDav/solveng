@@ -1,7 +1,7 @@
-// Operations: imported from `functions`, or referenced explicitly with math.op and operation.
+// Operations: imported from `operations`, or referenced explicitly with math.op and operation.
 #import "/lib.typ": *
 #import "/tests/util.typ": expect, passes, fails
-#import functions: tri, rect, sgn, integrate
+#import operations: tri, rect, sgn, integrate
 #set page(width: 18cm, height: auto)
 #show: worksheet.with(errors: "panic")
 $"standard" := tri(1/4) + rect(0) + sgn(0) =$

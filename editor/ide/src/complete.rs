@@ -576,11 +576,11 @@ pub fn complete(document: &str, context: &Context, offset: u32) -> Option<Comple
             let base = if let Some((name, _)) = binding {
                 if crate::bindings::needs_hash(&name) && (start == 0 || a.doc.c[start - 1] != '#') { format!("#{name}") } else { name }
             } else if item.kind == ItemKind::FUNCTION && standard && !crate::params::automatic_math(&canonical) { canonical.clone() }
-                // solveng's own operations need `#import functions: …` in math, imported along where solveng is;
+                // solveng's own operations need `#import operations: …` in math, imported along where solveng is;
                 // else the explicit reference
                 else if item.kind == ItemKind::FUNCTION && standard {
                     let edits = a.bindings.bound(at, &canonical).is_none()
-                        .then(|| a.bindings.import_edits(&a.doc, at, Module::Functions, &canonical)).flatten();
+                        .then(|| a.bindings.import_edits(&a.doc, at, Module::Operations, &canonical)).flatten();
                     match edits {
                         Some(edits) => { item.edits = edits; canonical.clone() }
                         None => format!("op(\"{canonical}\")"),

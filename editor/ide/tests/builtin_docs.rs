@@ -8,8 +8,8 @@ fn offset(doc: &str, text: &str) -> u32 {
 fn every_builtin_has_hover_documentation_in_math() {
     for name in solveng_names::OPERATIONS {
         for doc in [
-            format!("#import functions: *\n#show: worksheet\n$f(t) := {name}(t)$"),
-            format!("#import functions: *\n#graph(${name}(t)$)"),
+            format!("#import operations: *\n#show: worksheet\n$f(t) := {name}(t)$"),
+            format!("#import operations: *\n#graph(${name}(t)$)"),
             format!("#show: worksheet\n$f(t) := op(\"{name}\")(t)$"),
         ] {
             let at = doc.find(&format!("{name}\"")).or_else(|| doc.find(&format!("{name}(t)"))).unwrap();
@@ -31,7 +31,7 @@ fn builtin_docs_include_domains_units_boundaries_and_calculus_parameters() {
         ("diff", "Differentiation variable"), ("integrate", "Lower bound"),
         ("sum", "Inclusive upper integer bound"), ("at", "starting at 0"),
     ] {
-        let doc = format!("#import functions: *\n#graph(${name}(t)$)");
+        let doc = format!("#import operations: *\n#graph(${name}(t)$)");
         let result = hover(&doc, &Context::default(), offset(&doc, &format!("{name}(t)")) + 1).unwrap_or_else(|| panic!("{doc}"));
         assert!(result.markdown.contains(expected), "{name}: {}", result.markdown);
     }
@@ -63,7 +63,7 @@ fn worksheet_scope_option_has_documentation_values_and_auto_default() {
 
 #[test]
 fn attached_sum_notation_has_the_same_documentation() {
-    let doc = "#import functions: tri\n#show: worksheet\n$f(t) := sum_(k=0)^infinity tri(t-k)$";
+    let doc = "#import operations: tri\n#show: worksheet\n$f(t) := sum_(k=0)^infinity tri(t-k)$";
     let result = hover(doc, &Context::default(), offset(doc, "sum_") + 1).unwrap();
     assert!(result.markdown.contains("Inclusive integer sum"));
     assert!(result.markdown.contains("### Parameters"));

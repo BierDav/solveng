@@ -3,7 +3,7 @@
 #import "/src/builtins.typ": *
 #import "/lib.typ": *
 #import "/tests/util.typ": expect, passes, fails
-#import functions: *
+#import operations: *
 #set page(width: 18cm, height: auto)
 #show: worksheet.with(errors: "panic")
 $F(p) := laplace(exp(-t), t, p)$

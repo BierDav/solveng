@@ -1,11 +1,11 @@
-// Operations in math: Typst's own operators, solveng's imported from `functions`, and explicit references.
+// Operations in math: Typst's own operators, solveng's imported from `operations`, and explicit references.
 
 use solveng_ide::*;
 
 fn at(doc: &str, needle: &str) -> u32 { doc[..doc.find(needle).unwrap()].encode_utf16().count() as u32 }
 
 #[test]
-fn standard_signal_functions_are_offered_without_configuration() {
+fn standard_signal_operations_are_offered_without_configuration() {
     let doc = "#graph($ tr $)";
     let result = complete(doc, &Context::default(), at(doc, "tr $") + 2).unwrap();
     assert!(result.items.iter().any(|i| i.label == "tri"));
@@ -13,14 +13,14 @@ fn standard_signal_functions_are_offered_without_configuration() {
 
 #[test]
 fn solveng_operations_complete_with_their_import() {
-    // with solveng imported, its operation comes with `#import functions: …`
+    // with solveng imported, its operation comes with `#import operations: …`
     let doc = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet\n$a := tr$";
     let result = complete(doc, &Context::default(), at(doc, "tr$") + 2).unwrap();
     let tri = result.items.iter().find(|i| i.label == "tri").unwrap();
     assert_eq!(tri.insert, "tri($0)");
-    assert!(tri.edits.iter().any(|e| e.text.contains("#import functions: tri")), "{:?}", tri.edits);
+    assert!(tri.edits.iter().any(|e| e.text.contains("#import operations: tri")), "{:?}", tri.edits);
     // already imported: no edits
-    let doc = "#import functions: tri\n#show: worksheet\n$a := tr$";
+    let doc = "#import operations: tri\n#show: worksheet\n$a := tr$";
     let result = complete(doc, &Context::default(), at(doc, "tr$") + 2).unwrap();
     assert!(result.items.iter().find(|i| i.label == "tri").unwrap().edits.is_empty());
     // nowhere to import it to: the explicit reference
@@ -51,7 +51,7 @@ fn default_sum_completion_keeps_math_attachment_syntax() {
 
 #[test]
 fn operations_highlight_by_their_binding() {
-    let doc = "#import functions: tri\n#show: worksheet\n#let triangle = math.op(\"tri\")\n#let pulse = operation(\"rect\")\n$y := tri(x)$\n$z := triangle(x)$\n$v := pulse(x)$\n$u := sin(x)$\n$w := \"tri\"(x)$\n$q := op(\"tri\")(x)$";
+    let doc = "#import operations: tri\n#show: worksheet\n#let triangle = math.op(\"tri\")\n#let pulse = operation(\"rect\")\n$y := tri(x)$\n$z := triangle(x)$\n$v := pulse(x)$\n$u := sin(x)$\n$w := \"tri\"(x)$\n$q := op(\"tri\")(x)$";
     let tokens = document_tokens(doc, &Context::default());
     let kind = |needle: &str| tokens.iter().find(|t| t.start == at(doc, needle)).map(|t| t.kind);
     assert_eq!(kind("tri(x)"), Some(TokenKind::BUILTIN_FUNCTION));
@@ -67,7 +67,7 @@ fn operations_highlight_by_their_binding() {
     assert!(completed.items.iter().any(|i| i.label == "tri" && i.insert == "tri"));
     assert_eq!(completed.to, Some(at(doc, "tri\")(x)") + 3));
     // without the import solveng's operation is a user call
-    let bare = doc.replace("#import functions: tri\n", "");
+    let bare = doc.replace("#import operations: tri\n", "");
     let ts = document_tokens(&bare, &Context::default());
     assert_eq!(ts.iter().find(|t| t.start == at(&bare, "tri(x)")).unwrap().kind, TokenKind::FUNCTION_CALL, "{ts:?}");
     // math that isn't calculated has no operations (the import still names one)
@@ -78,7 +78,7 @@ fn operations_highlight_by_their_binding() {
 
 #[test]
 fn bindings_follow_typst_scopes() {
-    let scoped = "#show: worksheet\n#let pulse = math.op(\"rect\")\n#[\n#import functions: tri\n$a := tri(0)$ $b := pulse(0)$\n]\n$c := tri(0)$\n#let pulse = 3\n$d := pulse(0)$";
+    let scoped = "#show: worksheet\n#let pulse = math.op(\"rect\")\n#[\n#import operations: tri\n$a := tri(0)$ $b := pulse(0)$\n]\n$c := tri(0)$\n#let pulse = 3\n$d := pulse(0)$";
     let ts = document_tokens(scoped, &Context::default());
     for (needle, expected) in [("tri(0)$ $b", TokenKind::BUILTIN_FUNCTION), ("pulse(0)$\n]", TokenKind::BUILTIN_FUNCTION), ("tri(0)$\n#let", TokenKind::FUNCTION_CALL)] {
         assert_eq!(ts.iter().find(|t| t.start == at(scoped, needle)).unwrap().kind, expected, "{needle}");
@@ -100,14 +100,14 @@ fn single_letter_operator_bindings_need_an_explicit_hash() {
 }
 
 #[test]
-fn every_operation_of_the_functions_module_is_an_imported_operation() {
+fn every_operation_of_the_operations_module_is_an_imported_operation() {
     // read from the package, so new operations (Re, conj, …) need no editor change
-    let doc = "#import functions: Re, conj\n#show: worksheet\n$a := Re(z) + conj(z)$";
+    let doc = "#import operations: Re, conj\n#show: worksheet\n$a := Re(z) + conj(z)$";
     let tokens = document_tokens(doc, &Context::default());
     for needle in ["Re(z)", "conj(z)"] {
         assert_eq!(tokens.iter().find(|t| t.start == at(doc, needle)).map(|t| t.kind), Some(TokenKind::BUILTIN_FUNCTION), "{needle}");
     }
     let doc = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet\n$a := con$";
     let item = complete(doc, &Context::default(), at(doc, "con$") + 3).unwrap().items.into_iter().find(|i| i.label == "conj").unwrap();
-    assert!(item.edits.iter().any(|e| e.text.contains("#import functions: conj")));
+    assert!(item.edits.iter().any(|e| e.text.contains("#import operations: conj")));
 }

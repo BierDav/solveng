@@ -258,7 +258,7 @@ fn offers_imports_of_solvengs_names_where_calculated() {
     assert!(diagnostics(doc, &context).is_empty());
     let fix = |needle: &str, n: usize| unit_fixes(doc, &context, nth(doc, needle, n) + 1).into_iter().find(|f| f.title.starts_with("Import"));
     assert!(fix("km", 0).is_none());
-    for (needle, module) in [("km", "units"), ("tri", "functions"), ("pi", "constants")] {
+    for (needle, module) in [("km", "units"), ("tri", "operations"), ("pi", "constants")] {
         let f = fix(needle, if needle == "km" { 1 } else { 0 }).unwrap_or_else(|| panic!("{needle}"));
         assert_eq!(f.title, format!("Import {needle} from solveng's {module}"));
         assert!(f.edits.iter().any(|e| e.text == format!("\n#import {module}: {needle}")), "{:?}", f.edits);

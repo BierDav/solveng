@@ -4,7 +4,7 @@
 #import "/src/engine.typ": _constant-display, _m
 #import units: m, s, kg, min, Ω, mH, Hz, V
 #import constants: pi, e, i, c
-#import functions: Re, Im, conj
+#import operations: Re, Im, conj
 #import modifiers: solve, substitute
 #set page(width: 18cm, height: auto)
 #show: worksheet

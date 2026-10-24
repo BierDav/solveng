@@ -112,11 +112,11 @@ fn bindings_come_first_and_module_units_are_imported_along() {
 fn operations_need_their_binding_in_math() {
     let insert = |doc: &str| complete_marked(doc).into_iter().find(|i| i.label == "tri").map(|i| i.insert);
     assert_eq!(insert("#show: worksheet\n$y := tr|$").as_deref(), Some("op(\"tri\")($0)"));
-    assert_eq!(insert("#import functions: tri\n#show: worksheet\n$y := tr|$").as_deref(), Some("tri($0)"));
+    assert_eq!(insert("#import operations: tri\n#show: worksheet\n$y := tr|$").as_deref(), Some("tri($0)"));
     // imported along where solveng is imported
     let items = complete_marked("#import \"@preview/solveng:1.0.0\": *\n#show: worksheet\n$y := tr|$");
     let tri = items.iter().find(|i| i.label == "tri").unwrap();
-    assert_eq!((tri.insert.as_str(), tri.edits.iter().map(|e| e.text.as_str()).collect::<Vec<_>>()), ("tri($0)", vec!["\n#import functions: tri"]));
+    assert_eq!((tri.insert.as_str(), tri.edits.iter().map(|e| e.text.as_str()).collect::<Vec<_>>()), ("tri($0)", vec!["\n#import operations: tri"]));
     // Typst's own math operators need nothing
     assert!(complete_marked("#show: worksheet\n$y := si|$").iter().any(|i| i.label == "sin" && i.insert.starts_with("sin(")));
 }

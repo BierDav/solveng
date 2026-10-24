@@ -1,6 +1,6 @@
 #import "/tests/util.typ": *
 #import units: ms, s, km
-#import functions: tri, rect, convolve, range
+#import operations: tri, rect, convolve, range
 #set page(width: 18cm, height: auto)
 #show: worksheet
 

@@ -19,7 +19,7 @@
 #[
   #import units: m, s
   #import constants: pi, e, c
-  #import functions: tri
+  #import operations: tri
   #worksheet[
     $P := 2 pi =$
 
@@ -56,7 +56,7 @@
 #[
   #import units: Ω, Hz, mH
   #import constants: pi, i
-  #import functions: Re, Im
+  #import operations: Re, Im
   #worksheet(constants: (imaginary: $j$))[
     $Z := 100 #Ω + #i 2 pi 50 Hz dot 300 mH =$
 

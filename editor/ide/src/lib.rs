@@ -2,7 +2,7 @@
 //! innermost one says `evaluate: false`) and equations passed to `#worksheet(…)`. Like Mathcad, `:=` defines, a
 //! trailing `=` shows a value and `->` a symbolic result or a solution, each followed by a clause of a unit and
 //! modifiers. Units, constants, operations and modifiers are Typst bindings: imported from solveng's `units`,
-//! `constants`, `functions` and `modifiers` modules or made with `base-unit`, `unit`, `constant` and `operation`.
+//! `constants`, `operations` and `modifiers` modules or made with `base-unit`, `unit`, `constant` and `operation`.
 //!
 //! Everything is a pure function of the document and a [`Context`] (the files around it, what the compiler
 //! reported). Offsets are UTF-16 code units, as editors and LSP count them.

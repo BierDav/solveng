@@ -11,8 +11,11 @@ import os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "docs", "reference.md")
-# public functions in the order they are documented; worksheet comes with the option tables
-FUNCTIONS = ["worksheet", "base-unit", "unit", "constant", "operation", "solve", "substitute", "simplify", "digits", "sci", "eng", "fraction", "defined", "graph", "lambdify", "value", "clear", "rect", "tri", "sgn", "Re", "Im", "conj", "number", "floor", "factorial", "diff", "integrate", "laplace", "invlaplace", "convolve", "range", "at", "rank", "identity", "rows", "cols", "asin", "acos", "atan"]
+# public functions (worksheet comes with the option tables) and the operations of the `operations` module,
+# in the order they are documented
+FUNCTIONS = ["worksheet", "base-unit", "unit", "constant", "operation", "solve", "substitute", "simplify", "digits", "sci", "eng", "fraction", "defined", "graph", "lambdify", "value", "clear"]
+OPERATIONS = ["rect", "tri", "sgn", "Re", "Im", "conj", "number", "floor", "factorial", "diff", "integrate", "laplace", "invlaplace", "convolve", "range", "at", "rank", "identity", "rows", "cols", "asin", "acos", "atan"]
+DOCUMENTED = FUNCTIONS + OPERATIONS
 CHAPTERS = ["src/builtins.typ", "src/modifiers.typ", "src/engine.typ", "src/display.typ", "tests/util.typ"]
 PARAM = re.compile(r"^- ((?:\.\.)?[a-z][\w-]*(?:, [a-z][\w-]*)*(?:, …)?) \(([^)]*)\): (.*)$")
 
@@ -67,7 +70,7 @@ def functions():
         lines = text.split("\n")
         for n, line in enumerate(lines):
             m = re.match(r"#let ([A-Za-z][\w-]*)\b", line)
-            if m and m.group(1) in FUNCTIONS:
+            if m and m.group(1) in DOCUMENTED:
                 start = sum(len(l) + 1 for l in lines[:n])
                 found[m.group(1)] = (doc_before(lines, n), signature(text, start))
     return found
@@ -159,7 +162,7 @@ def first_sentence(desc):
 
 def generate():
     fns = functions()
-    missing = [f for f in FUNCTIONS if f not in fns or not fns[f][0]]
+    missing = [f for f in DOCUMENTED if f not in fns or not fns[f][0]]
     if missing:
         sys.exit("undocumented: " + ", ".join(missing))
     opt_groups = options()
@@ -170,15 +173,16 @@ def generate():
     out = ["# solveng reference", "",
            "<!-- Generated from the doc comments in src/ by `python3 tests/reference.py` – edit those, not this file. -->", "",
            "Everything solveng does, for looking things up. For an introduction see the [README](../README.md).", ""]
-    titles = [f"`{f}`" for f in FUNCTIONS] + ["Options"] + chapter_titles
+    titles = [f"`{f}`" for f in DOCUMENTED] + ["Options"] + chapter_titles
     out += [f"- [{t}](#{anchor(t)})" for t in titles] + [""]
 
-    out += ["## Functions", "", "| function | does |", "|---|---|"]
-    for f in FUNCTIONS:
-        out.append(f"| [`{f}`](#{anchor(f"`{f}`")}) | {cell(first_sentence(split(fns[f][0])[0]))} |")
-    out.append("")
+    for title, names, what in [("Functions", FUNCTIONS, "function"), ("Operations", OPERATIONS, "operation")]:
+        out += [f"## {title}", "", f"| {what} | does |", "|---|---|"]
+        for f in names:
+            out.append(f"| [`{f}`](#{anchor(f"`{f}`")}) | {cell(first_sentence(split(fns[f][0])[0]))} |")
+        out.append("")
 
-    for f in FUNCTIONS:
+    for f in DOCUMENTED:
         doc, sig = fns[f]
         desc, params, ret = split(doc)
         out += [f"## `{f}`", "", desc, ""]

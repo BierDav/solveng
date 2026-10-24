@@ -189,7 +189,7 @@ fn user_worksheet_highlights_and_resolves_names() {
 }
 
 #[test]
-fn builtin_functions_without_bindings_are_not_graph_parameters() {
+fn builtin_operations_without_bindings_are_not_graph_parameters() {
     let document = "#graph($tri(x) + sin(x)$)";
     let ctx = Context::default();
     assert!(usages(document, &ctx, document.find("tri(x)").unwrap() as u32).is_empty());
@@ -212,11 +212,11 @@ fn quoted_text_is_a_variable_never_a_unit() {
 }
 
 #[test]
-fn function_definitions_calls_and_builtins_have_distinct_styles() {
+fn function_definitions_calls_and_operations_have_distinct_styles() {
     let code = "f(x) := sin(x) + cos(x)\ny := f(tri(1)) + rect(2)";
     let sources = [
-        format!("#import functions: tri, rect\n#show: worksheet\n${}$", code.replace('\n', "$\n$")),
-        format!("#import functions: *\n#worksheet(${}$)", code.replace('\n', "$, $")),
+        format!("#import operations: tri, rect\n#show: worksheet\n${}$", code.replace('\n', "$\n$")),
+        format!("#import operations: *\n#worksheet(${}$)", code.replace('\n', "$, $")),
         format!("#let tri = math.op(\"tri\")\n#let rect = operation(\"rect\")\n#show: worksheet\n${}$", code.replace('\n', "$\n$")),
     ];
     for source in sources {

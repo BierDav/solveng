@@ -185,7 +185,7 @@ fn imports_the_modules_names_math_uses_unimported() {
     // constants and operations too
     let doc = format!("{SOLVENG}#show: worksheet\n$x := 2 pi + tri(1)$");
     assert!(fix(&doc, "pi +").unwrap().contains("#import constants: pi\n"));
-    assert!(fix(&doc, "tri(").unwrap().contains("#import functions: tri\n"));
+    assert!(fix(&doc, "tri(").unwrap().contains("#import operations: tri\n"));
     // Not for names no module has, nor outside calculated math, nor without solveng's import.
     assert!(fix(&format!("{SOLVENG}#show: worksheet\n$x := 2 furlong$"), "furlong").is_none());
     assert!(fix(&format!("{SOLVENG}$x := 2 km$"), "km$").is_none());

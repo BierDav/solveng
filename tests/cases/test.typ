@@ -3,7 +3,7 @@
 #import "/src/builtins.typ": *
 #import "/lib.typ": *
 #import "/tests/util.typ": expect, passes
-#import functions: *
+#import operations: *
 #import modifiers: simplify
 #set page(width: 18cm, height: auto)
 #show: worksheet.with(errors: "panic")

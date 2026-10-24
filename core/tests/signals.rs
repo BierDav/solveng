@@ -3,7 +3,7 @@ use solveng_core::{env::Env, eval::value};
 use support::run;
 
 #[test]
-fn signal_functions_and_their_boundaries() {
+fn signal_operations_and_their_boundaries() {
     {
         let mut env = Env::default();
         for (expression, expected) in [

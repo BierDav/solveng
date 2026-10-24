@@ -15,13 +15,13 @@ $Q_0/2 = I t -> solve(t)$
 
 ## Imported values
 
-Units, constants, operations and modifiers use Typst's lexical bindings. Import the ones you use from `units`, `constants`, `functions`, or `modifiers`. Imports follow Typst's normal file and block scopes; worksheet scope does not change their meaning. Single-letter bindings need `#` in math, for example `$2 #s$` and `$#e^x$`.
+Units, constants, operations and modifiers use Typst's lexical bindings. Import the ones you use from `units`, `constants`, `operations`, or `modifiers`. Imports follow Typst's normal file and block scopes; worksheet scope does not change their meaning. Single-letter bindings need `#` in math, for example `$2 #s$` and `$#e^x$`.
 
 ```typ
 #import "@preview/solveng:1.0.0": *
 #import units: m, s
 #import constants: pi, e, c
-#import functions: tri
+#import operations: tri
 #show: worksheet
 
 $P := 2 pi =$
@@ -68,13 +68,13 @@ $b := 3 inches = cm$
 
 ## Complex numbers
 
-Values are complex numbers: `$sqrt(-4) =$` and `$sqrt(-4) ->$` are 2i, also when `i` isn't written; operations keep their real value where they have one, so `(-8)^(1/3)` is −2. `#import constants: i` brings the imaginary unit, `constant("imaginary", $sqrt(-1)$)`, and results show it as the worksheet says even where it isn't imported. Exact arithmetic stays exact (`(1 + 2i)(3 - i) -> 5 + 5i`, `#e^(#i pi) -> -1`), values carry units, and solving gives complex solutions (`$x^2 + 4 = 0 -> solve(x)$` is ±2i). Graphs, comparisons with `<`, inequalities and the numeric search need real values. `Re`, `Im` and `conj` come from `functions`; `abs` is the magnitude and `arg` the angle. Electrical engineers write `j`:
+Values are complex numbers: `$sqrt(-4) =$` and `$sqrt(-4) ->$` are 2i, also when `i` isn't written; operations keep their real value where they have one, so `(-8)^(1/3)` is −2. `#import constants: i` brings the imaginary unit, `constant("imaginary", $sqrt(-1)$)`, and results show it as the worksheet says even where it isn't imported. Exact arithmetic stays exact (`(1 + 2i)(3 - i) -> 5 + 5i`, `#e^(#i pi) -> -1`), values carry units, and solving gives complex solutions (`$x^2 + 4 = 0 -> solve(x)$` is ±2i). Graphs, comparisons with `<`, inequalities and the numeric search need real values. `Re`, `Im` and `conj` come from `operations`; `abs` is the magnitude and `arg` the angle. Electrical engineers write `j`:
 
 ```typ
 #import "@preview/solveng:1.0.0": *
 #import units: Ω, Hz, mH
 #import constants: pi, i
-#import functions: Re, Im
+#import operations: Re, Im
 #import modifiers: substitute
 #show: worksheet.with(constants: (imaginary: $j$))
 

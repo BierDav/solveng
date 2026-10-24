@@ -84,7 +84,7 @@ $ "charge" := integral_0^(2 #s) 3 #A dif t = $
 #expect("charge", 6)
 
 // indefinite integrals: the antiderivative; diff and integrate shown as mathematics writes them
-#import functions: diff, integrate
+#import operations: diff, integrate
 $ integral #e^x dif x -> $
 #passes()
 $ integral x^2 sin(x) dif x -> $

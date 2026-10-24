@@ -15,10 +15,10 @@
 #import "src/lambdify.typ": lambdify
 #import "src/value.typ": value
 #import "src/operation.typ": base-unit, unit, constant, operation
-// bindings only where imported, never through `*`: #import units: km, mA, s, #import functions: tri, sgn,
+// bindings only where imported, never through `*`: #import units: km, mA, s, #import operations: tri, sgn,
 // #import constants: pi, i and #import modifiers: solve, digits
 #import "src/unit-words.typ" as units
-#import "src/builtins.typ" as functions
+#import "src/builtins.typ" as operations
 
 #import "src/constants.typ" as constants
 #import "src/modifiers.typ" as modifiers

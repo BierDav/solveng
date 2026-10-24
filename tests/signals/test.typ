@@ -1,6 +1,6 @@
 #import "/lib.typ": *
 #import "/tests/util.typ": expect, passes
-#import functions: rect, tri, sgn, diff
+#import operations: rect, tri, sgn, diff
 #import modifiers: solve
 #set page(width: 18cm, height: auto)
 #show: worksheet

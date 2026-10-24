@@ -97,7 +97,7 @@
 ///
 /// Modifiers, imported from `modifiers` where you use them (`#import modifiers: solve, digits`): `solve(x, …)`, `substitute(x, …)` (these variables' formulas put in, other names kept), `simplify`, `fraction` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
 ///
-/// **Units, constants, operations and modifiers** are Typst bindings, imported where you use them: `#import units: mA, s`, `#import constants: pi, i`, `#import functions: tri`, `#import modifiers: solve`, then `$30 mA$`, `$2 #s$`, `$2 pi$`. A binding of a single letter needs a `#` in math. Quoted text names worksheet variables; it never means a unit or operation. Raw blocks, also ```` ```solveng ```` ones, are ordinary text.
+/// **Units, constants, operations and modifiers** are Typst bindings, imported where you use them: `#import units: mA, s`, `#import constants: pi, i`, `#import operations: tri`, `#import modifiers: solve`, then `$30 mA$`, `$2 #s$`, `$2 pi$`. A binding of a single letter needs a `#` in math. Quoted text names worksheet variables; it never means a unit or operation. Raw blocks, also ```` ```solveng ```` ones, are ordinary text.
 ///
 /// **Calls.** `#worksheet($U := 5 #V$, $I := U/R =$)` calculates its equations where it stands, with the definitions made before. Its options are for these only; with content, for the content.
 ///

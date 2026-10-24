@@ -250,14 +250,14 @@ fn read_builtins() -> Vec<Function> {
 
 static BUILTINS: LazyLock<Vec<Function>> = LazyLock::new(read_builtins);
 
-/// Whether solveng's `functions` module exports the operation `name`, which math needs imported; Typst's own math
+/// Whether solveng's `operations` module exports the operation `name`, which math needs imported; Typst's own math
 /// operations (`sin`, `sqrt`) need no import.
 pub(crate) fn automatic_math(name: &str) -> bool {
     include_str!("../../../src/builtins.typ").lines().filter_map(|line| line.strip_prefix("#let "))
         .any(|line| line.split_once(" = ").is_some_and(|(binding, _)| binding == name))
 }
 
-/// The names solveng's `functions` module holds, for `#import functions: *`.
+/// The names solveng's `operations` module holds, for `#import operations: *`.
 pub(crate) fn automatic_names() -> Vec<String> {
     include_str!("../../../src/builtins.typ").lines().filter_map(|line| line.strip_prefix("#let "))
         .filter_map(|line| line.split_once(" = ").map(|(binding, _)| binding.trim().to_string()))

@@ -2,7 +2,7 @@
 
 use solveng_ide::*;
 
-const DOC: &str = "#import \"@preview/solveng:1.0.0\": *\n#import functions: *\n#show: worksheet\n$N := 200$, $i := 0..N$\n$x[i] := tri(i/N)$\n$y := convolve(x, x, step: 2)$\n$f(x, n: 2) := x^n$, $a := f(3, n: 3) =$\n$q := range(1, 10, step: 3)$\n$z := conv(x, x)$\n$w := x[2] + y[i]$\n$r := rect(0)$\n";
+const DOC: &str = "#import \"@preview/solveng:1.0.0\": *\n#import operations: *\n#show: worksheet\n$N := 200$, $i := 0..N$\n$x[i] := tri(i/N)$\n$y := convolve(x, x, step: 2)$\n$f(x, n: 2) := x^n$, $a := f(3, n: 3) =$\n$q := range(1, 10, step: 3)$\n$z := conv(x, x)$\n$w := x[2] + y[i]$\n$r := rect(0)$\n";
 
 fn kind_of(doc: &str, word: &str, nth: usize) -> u8 {
     let at = doc.match_indices(word).nth(nth).unwrap().0;
@@ -42,13 +42,13 @@ fn operations_and_user_calls() {
     assert_eq!(kind_of(DOC, "convolve(x", 0), TokenKind::BUILTIN_FUNCTION);
     assert_eq!(kind_of(DOC, "range", 0), TokenKind::BUILTIN_FUNCTION);
     assert_eq!(kind_of(DOC, "conv(", 0), TokenKind::FUNCTION_CALL);
-    // The names `#import functions: *` binds.
+    // The names `#import operations: *` binds.
     assert_eq!(kind_of(DOC, "rect(0)", 0), TokenKind::BUILTIN_FUNCTION);
     assert!(hover_at(DOC, "convolve(x").contains("Convolution"));
     assert!(hover_at(DOC, "range(1").contains("range"));
     // no problems reported for the new syntax
     assert!(diagnostics(DOC, &Context::default()).is_empty(), "{:?}", diagnostics(DOC, &Context::default()));
     // Without the import solveng's operations are no names math knows: a user call.
-    let bare = DOC.replace("#import functions: *\n", "");
+    let bare = DOC.replace("#import operations: *\n", "");
     assert_eq!(kind_of(&bare, "rect(0)", 0), TokenKind::FUNCTION_CALL);
 }

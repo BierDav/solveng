@@ -1,4 +1,4 @@
-// Names imported from solveng's `units`, `constants` and `functions` modules: colours at the import, navigation,
+// Names imported from solveng's `units`, `constants` and `operations` modules: colours at the import, navigation,
 // renaming to an alias, hovers, import fixes, and the nudge from `op("…")` toward them.
 
 use solveng_ide::*;
@@ -23,7 +23,7 @@ const SOLVENG: &str = "#import \"@preview/solveng:1.0.0\": *\n";
 
 #[test]
 fn imported_names_are_coloured_and_renamed_module_names_are_not() {
-    let doc = format!("{SOLVENG}#import units: km, s as test\n#import constants: pi\n#import functions: tri\n#import modifiers: solve as löse\n#show: worksheet\n$x := 2 km = #test$ $y := pi tri(x)$ $x^2 = 4 -> löse(x)$");
+    let doc = format!("{SOLVENG}#import units: km, s as test\n#import constants: pi\n#import operations: tri\n#import modifiers: solve as löse\n#show: worksheet\n$x := 2 km = #test$ $y := pi tri(x)$ $x^2 = 4 -> löse(x)$");
     let tokens = document_tokens(&doc, &Context::default());
     let kind = |offset: u32| tokens.iter().find(|t| t.start == offset).map(|t| t.kind);
     assert_eq!(kind(at(&doc, "km,")), Some(TokenKind::UNIT));
@@ -93,10 +93,10 @@ fn renaming_a_name_a_wildcard_gives_imports_it_under_the_new_name() {
 
 #[test]
 fn modules_and_imported_names_hover_with_their_docs() {
-    let doc = format!("{SOLVENG}#import units: km, s as test\n#import constants: pi\n#import functions: tri\n#show: worksheet\n$x := 1 #test$ $y := tri(2) km$ $z := 2 pi$");
+    let doc = format!("{SOLVENG}#import units: km, s as test\n#import constants: pi\n#import operations: tri\n#show: worksheet\n$x := 1 #test$ $y := tri(2) km$ $z := 2 pi$");
     let ctx = Context::default();
     let md = |offset: u32| hover(&doc, &ctx, offset).unwrap().markdown;
-    for module in ["units", "constants", "functions"] {
+    for module in ["units", "constants", "operations"] {
         let text = md(at(&doc, &format!("{module}:")) + 1);
         assert!(text.starts_with(&format!("`{module}` module of solveng")), "{text}");
     }
@@ -105,7 +105,7 @@ fn modules_and_imported_names_hover_with_their_docs() {
     let km = md(at(&doc, "km$"));
     assert!(km.contains("kilometre") && km.contains("shorthand from solveng's `units`") && km.contains("`km = 10³ m`"), "{km}");
     let tri = md(at(&doc, "tri(2)"));
-    assert!(tri.contains("shorthand from solveng's `functions`") && tri.contains("### Parameters"), "{tri}");
+    assert!(tri.contains("shorthand from solveng's `operations`") && tri.contains("### Parameters"), "{tri}");
     let pi = md(at(&doc, "pi$"));
     assert!(pi.contains("shorthand from solveng's `constants`") && pi.contains("identity `pi`"), "{pi}");
 }
@@ -133,7 +133,7 @@ fn local_bindings_shadow_imports() {
 fn unbound_module_names_get_an_import_fix() {
     let doc = format!("{SOLVENG}#show: worksheet\n$x := 2 km$ $y := 2 pi$ $z := tri(1)$");
     let ctx = Context::default();
-    for (needle, title, import) in [("km$", "Import km from solveng's units", "#import units: km\n"), ("pi$", "Import pi from solveng's constants", "#import constants: pi\n"), ("tri(", "Import tri from solveng's functions", "#import functions: tri\n")] {
+    for (needle, title, import) in [("km$", "Import km from solveng's units", "#import units: km\n"), ("pi$", "Import pi from solveng's constants", "#import constants: pi\n"), ("tri(", "Import tri from solveng's operations", "#import operations: tri\n")] {
         let fixes = unit_fixes(&doc, &ctx, at(&doc, needle) + 1);
         let fix = fixes.iter().find(|f| f.title == title).unwrap_or_else(|| panic!("{title}: {fixes:?}"));
         let fixed = applied_fix(&doc, fix);
@@ -162,16 +162,16 @@ fn names_typst_math_owns_warn_and_get_their_import() {
     let p = &problems[0];
     assert_eq!(p.severity, "warning");
     assert_eq!((p.start, p.end), (at(&doc, "at("), at(&doc, "at(") + 2));
-    assert!(p.message.contains("Typst's own") && p.message.contains("#import functions: at"), "{}", p.message);
+    assert!(p.message.contains("Typst's own") && p.message.contains("#import operations: at"), "{}", p.message);
     // the import fix is offered where the name is
-    let fix = unit_fixes(&doc, &ctx, at(&doc, "at(") + 1).into_iter().find(|f| f.title == "Import at from solveng's functions").unwrap();
-    assert!(applied_fix(&doc, &fix).contains("#import functions: at\n"));
+    let fix = unit_fixes(&doc, &ctx, at(&doc, "at(") + 1).into_iter().find(|f| f.title == "Import at from solveng's operations").unwrap();
+    assert!(applied_fix(&doc, &fix).contains("#import operations: at\n"));
     // other names Typst's math owns warn too
     let more = format!("{SOLVENG}#show: worksheet\n$f := floor(2.5) + Re(z) + rect(t)$");
     let warned: Vec<_> = diagnostics(&more, &ctx).into_iter().filter(|p| p.message.contains("Typst's own")).collect();
     assert_eq!(warned.len(), 3, "{warned:?}");
     // imported, by name or through `*`: nothing to say, nothing to fix
-    for import in ["#import functions: at", "#import functions: *"] {
+    for import in ["#import operations: at", "#import operations: *"] {
         let imported = format!("{SOLVENG}{import}\n#show: worksheet\n$y := at(vec(3, 5), 0)$");
         assert!(diagnostics(&imported, &ctx).is_empty(), "{import}");
         assert!(unit_fixes(&imported, &ctx, at(&imported, "at(") + 1).iter().all(|f| !f.title.starts_with("Import")));
@@ -192,11 +192,11 @@ fn explicit_operations_get_a_nudge_and_a_fix() {
     let ctx = Context::default();
     let warned: Vec<String> = diagnostics(&doc, &ctx).into_iter().filter(|p| p.message.contains("shorthand"))
         .map(|p| String::from_utf16(&doc.encode_utf16().collect::<Vec<_>>()[p.start as usize..p.end as usize]).unwrap()).collect();
-    // Typst's own operators have no shorthand in solveng's functions
+    // Typst's own operators have no shorthand in solveng's operations
     assert_eq!(warned, ["op(\"tri\")", "op(\"tri\")"]);
     let fix = unit_fixes(&doc, &ctx, at(&doc, "op(\"tri\")") + 4).into_iter().find(|f| f.title.contains("shorthand")).unwrap();
     let fixed = applied_fix(&doc, &fix);
-    assert!(fixed.contains("#import functions: tri\n") && fixed.contains("$y := tri(1) +"), "{fixed}");
+    assert!(fixed.contains("#import operations: tri\n") && fixed.contains("$y := tri(1) +"), "{fixed}");
     // no nudge where the name means something else, nor without solveng's import to add it to
     let taken = doc.replace("#show: worksheet", "#let tri = 3\n#show: worksheet");
     assert!(!diagnostics(&taken, &ctx).iter().any(|p| p.message.contains("shorthand")));

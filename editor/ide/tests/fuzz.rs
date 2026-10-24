@@ -31,7 +31,7 @@ fn n() -> usize {
 const PIECES: &[&str] = &[
     "#show: worksheet\n",
     "#import \"@preview/solveng:1.0.0\": *\n",
-    "#import units: mA, kΩ, s as sec, V\n#import constants: pi, e\n#import functions: tri\n",
+    "#import units: mA, kΩ, s as sec, V\n#import constants: pi, e\n#import operations: tri\n",
     "#let minute = unit($60 #s$, display: () => $\"min\"$)\n#let time = base-unit(\"time\")\n",
     "#let i = constant(\"imaginary\", $sqrt(-1)$)\n#let triangle = operation(\"tri\")\n",
     "#show: worksheet.with(preferred-units: ($#m / #s$,), evaluate: false)\n",

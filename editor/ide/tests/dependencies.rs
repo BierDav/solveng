@@ -23,7 +23,7 @@ fn code(lines: &[&str]) -> String {
 fn lists_what_a_definition_depends_on() {
     let doc = "#import units: A\n#show: worksheet\n$a := 2 #A$\n$b := a + 3 #A$\n$f(x: #A) := b + x$\n$f(1 #A) =$";
     assert_eq!(dependencies(doc, &Context::default(), "f(").unwrap(), code(&["b = a + 3 A", "a: A = 2 A"]));
-    // undefined names are marked, solveng's functions left out
+    // undefined names are marked, built-in operations left out
     let doc = "#show: worksheet\n$ Sigma\"\"r := sin(x) + y^2 $\n$ Σ\"\"r -> $";
     assert_eq!(dependencies(doc, &Context::default(), "Σ").unwrap(), code(&["x // undefined", "y // undefined"]));
     // a given value depends on nothing and says nothing about it

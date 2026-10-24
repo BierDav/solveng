@@ -2,7 +2,7 @@
 #let _operation-display(name, shown) = _operation-displays.update(d => { d.insert("operation:" + name, shown); d })
 /// Shorthands for solveng's operations in math: `tri`, `rect`, `sgn`, `floor`, `convolve`, `range`, `at`, `Re`, `Im`, `conj`, `laplace`, ….
 ///
-/// Import only the ones you use, where you use them: `#import functions: tri, sgn`. Typst imports are lexical, so
+/// Import only the ones you use, where you use them: `#import operations: tri, sgn`. Typst imports are lexical, so
 /// they apply to that file or block and the ones nested in it; nothing comes along with
 /// `#import "@preview/solveng:1.0.0": *`. Without the import, math reads the name as Typst's own (`at` is the
 /// symbol @) or as an unknown variable.
@@ -11,7 +11,7 @@
 /// references. Typst's own math operators (`sin`, `exp`, `sqrt`, `abs`, `arg`, …) need no import.
 ///
 /// ```typ
-/// #import functions: tri, sgn
+/// #import operations: tri, sgn
 /// #show: worksheet
 /// $f(t) := tri(t) sgn(t)$, $f(1/2) =$
 /// ```
@@ -20,7 +20,7 @@
 ///
 /// Built-in operations work in worksheet math and graphs. Typst needs a binding for every name it doesn't
 /// know in math, and `#import "@preview/solveng:1.0.0": *` brings none: import the ones you use from solveng's
-/// `functions` module, `#import functions: tri, sgn` (or `#import functions: *`), then `$tri(t)$`. Like any
+/// `operations` module, `#import operations: tri, sgn` (or `#import operations: *`), then `$tri(t)$`. Like any
 /// import, it holds only where it's written, so no name appears in a document unasked. `at` needs it most:
 /// without the import, `$at(v, 0)$` is Typst's symbol @. Typst's own math names (`sin`, `sqrt`, `abs`, `arg`,
 /// `vec`, …) need no import. A worksheet's own functions take precedence over imported names.
@@ -96,7 +96,7 @@
 ///
 /// - x (expression): Unitless position relative to the pulse center.
 /// -> unitless value
-#let rect = [#math.op("rect")<solveng-function>]
+#let rect = [#math.op("rect")<solveng-builtin-operation>]
 
 /// Triangular pulse: `tri(x)` is max(1 − |x|, 0), with height 1 at 0 and support from −1 to 1.
 ///
@@ -106,7 +106,7 @@
 ///
 /// - x (expression): Unitless position relative to the pulse center.
 /// -> unitless value
-#let tri = [#math.op("tri")<solveng-function>]
+#let tri = [#math.op("tri")<solveng-builtin-operation>]
 
 /// Greatest integer less than or equal to x: `floor(x)`.
 ///
@@ -115,7 +115,7 @@
 ///
 /// - x (number): Unitless real value.
 /// -> integer
-#let floor = [#math.op("floor")<solveng-function>]
+#let floor = [#math.op("floor")<solveng-builtin-operation>]
 
 /// Factorial of a nonnegative integer: `factorial(k)`.
 ///
@@ -124,7 +124,7 @@
 ///
 /// - k (integer): Nonnegative unitless integer.
 /// -> number
-#let factorial = [#math.op("factorial")<solveng-function>]
+#let factorial = [#math.op("factorial")<solveng-builtin-operation>]
 
 /// Sign function: `sgn(x)` is −1 for x < 0, 0 for x = 0, and 1 for x > 0.
 ///
@@ -133,21 +133,21 @@
 ///
 /// - x (expression): Unitless value whose sign to take.
 /// -> unitless value
-#let sgn = [#math.op("sgn")<solveng-function>]
+#let sgn = [#math.op("sgn")<solveng-builtin-operation>]
 
 /// Real part of a complex number: `Re(3 + 4 #i)` is 3. Keeps the unit: `Re(Z)` of an impedance is its
 /// resistance. Real numbers are their own real part.
 ///
 /// - z (expression): A complex or real value.
 /// -> value
-#let Re = [#math.op("Re")<solveng-function>]
+#let Re = [#math.op("Re")<solveng-builtin-operation>]
 
 /// Imaginary part of a complex number: `Im(3 + 4 #i)` is 4, a real number. Keeps the unit: `Im(Z)` of an
 /// impedance is its reactance. Real numbers have the imaginary part 0.
 ///
 /// - z (expression): A complex or real value.
 /// -> value
-#let Im = [#math.op("Im")<solveng-function>]
+#let Im = [#math.op("Im")<solveng-builtin-operation>]
 
 /// Complex conjugate: `conj(3 + 4 #i)` is 3 − 4i, shown with a bar. Keeps the unit.
 ///
@@ -156,7 +156,7 @@
 ///
 /// - z (expression): A complex or real value.
 /// -> value
-#let conj = [#math.op("conj")<solveng-function>]
+#let conj = [#math.op("conj")<solveng-builtin-operation>]
 
 /// A value as a plain number in a unit: `number(U, mV)` is U in millivolts, without a unit.
 ///
@@ -168,7 +168,7 @@
 /// - value (expression): The value, with a unit.
 /// - unit (expression): The unit to express it in: a unit binding or an expression of them (`#m / #s`).
 /// -> number
-#let number = [#math.op("number")<solveng-function>]
+#let number = [#math.op("number")<solveng-builtin-operation>]
 
 /// Symbolically differentiates an expression with respect to a name: `diff(expression, variable)`.
 ///
@@ -184,7 +184,7 @@
 /// - expression (expression): Expression to differentiate.
 /// - variable (name): Differentiation variable, written as a name rather than a value.
 /// -> expression
-#let diff = [#math.op("diff")<solveng-function>]
+#let diff = [#math.op("diff")<solveng-builtin-operation>]
 
 /// Integral: `integrate(expression, variable)` is the antiderivative, `integrate(expression, variable, lower, upper)`
 /// the definite integral.
@@ -217,7 +217,7 @@
 /// - lower (expression): Lower bound, including `-infinity`; none for an antiderivative.
 /// - upper (expression): Upper bound, including `infinity`; none for an antiderivative.
 /// -> expression or value
-#let integrate = [#math.op("integrate")<solveng-function>]
+#let integrate = [#math.op("integrate")<solveng-builtin-operation>]
 
 /// Convolution: `convolve(x, h)` of two sequences, `convolve(f(τ), g(τ), τ, t)` of two functions.
 ///
@@ -264,7 +264,7 @@
 /// - index (int): Component number, or the row of a matrix, starting at 0.
 /// - column (int): Column of a matrix element, starting at 0.
 /// -> expression or value
-#let at = [#math.op("at")<solveng-function>]
+#let at = [#math.op("at")<solveng-builtin-operation>]
 
 /// Inverse sine, also spelled `arcsin`: `asin(x)` returns an angle in radians from −π/2 to π/2.
 ///
@@ -273,7 +273,7 @@
 ///
 /// - x (expression): Unitless sine value.
 /// -> unitless angle in radians
-#let asin = [#math.op("asin")<solveng-function>]
+#let asin = [#math.op("asin")<solveng-builtin-operation>]
 
 /// Inverse cosine, also spelled `arccos`: `acos(x)` returns an angle in radians from 0 to π.
 ///
@@ -282,7 +282,7 @@
 ///
 /// - x (expression): Unitless cosine value.
 /// -> unitless angle in radians
-#let acos = [#math.op("acos")<solveng-function>]
+#let acos = [#math.op("acos")<solveng-builtin-operation>]
 
 /// Inverse tangent, also spelled `arctan`: `atan(x)` returns an angle in radians between −π/2 and π/2.
 ///
@@ -290,7 +290,7 @@
 ///
 /// - x (expression): Unitless tangent value.
 /// -> unitless angle in radians
-#let atan = [#math.op("atan")<solveng-function>]
+#let atan = [#math.op("atan")<solveng-builtin-operation>]
 
 // Native operation documentation is also read by the IDE. Each @builtin marker
 // names the operation documented by the preceding /// comment.
@@ -420,7 +420,7 @@
 /// - variable (name): Input variable, t by default.
 /// - result-variable (name): Output variable, s by default.
 /// -> expression
-#let laplace = [#math.op("laplace")<solveng-function>]
+#let laplace = [#math.op("laplace")<solveng-builtin-operation>]
 
 /// Inverse unilateral Laplace transform: `invlaplace(expression, variable, result-variable)`.
 ///
@@ -460,7 +460,7 @@
 /// - variable (name): Input variable, s by default.
 /// - result-variable (name): Output variable, t by default.
 /// -> expression
-#let invlaplace = [#math.op("invlaplace")<solveng-function>]
+#let invlaplace = [#math.op("invlaplace")<solveng-builtin-operation>]
 
 /// Matrix: `mat(a, b; c, d)`, commas between the elements of a row and semicolons between rows.
 ///
@@ -505,19 +505,19 @@
 /// Exact for exact numbers; floats count as zero within rounding of the largest element.
 /// - matrix (expression): A vector or matrix.
 /// -> integer
-#let rank = [#math.op("rank")<solveng-function>]
+#let rank = [#math.op("rank")<solveng-builtin-operation>]
 
 /// Identity matrix: `identity(n)` has n rows and columns, ones on the diagonal.
 /// - n (int): Number of rows and columns, 1 or more.
 /// -> matrix
-#let identity = [#math.op("identity")<solveng-function>]
+#let identity = [#math.op("identity")<solveng-builtin-operation>]
 
 /// Number of rows of a vector or matrix: `rows(A)`.
 /// - matrix (expression): A vector or matrix.
 /// -> integer
-#let rows = [#math.op("rows")<solveng-function>]
+#let rows = [#math.op("rows")<solveng-builtin-operation>]
 
 /// Number of columns of a vector or matrix: `cols(A)`; a vector has 1.
 /// - matrix (expression): A vector or matrix.
 /// -> integer
-#let cols = [#math.op("cols")<solveng-function>]
+#let cols = [#math.op("cols")<solveng-builtin-operation>]

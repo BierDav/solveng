@@ -178,7 +178,7 @@ pub fn lex(s: &str) -> Result<Vec<Tok>, String> {
             }
             // Typst math writes the symbol at as @: at(v, 0) without the import of solveng's at
             '@' if cs[i + 1..].iter().find(|c| !c.is_whitespace()) == Some(&'(') => {
-                return Err("'@(' – at(vector, index) needs solveng's at: #import functions: at (in math, at alone is the symbol @)".into());
+                return Err("'@(' – at(vector, index) needs solveng's at: #import operations: at (in math, at alone is the symbol @)".into());
             }
             '@' => {
                 let name = solveng_names::scan(&cs, i + 1).ok().flatten().map_or_else(|| "x".to_string(), |n| n.value);

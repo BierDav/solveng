@@ -1,5 +1,5 @@
 //! The Typst bindings solveng reads in math: units, constants, operations and modifiers. They come from solveng's
-//! modules (`#import units: km`, `#import constants: pi`, `#import functions: tri`, `#import modifiers: solve`) or are
+//! modules (`#import units: km`, `#import constants: pi`, `#import operations: tri`, `#import modifiers: solve`) or are
 //! made with `base-unit`, `unit`, `constant`, `operation` and `math.op`. Typst resolves them lexically, so a binding means the same in every
 //! worksheet; solveng sees their values. Quoted text in math is a worksheet variable and never one of them.
 //!
@@ -24,7 +24,7 @@ pub(crate) fn needs_hash(name: &str) -> bool {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Module {
     Units,
-    Functions,
+    Operations,
     Constants,
     Modifiers,
 }
@@ -33,21 +33,21 @@ impl Module {
     pub fn name(self) -> &'static str {
         match self {
             Module::Units => "units",
-            Module::Functions => "functions",
+            Module::Operations => "operations",
             Module::Constants => "constants",
             Module::Modifiers => "modifiers",
         }
     }
 
     fn of(name: &str) -> Option<Module> {
-        [Module::Units, Module::Functions, Module::Constants, Module::Modifiers].into_iter().find(|m| m.name() == name)
+        [Module::Units, Module::Operations, Module::Constants, Module::Modifiers].into_iter().find(|m| m.name() == name)
     }
 
     /// Every name the module exports, read from the package.
     pub fn exports(self) -> Vec<String> {
         match self {
             Module::Units => crate::units::shorthands(),
-            Module::Functions => crate::params::automatic_names(),
+            Module::Operations => crate::params::automatic_names(),
             Module::Constants => MODULE_CONSTANTS.iter().map(|(name, _)| name.clone()).collect(),
             Module::Modifiers => crate::clause::KEYWORDS.iter().map(|(name, _)| name.to_string()).collect(),
         }
@@ -57,7 +57,7 @@ impl Module {
     pub fn meaning(self, name: &str) -> Option<Meaning> {
         match self {
             Module::Units => crate::units::shorthand(name).then(|| Meaning::ModuleUnit(name.into())),
-            Module::Functions => crate::params::automatic_math(name).then(|| Meaning::Operation(name.into())),
+            Module::Operations => crate::params::automatic_math(name).then(|| Meaning::Operation(name.into())),
             Module::Constants => MODULE_CONSTANTS.iter().find(|(n, _)| n == name).map(|(_, m)| m.clone()),
             Module::Modifiers => crate::clause::KEYWORDS.iter().any(|(k, _)| *k == name).then(|| Meaning::Modifier(name.into())),
         }
@@ -67,7 +67,7 @@ impl Module {
     pub fn source(self) -> &'static str {
         match self {
             Module::Units => include_str!("../../../src/unit-words.typ"),
-            Module::Functions => include_str!("../../../src/builtins.typ"),
+            Module::Operations => include_str!("../../../src/builtins.typ"),
             Module::Constants => include_str!("../../../src/constants.typ"),
             Module::Modifiers => include_str!("../../../src/modifiers.typ"),
         }
@@ -91,7 +91,7 @@ pub(crate) enum Meaning {
     Unit(String),
     /// `constant(…)`: its identity (`pi`), if any, and expression.
     Constant { identity: Option<String>, expression: String },
-    /// An operation: `math.op("tri")`, `operation("convolve")` or one of the `functions` module.
+    /// An operation: `math.op("tri")`, `operation("convolve")` or one of the `operations` module.
     Operation(String),
     /// A modifier of the clause after a result, by its name in the `modifiers` module: `solve`.
     Modifier(String),
@@ -635,8 +635,8 @@ fn bare_letters(a: &crate::Analysis) -> Vec<(usize, usize, String, &'static str)
     }).map(|&(start, end, id)| (start, end, a.bindings.definitions[id].name.clone(), a.bindings.definitions[id].meaning.kind())).collect()
 }
 
-/// An explicit operation reference math writes where the `functions` module's name would do: `op("tri")` while
-/// `#import functions: tri` is in scope or can be added after solveng's import.
+/// An explicit operation reference math writes where the `operations` module's name would do: `op("tri")` while
+/// `#import operations: tri` is in scope or can be added after solveng's import.
 struct Nudge {
     start: usize,
     end: usize,
@@ -654,7 +654,7 @@ fn nudges(a: &crate::Analysis) -> Vec<Nudge> {
         let edits = match a.bindings.bound(r.start, &name) {
             Some(Meaning::Operation(op)) if *op == name => Some(Vec::new()),
             Some(_) => None,
-            None => a.bindings.import_edits(&a.doc, r.start, Module::Functions, &name),
+            None => a.bindings.import_edits(&a.doc, r.start, Module::Operations, &name),
         };
         if let Some(edits) = edits {
             out.push(Nudge { start: r.start, end: r.end, name, edits });
@@ -666,13 +666,13 @@ fn nudges(a: &crate::Analysis) -> Vec<Nudge> {
 /// Names in calculated math no binding resolves that one of solveng's modules exports: `km` without
 /// `#import units: km`, which Typst can't find.
 fn importable(a: &crate::Analysis) -> Vec<(usize, usize, String, Module)> {
-    let modules = [Module::Units, Module::Constants, Module::Functions, Module::Modifiers];
+    let modules = [Module::Units, Module::Constants, Module::Operations, Module::Modifiers];
     a.bindings.unbound.iter().filter(|(start, end, _)| a.calculated_at(*start, *end).is_some())
         .filter_map(|(start, end, name)| modules.into_iter().find(|m| m.meaning(name).is_some()).map(|m| (*start, *end, name.clone(), m)))
         .collect()
 }
 
-/// Names of solveng's `functions` module that Typst's math reads itself, so math gets no unknown-variable error
+/// Names of solveng's `operations` module that Typst's math reads itself, so math gets no unknown-variable error
 /// and solveng's operation needs its import: Typst's symbols `at` (@), `Re` (ℜ), `Im` (ℑ), `rect` (⊐), `laplace`
 /// (Δ) and `convolve` (∗), and its `floor`. Names a later Typst adds to its math belong here too.
 const TYPST_OWNS: &[&str] = &["at", "Re", "Im", "rect", "laplace", "convolve", "floor"];
@@ -694,11 +694,11 @@ pub(crate) fn problems(a: &crate::Analysis) -> Vec<crate::Problem> {
     }).collect();
     problems.extend(nudges(a).into_iter().map(|n| crate::Problem {
         start: a.doc.to16(n.start), end: a.doc.to16(n.end), severity: "warning",
-        message: format!("use the shorthand {} (#import functions: {})", n.name, n.name),
+        message: format!("use the shorthand {} (#import operations: {})", n.name, n.name),
     }));
     problems.extend(typst_owned(a).into_iter().map(|(start, end, name)| crate::Problem {
         start: a.doc.to16(start), end: a.doc.to16(end), severity: "warning",
-        message: format!("math reads '{name}' as Typst's own, not solveng's operation; add #import functions: {name}"),
+        message: format!("math reads '{name}' as Typst's own, not solveng's operation; add #import operations: {name}"),
     }));
     problems
 }

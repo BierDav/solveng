@@ -1,6 +1,6 @@
 //! Built-in operations: what they are called, which arguments they take, and how a name reaches one.
 //!
-//! An operation is only ever reached by an explicit reference: a binding of solveng's `functions`, `math.op` or
+//! An operation is only ever reached by an explicit reference: a binding of solveng's `operations`, `math.op` or
 //! `operation`; a plain name is a name.
 //!
 //! Arguments bind as in Typst: positional arguments to the positional parameters in order, named ones

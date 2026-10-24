@@ -77,6 +77,11 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 | [`lambdify`](#lambdify) | Turns an expression into a plain Typst function of numbers, for value tables, other plotting packages (lilaq, cetz-plot, simple-plot) or your own calculations. |
 | [`value`](#value) | The result of an expression alone, where the text needs it: what `$U =$` shows after its `=`. |
 | [`clear`](#clear) | Forgets definitions: the names given, or with `all: true` every one made so far. |
+
+## Operations
+
+| operation | does |
+|---|---|
 | [`rect`](#rect) | Rectangular pulse: `rect(x)` is 1 for \|x\| < ½, ½ at x = ±½, and 0 otherwise. |
 | [`tri`](#tri) | Triangular pulse: `tri(x)` is max(1 − \|x\|, 0), with height 1 at 0 and support from −1 to 1. |
 | [`sgn`](#sgn) | Sign function: `sgn(x)` is −1 for x < 0, 0 for x = 0, and 1 for x > 0. |
@@ -123,7 +128,7 @@ so it lasts $t := Q_0 / I = #h$.
 
 Modifiers, imported from `modifiers` where you use them (`#import modifiers: solve, digits`): `solve(x, …)`, `substitute(x, …)` (these variables' formulas put in, other names kept), `simplify`, `fraction` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
 
-**Units, constants, operations and modifiers** are Typst bindings, imported where you use them: `#import units: mA, s`, `#import constants: pi, i`, `#import functions: tri`, `#import modifiers: solve`, then `$30 mA$`, `$2 #s$`, `$2 pi$`. A binding of a single letter needs a `#` in math. Quoted text names worksheet variables; it never means a unit or operation. Raw blocks, also ```` ```solveng ```` ones, are ordinary text.
+**Units, constants, operations and modifiers** are Typst bindings, imported where you use them: `#import units: mA, s`, `#import constants: pi, i`, `#import operations: tri`, `#import modifiers: solve`, then `$30 mA$`, `$2 #s$`, `$2 pi$`. A binding of a single letter needs a `#` in math. Quoted text names worksheet variables; it never means a unit or operation. Raw blocks, also ```` ```solveng ```` ones, are ordinary text.
 
 **Calls.** `#worksheet($U := 5 #V$, $I := U/R =$)` calculates its equations where it stands, with the definitions made before. Its options are for these only; with content, for the content.
 
@@ -1067,16 +1072,16 @@ $Q := U_2 dot 2 #s -> substitute(U_2)$        // U_2's formula put in: Q ≔ U_2
 ```
 
 - **Units** are Typst bindings, imported from solveng's `units` module where you use them: `#import units: mA, kΩ, s`. It has the SI base units (m kg s A K mol cd), V Ω W J C F H S Hz N Pa T Wb, min h Ah Wh As Ws eV l L, rad, deg (°) and degC (°C, a temperature *difference*), with the SI prefixes (`mA`, `kΩ`, `µs`). In math a binding of one letter needs a `#` (`$2 #s$`, `$100 #Ω$`), longer ones don't (`$30 mA$`). Powers as `#m^2`, quotients as `#m / #s^2`, products with spaces, `kg #m`. Your own with `base-unit` and `unit`, see [Units](#units).
-- **Numbers from values:** dividing by a unit gives a value's number in it, checked and prefix-aware: `U / #V` is U's number in volts, `(U / #V) #A` gives it another unit. Empirical formulas are written this way: `$F(d: mm) := 3.2 (d / mm)^0.6 #N$`. `number(U, #mV)` from `functions` is U's value in mV as a plain number, an error when U doesn't have mV's dimension.
+- **Numbers from values:** dividing by a unit gives a value's number in it, checked and prefix-aware: `U / #V` is U's number in volts, `(U / #V) #A` gives it another unit. Empirical formulas are written this way: `$F(d: mm) := 3.2 (d / mm)^0.6 #N$`. `number(U, #mV)` from `operations` is U's value in mV as a plain number, an error when U doesn't have mV's dimension.
 - **Typeable spellings:** `Omega` is Ω, the prefix `u` is µ (`uA`, also `µA` and `μA`), `deg` and `degC` are ° and °C. Results show the proper symbols.
 - **Decimal point:** numbers are written with a point, `$7.2 #V$`, also in German documents; results use the document language's separator (option `separator`), so they show 7,2 there. A comma always separates: `at(A, 0,1)` and `mat(2,4,6)` are lists of numbers.
 - **No e-notation:** numbers are written out (`$11200$`, or `$1.12 dot 10^4$`). `1.12e4` is the coefficient 1.12 times the variable `e4` (undefined unless defined; quote it, `$"e4"$`, for a name of several letters). Scientific notation is only how results are written (option `scientific`, keyword `sci`).
 - **Names:** the acute accent `´` and the backtick (`` ` ``) are literal name characters (`$x´ := 3$`), with no escaping needed. Digits continue a name: `t2` differs from `t_2` and keeps its digits on the baseline. Complete Latin letter runs normalize to Greek: `Delta2tau` → Δ2τ, while `Deltatau` stays unchanged. `""` joins name fragments: `Delta""tau` → Δτ and `t""2` → t2. Quotes only carry a name through Typst: `$"Delta2tau"$` names Δ2τ, and `$"Delta\"\"tau"$` names Δτ. Quoted text is always a name, also when it spells a unit or an operation: `$"mA" := 3$` is a variable. Explicit subscripts may be grouped: `$R_(a b)$` names R_ab. Operators and whitespace end a name; a leading number remains a coefficient (`2t2` is 2 times t2).
 - **Sums:** `sum_(k=0)^10 k^2` or `sum(k^2, k, 0, 10)` sums over inclusive integer bounds. The index is local and case-sensitive. Parenthesize a summand containing addition. Small finite sums simplify exactly; infinite sums stay symbolic after `->` and are evaluated numerically for `=` and graphs. For example, `$s_2(t) := sum_(k=0)^infinity sigma(t-k+3/4)$` defines a function usable as `#graph($s_2(t)$)` once `sigma` is defined. Piecewise linear signal sums are counted directly between their corners. Other numerical sums use at most 100000 terms and a shrinking-tail convergence estimate; slow or nonconvergent series report an error. Bounds and the index are unitless, while summands may carry units.
-- **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. Import the names from `functions` (`#import functions: rect, tri, sgn`); a worksheet function such as `$Lambda(t) := tri(t)$` or `#let triangle = math.op("tri")` gives another name. Linear combinations simplify and can be solved; definite integrals split affine arguments at their boundaries. Distributional derivatives stay symbolic.
+- **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. Import the names from `operations` (`#import operations: rect, tri, sgn`); a worksheet function such as `$Lambda(t) := tri(t)$` or `#let triangle = math.op("tri")` gives another name. Linear combinations simplify and can be solved; definite integrals split affine arguments at their boundaries. Distributional derivatives stay symbolic.
 - **Ranges and elements:** `$i := 0..N$` (also `0 .. N`, `0...N`) is a range variable: the values from 0 to N in steps of 1, both included, counting down when N < 0; with units, use `range(start, end, step: …)`. `x[i]` and `A[i, j]` are elements, counted from 0, written right after the name without a space; a vector of indices selects several (`x[i]` with i a range is a vector). `:` selects a whole row or column: `A[i, :]` is row i (a matrix of one row), `A[:, j]` column j (a vector), both plottable as data: `#graph($A[1, :]$)`. `$x[i] := …$` defines an element for each value of the range variable i, the body calculated with i standing for that value: `$t[i] := i Delta""t$`, `$x[i] := tri(t[i])$`. Elements not defined yet are 0; defining one past the end extends the vector, as in Mathcad. `A[i, j] := …` defines a matrix.
 - **Convolution:** `convolve(x, h)` of sequences and `convolve(f(τ), g(τ), τ, t)` of functions, see `convolve`. Sequences of values are convolved numerically (whole numbers exactly), so long sampled signals stay fast; functions exactly where they're piecewise polynomial.
-- **Operators:** `+ - * / ^ · ×`, implicit multiplication (`2 pi f C`), Typst's math operators `sqrt exp ln log sin cos tan arcsin arccos arctan sinh cosh tanh abs arg` (no import needed), the other operations from `functions` (see [Built-in operations](#built-in-operations)), your own functions.
+- **Operators:** `+ - * / ^ · ×`, implicit multiplication (`2 pi f C`), Typst's math operators `sqrt exp ln log sin cos tan arcsin arccos arctan sinh cosh tanh abs arg` (no import needed), the other operations from `operations` (see [Built-in operations](#built-in-operations)), your own functions.
 - **Constants** come from solveng's `constants` module: `#import constants: pi, e, i, c` (π, Euler's e, the imaginary unit, the speed of light), then `$2 pi$`, `$#e^x$`, `$3 + 4 #i$`. Without the import `pi` is only the symbol π, a name without a value. `constant(identity, expression)` makes your own; the option `constants` says how they are shown.
 
 ## Complex numbers
@@ -1085,7 +1090,7 @@ Values are complex numbers: `$sqrt(-4) =$` is 2i, `$ln(-1) ->$` is iπ, also wit
 
 - **Exact** numbers stay exact: `(1 + 2i)(3 − i)` → 5 + 5i, `e^(iπ)` → −1; sin and cos are exact at multiples of 30° and 45°.
 - **Units:** complex values carry units like any other, `(100 + 94.25i) Ω`.
-- **Parts:** `abs(z)` is the magnitude, `arg(z)` the angle in radians (−π…π); `Re`, `Im` and `conj` come from `functions` (`#import functions: Re, Im, conj`).
+- **Parts:** `abs(z)` is the magnitude, `arg(z)` the angle in radians (−π…π); `Re`, `Im` and `conj` come from `operations` (`#import operations: Re, Im, conj`).
 - **Solving** is complex: `$x^2 + 4 = 0 -> solve(x)$` gives ±2i, polynomials with numbers get all their roots (`$x^3 = 8 -> solve(x)$`: 2 and −1 ± 1.732i). The numeric search for other equations finds real solutions only.
 - **Showing:** electrical engineers write `j`: `#show: worksheet.with(constants: (imaginary: $j$))`.
 - **Real only:** graphs, `lambdify`, comparisons with `<` and `>`, inequalities and the numeric search need real values; a complex one there is an error.
@@ -1093,7 +1098,7 @@ Values are complex numbers: `$sqrt(-4) =$` is 2i, `$ln(-1) ->$` is iπ, also wit
 ```typ
 #import units: Ω, Hz, mH
 #import constants: pi, e, i
-#import functions: conj
+#import operations: conj
 #import modifiers: solve
 #show: worksheet.with(constants: (imaginary: $j$))
 $(1 + 2 #i)(3 - #i) ->$                       // 5 + 5j

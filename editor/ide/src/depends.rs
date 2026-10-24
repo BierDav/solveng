@@ -15,7 +15,7 @@ pub(crate) fn key(name: &str) -> String {
 }
 
 /// The names the definition at `definition` uses, and the names those use, in the order found: (name, whether
-/// it's defined). Parameters, sum indices and solveng's own functions don't count; `name` is the definition's own.
+/// it's defined). Parameters, sum indices, and solveng's operations and Typst's math functions don't count; `name` is the definition's own.
 pub(crate) fn dependencies(document: &str, context: &Context, definition: Location, name: &str) -> Vec<(String, bool)> {
     let mut pending = vec![definition];
     let mut visited = HashSet::new();
@@ -64,7 +64,7 @@ pub(crate) fn dependencies(document: &str, context: &Context, definition: Locati
             let target = crate::rename_target(source, &c, token.start);
             let name = key(&target.map_or_else(|| slice(source, token.start, token.start + token.length), |t| t.name));
             let definition = crate::definition(source, &c, token.start);
-            // solveng's functions: sin(x)
+            // solveng's operations and Typst's math functions aren't dependencies: sin(x)
             if definition.is_none() && matches!(token.kind, K::FUNCTION | K::FUNCTION_CALL | K::BUILTIN_FUNCTION) {
                 continue;
             }

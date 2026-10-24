@@ -3,7 +3,7 @@
 #import "/src/builtins.typ": *
 #import "/lib.typ": *
 #import "/tests/util.typ": expect, passes
-#import functions: *
+#import operations: *
 #set page(width: 18cm, height: auto)
 #show: worksheet.with(errors: "panic")
 $s_2(t) := sum_(k=0)^infinity sigma(t-k+3/4) ->$
