@@ -24,8 +24,8 @@
   // definitions are symbolic: put in when defined, names without a value stay
   $h := 5 z$ $z := 20 cm$
   $h =$ #result("\"1\" thin m")
-  $U(x: #m) := h*x*a ->$ #result("\"1\" thin m dot a x")
-  $h(x: #m) := U(x)/a ->$ #result("\"1\" thin m dot x")
+  $U(x: #m) := h*x*a ->$ #result("a x thin m")
+  $h(x: #m) := U(x)/a ->$ #result("x thin m")
   $y_h := h(3#m) =$ #expect("y_h", 3)
   // a name used before it's defined is looked up when the value is needed
   $k_l := 2 w_l$ $w_l := 4$ $k_l =$ #expect("k_l", 8)

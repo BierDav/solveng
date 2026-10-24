@@ -196,6 +196,14 @@ impl R<'_> {
             }
         }
         let (c, rest) = strip_coef(e);
+        // a quantity times symbols: the unit last, as for values, e³ in, π/50 m
+        if let Some(r) = &rest
+            && (!c.d.is_one() || c.u.is_some())
+            && let Ok(s) = pick(&c, None, None, self.units, self.cfg)
+            && !s.u.is_empty() && !s.bare && s.u.0.iter().any(|t| t.1 > 0) {
+            let factor = expr::simp(&expr::mul(vec![Expr::C(Val::num(s.n)), r.clone()]));
+            return self.with_unit(&factor, &s.u);
+        }
         let neg = c.v.is_neg() && c.d.is_one();
         let c = if neg { c.neg() } else { c };
         let body = match rest {
@@ -216,6 +224,29 @@ impl R<'_> {
             let p = if body.starts_with("frac(") { P_FRAC } else { P_PROD };
             (body, p)
         }
+    }
+
+    /// A dimensionless factor followed by a unit: e³ in, π/50 m, (π/100 + 1) m.
+    fn with_unit(&self, factor: &Expr, u: &UnitExpr) -> (String, u8) {
+        let (m, p) = self.expr(factor);
+        let m = if p < P_NEG { format!("lr(({m}))") } else { m };
+        let neg = m.starts_with('-');
+        (format!("{m}{}{}", format::unit_join(u, self.units), unit(u, self.units, self.cfg)), if neg { P_NEG } else { P_PROD })
+    }
+
+    /// `e` in the unit `u`, exactly: the factor it is of one `u` (kept symbolic) and the unit. None when `e` doesn't
+    /// have `u`'s dimension or names something without a value.
+    pub fn in_unit(&self, e: &Expr, u: &UnitExpr) -> Option<(String, u8)> {
+        let d = self.units.dim(u)?;
+        let one = Expr::C(Val { u: Some(u.clone()), ..Val::new(self.units.factor(u), d) });
+        // each term on its own, so their units cancel: 2π cm + 1 m in m is π/50 + 1
+        let per = |t: &Expr| expr::simp(&expr::div(t.clone(), one.clone()));
+        let factor = crate::poly::simplify(&match e {
+            Expr::Add(ts) => Expr::Add(ts.iter().map(per).collect()),
+            e => per(e),
+        });
+        if !crate::eval::complex_value(&factor).ok()?.d().is_one() { return None; }
+        Some(self.with_unit(&factor, u))
     }
 
     /// Factors joined: 2 x y, 3 mA · R, 2 (x + 1).

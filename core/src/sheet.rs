@@ -540,6 +540,12 @@ impl<'a> Sheet<'a> {
         if let (Expr::C(v), true) = (&s, unit.is_some() || cfg.form == "decimal" || cfg.scientific == Some((0, 1))) {
             return Ok(self.show_val(v, unit, None, cfg)?.0);
         }
+        // exact in the unit asked for: e³ in, π/50 m; a value when nothing symbolic is left
+        if let (Some(u), false) = (unit, cfg.form == "decimal")
+            && !matches!(s, Expr::C(_))
+            && let Some((m, _)) = self.r(cfg, true).in_unit(&s, u) {
+            return Ok(m);
+        }
         if unit.is_some() || cfg.form == "decimal" {
             if let Ok(z) = complex_value(&s) {
                 return Ok(crate::format::complex(&z, unit, None, &self.units, cfg)?.0);
@@ -1101,9 +1107,9 @@ mod tests {
         t.ok("h ≔ 5 z");
         t.ok("z ≔ 20 #cm");
         let o = t.ok("U(x: m) ≔ h x a →");
-        assert_eq!(o.result.as_deref(), Some("\"1\" thin upright(\"m\") dot a x"));
+        assert_eq!(o.result.as_deref(), Some("a x thin upright(\"m\")"));
         let o = t.ok("h(x: m) ≔ frac(U(x), a) →");
-        assert_eq!(o.result.as_deref(), Some("\"1\" thin upright(\"m\") dot x"));
+        assert_eq!(o.result.as_deref(), Some("x thin upright(\"m\")"));
         let o = t.ok("y ≔ h(2 #m) =");
         assert_eq!(o.result.as_deref(), Some("\"2\" thin upright(\"m\")^(2)"));
     }
