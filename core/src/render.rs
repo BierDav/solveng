@@ -255,9 +255,10 @@ impl R<'_> {
             }
             Ast::Qty(n, u) => {
                 let (m, _) = self.ast(n);
-                (format!("{} thin {}", wrap((m, P_ATOM), P_POW), unit(u, self.units, self.cfg)), P_PROD)
+                (format!("{}{}{}", wrap((m, P_ATOM), P_POW), format::unit_join(u, self.units), unit(u, self.units, self.cfg)), P_PROD)
             }
-            Ast::Unit(u) => (unit(u, self.units, self.cfg), P_ATOM),
+            // a compound display on its own is a product: (2.54 cm)^2
+            Ast::Unit(u) => (unit(u, self.units, self.cfg), if matches!(u.0.as_slice(), [(_, 1)]) && format::unit_compound(u, self.units) { P_PROD } else { P_ATOM }),
             Ast::Name(n) => (name(n), P_ATOM),
             Ast::Neg(x) => (format!("-{}", wrap(self.ast(x), P_PROD)), P_NEG),
             Ast::Add(ts) => {
@@ -277,8 +278,9 @@ impl R<'_> {
                 // what the factor before was: a plain number, a value with a unit (or put in), anything else
                 let mut prev = 0u8;
                 for (i, (op, f)) in fs.iter().enumerate() {
-                                        let (m, p) = self.ast(f);
-                    let kind = if matches!(f, Ast::Qty(..)) { 2 } else if matches!(f, Ast::Num(..)) { 1 } else { 0 };
+                    let (m, p) = self.ast(f);
+                    // a unit whose display starts with a number counts as one: 1 · 2.54 cm
+                    let kind = if matches!(f, Ast::Qty(..)) { 2 } else if matches!(f, Ast::Num(..)) || matches!(f, Ast::Unit(u) if format::unit_numeric(u, self.units)) { 1 } else { 0 };
                     if i > 0 {
                         s += match op {
                             MulOp::Times => " times ",

@@ -29,10 +29,21 @@ fn to_value<T: Serialize>(v: &T) -> Result<Value, String> {
 pub fn binding(req: &[u8]) -> Result<Vec<u8>, String> {
     let r: solveng_core::bindings::BindingReq = de(req, "binding")?;
     let binding = solveng_core::bindings::construct(r)?;
+    // how a unit's display joins what's around it, for the equations as written
+    let def = binding.units.get(&binding.id);
     en(&Value::Map(vec![
         (Value::Text("id".into()), Value::Text(binding.id.clone())),
         (Value::Text("token".into()), Value::Text(format!("⟦{}⟧", binding.encode()?))),
+        (Value::Text("numeric".into()), Value::Bool(def.is_some_and(|d| d.numeric))),
+        (Value::Text("compound".into()), Value::Bool(def.is_some_and(|d| d.compound))),
     ]))
+}
+
+/// A unit's expression as written, in the worksheet's style (what a unit without a display shows): markup.
+#[wasm_func]
+pub fn written(req: &[u8]) -> Result<Vec<u8>, String> {
+    let r: UnitReq = de(req, "request")?;
+    en(&solveng_core::bindings::written(&r.src, &r.cfg)?)
 }
 
 /// (env, request) → (env: new env, out: what to show).

@@ -128,7 +128,7 @@ fn ids() -> &'static Mutex<HashMap<String, String>> {
 }
 
 fn construct(kind: &str, src: String, identity: Option<&str>, display: &str) -> &'static Made {
-    let binding = bindings::construct(BindingReq { kind: kind.into(), src: src.clone(), identity: identity.map(str::to_owned), presentation: display.into(), description: display.into() })
+    let binding = bindings::construct(BindingReq { kind: kind.into(), src: src.clone(), identity: identity.map(str::to_owned), presentation: display.into(), description: display.into(), auto: false })
         .unwrap_or_else(|e| panic!("{kind} {display} := {src}: {e}"));
     let token = format!("⟦{}⟧", binding.encode().unwrap());
     ids().lock().unwrap().insert(binding.id.clone(), display.to_string());

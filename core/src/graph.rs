@@ -1031,7 +1031,11 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
     };
     relabel(&mut xt, &labx, x1 - x0);
     relabel(&mut yt, &laby, y1 - y0);
-    let axlabel = |n: &str, u: &UnitExpr| if u.is_empty() { n.to_string() } else { format!("{n} thin \\/ thin {}", format::unit(u, &units, cfg)) };
+    let axlabel = |n: &str, u: &UnitExpr| if u.is_empty() { n.to_string() } else {
+        // a compound display is one unit: t / (2.54 cm)
+        let m = format::unit(u, &units, cfg);
+        format!("{n} thin \\/ thin {}", if matches!(u.0.as_slice(), [(_, 1)]) && format::unit_compound(u, &units) { format!("lr(({m}))") } else { m })
+    };
     let ylab = match &yname {
         Some(ns) => {
             let mut d = ns.clone();

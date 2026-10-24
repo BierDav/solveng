@@ -16,6 +16,12 @@ pub struct UnitDef {
     pub d: Dim,
     /// A unit binding, not a built-in unit.
     pub own: bool,
+    /// Its display starts with a number (`2.54 cm`): after a number or another factor it's joined by a dot.
+    #[serde(default)]
+    pub numeric: bool,
+    /// Its display is more than one atom (`2.54 cm`, `N · m`): parenthesized under a power or after a slash.
+    #[serde(default)]
+    pub compound: bool,
 }
 
 pub const PREFIXES: &[(&str, i32)] = &[
@@ -86,7 +92,7 @@ fn builtin() -> IndexMap<String, UnitDef> {
         ("deg", deg, Dim::ONE),
         ("rad", one, Dim::ONE),
     ];
-    list.into_iter().map(|(n, f, d)| (n.to_string(), UnitDef { f, d, own: false, display: None })).collect()
+    list.into_iter().map(|(n, f, d)| (n.to_string(), UnitDef { f, d, own: false, display: None, numeric: false, compound: false })).collect()
 }
 
 /// The units results can be shown in without being in use: the SI units, minutes and hours.
@@ -215,7 +221,12 @@ impl Units {
 
     /// A unit expression in text, by the units' names or displays: kg·m/s^2.
     pub fn text(&self, u: &UnitExpr) -> String {
-        UnitExpr(u.0.iter().map(|(n, e)| (display_name(n, self), *e)).collect()).text()
+        // a compound display is one factor under a power or below the slash: (2.54 cm)^2
+        let shown = |n: &str, e: i32| {
+            let d = display_name(n, self);
+            if (e != 1 || u.0.len() > 1) && self.def(n).is_some_and(|d| d.compound) { format!("({d})") } else { d }
+        };
+        UnitExpr(u.0.iter().map(|(n, e)| (shown(n, *e), *e)).collect()).text()
     }
 
     /// A prefixed unit: kΩ → (factor, dims); a spelled Greek letter takes one only glued (k""Omega), as names do.

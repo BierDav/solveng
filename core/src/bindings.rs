@@ -2,7 +2,7 @@
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use crate::{complex::Z, dim::Dim, env::{Env, Lower}, eval::{complex_value, value}, expr::{Expr, Val, simp}, format::Cfg, num::Num, parse::{self, Ctx, Stmt}, units::{UnitDef, UnitExpr, Units}};
+use crate::{complex::Z, dim::Dim, env::{Env, Lower}, eval::{complex_value, value}, expr::{Expr, Val, simp}, format::Cfg, num::Num, parse::{self, Ast, Ctx, Stmt}, units::{UnitDef, UnitExpr, Units}};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Binding {
@@ -74,6 +74,69 @@ pub struct BindingReq {
     #[serde(default)] pub presentation: String,
     /// A unit's name in plain text.
     #[serde(default)] pub description: String,
+    /// A unit shown as its expression: the engine writes it, as results are written ([`written`]).
+    #[serde(default)] pub auto: bool,
+}
+
+/// How a unit binding is shown and joined: its display in plain text, whether it starts with a number, whether
+/// it is more than one atom.
+struct Shape { description: String, numeric: bool, compound: bool }
+
+/// A formula in plain text, for a unit's description: 2.54 cm, 1/60 s.
+fn plain(a: &Ast, units: &Units) -> String {
+    match a {
+        Ast::Num(raw, _) => raw.clone(),
+        Ast::Qty(n, u) => format!("{} {}", plain(n, units), units.text(u)),
+        Ast::Unit(u) => units.text(u),
+        Ast::Name(n) => n.clone(),
+        Ast::Bound(c) => c.identity.clone(),
+        Ast::Neg(x) => format!("-{}", plain(x, units)),
+        Ast::Add(ts) => ts.iter().enumerate().map(|(i, (neg, t))| {
+            let sign = match (i, neg) { (0, true) => "-", (0, false) => "", (_, true) => " - ", (_, false) => " + " };
+            format!("{sign}{}", plain(t, units))
+        }).collect(),
+        Ast::Mul(fs) => fs.iter().map(|(_, f)| plain(f, units)).collect::<Vec<_>>().join(" "),
+        Ast::Div(x, y) => format!("{}/{}", plain(x, units), plain(y, units)),
+        Ast::Pow(x, y) => format!("{}^{}", plain(x, units), plain(y, units)),
+        _ => "…".into(),
+    }
+}
+
+/// Whether a formula as written starts with a number: 2.54 cm, 1/60 s, a unit that does.
+fn leads_numeric(a: &Ast, units: &Units) -> bool {
+    match a {
+        Ast::Num(..) | Ast::Qty(..) => true,
+        Ast::Unit(u) => crate::format::unit_numeric(u, units),
+        Ast::Mul(fs) => fs.first().is_some_and(|(_, f)| leads_numeric(f, units)),
+        Ast::Div(x, _) | Ast::Pow(x, _) => leads_numeric(x, units),
+        Ast::Add(ts) => ts.first().is_some_and(|(neg, t)| !neg && leads_numeric(t, units)),
+        _ => false,
+    }
+}
+
+impl Shape {
+    fn of(ast: &Ast, units: &Units) -> Shape {
+        let compound = match ast {
+            Ast::Unit(u) => crate::format::unit_compound(u, units),
+            Ast::Num(..) | Ast::Name(_) | Ast::Bound(_) => false,
+            _ => true,
+        };
+        Shape { description: plain(ast, units), numeric: leads_numeric(ast, units), compound }
+    }
+    /// A display of its own, known by its text: a number first makes it numeric; it counts as one atom.
+    fn custom(description: String) -> Shape {
+        let numeric = description.trim_start().starts_with(|c: char| c.is_ascii_digit());
+        Shape { description, numeric, compound: false }
+    }
+}
+
+/// A unit's expression as written, in the worksheet's style: what a unit without a display of its own shows.
+pub fn written(src: &str, cfg: &Cfg) -> Result<String, String> {
+    let units = Units::lexical(cfg, &Env::default(), src)?;
+    let ctx = Ctx { units: &units, is_fn: &|_| false, is_var: &|_| false };
+    let line = parse::parse_line(src, &ctx)?;
+    let [Stmt::Expr(ast)] = line.stmts.as_slice() else { return Err("a closed expression, without definitions".into()) };
+    Ok(crate::render::R { units: &units, cfg, exact: false }.ast(ast).0)
 }
 
 pub fn construct(req: BindingReq) -> Result<Binding, String> {
@@ -81,6 +144,9 @@ pub fn construct(req: BindingReq) -> Result<Binding, String> {
     let identity = req.identity.as_deref().map(str::trim);
     if identity.is_some_and(str::is_empty) { return Err(format!("{}: the identity must not be empty", req.kind)); }
     let mut units = Units::lexical(&Cfg::default(), &Env::default(), &req.src)?;
+    let mut shape = Shape::custom(req.description.clone());
+    // an automatic display is the expression as written: part of the unit's identity, as a display is
+    let mut presentation = req.presentation.clone();
     let (expr, backing) = match req.kind.as_str() {
         "base-unit" => {
             let identity = identity.ok_or("base-unit: a nonempty dimension identity is required")?;
@@ -96,6 +162,10 @@ pub fn construct(req: BindingReq) -> Result<Binding, String> {
             let written = Lower::new(&env, &units).expr(ast)?;
             let expr = simp(&written);
             if kind == "unit" {
+                if req.auto {
+                    shape = Shape::of(ast, &units);
+                    presentation = crate::render::R { units: &units, cfg: &Cfg::default(), exact: false }.ast(ast).0;
+                }
                 let val = value(&expr).map_err(|_| "unit: an expression of numbers and units")?;
                 if !val.v.f().is_finite() || val.v.f() <= 0.0 { return Err("unit: a positive, finite scale".into()); }
                 (Expr::C(val), None)
@@ -106,12 +176,12 @@ pub fn construct(req: BindingReq) -> Result<Binding, String> {
             }
         }
     };
-    let semantic = serde_json::to_vec(&(&req.kind, &expr, &backing, &identity, &req.presentation)).map_err(|e| e.to_string())?;
+    let semantic = serde_json::to_vec(&(&req.kind, &expr, &backing, &identity, &presentation)).map_err(|e| e.to_string())?;
     let id = format!("sv{}", blake3::hash(&semantic).to_hex().as_str().chars().map(|c| (b'a' + c.to_digit(16).unwrap() as u8) as char).collect::<String>());
     let is_unit = req.kind != "constant";
     let expr = if is_unit {
         let val = value(&expr).map_err(|_| "a unit must have a numeric value")?;
-        units.map.insert(id.clone(), UnitDef { f: val.v, d: val.d.clone(), own: true, display: Some(req.description) });
+        units.map.insert(id.clone(), UnitDef { f: val.v, d: val.d.clone(), own: true, display: Some(shape.description.clone()), numeric: shape.numeric, compound: shape.compound });
         Expr::C(Val { u: Some(UnitExpr::one(&id)), ..val })
     } else { expr };
     Ok(Binding { id, identity: identity.map(str::to_owned), expr, backing, unit: is_unit, units: units.map })

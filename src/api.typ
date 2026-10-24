@@ -32,8 +32,9 @@
     if quiet { return errs }
     let shown = if out.mark == none { _restyle(it.body, cf) } else {
       let (head, m) = _split-eq(it.body, out.mark)
-      let res = if out.result == none { [] } else { _m(out.result, cf) }
-      _restyle(head.join(), cf) + (if m == "=" { _BEQ } else { $->$.body }) + res
+      // in a context after the head, which places the bindings it shows (their displays)
+      let res = if out.result == none { [] } else { context _m(out.result, cf) }
+      _restyle(head, cf) + (if m == "=" { _BEQ } else { $->$.body }) + res
     }
     _with-body(it, shown) + errs
   })

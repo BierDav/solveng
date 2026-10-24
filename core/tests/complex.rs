@@ -4,7 +4,7 @@
 use solveng_core::{api::{self, LineReq}, bindings::{self, Binding, BindingReq}, env::Env, eval::value, expr::Expr, format::Cfg};
 
 fn binding(kind: &str, source: &str, identity: Option<&str>) -> Result<Binding, String> {
-    bindings::construct(BindingReq { kind: kind.into(), src: source.into(), identity: identity.map(str::to_owned), presentation: String::new(), description: "Ω".into() })
+    bindings::construct(BindingReq { kind: kind.into(), src: source.into(), identity: identity.map(str::to_owned), presentation: String::new(), description: "Ω".into(), auto: false })
 }
 fn token(b: &Binding) -> String {
     format!("⟦{}⟧", b.encode().unwrap())

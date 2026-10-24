@@ -130,7 +130,7 @@ fn deferred_derivatives_differentiate_before_substituting_arguments() {
 fn deferred_calls_use_custom_parameter_units_in_values_and_reports() {
     use solveng_core::bindings::{self, BindingReq};
     let construct = |kind: &str, src: String, identity: Option<&str>| {
-        let b = bindings::construct(BindingReq { kind: kind.into(), src, identity: identity.map(str::to_owned), presentation: String::new(), description: String::new() }).unwrap();
+        let b = bindings::construct(BindingReq { kind: kind.into(), src, identity: identity.map(str::to_owned), presentation: String::new(), description: String::new(), auto: false }).unwrap();
         format!("⟦{}⟧", b.encode().unwrap())
     };
     let metre = construct("base-unit", String::new(), Some("length"));

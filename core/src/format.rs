@@ -174,16 +174,46 @@ fn letter(c: char) -> String {
     if c.is_ascii_alphabetic() || is_greek(c) { c.to_string() } else { q(&c.to_string()) }
 }
 
+fn compound_def(n: &str, units: &Units) -> bool {
+    units.def(n).is_some_and(|d| d.compound)
+}
+
+/// Whether a unit's markup starts with a number (a display like `2.54 cm`, or the 1 of `1/s`), so that a number
+/// or factor before it is joined by a dot rather than a space: 1 · 2.54 cm.
+pub fn unit_numeric(u: &UnitExpr, units: &Units) -> bool {
+    match u.0.iter().find(|t| t.1 > 0) {
+        None => !u.0.is_empty(),
+        // a compound display among other factors is parenthesized: (2.54 cm)·s
+        Some((n, e)) => *e == 1 && units.def(n).is_some_and(|d| d.numeric && !(d.compound && u.0.len() > 1)),
+    }
+}
+
+/// Whether a unit's markup is more than one atom: several units, a power, or a compound display.
+pub fn unit_compound(u: &UnitExpr, units: &Units) -> bool {
+    match u.0.as_slice() {
+        [(n, 1)] => compound_def(n, units),
+        _ => true,
+    }
+}
+
+/// What joins a value and its unit: a thin space, or a dot before a unit that starts with a number.
+pub fn unit_join(u: &UnitExpr, units: &Units) -> &'static str {
+    if unit_numeric(u, units) { " dot " } else { " thin " }
+}
+
 /// A unit as markup: upright names, powers, · between them, / before what's below.
 pub fn unit(u: &UnitExpr, units: &Units, cfg: &Cfg) -> String {
     if u.0.len() == 1 && u.0[0].0 == "any" {
         return format!("upright({})", q(&cfg.words.any));
     }
-    let w = |ts: Vec<(&String, i32)>| {
+    // `below`: after the slash, where a compound display is one factor too
+    let w = |ts: Vec<(&String, i32)>, below: bool| {
         ts.iter()
             .map(|(n, e)| {
                 // a unit binding: as its display, which the Typst side knows once it was placed; its name meanwhile
                 let s = if n.starts_with("sv") && n.len() == 66 { format!("#svref({}, {})", q(n), q(&display_name(n, units))) } else { format!("upright({})", q(&display_name(n, units))) };
+                // a display of several atoms is one factor: (2.54 cm)², m/(2.54 cm), (2.54 cm)·s
+                let s = if compound_def(n, units) && (*e != 1 || below || u.0.len() > 1) { format!("lr(({s}))") } else { s };
                 if *e == 1 { s } else { format!("{s}^({e})") }
             })
             .collect::<Vec<_>>()
@@ -191,10 +221,10 @@ pub fn unit(u: &UnitExpr, units: &Units, cfg: &Cfg) -> String {
     };
     let up: Vec<_> = u.0.iter().filter(|t| t.1 > 0).map(|(n, e)| (n, *e)).collect();
     let down: Vec<_> = u.0.iter().filter(|t| t.1 < 0).map(|(n, e)| (n, -e)).collect();
-    let mut s = if up.is_empty() { "1".into() } else { w(up) };
+    let mut s = if up.is_empty() { "1".into() } else { w(up, false) };
     if !down.is_empty() {
         // no spaces: next to a #call, math keeps them as spaces (m / s)
-        s = format!("{s}\\/{}", w(down));
+        s = format!("{s}\\/{}", w(down, true));
     }
     if cfg.unit_style { format!("#svu(${s}$)") } else { s }
 }
@@ -405,7 +435,7 @@ pub fn shown(s: &Shown, units: &Units, cfg: &Cfg) -> (String, bool) {
     if s.u.is_empty() {
         return (n, exact);
     }
-    (format!("{n} thin {}", unit(&s.u, units, cfg)), exact)
+    (format!("{n}{}{}", unit_join(&s.u, units), unit(&s.u, units, cfg)), exact)
 }
 
 /// A value in plain text, for editors: "2.988 V".
@@ -452,7 +482,7 @@ pub fn complex(z: &CVal, want: Option<&UnitExpr>, hint: Option<&UnitExpr>, units
         return Ok((body, exact));
     }
     let body = if sum { format!("lr(({body}))") } else { body };
-    Ok((format!("{body} thin {}", unit(&u, units, cfg)), exact))
+    Ok((format!("{body}{}{}", unit_join(&u, units), unit(&u, units, cfg)), exact))
 }
 
 /// A complex value in plain text, for editors: "(3 + 4i) Ω".

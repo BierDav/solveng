@@ -80,7 +80,7 @@
 #let _op-call(name, args, implicit: false, display: auto) = {
   // the colon of a named argument as a class of its own: no parameter type to show as a chip
   let parts = args.pos() + args.named().pairs().map(((k, v)) => [#k] + math.class("normal", [:]) + h(0.25em) + v)
-  let shown = if display == auto { math.op(name) } else { display() }
+  let shown = if display == auto { math.op(name) } else if type(display) == function { display() } else if type(display) == str { math.op(display) } else { display }
   let body = [#(if display != auto { _operation-display(name, shown) })#metadata(name)#shown]
   let o = [#body<solveng-operation>]
   // a comma and a space between arguments: 1, 10 (without the space, 1,10 reads as a decimal comma)

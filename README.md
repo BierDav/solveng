@@ -53,7 +53,17 @@ $F := 2 kg #g0 =$
 $triangle(1/2) =$
 ```
 
-`display` of units and operations is an optional function returning content. It changes presentation without changing meaning. Binding names retain their spelling; a unit named `tau` is not renamed to `τ`.
+`display` says how a unit or operation is shown: content (`display: $"in"$`), a string (`display: "in"`, set upright) or a function returning content. It changes presentation without changing meaning. Binding names retain their spelling; a unit named `tau` is not renamed to `τ`. A unit without a display shows its expression, written as results are: `unit($2.54 #cm$)` is 2.54 cm, in the input and in results alike. Such a display is one unit: next to a number it is joined by a dot (1 · 2.54 cm), and under a power or after a slash it is parenthesized ((2.54 cm)², m/(2.54 cm)).
+
+```typ
+#import "@preview/solveng:1.0.0": *
+#import units: cm
+#let inch = unit($2.54 #cm$)
+#let inches = unit($2.54 #cm$, display: $"in"$)
+#show: worksheet
+$a := 3 #inch = inch$
+$b := 3 inches = cm$
+```
 
 ## Complex numbers
 

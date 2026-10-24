@@ -3,7 +3,7 @@ use solveng_core::{api::{self, DefinedReq, LineReq}, bindings::{self, Binding, B
 use support::cfg;
 
 fn binding(kind: &str, source: &str, identity: Option<&str>, display: &str) -> Binding {
-    bindings::construct(BindingReq { kind: kind.into(), src: source.into(), identity: identity.map(str::to_owned), presentation: display.into(), description: display.into() }).unwrap()
+    bindings::construct(BindingReq { kind: kind.into(), src: source.into(), identity: identity.map(str::to_owned), presentation: display.into(), description: display.into(), auto: false }).unwrap()
 }
 fn token(binding: &Binding) -> String { format!("⟦{}⟧", binding.encode().unwrap()) }
 fn run(env: &mut Env, source: &str) -> solveng_core::sheet::Out {
@@ -45,10 +45,61 @@ fn constants_carry_units_and_stable_identities_without_name_lookup() {
     let out = run(&mut env, &format!("⦇ln⦈({}) ->", token(&e)));
     assert_eq!(out.result.as_deref(), Some("\"1\""));
 }
+fn auto_unit(source: &str) -> Binding {
+    bindings::construct(BindingReq { kind: "unit".into(), src: source.into(), identity: None, presentation: String::new(), description: String::new(), auto: true }).unwrap()
+}
+
+#[test]
+fn units_shown_as_their_expression_are_one_factor() {
+    let metre = binding("base-unit", "", Some("length"), "m");
+    let second = binding("base-unit", "", Some("time"), "s");
+    let cm = binding("unit", &format!("frac(1, 100) {}", token(&metre)), None, "cm");
+    let mm = binding("unit", &format!("frac(1, 1000) {}", token(&metre)), None, "mm");
+    let inch = auto_unit(&format!("2.54 {}", token(&cm)));
+    let def = &inch.units[&inch.id];
+    assert!(def.numeric && def.compound, "{def:?}");
+    assert_eq!(def.display.as_deref(), Some("2.54 cm"));
+    // written as results are: the number, a thin space, the unit
+    let written = bindings::written(&format!("2.54 {}", token(&cm)), &cfg()).unwrap();
+    assert!(written.starts_with("\"2.54\" thin #svref("), "{written}");
+    // the same value written differently is another unit, as another display would be
+    assert_ne!(auto_unit(&format!("25.4 {}", token(&mm))).id, inch.id);
+    // a unit of a single atom is neither
+    let metres = auto_unit(&token(&metre));
+    assert!(!metres.units[&metres.id].numeric && !metres.units[&metres.id].compound);
+    let metre_second = auto_unit(&format!("{} {}", token(&metre), token(&second)));
+    assert!(!metre_second.units[&metre_second.id].numeric && metre_second.units[&metre_second.id].compound);
+
+    let i = token(&inch);
+    let mut env = Env::default();
+    // after a number: a dot, never a space (1 2.54 cm reads as 12.54 cm)
+    let out = run(&mut env, &format!("1 {i} = {i}"));
+    assert!(out.result.as_deref().unwrap().starts_with("\"1\" dot #svref("), "{out:?}");
+    let out = run(&mut env, &format!("x := 3 {i} ="));
+    assert!(out.result.as_deref().unwrap().contains(" dot #svref("), "{out:?}");
+    // under a power, after a slash or next to another unit: parenthesized
+    let out = run(&mut env, &format!("{i}^2 = {i}^2"));
+    assert!(out.result.as_deref().unwrap().contains("lr((#svref(") && out.result.as_deref().unwrap().contains("))^(2)"), "{out:?}");
+    let out = run(&mut env, &format!("2 {} / {i} =", token(&second)));
+    assert!(out.result.as_deref().unwrap().contains("\\/lr((#svref("), "{out:?}");
+    let out = run(&mut env, &format!("5 {i} {} =", token(&second)));
+    assert!(out.result.as_deref().unwrap().contains("lr((#svref("), "{out:?}");
+    // the formula as written joins it the same way
+    let out = run(&mut env, &format!("y := 2 {i} ->"));
+    assert!(out.result.as_deref().unwrap().contains(" dot "), "{out:?}");
+    // a unit with a display of its own is one atom, joined by a thin space
+    let shown_in = binding("unit", &format!("2.54 {}", token(&cm)), None, "in");
+    let out = run(&mut env, &format!("1 {} = {}", token(&shown_in), token(&shown_in)));
+    assert!(out.result.as_deref().unwrap().starts_with("\"1\" thin #svref("), "{out:?}");
+    // a display of its own that starts with a number is joined by a dot
+    let two = binding("unit", &format!("2 {}", token(&metre)), None, "2m");
+    assert!(two.units[&two.id].numeric && !two.units[&two.id].compound);
+}
+
 #[test]
 fn definitions_require_closed_values_and_positive_unit_scales() {
     for source in ["x", "x := 2", "1 =", "0", "-3"] {
-        assert!(bindings::construct(BindingReq { kind: "unit".into(), src: source.into(), identity: None, presentation: String::new(), description: String::new() }).is_err(), "{source}");
+        assert!(bindings::construct(BindingReq { kind: "unit".into(), src: source.into(), identity: None, presentation: String::new(), description: String::new(), auto: false }).is_err(), "{source}");
     }
     let a = binding("base-unit", "", Some("alpha"), "alpha");
     let b = binding("base-unit", "", Some("α"), "α");

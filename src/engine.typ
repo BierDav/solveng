@@ -325,9 +325,53 @@
   let r = _call(_p.unit, (cfg: _req-cfg(cf), src: s))
   if r == none { none } else { _m(r, cf) }
 }
+// what a unit binding says about its display: numeric (starts with a number), compound (more than one atom)
+#let _binding-meta(c) = {
+  if type(c) == content and c.has("label") and c.label == <solveng-binding> {
+    return c.children.find(x => x.func() == metadata).value
+  }
+  (:)
+}
+#let _ends-factor = regex("[\\p{L}\\p{N})\\]}′]$")
+#let _starts-number = regex("^\\p{N}")
+#let _blank(x) = type(x) == content and x.func() in (_space, h)
+// whether content as shown starts with a number: 2.54, a unit shown as 2.54 cm, a fraction or power of one
+#let _starts-num(x) = {
+  let m = _binding-meta(x)
+  if m.len() > 0 { return m.at("numeric", default: false) }
+  if type(x) == content {
+    if x.func() == math.frac { return _starts-num(x.num) }
+    if x.func() == math.attach { return _starts-num(x.base) }
+    if x.has("children") { let first = x.children.find(c => not _blank(c)); return first != none and _starts-num(first) }
+  }
+  _plain(x).trim().match(_starts-number) != none
+}
+#let _ends-number = regex("\\p{N}$")
+// factors written next to each other, joined as results are written: by a dot where digits would meet
+// (1 · 2.54 cm), a number and its unit by a thin space (3 in)
+#let _dotted(out) = {
+  let ends(x) = _binding-meta(x).len() > 0 or _plain(x).trim().match(_ends-factor) != none
+  let (joined, prev) = ((), none)
+  for x in out {
+    if not _blank(x) {
+      let join = if prev == none or not ends(prev) { none } else if _starts-num(x) { sym.dot.op }
+        else if _binding-meta(x).at("unit", default: false) and _binding-meta(prev).len() == 0 and _plain(prev).trim().match(_ends-number) != none { h(0.1667em) }
+      if join != none {
+        // the join replaces the spaces typed between them
+        while joined.len() > 0 and _blank(joined.last()) { let _ = joined.pop() }
+        joined.push(join)
+      }
+      prev = x
+    }
+    joined.push(x)
+  }
+  joined.join()
+}
 // types (f(x: #A)) as chips, plain or left out, as the options say; names as the engine
 // spells them (Delta → Δ)
+// `c` may be an array of children: joining them first would flatten the bindings' labelled sequences.
 #let _restyle(c, cf) = {
+  if type(c) == array { c = [].func()(c) }
   if type(c) != content { return c }
   if c.has("label") and c.label in (<solveng-binding>, <solveng-operation>, <solveng-function>) { return c }
   if c == math.dif { return c }
@@ -402,7 +446,13 @@
         i += 1
       }
     }
-    return out.join()
+    return _dotted(out)
+  }
+  // a compound unit display under a power is one factor: (2.54 cm)²
+  if f == math.attach and c.at("t", default: none) != none and _binding-meta(c.base).at("compound", default: false) {
+    let fields = c.fields()
+    let base = fields.remove("base")
+    return math.attach($lr((#base))$.body, ..fields)
   }
   if f == math.lr { return math.lr(_restyle(c.body, cf)) }
   if f == math.frac { return math.frac(_restyle(c.num, cf), _restyle(c.denom, cf)) }

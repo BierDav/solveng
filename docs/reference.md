@@ -223,9 +223,12 @@ A unit of a new, independent dimension: `#let bit = base-unit("information")`.
 The identity names the dimension: base units with the same identity are the same dimension, also when
 they're declared in other files or worksheets. Results of the dimension are shown in the unit.
 
+`display` is how the unit is shown, in the input and in results: a string (set upright), content, or a
+function returning content.
+
 ```typ
-#let bit = base-unit("information", display: () => math.upright("bit"))
-#let byte = unit($8 bit$, display: () => math.upright("B"))
+#let bit = base-unit("information", display: "bit")
+#let byte = unit($8 bit$, display: $"B"$)
 #show: worksheet
 $d := 3 byte = bit$
 ```
@@ -233,7 +236,7 @@ $d := 3 byte = bit$
 | parameter | type | default | |
 |---|---|---|---|
 | `identity` | str |  | The dimension, the same in every file and worksheet. |
-| `display` | auto, function | `auto` | A function returning how the unit is shown; `auto`: the identity, upright. |
+| `display` | auto, str, content, function | `auto` | How the unit is shown: a string (upright), content, or a function |
 
 Returns content.
 
@@ -242,22 +245,29 @@ Returns content.
 A unit defined by an expression of unit values: `#let minute = unit($60 #s$)`.
 
 The expression is the unit's value: a positive number times units, from `units`, `base-unit` or other
-`unit`s (`$100 kPa$`, `$1/min$`, `$#m / #s$`). `display` changes how the unit is shown, not what it means;
-binding names keep their spelling (a unit named `tau` isn't shown as τ). Like every binding, the unit holds
-where the binding is visible, in every worksheet.
+`unit`s (`$100 kPa$`, `$1/min$`, `$#m / #s$`). Like every binding, the unit holds where the binding is
+visible, in every worksheet.
+
+`display` says how the unit is shown, in the input and in results, not what it means: a string (set upright),
+content, or a function returning content. Binding names keep their spelling (a unit named `tau` isn't shown
+as τ). Without a display the unit shows its expression, written as results are (numbers in the worksheet's
+format, a thin space before units): `unit($2.54 #cm$)` is 2.54 cm. That display is one unit wherever it
+appears: after a number or another factor it is joined by a dot, `$1 #inch$` is 1 · 2.54 cm, and under a
+power or after a slash it is parenthesized, (2.54 cm)², m/(2.54 cm).
 
 ```typ
-#import units: kPa, min
-#let bar = unit($100 kPa$, display: () => math.upright("bar"))
-#let rpm = unit($1/min$, display: () => math.upright("rpm"))
+#import units: kPa, min, cm
+#let bar = unit($100 kPa$, display: "bar")
+#let rpm = unit($1/min$, display: $"rpm"$)
+#let inch = unit($2.54 #cm$)
 #show: worksheet
-$p := 3 bar$, $n := 3000 rpm$, $p = kPa$
+$p := 3 bar$, $n := 3000 rpm$, $p = kPa$, $l := 2 #inch = inch$
 ```
 
 | parameter | type | default | |
 |---|---|---|---|
 | `expression` | content |  | The unit's value as math. |
-| `display` | auto, function | `auto` | A function returning how the unit is shown; `auto`: the expression. |
+| `display` | auto, str, content, function | `auto` | How the unit is shown: a string (upright), content, or a function |
 
 Returns content.
 
@@ -297,16 +307,20 @@ The name selects one of solveng's operations (see *Built-in operations*), whatev
 quoted names in math never do. Unlike `math.op("tri")`, the result takes named arguments, as Typst only
 parses them for functions: `$conv(x, h, step: 2)$`.
 
+`display` is how the operation is shown, in the input and in results: a string (an operator name, as
+`math.op` writes it), content, or a function returning content.
+
 ```typ
-#let triangle = operation("tri", display: () => math.op("triangle"))
+#let triangle = operation("tri", display: "triangle")
+#let step = operation("sgn", display: $op(sigma)$)
 #show: worksheet
-$triangle(1/2) =$
+$triangle(1/2) =$, $step(-2) =$
 ```
 
 | parameter | type | default | |
 |---|---|---|---|
 | `name` | str |  | The operation, e.g. `"tri"` or `"convolve"`. |
-| `display` | auto, function | `auto` | A function returning how the operation is shown; `auto`: its name. |
+| `display` | auto, str, content, function | `auto` | How the operation is shown: an operator name, content, or a function |
 
 Returns function.
 
