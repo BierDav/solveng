@@ -4,32 +4,16 @@ use crate::calls::{Call, Role};
 use crate::complete::{FUNCTIONS, definitions};
 use crate::elements::Element;
 use crate::text::Doc;
-use crate::tokens::{Tok, code_tokens, math_tokens};
+use crate::tokens::{Tok, math_tokens};
 use crate::scope::{self, File, Occurrence};
 use crate::{Analysis, Context, Edit, Location, RenameTarget, TokenKind as K};
 
-/// A name used where solveng calculates: its spelling in code (math's `t_"half"` is `t_half`) and where it is,
+/// A name used where solveng calculates: as solveng stores it (math's `t_"half"` is `t_half`) and where it is,
 /// in characters.
 struct Name {
     key: String,
     start: usize,
     end: usize,
-}
-
-/// Names in solveng code: variables and functions other than the built-in ones.
-fn code_names(doc: &Doc, base: usize, toks: Vec<Tok>, out: &mut Vec<Name>) {
-    for (s, l, kind) in toks {
-        let (start, end) = (base + s, base + s + l);
-        let raw: Vec<char> = doc.sub(start, end).chars().collect();
-        let (decoded, _) = crate::text::unescape(&raw);
-        if solveng_names::scan(&decoded, 0).is_err() { continue; }
-        let text: String = decoded.into_iter().collect();
-        match kind {
-            K::VARIABLE => out.push(Name { key: crate::resolved_name(&text), start, end }),
-            K::FUNCTION if !FUNCTIONS.contains(&text.as_str()) => out.push(Name { key: crate::resolved_name(&text), start, end }),
-            _ => {}
-        }
-    }
 }
 
 /// Names in math, where a subscript belongs to its name: `Q_0`, `t_"half"`, `"x"_("in" Delta)`.
@@ -87,8 +71,8 @@ pub(crate) fn math_name_of(math: &[char]) -> Option<(String, usize, usize)> {
     let text: String = math.iter().collect();
     let doc = Doc::new(&text);
     let mut out = Vec::new();
-    math_names(&doc, 0, math_tokens(math, &crate::is_unit, &|_| false), &mut out);
-    let toks = math_tokens(math, &crate::is_unit, &|_| false);
+    math_names(&doc, 0, math_tokens(math, &crate::is_unit), &mut out);
+    let toks = math_tokens(math, &crate::is_unit);
     // Nothing but the name: no units, numbers or operators around it.
     let covered = |t: &Tok| out.first().is_some_and(|n| n.start <= t.0 && t.0 + t.1 <= n.end);
     if out.len() != 1 || !toks.iter().all(covered) || out[0].key.is_empty() {
@@ -101,54 +85,44 @@ pub(crate) fn math_name_of(math: &[char]) -> Option<(String, usize, usize)> {
 /// A piece of a subscript as solveng reads it: quotes go, a spelled Greek letter is the letter (`Delta` is Δ).
 pub(crate) fn math_piece(text: &str) -> String { crate::resolved_name(text) }
 
-/// Every name solveng reads in a text: in calculated code and math, and in the strings of its calls.
-fn names(doc: &Doc, elements: &[Element], calls: &[Call], active: &dyn Fn(&Element) -> bool, unit: &dyn Fn(&str) -> bool, defined: &dyn Fn(&str) -> bool, units_at: &dyn Fn(usize) -> Vec<crate::units::Custom>) -> Vec<Name> {
+/// Every name solveng reads in a text: in calculated math, and in the strings of its calls. Typst bindings
+/// (units, constants, operations and other values) are Typst's: solveng sees their values.
+fn names(doc: &Doc, elements: &[Element], calls: &[Call], bindings: &crate::bindings::Bindings, active: &dyn Fn(&Element) -> bool) -> Vec<Name> {
     let mut out = Vec::new();
     for e in elements.iter().filter(|e| active(e)) {
         let body = &doc.c[e.body_start..e.body_end];
-        if e.math {
-            let units = units_at(e.body_start);
-            math_names(doc, e.body_start, math_tokens(body, &|w| crate::units::visible(w, &units), defined), &mut out);
-        } else {
-            code_names(doc, e.body_start, code_tokens(body, unit), &mut out);
-        }
+        math_names(doc, e.body_start, math_tokens(body, &|w| bindings.unit_at(e.body_start, w).is_some()), &mut out);
     }
     for t in calls.iter().flat_map(|c| &c.texts) {
-        match t.role {
-            Role::Name => {
-                let text = doc.sub(t.start, t.end);
-                let lead = text.chars().take_while(|ch| ch.is_whitespace()).count();
-                // a function by its name: clear("f()")
-                let name = text.split('(').next().unwrap_or("").trim();
-                let key = crate::resolved_name(name);
-                if !key.is_empty() {
-                    out.push(Name { start: t.start + lead, end: t.start + lead + name.chars().count(), key });
-                }
+        if t.role == Role::Name {
+            let text = doc.sub(t.start, t.end);
+            let lead = text.chars().take_while(|ch| ch.is_whitespace()).count();
+            // a function by its name: clear("f()")
+            let name = text.split('(').next().unwrap_or("").trim();
+            let key = crate::resolved_name(name);
+            if !key.is_empty() {
+                out.push(Name { start: t.start + lead, end: t.start + lead + name.chars().count(), key });
             }
-            _ => {}
         }
     }
-    // Constructor strings name operations and units, never worksheet variables with the same spelling.
-    let bindings = crate::bindings::Bindings::new(doc);
-    let references: Vec<_> = bindings.operator_strings().iter().map(|(s, e, _)| (*s, *e))
-        .chain(calls.iter().filter(|c| c.function.name == "unit").flat_map(|c| c.texts.iter().map(|t| (t.start, t.end)))).collect();
+    // Operation references name operations, never worksheet variables with the same spelling.
+    let references: Vec<_> = bindings.operator_strings().iter().map(|(s, e, _)| (*s, *e)).collect();
     out.retain(|n| !references.iter().any(|&(s, e)| n.start < e + 1 && s.saturating_sub(1) < n.end));
-    // Typst bindings (`#let km = unit("km")`, `#import units: km`) are Typst's: solveng sees their values.
     out.retain(|n| !bindings.contains(n.start));
     out.sort_by_key(|n| n.start);
     out
 }
 
-fn locals(doc: &Doc, elements: &[Element], _calls: &[Call], active: &dyn Fn(&Element) -> bool) -> Vec<crate::locals::Local> {
+fn locals(doc: &Doc, elements: &[Element], active: &dyn Fn(&Element) -> bool) -> Vec<crate::locals::Local> {
     let mut out = Vec::new();
     for e in elements.iter().filter(|e| active(e)) {
-        out.extend(crate::locals::read(&doc.c[e.body_start..e.body_end], e.body_start, false, !e.math));
+        out.extend(crate::locals::read(&doc.c[e.body_start..e.body_end], e.body_start));
     }
     out
 }
 
 fn maths(elements: &[Element]) -> Vec<(usize, usize)> {
-    elements.iter().filter(|e| e.math).map(|e| (e.body_start, e.body_end)).collect()
+    elements.iter().map(|e| (e.body_start, e.body_end)).collect()
 }
 
 fn graphs(doc: &Doc, calls: &[Call]) -> Vec<(Vec<(usize, usize)>, Vec<(usize, usize)>)> {
@@ -256,7 +230,7 @@ pub(crate) fn local_at(a: &Analysis, at: usize) -> Option<String> {
 
 /// Locals visible for completion, with inner binders first.
 pub(crate) fn local_names(a: &Analysis, at: usize) -> Vec<String> {
-    let mut locals = locals(&a.doc, &a.elements, &a.calls, &|e| a.active(e));
+    let mut locals = locals(&a.doc, &a.elements, &|e| a.active(e));
     locals.sort_by_key(|l| l.body.1 - l.body.0);
     let mut names = Vec::new();
     for local in locals {
@@ -354,47 +328,29 @@ fn resolved_all<'a>(a: &'a Analysis) -> (Vec<File<'a>>, Vec<Occurrence>, Vec<usi
 
 /// The document and the files around, the document first.
 fn files<'a>(a: &'a Analysis) -> Vec<File<'a>> {
-    let unit = |w: &str| a.is_custom_unit(w);
     let named = |n: Vec<Name>| n.into_iter().map(|n| (n.key, n.start, n.end)).collect::<Vec<_>>();
-    let defs = definitions(&a.doc, &a.elements, &a.calls, &|e| a.active(e));
-    let found = {
-        // Quoted names of defined variables stand outside unit positions ("km" := 23, then "km" + 1).
-        let defined = |w: &str| defs.iter().any(|d| d.base() == w);
-        named(names(&a.doc, &a.elements, &a.calls, &|e| a.active(e), &unit, &defined, &|at| a.units_at(at)))
+    let file = |path: String, doc: &'a Doc, elements: &'a [Element], calls: &'a [Call], bindings: &crate::bindings::Bindings, active: &dyn Fn(&Element) -> bool| {
+        let definitions = definitions(doc, elements, active);
+        let names = named(names(doc, elements, calls, bindings, active));
+        File {
+            path,
+            doc,
+            definitions,
+            names,
+            maths: maths(elements),
+            strings: strings(calls),
+            graphs: graphs(doc, calls),
+            functions: curve_functions(doc, calls),
+            locals: locals(doc, elements, active),
+        }
     };
-    let mut files = vec![File {
-        path: a.context.path.clone(),
-        doc: &a.doc,
-        definitions: defs,
-        names: found,
-        maths: maths(&a.elements),
-        strings: strings(&a.calls),
-        graphs: graphs(&a.doc, &a.calls),
-        functions: curve_functions(&a.doc, &a.calls),
-        locals: locals(&a.doc, &a.elements, &a.calls, &|e| a.active(e)),
-    }];
+    let mut files = vec![file(a.context.path.clone(), &a.doc, &a.elements, &a.calls, &a.bindings, &|e| a.active(e))];
     for part in a.around() {
         let Some(path) = &part.path else { continue };
         if *path == a.context.path {
             continue;
         }
-        let settings = Analysis::new(&part.doc.s, a.context);
-        let defs = definitions(&part.doc, &part.elements, &part.calls, &|e| part.active(e));
-        let found = {
-            let defined = |w: &str| defs.iter().any(|d| d.base() == w);
-            named(names(&part.doc, &part.elements, &part.calls, &|e| part.active(e), &unit, &defined, &|at| settings.units_at(at)))
-        };
-        files.push(File {
-            path: path.clone(),
-            doc: &part.doc,
-            definitions: defs,
-            names: found,
-            maths: maths(&part.elements),
-            strings: strings(&part.calls),
-            graphs: graphs(&part.doc, &part.calls),
-            functions: curve_functions(&part.doc, &part.calls),
-            locals: locals(&part.doc, &part.elements, &part.calls, &|e| part.active(e)),
-        });
+        files.push(file(path.clone(), &part.doc, &part.elements, &part.calls, &part.bindings, &|e| part.active(e)));
     }
     files
 }
@@ -414,32 +370,32 @@ fn location(files: &[File], o: &Occurrence) -> Location {
 /// visible there, reading the document in compile order from the main file (see [`Context::with_main`]), where
 /// `#include` inlines a file, a `worksheet` starts empty (or with the outer definitions with `inherit: true`)
 /// and its definitions end with it, and `clear` forgets. On a definition, that definition. The range covers
-/// just the name. On one of the document's own units (`ü` of `units: (ü: auto)`), its key in `units: (…)`.
+/// just the name. On a name imported from solveng's modules, where the import lists it.
 pub fn definition(document: &str, context: &Context, offset: u32) -> Option<Location> {
     let a = Analysis::new(document, context);
     // a shorthand from solveng's modules: where it's imported
     if let Some((s, e)) = a.bindings.shorthand_definition(a.doc.from16(offset as usize)) {
-        return Some(Location { path: None, start: a.doc.to16(s) as u32, end: a.doc.to16(e) as u32 });
+        return Some(Location { path: None, start: a.doc.to16(s), end: a.doc.to16(e) });
     }
     if a.bindings.at(&a.doc, offset) { return None; }
     let (files, occurrences) = resolved(&a);
-    let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::definition(&a, offset) };
+    let i = at_offset(&a, &occurrences, offset)?;
     Some(location(&files, &occurrences[occurrences[i].definition?]))
 }
 
 /// The usages of the definition the solveng name at `offset` means (see [`definition`]), the definition included:
 /// the names after it while it's visible, up to a redefinition, a `clear` or the end of its block, in the document
-/// and in the files it includes or is included from. Units spelled like it (`5 V` next to a variable `V`) don't count.
-/// On one of the document's own units, its keys and every use, prefixed ones (`mü`) and other units' values included.
+/// and in the files it includes or is included from. Bindings spelled like it (`5 #V` next to a variable `V`) don't
+/// count. On a name imported from solveng's modules, its import and every use.
 pub fn usages(document: &str, context: &Context, offset: u32) -> Vec<Location> {
     let a = Analysis::new(document, context);
     let shorthand = a.bindings.shorthand_usages(a.doc.from16(offset as usize));
     if !shorthand.is_empty() {
-        return shorthand.into_iter().map(|(s, e)| Location { path: None, start: a.doc.to16(s) as u32, end: a.doc.to16(e) as u32 }).collect();
+        return shorthand.into_iter().map(|(s, e)| Location { path: None, start: a.doc.to16(s), end: a.doc.to16(e) }).collect();
     }
     if a.bindings.at(&a.doc, offset) { return Vec::new(); }
     let (files, occurrences) = resolved(&a);
-    let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::usages(&a, offset).unwrap_or_default() };
+    let Some(i) = at_offset(&a, &occurrences, offset) else { return Vec::new() };
     let Some(id) = occurrences[i].definition else { return Vec::new() };
     occurrences.iter().filter(|o| o.definition == Some(id)).map(|o| location(&files, o)).collect()
 }
@@ -448,29 +404,29 @@ pub fn usages(document: &str, context: &Context, offset: u32) -> Vec<Location> {
 pub fn rename_target(document: &str, context: &Context, offset: u32) -> Option<RenameTarget> {
     let a = Analysis::new(document, context);
     if let Some((s, e, name)) = a.bindings.shorthand_target(a.doc.from16(offset as usize)) {
-        return Some(RenameTarget { start: a.doc.to16(s) as u32, end: a.doc.to16(e) as u32, name });
+        return Some(RenameTarget { start: a.doc.to16(s), end: a.doc.to16(e), name });
     }
     if a.bindings.at(&a.doc, offset) { return None; }
     let (files, occurrences) = resolved(&a);
-    let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::rename_target(&a, offset) };
+    let i = at_offset(&a, &occurrences, offset)?;
     let o = &occurrences[i];
     o.definition?;
     let l = location(&files, o);
     Some(RenameTarget { start: l.start, end: l.end, name: a.doc.sub(o.start, o.end) })
 }
 
-/// Renames the solveng name at `offset` and its [`usages`] to `name`, typed as code (`R_load`, `Delta""r`) or
-/// as math (`R_"load"`, `"tews"`). Each place gets the spelling it needs: code as typed, strings escaped, math
-/// with longer names quoted (`"tews"`, `t_"half"`). Empty if there's nothing to rename or the input is empty.
+/// Renames the solveng name at `offset` and its [`usages`] to `name`, typed plain (`R_load`, `Delta""r`) or as
+/// math (`R_"load"`, `"tews"`). Each place gets the spelling it needs: strings plain and escaped, math with longer
+/// names quoted (`"tews"`, `t_"half"`). Empty if there's nothing to rename or the input is empty.
 pub fn rename(document: &str, context: &Context, offset: u32, name: &str) -> Vec<Edit> {
     let a = Analysis::new(document, context);
     // a shorthand gets an alias in its import, `s as test`
     if let Some(edits) = a.bindings.shorthand_rename(&a.doc, a.doc.from16(offset as usize), name.trim()) {
-        return edits.into_iter().map(|(s, e, text)| Edit { path: None, start: a.doc.to16(s) as u32, end: a.doc.to16(e) as u32, text }).collect();
+        return edits.into_iter().map(|(s, e, text)| Edit { path: None, start: a.doc.to16(s), end: a.doc.to16(e), text }).collect();
     }
     if a.bindings.at(&a.doc, offset) { return Vec::new(); }
     let (files, occurrences) = resolved(&a);
-    let Some(i) = at_offset(&a, &occurrences, offset) else { return crate::unit_refs::rename(&a, offset, name).unwrap_or_default() };
+    let Some(i) = at_offset(&a, &occurrences, offset) else { return Vec::new() };
     let Some(id) = occurrences[i].definition else { return Vec::new() };
     let raw: Vec<char> = name.trim().chars().collect();
     let (decoded, _) = crate::text::unescape(&raw);

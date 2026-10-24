@@ -1,19 +1,17 @@
 use solveng_core::{
-    api::{self, LineReq},
     calculus::{piecewise_quadrature, signal_points},
     convolution::continuous,
     env::Env,
     eval::{eval_f, value},
     expr::{Expr, mul, rat, simp, sub, sym},
-    format::Cfg,
     num::Num,
-    parse::Mode,
 };
+
+mod support;
 
 /// The body of `name(x) := src`, lowered by the worksheet.
 fn body(env: &mut Env, definition: &str) -> Expr {
-    let out = api::line(env, &LineReq { src: definition.into(), mode: Mode::Code, cfg: Cfg::default(), listed: true });
-    assert!(out.errors.is_empty(), "{definition}: {:?}", out.errors);
+    support::run(env, definition);
     let name = definition.split('(').next().unwrap().trim();
     env.funs[name].body.clone()
 }

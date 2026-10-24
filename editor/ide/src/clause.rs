@@ -6,9 +6,9 @@ use crate::text::{is_letter, sub};
 /// The keywords, with what they do.
 pub(crate) const KEYWORDS: &[(&str, &str)] = &[
     ("solve", "solve(x, …): solves the equation for these names and defines them"),
-    ("substitute", "substitute(x, …): the result with these variables' formulas put in, other names kept"),
+    ("substitute", "substitute(x, #c, …): the result with these variables' formulas and constants' expressions put in, other names kept"),
     ("simplify", "the symbolic result, with the known values put in"),
-    ("frac", "exact fractions"),
+    ("fraction", "exact fractions"),
     ("digits", "digits(n): decimals with n significant digits"),
     ("sci", "scientific notation, 2.2 · 10⁻⁶ F"),
     ("eng", "engineering notation, exponents in steps of 3"),
@@ -21,8 +21,9 @@ pub(crate) fn is_keyword(word: &str) -> bool {
     KEYWORDS.iter().any(|(k, _)| *k == word)
 }
 
-/// The marker of a line of code or an equation's body: the last `->` (or `→`) at the top level, else the last `=`
-/// at the top level that only a unit and keywords follow. Its range in characters, and whether it's an arrow.
+/// The marker of an equation's body: the last `->` (or `→`) at the top level, else the last `=` at the top level
+/// that only a unit and keywords follow. Its range in characters, and whether it's an arrow. `unit` says which words
+/// are units: the unit bindings in scope.
 pub(crate) fn marker(text: &[char], unit: &dyn Fn(&str) -> bool) -> Option<(usize, usize, bool)> {
     let n = text.len();
     let (mut depth, mut quoted) = (0i32, false);
@@ -59,9 +60,8 @@ pub(crate) fn marker(text: &[char], unit: &dyn Fn(&str) -> bool) -> Option<(usiz
     clause_like(&sub(text, e, n), false, unit).then_some((s, e, false))
 }
 
-/// Whether text after a marker is a clause: parts split at top-level commas, each a keyword (`digits(3)`), a unit
-/// (`mA`, `[h]`, `m/s^2`, `unit("bar")`) or, after an arrow, anything that calls `solve`. A number makes it a
-/// step: `= 2 A`.
+/// Whether text after a marker is a clause: parts split at top-level commas, each a keyword (`digits(3)`) or a unit
+/// (`mA`, `#h`, `#m / #s^2`). A number makes it a step: `= 2 A`.
 pub(crate) fn clause_like(tail: &str, arrow: bool, unit: &dyn Fn(&str) -> bool) -> bool {
     let parts = split_top(tail);
     if parts.len() == 1 && parts[0].trim().is_empty() {
@@ -80,22 +80,17 @@ pub(crate) fn clause_like(tail: &str, arrow: bool, unit: &dyn Fn(&str) -> bool) 
     })
 }
 
-/// A unit as written in a clause: unit words, powers, `/`, `*`, brackets, `unit("…")`; no numbers but exponents
-/// and a leading 1. Single-letter units need quotes after `=`, where bare letters stay variables; after an arrow
-/// nothing else can follow, so `-> m` is metres.
+/// A unit as written in a clause: unit bindings (`mA`, `#h`, a single letter needs its `#`), powers, `/`, `*`,
+/// `dot` and parentheses; no numbers but exponents and a leading 1. The words of solveng's `units` module count
+/// where no binding says otherwise, as Typst can't read them unimported anyway. After an arrow nothing else can
+/// follow, so its words are units.
 fn unit_like(p: &str, unit: &dyn Fn(&str) -> bool, arrow: bool) -> bool {
     if p.is_empty() {
         return false;
     }
-    let one = p.strip_prefix('1').filter(|r| r.starts_with(|c: char| c.is_whitespace() || is_letter(c) || "°%‰µΩ[".contains(c)));
+    let one = p.strip_prefix('1').filter(|r| r.starts_with(|c: char| c.is_whitespace() || is_letter(c) || c == '#'));
     let p = one.unwrap_or(p);
-    let mut named = one.is_some() || p.contains('[') || p.contains("unit(");
-    let mut s = p.to_string();
-    while let Some(i) = s.find("unit(") {
-        let end = s[i..].find(')').map_or(s.len(), |j| i + j + 1);
-        s.replace_range(i..end, " ");
-    }
-    let c: Vec<char> = s.chars().collect();
+    let c: Vec<char> = p.chars().collect();
     let mut i = 0;
     let mut words = 0;
     while i < c.len() {
@@ -108,28 +103,28 @@ fn unit_like(p: &str, unit: &dyn Fn(&str) -> bool, arrow: bool) -> bool {
             }
             continue;
         }
-        if is_letter(ch) || "°%‰µΩ".contains(ch) {
-            let start = i;
-            while i < c.len() && (is_letter(c[i]) || c[i].is_ascii_digit() || "°%‰µΩ_".contains(c[i])) {
+        let hash = ch == '#' && c.get(i + 1).is_some_and(|&n| is_letter(n));
+        if is_letter(ch) || hash {
+            let start = i + usize::from(hash);
+            i = start;
+            while i < c.len() && (is_letter(c[i]) || c[i].is_ascii_digit() || c[i] == '_') {
                 i += 1;
             }
             let w: String = c[start..i].iter().collect();
-            let quoted = start > 0 && c[start - 1] == '"';
-            if crate::resolved_name(&w).chars().count() == 1 && !quoted && !arrow && !p.contains('[') && w.chars().all(is_letter) { return false; }
-            named |= quoted || arrow;
+            // A bare single letter is a math symbol: `t = A` compares.
+            if crate::resolved_name(&w).chars().count() == 1 && !hash && !arrow { return false; }
             if w != "dot" && !crate::is_unit(&w) && !unit(&w) {
                 return false;
             }
-            named |= w != "dot" && w.chars().count() > 1;
-            words += 1;
+            words += usize::from(w != "dot");
             continue;
         }
-        if ch.is_ascii_digit() || !" []\"*/·⋅()".contains(ch) {
+        if ch.is_ascii_digit() || !" */·⋅()".contains(ch) {
             return false;
         }
         i += 1;
     }
-    (words > 0 || p.contains("unit(")) && named
+    words > 0
 }
 
 /// `a, f(b, c), d` split at the top level.

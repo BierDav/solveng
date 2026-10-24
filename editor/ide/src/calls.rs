@@ -1,5 +1,5 @@
-//! Calls of solveng's functions, read with typst's parser: their string arguments are calculations, units or
-//! names, and their named arguments take the package's options.
+//! Calls of solveng's functions, read with typst's parser: the equations they read, their string arguments (names
+//! and option values), and their named arguments, which take the package's options.
 
 use std::collections::HashMap;
 
@@ -7,17 +7,14 @@ use typst_syntax::{LinkedNode, SyntaxKind, SyntaxNode};
 
 use crate::params::{self, Function};
 use crate::text::Doc;
-use crate::units::Custom;
 use crate::ContextFile;
 
 /// What a string argument holds.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Role {
-    /// A unit: `unit: "mA"`.
-    Unit,
-    /// A variable's name: `x: "U"`.
+    /// A variable's name: `#lambdify($U^2/R$, "U")`, `#clear("x")`.
     Name,
-    /// One of an option's strings: `steps: "value"`.
+    /// One of an option's strings: `form: "fraction"`.
     Choice,
     /// A value, a defined name or a keyword like `"extrema"`: `mark: "R"`.
     Mark,
@@ -47,10 +44,6 @@ pub(crate) struct Scope {
     pub start: usize,
     pub end: usize,
     pub evaluate: bool,
-    pub units: Vec<crate::units::Custom>,
-    pub builtin_functions: Option<bool>,
-    /// `scope: "isolated"` (content's default): the outer definitions and units don't reach in.
-    pub isolated: bool,
 }
 
 /// Whether the math at `at` is calculated as the innermost worksheet around says; None outside every one.
@@ -63,15 +56,13 @@ pub(crate) fn evaluates_at(scopes: &[Scope], at: usize) -> Option<bool> {
 #[derive(Clone, Debug)]
 pub(crate) struct Wrapper {
     pub evaluate: bool,
-    pub units: Vec<Custom>,
-    pub builtin_functions: Option<bool>,
     /// `scope: …` as written, without quotes.
     pub scope: Option<String>,
 }
 
 impl Default for Wrapper {
     fn default() -> Wrapper {
-        Wrapper { evaluate: true, units: Vec::new(), builtin_functions: None, scope: None }
+        Wrapper { evaluate: true, scope: None }
     }
 }
 
@@ -81,17 +72,12 @@ impl Wrapper {
         let mut wrapper = self.clone();
         if let Some(args) = args {
             wrapper.evaluate = evaluate(args);
-            wrapper.units.extend(unit_settings(args));
             for named in args.children().filter(|n| n.kind() == SyntaxKind::Named) {
                 let source = named.get().clone().full_text();
-                if let Some((name, value)) = source.split_once(':') {
-                    if name.trim() == "builtin-functions" {
-                        wrapper.builtin_functions = value.trim().parse().ok();
-                    }
-                    if name.trim() == "scope" {
+                if let Some((name, value)) = source.split_once(':')
+                    && name.trim() == "scope" {
                         wrapper.scope = Some(value.trim().trim_matches('"').to_string()).filter(|s| s != "auto");
                     }
-                }
             }
         }
         wrapper
@@ -200,12 +186,9 @@ pub(crate) struct Call {
     pub args_end: usize,
     pub texts: Vec<Text>,
     pub named: Vec<Named>,
-    /// Equations and raw elements passed as positional arguments, which are calculated wherever they are.
+    /// Equations solveng reads wherever they are: passed to `worksheet`, `value`, `graph` and `lambdify`, the
+    /// expressions of `unit` and `constant`, and unit expressions of options (`preferred-units: ($#m / #s$,)`).
     pub maths: Vec<(usize, usize)>,
-    /// Arguments as (name, source), for conversions.
-    pub args: Vec<(Option<String>, String)>,
-    /// Where each argument is, and whether it's a bare identifier, which may be a parameter's name being typed.
-    pub items: Vec<(usize, usize, bool)>,
 }
 
 /// The function a callee names: `worksheet`, `solveng.worksheet`, `worksheet.with`.
@@ -222,20 +205,20 @@ pub(crate) fn callee(node: &SyntaxNode) -> Option<String> {
     }
 }
 
+/// Options whose values are unit expressions in math: `preferred-units: ($#m / #s$,)`, `unit: $#W$`,
+/// `units: (U: $#V$)`.
+const UNIT_OPTIONS: &[&str] = &["preferred-units", "unit", "units"];
+
 fn role(function: &str, param: Option<&str>, index: usize) -> Option<Role> {
     let Some(param) = param else {
         return match function {
-            "worksheet" | "graph" | "value" => None,
-            "unit" => Some(Role::Unit),
             "lambdify" => (index > 0).then_some(Role::Name),
             "clear" => Some(Role::Name),
             _ => None,
         };
     };
     Some(match param {
-        "unit" | "preferred-units" => Role::Unit,
-        "units" if function == "lambdify" => Role::Unit,
-        "units" | "guess" | "xrange" | "yrange" | "ymark" => return None,
+        "guess" | "xrange" | "yrange" | "ymark" => return None,
         "unknown" => Role::Name,
         "mark" | "xmark" => Role::Mark,
         _ => {
@@ -298,6 +281,26 @@ impl Reader<'_> {
         }
     }
 
+    /// Equations in an argument's value: the equation itself, the items of an array, the values of a dictionary.
+    fn equations(&self, node: &LinkedNode, out: &mut Vec<(usize, usize)>) {
+        match node.kind() {
+            SyntaxKind::Equation => out.push(self.chars(node)),
+            SyntaxKind::Array | SyntaxKind::Parenthesized => {
+                for child in node.children() {
+                    self.equations(&child, out);
+                }
+            }
+            SyntaxKind::Dict => {
+                for child in node.children().filter(|c| matches!(c.kind(), SyntaxKind::Named | SyntaxKind::Keyed)) {
+                    if let Some(value) = child.children().filter(|c| c.kind() != SyntaxKind::Colon && !c.kind().is_trivia()).nth(1) {
+                        self.equations(&value, out);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// `#show: worksheet`, `#show: worksheet.with(…)` and their aliases: a worksheet for the rest of the block around.
     fn show_rule(&mut self, node: &LinkedNode) {
         let Some(transform) = node.children().rev().find(|c| !c.kind().is_trivia()) else { return };
@@ -315,7 +318,7 @@ impl Reader<'_> {
         };
         let wrapper = base.with(args.as_ref());
         let end = node.parent().map_or(self.doc.c.len(), |p| self.chars(p).1);
-        self.scopes.push(Scope { start: self.chars(node).1, end, evaluate: wrapper.evaluate, isolated: !crate::scope::scope_flags(wrapper.scope.as_deref(), false).0, units: wrapper.units, builtin_functions: wrapper.builtin_functions });
+        self.scopes.push(Scope { start: self.chars(node).1, end, evaluate: wrapper.evaluate });
     }
 
     fn call(&mut self, node: &LinkedNode) {
@@ -340,8 +343,6 @@ impl Reader<'_> {
             texts: Vec::new(),
             named: Vec::new(),
             maths: Vec::new(),
-            args: Vec::new(),
-            items: Vec::new(),
         };
         let mut index = 0;
         for arg in args.children() {
@@ -350,9 +351,7 @@ impl Reader<'_> {
                     if function.name == "worksheet" {
                         let (start, end) = self.chars(&arg);
                         let wrapper = base.with(Some(&args));
-                        // A block of one equation is that equation to Typst, which shares by default.
-                        let expression = crate::scope::expression_block(&arg);
-                        self.scopes.push(Scope { start, end, evaluate: wrapper.evaluate, isolated: !crate::scope::scope_flags(wrapper.scope.as_deref(), expression).0, units: wrapper.units, builtin_functions: wrapper.builtin_functions });
+                        self.scopes.push(Scope { start, end, evaluate: wrapper.evaluate });
                     }
                 }
                 SyntaxKind::LeftParen | SyntaxKind::RightParen | SyntaxKind::Comma => {}
@@ -363,30 +362,23 @@ impl Reader<'_> {
                     let Some(name) = parts.next() else { continue };
                     let value = parts.find(|c| c.kind() != SyntaxKind::Colon && !(c.kind() == SyntaxKind::Error && c.is_empty()));
                     let (name_start, name_end) = self.chars(&name);
-                    let (_, value_end) = match &value {
-                        Some(v) => self.chars(v),
-                        None => (self.chars(&arg).1, self.chars(&arg).1),
-                    };
                     let pname = name.get().leaf_text().to_string();
                     if let (Some(v), Some(r)) = (&value, role(&function.name, Some(&pname), 0)) {
                         self.strings(v, r, Some(&pname), &mut call.texts);
                     }
-                    call.args.push((Some(pname.clone()), value.as_ref().map(|v| v.get().clone().full_text().to_string()).unwrap_or_default()));
-                    call.items.push((name_start, value_end.max(name_end), false));
+                    if let Some(v) = value.as_ref().filter(|_| UNIT_OPTIONS.contains(&pname.as_str())) {
+                        self.equations(v, &mut call.maths);
+                    }
                     call.named.push(Named { name: pname, name_start, name_end });
                 }
                 _ => {
-                    let code = arg.kind() == SyntaxKind::Raw && function.name == "worksheet";
-                    if (arg.kind() == SyntaxKind::Equation || code) && (function.name == "worksheet" || index == 0 && matches!(function.name.as_str(), "value" | "graph" | "lambdify")) {
+                    if arg.kind() == SyntaxKind::Equation && (function.name == "worksheet" || index == 0 && matches!(function.name.as_str(), "value" | "graph" | "lambdify" | "unit") || function.name == "constant") {
                         let (s, e) = self.chars(&arg);
                         call.maths.push((s, e));
                     }
                     if let Some(r) = role(&function.name, None, index) {
                         self.strings(&arg, r, None, &mut call.texts);
                     }
-                    call.args.push((None, arg.get().clone().full_text().to_string()));
-                    let (s, e) = self.chars(&arg);
-                    call.items.push((s, e, arg.kind() == SyntaxKind::Ident));
                     index += 1;
                 }
             }
@@ -404,7 +396,7 @@ impl Call {
                 let start = s + 1;
                 let end = e.saturating_sub(usize::from(doc.c.get(e.saturating_sub(1)) == Some(&'$')));
                 let Some(body) = doc.c.get(start..end) else { continue };
-                for (a, b) in crate::text::equation_ranges(body, false) {
+                for (a, b) in crate::text::equation_ranges(body) {
                     curves.push((start + a, start + b));
                 }
             }
@@ -415,16 +407,6 @@ impl Call {
 
 }
 
-fn unit_settings(args: &LinkedNode) -> Vec<crate::units::Custom> {
-    let mut units = Vec::new();
-    for named in args.children().filter(|node| node.kind() == SyntaxKind::Named) {
-        let name = named.children().find(|child| !child.kind().is_trivia());
-        if name.is_some_and(|name| matches!(name.get().leaf_text().as_str(), "units" | "builtin-units")) {
-            crate::units::custom_units(&named.get().clone().full_text(), &mut units);
-        }
-    }
-    units
-}
 
 /// Whether a worksheet's arguments calculate the math of its content: unless `evaluate: false`.
 fn evaluate(args: &LinkedNode) -> bool {

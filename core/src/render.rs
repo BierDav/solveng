@@ -8,10 +8,13 @@ use crate::parse::{Ast, MulOp, Rel};
 use crate::units::{UnitExpr, Units};
 
 /// Precedences: what binds how tightly, for parentheses.
+/// Typst's own math operators: written by their names.
+fn typst_operator(name: &str) -> bool {
+    matches!(name, "exp" | "ln" | "log" | "sin" | "cos" | "tan" | "arcsin" | "arccos" | "arctan" | "sinh" | "cosh" | "tanh" | "arg" | "det" | "tr")
+}
+
 fn function(name: &str) -> String {
-    // Typst's math knows these names; the others are written as operators
-    let typst = matches!(name, "exp" | "ln" | "log" | "sin" | "cos" | "tan" | "arcsin" | "arccos" | "arctan" | "sinh" | "cosh" | "tanh" | "det" | "tr" | "norm" | "at");
-    if typst || crate::builtins::builtin(name).is_none() { name.into() } else { format!("op({})", format::q(name)) }
+    if typst_operator(name) || matches!(name, "norm" | "at") || crate::builtins::builtin(name).is_none() { name.into() } else { format!("op({})", format::q(name)) }
 }
 
 fn cases(branches: Vec<(String, String)>) -> String {
@@ -19,6 +22,15 @@ fn cases(branches: Vec<(String, String)>) -> String {
         if condition == "\"1\"" { format!("{value} & upright(\"otherwise\")") }
         else { format!("{value} & upright(\"if\") {condition}") }
     }).collect::<Vec<_>>().join(", "))
+}
+
+/// A constant, shown as the worksheet shows its identity; one the worksheet has no display for is shown as its
+/// expression (`fallback`).
+pub fn constant(identity: &str, fallback: Option<&str>) -> String {
+    match fallback {
+        Some(f) => format!("#svconst({}, ${f}$)", format::q(identity)),
+        None => format!("#svconst({})", format::q(identity)),
+    }
 }
 
 /// A matrix from the markup of its rows.
@@ -64,20 +76,23 @@ pub struct R<'a> {
     pub cfg: &'a Cfg,
     /// Exact: rationals as fractions (symbolic results).
     pub exact: bool,
-    /// Values put in for symbols (the step with numbers).
-    pub sub: Option<&'a dyn Fn(&str) -> Option<(String, u8)>>,
 }
 
 impl R<'_> {
-    pub fn cast_mark(&self, u: &UnitExpr, kind: &str) -> String {
-        let how = if kind == "cast" { &self.cfg.show_casts } else { &self.cfg.show_types };
+    /// A parameter's type after its name, as the option show-types says: a chip, plain (: mA) or left out.
+    pub fn type_mark(&self, u: &UnitExpr) -> String {
         let um = unit(u, self.units, self.cfg);
-        let mark = if kind == "cast" { format!("upright({})", format::q(&self.cfg.words.cast)) } else { "class(\"normal\", :)".into() };
-        match how.as_str() {
-            "chip" => format!(" #h(0.15em) #svchip({}, ${mark}$, ${um}$)", format::q(kind)),
+        let mark = "class(\"normal\", :)";
+        match self.cfg.show_types.as_str() {
+            "chip" => format!(" #h(0.15em) #svchip(\"type\", ${mark}$, ${um}$)"),
             "plain" => format!(" med {mark} med {um}"),
             _ => String::new(),
         }
+    }
+
+    /// An operation's name before its arguments: as the Typst side shows it.
+    fn operation(&self, name: &str) -> String {
+        if typst_operator(name) { name.into() } else { format!("#svop({}) ", format::q(name)) }
     }
 
     pub fn val(&self, v: &Val) -> (String, u8) {
@@ -109,11 +124,14 @@ impl R<'_> {
             Expr::Matrix(rs) => (mat(rs.iter().map(|r| r.iter().map(|e| self.expr(e).0).collect()).collect()), P_ATOM),
             Expr::Op(op, args) => matrix_op(*op, args.iter().map(|a| self.expr(a)).collect()),
             Expr::C(v) => self.val(v),
-            Expr::Sym(n) => self.sub.and_then(|f| f(n)).unwrap_or_else(|| (name(n), P_ATOM)),
+            Expr::Sym(n) => (name(n), P_ATOM),
             Expr::Call(n, args) => (format!("{}({})", name(n), args.iter().map(|a| self.expr(a).0).collect::<Vec<_>>().join(", ")), P_ATOM),
-            Expr::Pi => ("pi".into(), P_ATOM),
-            Expr::E => ("e".into(), P_ATOM),
+            Expr::Pi | Expr::E | Expr::I => (constant(crate::bindings::identity_of(e).unwrap_or_default(), None), P_ATOM),
+            Expr::Const(identity, backing) => (constant(identity, Some(&self.expr(backing).0)), P_ATOM),
             Expr::Add(ts) => {
+                // the real part first, then the imaginary one: 1 + 2i, R + i ω L
+                let mut ts = ts.clone();
+                ts.sort_by_key(crate::complex::has_i);
                 let mut s = String::new();
                 for (i, t) in ts.iter().enumerate() {
                     let (c, r) = strip_coef(t);
@@ -134,11 +152,11 @@ impl R<'_> {
                 (s, P_SUM)
             }
             Expr::Mul(_) | Expr::Pow(..) => self.product(e),
-            Expr::F(f, a) => match f {
-                Func::Abs => (format!("abs({})", self.expr(a).0), P_ATOM),
-                Func::Exp => (format!("e^({})", self.expr(a).0), P_POW),
-                _ => (format!("{}({})", function(f.name()), self.expr(a).0), P_ATOM),
-            },
+            // as math writes them: |x|, x̄, e^x, Typst's own operators by name; the others as their bindings show them
+            Expr::F(Func::Conj, a) => (format!("overline({})", self.expr(a).0), P_ATOM),
+            Expr::F(Func::Abs, a) => (format!("abs({})", self.expr(a).0), P_ATOM),
+            Expr::F(Func::Exp, a) => (format!("{}^({})", constant("euler", None), self.expr(a).0), P_POW),
+            Expr::F(f, a) => (format!("{}({})", self.operation(f.name()), self.expr(a).0), P_ATOM),
             Expr::Cmp(v, rs) => {
                 let mut s = wrap(self.expr(&v[0]), P_SUM);
                 for (r, x) in rs.iter().zip(&v[1..]) {
@@ -151,7 +169,7 @@ impl R<'_> {
             Expr::Derivative(a, x) => (format!("frac(dif, dif {}) lr(({}))", name(x), self.expr(a).0), P_PROD),
             Expr::Sum(a, v, lo, hi) => (format!("sum_({} = {})^({}) ({})", name(v), self.expr(lo).0, self.expr(hi).0, self.expr(a).0), P_PROD),
             Expr::Integral(a, v, lo, hi) => (format!("integral_({})^({}) {} dif {}", self.expr(lo).0, self.expr(hi).0, self.expr(a).0, name(v)), P_PROD),
-            Expr::Cast(a, _, _, u) => (format!("{}{}", wrap(self.expr(a), P_POW), self.cast_mark(u, "cast")), P_PROD),
+            Expr::Number(a, _, _, u) => (format!("{}({}, {})", self.operation("number"), self.expr(a).0, unit(u, self.units, self.cfg)), P_ATOM),
         }
     }
 
@@ -172,7 +190,7 @@ impl R<'_> {
             }
             if !x.as_num().is_some_and(|n| n.is_neg()) {
                 if **b == Expr::E {
-                    return (format!("e^({})", self.expr(x).0), P_POW);
+                    return (format!("{}^({})", self.expr(b).0, self.expr(x).0), P_POW);
                 }
                 return (format!("{}^({})", wrap(self.expr(b), P_ATOM), self.expr(x).0), P_POW);
             }
@@ -211,9 +229,8 @@ impl R<'_> {
         let mut prev_qty = false;
         for (i, f) in fs.iter().enumerate() {
             let (m, p) = self.expr(f);
-            let put_in = matches!(f, Expr::Sym(n) if self.sub.is_some_and(|s| s(n).is_some()));
-            let is_num = matches!(f, Expr::C(_)) || put_in;
-            let is_qty = matches!(f, Expr::C(v) if !v.d.is_one() || v.u.is_some()) || put_in;
+            let is_num = matches!(f, Expr::C(_));
+            let is_qty = matches!(f, Expr::C(v) if !v.d.is_one() || v.u.is_some());
             if i > 0 {
                 s += if is_num || prev_qty || (prev_num && p < P_ATOM && !matches!(f, Expr::Add(_))) { " dot " } else { " " };
             }
@@ -229,23 +246,24 @@ impl R<'_> {
     }
 
     /// A formula as written; names with a value from `sub` are put in.
-    pub fn ast(&self, a: &Ast, sub: &dyn Fn(&str) -> Option<(String, u8)>) -> (String, u8) {
+    pub fn ast(&self, a: &Ast) -> (String, u8) {
         match a {
+            Ast::Bound(c) => (constant(&c.identity, Some(&self.expr(&c.backing).0)), P_ATOM),
             Ast::Num(raw, v) => {
                 let (m, _) = number(*v, Some(raw), self.cfg);
                 (m, if v.is_neg() { P_NEG } else { P_ATOM })
             }
             Ast::Qty(n, u) => {
-                let (m, _) = self.ast(n, sub);
+                let (m, _) = self.ast(n);
                 (format!("{} thin {}", wrap((m, P_ATOM), P_POW), unit(u, self.units, self.cfg)), P_PROD)
             }
             Ast::Unit(u) => (unit(u, self.units, self.cfg), P_ATOM),
-            Ast::Name(n) => sub(n).unwrap_or_else(|| (name(n), P_ATOM)),
-            Ast::Neg(x) => (format!("-{}", wrap(self.ast(x, sub), P_PROD)), P_NEG),
+            Ast::Name(n) => (name(n), P_ATOM),
+            Ast::Neg(x) => (format!("-{}", wrap(self.ast(x), P_PROD)), P_NEG),
             Ast::Add(ts) => {
                 let mut s = String::new();
                 for (i, (n, t)) in ts.iter().enumerate() {
-                    let m = wrap(self.ast(t, sub), if *n { P_PROD } else { P_NEG });
+                    let m = wrap(self.ast(t), if *n { P_PROD } else { P_NEG });
                     if i == 0 {
                         s += &if *n { format!("-{m}") } else { m };
                     } else {
@@ -259,9 +277,8 @@ impl R<'_> {
                 // what the factor before was: a plain number, a value with a unit (or put in), anything else
                 let mut prev = 0u8;
                 for (i, (op, f)) in fs.iter().enumerate() {
-                    let substituted = matches!(f, Ast::Name(n) if sub(n).is_some());
-                    let (m, p) = self.ast(f, sub);
-                    let kind = if substituted || matches!(f, Ast::Qty(..)) { 2 } else if matches!(f, Ast::Num(..)) { 1 } else { 0 };
+                                        let (m, p) = self.ast(f);
+                    let kind = if matches!(f, Ast::Qty(..)) { 2 } else if matches!(f, Ast::Num(..)) { 1 } else { 0 };
                     if i > 0 {
                         s += match op {
                             MulOp::Times => " times ",
@@ -276,15 +293,15 @@ impl R<'_> {
                 }
                 (s, P_PROD)
             }
-            Ast::Div(x, y) => (format!("frac({}, {})", self.ast(x, sub).0, self.ast(y, sub).0), P_FRAC),
-            Ast::Pow(x, y) => (format!("{}^({})", wrap(self.ast(x, sub), P_ATOM), self.ast(y, sub).0), P_POW),
-            Ast::Call(n, args) => (format!("{}({})", name(n), args.iter().map(|x| self.ast(x, sub).0).collect::<Vec<_>>().join(", ")), P_ATOM),
+            Ast::Div(x, y) => (format!("frac({}, {})", self.ast(x).0, self.ast(y).0), P_FRAC),
+            Ast::Pow(x, y) => (format!("{}^({})", wrap(self.ast(x), P_ATOM), self.ast(y).0), P_POW),
+            Ast::Call(n, args) => (format!("{}({})", name(n), args.iter().map(|x| self.ast(x).0).collect::<Vec<_>>().join(", ")), P_ATOM),
             Ast::Builtin(n, args) => {
                 if n == "cases" {
-                    return (cases(args.chunks(2).map(|pair| (self.ast(&pair[0], sub).0,
-                        pair.get(1).map(|a| self.ast(a, sub).0).unwrap_or_else(|| "\"1\"".into()))).collect()), P_ATOM);
+                    return (cases(args.chunks(2).map(|pair| (self.ast(&pair[0]).0,
+                        pair.get(1).map(|a| self.ast(a).0).unwrap_or_else(|| "\"1\"".into()))).collect()), P_ATOM);
                 }
-                let a: Vec<String> = args.iter().map(|x| self.ast(x, sub).0).collect();
+                let a: Vec<String> = args.iter().map(|x| self.ast(x).0).collect();
                 match n.as_str() {
                     "diff" if a.len() == 2 => (format!("frac(dif, dif {}) lr(({}))", a[1], a[0]), P_PROD),
                     "sum" if a.len() == 4 => (format!("sum_({} = {})^({}) ({})", a[1], a[2], a[3], a[0]), P_PROD),
@@ -297,19 +314,18 @@ impl R<'_> {
                     n => (format!("{}({})", function(n), a.join(", ")), P_ATOM),
                 }
             }
-            Ast::Arg(n, x) => (format!("{} : {}", name(n), self.ast(x, sub).0), P_ATOM),
-            Ast::Index(x, idx) => (format!("{}[{}]", wrap(self.ast(x, sub), P_ATOM), idx.iter().map(|i| self.ast(i, sub).0).collect::<Vec<_>>().join(", ")), P_ATOM),
-            Ast::Range(a, b) => (format!("{} .. {}", wrap(self.ast(a, sub), P_SUM), wrap(self.ast(b, sub), P_SUM)), P_REL),
-            Ast::Abs(x) => (format!("abs({})", self.ast(x, sub).0), P_ATOM),
-            Ast::Matrix(rs) => (mat(rs.iter().map(|r| r.iter().map(|x| self.ast(x, sub).0).collect()).collect()), P_ATOM),
+            Ast::Arg(n, x) => (format!("{} : {}", name(n), self.ast(x).0), P_ATOM),
+            Ast::Index(x, idx) => (format!("{}[{}]", wrap(self.ast(x), P_ATOM), idx.iter().map(|i| self.ast(i).0).collect::<Vec<_>>().join(", ")), P_ATOM),
+            Ast::Range(a, b) => (format!("{} .. {}", wrap(self.ast(a), P_SUM), wrap(self.ast(b), P_SUM)), P_REL),
+            Ast::Abs(x) => (format!("abs({})", self.ast(x).0), P_ATOM),
+            Ast::Matrix(rs) => (mat(rs.iter().map(|r| r.iter().map(|x| self.ast(x).0).collect()).collect()), P_ATOM),
             Ast::Cmp(first, rest) => {
-                let mut s = wrap(self.ast(first, sub), P_SUM);
+                let mut s = wrap(self.ast(first), P_SUM);
                 for (r, x) in rest {
-                    s += &format!(" {} {}", rel(*r), wrap(self.ast(x, sub), P_SUM));
+                    s += &format!(" {} {}", rel(*r), wrap(self.ast(x), P_SUM));
                 }
                 (s, P_REL)
             }
-            Ast::Cast(x, u) => (format!("{}{}", wrap(self.ast(x, sub), P_POW), self.cast_mark(u, "cast")), P_PROD),
         }
     }
 }
@@ -331,7 +347,7 @@ mod tests {
     fn markup() {
         let u = Units::default();
         let c = Cfg::default();
-        let r = R { units: &u, cfg: &c, exact: true, sub: None };
+        let r = R { units: &u, cfg: &c, exact: true };
         let e = simp(&add(vec![sym("x"), pow(sym("y"), int(2)), int(1)]));
         assert_eq!(r.expr(&e).0, "x + y^(\"2\") + \"1\"");
         let e = simp(&div(int(-3), add(vec![pow(sym("y"), int(2)), int(1)])));

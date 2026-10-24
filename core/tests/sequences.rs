@@ -1,29 +1,18 @@
 //! Range variables, elements x[i], discrete and continuous convolution, named arguments and explicit operation references.
+mod support;
 
-use std::collections::BTreeSet;
-
-use solveng_core::api::{self, LineReq};
 use solveng_core::env::Env;
 use solveng_core::eval::value;
 use solveng_core::expr::{Expr, simp};
-use solveng_core::format::Cfg;
-use solveng_core::parse::Mode;
-use solveng_core::units::Units;
 
-fn out(env: &mut Env, src: &str, mode: Mode, cfg: &Cfg) -> solveng_core::sheet::Out {
-    api::line(env, &LineReq { src: src.into(), mode, cfg: cfg.clone(), listed: true })
-}
 fn ok(env: &mut Env, src: &str) {
-    let o = out(env, src, Mode::Code, &Cfg::default());
-    assert!(o.errors.is_empty(), "{src}: {:?}", o.errors);
+    support::run(env, src);
 }
 fn err(env: &mut Env, src: &str) -> String {
-    let o = out(env, src, Mode::Code, &Cfg::default());
-    assert!(!o.errors.is_empty(), "{src} should fail");
-    o.errors.join("; ")
+    support::fails(env, src)
 }
 fn bound(env: &Env, n: &str) -> Expr {
-    simp(&env.bind_with_units(&env.vars[n].expr, &BTreeSet::new(), &Units::default()).unwrap())
+    simp(&support::bind(env, &env.vars[n].expr))
 }
 fn num(env: &Env, n: &str) -> f64 {
     value(&bound(env, n)).unwrap_or_else(|e| panic!("{n}: {e:?}")).v.f()
@@ -63,8 +52,7 @@ fn ranges() {
     assert!(err(&mut env, "e := 0 .. M").contains("needs a value"));
     assert!(err(&mut env, "e := range(1, 2, width: 3)").contains("unexpected argument: width"));
     // math writes them as Typst does: 0..N, 0 … N
-    let o = out(&mut env, "k ≔ 0..N", Mode::Math, &Cfg::default());
-    assert!(o.errors.is_empty(), "{:?}", o.errors);
+    ok(&mut env, "k ≔ 0..N");
     assert_eq!(nums(&env, "k").len(), 5);
 }
 
@@ -111,9 +99,9 @@ fn elements() {
     assert!(err(&mut env, "y[-1] := 1").contains("whole number"));
     assert!(err(&mut env, "y[i] := v").contains("single value"));
     assert!(err(&mut env, "e := v[3]").contains("outside"));
-    // code: a value with a unit after a space stays one, an index follows without
+    // a value with a unit times a variable; an index follows without a space
     ok(&mut env, "R := 2");
-    ok(&mut env, "U := R [1 mA]");
+    ok(&mut env, "U := R · 1 mA");
     assert!((num(&env, "U") - 0.002).abs() < 1e-12);
 }
 
@@ -197,38 +185,36 @@ fn named_parameters() {
 }
 
 #[test]
-fn explicit_operations_and_disabled_automatic_names() {
+fn explicit_operations_and_plain_names() {
     let mut env = Env::default();
-    let cfg = Cfg { builtin_functions: false, ..Cfg::default() };
-    assert!(!out(&mut env, "a := tri(0) =", Mode::Code, &cfg).errors.is_empty());
-    assert!(!out(&mut env, "a ≔ tri(0) =", Mode::Math, &cfg).errors.is_empty());
-    assert!(out(&mut env, "b ≔ ⦇tri⦈(1/2)", Mode::Math, &cfg).errors.is_empty());
+    // a plain name is no operation: only an explicit reference reaches one
+    assert!(!support::line_raw(&mut env, "a ≔ tri(0) =").errors.is_empty());
+    assert!(support::line_raw(&mut env, "b ≔ ⦇tri⦈(1/2)").errors.is_empty());
     assert_eq!(num(&env, "b"), 0.5);
     for name in ["tri", "sin", "rect"] {
         let src = format!("a ≔ \"{name}\"(0) =");
-        assert!(!out(&mut env, &src, Mode::Math, &Cfg::default()).errors.is_empty(), "{src}");
+        assert!(!support::line(&mut env, &src).errors.is_empty(), "{src}");
     }
-    assert!(out(&mut env, "\"pulse\"(x) ≔ 2 x", Mode::Math, &cfg).errors.is_empty());
-    assert!(out(&mut env, "c ≔ \"pulse\"(3)", Mode::Math, &cfg).errors.is_empty());
+    assert!(support::line(&mut env, "\"pulse\"(x) ≔ 2 x").errors.is_empty());
+    assert!(support::line(&mut env, "c ≔ \"pulse\"(3)").errors.is_empty());
     assert_eq!(num(&env, "c"), 6.0);
 }
 
 #[test]
 fn worksheet_functions_take_precedence() {
     let mut env = Env::default();
-    // a worksheet's own function of a standard name replaces it for plain lookup
+    // a worksheet's own function of a standard name is what the plain name calls
     ok(&mut env, "tri(x) := 5 x");
     ok(&mut env, "a := tri(2)");
     assert_eq!(num(&env, "a"), 10.0);
     // the operation stays reachable by an explicit reference
-    let o = out(&mut env, "b ≔ ⦇tri⦈(0)", Mode::Math, &Cfg::default());
+    let o = support::line_raw(&mut env, "b ≔ ⦇tri⦈(0)");
     assert!(o.errors.is_empty(), "{:?}", o.errors);
     assert_eq!(num(&env, "b"), 1.0);
     // a definition can't have an explicit reference as its name
-    let o = out(&mut env, "⦇tri⦈(x) ≔ x", Mode::Math, &Cfg::default());
+    let o = support::line_raw(&mut env, "⦇tri⦈(x) ≔ x");
     assert!(o.errors.iter().any(|e| e.contains("built-in operation")), "{:?}", o.errors);
     // math.op of a name that is no operation is a name: 5 min
-    let o = out(&mut env, "t ≔ 5 ⦇min⦈", Mode::Math, &Cfg::default());
+    let o = support::line_raw(&mut env, "t ≔ 5 ⦇min⦈");
     assert!(o.errors.is_empty(), "{:?}", o.errors);
 }
-

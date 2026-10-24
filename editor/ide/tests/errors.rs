@@ -27,12 +27,12 @@ fn errors(doc: &str, context: &Context) -> Vec<(String, String)> {
         .collect()
 }
 
-const DOC: &str = "#show: worksheet\n$U := 5 V$\n$t := U + 2 s =$\n```solveng\nR := 2 Ω\nx := R + U =\ny := 3\n```\n#worksheet(`z := q + 1 =`)\n";
+const DOC: &str = "#import units: V, s, Ω\n#show: worksheet\n$U := 5 #V$\n$t := U + 2 #s =$\n$R := 2 #Ω$ $x := R + U =$\n#worksheet($z := q + 1 =$)\n";
 
 fn reported() -> Context {
     context(vec![
-        error(DOC, "$t := U + 2 s =$", "", "adding different units: s and V"),
-        error(DOC, "```solveng\nR := 2 Ω\nx := R + U =\ny := 3\n```", "x := R + U =", "adding different units: Ω and V"),
+        error(DOC, "$t := U + 2 #s =$", "", "adding different units: s and V"),
+        error(DOC, "$x := R + U =$", "", "adding different units: Ω and V"),
         error(DOC, "", "z := q + 1 =", "'q' in 'z' isn't defined"),
     ])
 }
@@ -42,7 +42,7 @@ fn shows_reported_errors_at_their_statements() {
     assert_eq!(
         errors(DOC, &reported()),
         vec![
-            ("t := U + 2 s =".to_string(), "adding different units: s and V".to_string()),
+            ("t := U + 2 #s =".to_string(), "adding different units: s and V".to_string()),
             ("x := R + U =".to_string(), "adding different units: Ω and V".to_string()),
             ("z := q + 1 =".to_string(), "'q' in 'z' isn't defined".to_string()),
         ]
@@ -54,10 +54,10 @@ fn shows_reported_errors_at_their_statements() {
 #[test]
 fn follows_edits_and_drops_errors_of_edited_elements() {
     // text written before moves the errors along
-    let moved = DOC.replace("$U := 5 V$", "Some words first. $U := 5 V$");
+    let moved = DOC.replace("$U := 5 #V$", "Some words first. $U := 5 #V$");
     assert_eq!(errors(&moved, &reported()).len(), 3);
     // an edited equation has no error until the next compile tells
-    let edited = DOC.replace("$t := U + 2 s =$", "$t := U + 2 V =$");
+    let edited = DOC.replace("$t := U + 2 #s =$", "$t := U + 2 #V =$");
     let found = errors(&edited, &reported());
     assert_eq!(found.len(), 2);
     assert!(found.iter().all(|(text, _)| !text.starts_with("t :=")));
@@ -73,10 +73,10 @@ fn follows_edits_and_drops_errors_of_edited_elements() {
 
 #[test]
 fn places_errors_of_twin_elements_by_position() {
-    let doc = "#show: worksheet\n$a := 1 V + 1 s =$\ntext\n$a := 1 V + 1 s =$\n";
+    let doc = "#import units: V, s\n#show: worksheet\n$a := 1 #V + 1 #s =$\ntext\n$a := 1 #V + 1 #s =$\n";
     let second = doc.rfind("$a").unwrap();
     let start = doc[..second].encode_utf16().count();
-    let err = ReportError { path: "main.typ".into(), start, end: start + 18, text: "$a := 1 V + 1 s =$".into(), source: String::new(), message: "units".into() };
+    let err = ReportError { path: "main.typ".into(), start, end: start + 20, text: "$a := 1 #V + 1 #s =$".into(), source: String::new(), message: "units".into() };
     let found: Vec<Problem> = diagnostics(doc, &context(vec![err])).into_iter().filter(|p| p.severity == "error").collect();
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].start as usize, start + 1);
@@ -109,14 +109,12 @@ fn name_validation_errors_target_only_the_invalid_name() {
     for (name, invalid) in [(r#""e-"10"#, '-'), (r#""a+b""#, '+'), (r#""😅/"2"#, '/')] {
         let message = format!("'{invalid}' isn't allowed in a variable name; use spaces or operators between expressions");
         let expression = format!("y(x) := 1{name}");
-        for element in [format!("${expression}$"), format!("```solveng\n{expression}\n```")] {
-            let doc = format!("#show: worksheet\n😅\n{element}");
-            let source = if element.starts_with('$') { "" } else { &expression };
-            let c = context(vec![error(&doc, &element, source, &message)]);
-            assert_eq!(errors(&doc, &c), vec![(name.into(), message.clone())], "{doc}");
-        }
-        let escaped = expression.clone();
-        let doc = format!("#worksheet(`{escaped}`)");
+        let element = format!("${expression}$");
+        let doc = format!("#show: worksheet\n😅\n{element}");
+        let c = context(vec![error(&doc, &element, "", &message)]);
+        assert_eq!(errors(&doc, &c), vec![(name.into(), message.clone())], "{doc}");
+        // passed to a worksheet: found by its statement
+        let doc = format!("😅 #worksheet(${expression}$)");
         let c = context(vec![error(&doc, "", &expression, &message)]);
         assert_eq!(errors(&doc, &c), vec![(name.to_string(), message)]);
     }

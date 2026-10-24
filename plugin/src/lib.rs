@@ -6,8 +6,6 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use solveng_core::api::{self, Arg, ClearReq, DefinedReq, Lam, LamReq, LineReq, UnitReq};
 use solveng_core::env::Env;
-use solveng_core::format::Cfg;
-use solveng_core::parse::Mode;
 use wasm_minimal_protocol::*;
 
 initiate_protocol!();
@@ -27,6 +25,16 @@ fn to_value<T: Serialize>(v: &T) -> Result<Value, String> {
     Value::serialized(v).map_err(|e| e.to_string())
 }
 
+#[wasm_func]
+pub fn binding(req: &[u8]) -> Result<Vec<u8>, String> {
+    let r: solveng_core::bindings::BindingReq = de(req, "binding")?;
+    let binding = solveng_core::bindings::construct(r)?;
+    en(&Value::Map(vec![
+        (Value::Text("id".into()), Value::Text(binding.id.clone())),
+        (Value::Text("token".into()), Value::Text(format!("⟦{}⟧", binding.encode()?))),
+    ]))
+}
+
 /// (env, request) → (env: new env, out: what to show).
 #[wasm_func]
 pub fn line(env: &[u8], req: &[u8]) -> Result<Vec<u8>, String> {
@@ -34,7 +42,7 @@ pub fn line(env: &[u8], req: &[u8]) -> Result<Vec<u8>, String> {
     let r: LineReq = de(req, "request")?;
     let out = api::line(&mut e, &r);
     // the state only changes when something was defined
-    let env = if out.defined.is_empty() { env.to_vec() } else { en(&e)? };
+    let env = if out.defined.is_empty() && e.references.is_empty() { env.to_vec() } else { en(&e)? };
     en(&Value::Map(vec![(Value::Text("env".into()), Value::Bytes(env)), (Value::Text("out".into()), to_value(&out)?)]))
 }
 
@@ -59,13 +67,6 @@ pub fn defined(env: &[u8], req: &[u8]) -> Result<Vec<u8>, String> {
 pub fn unit(req: &[u8]) -> Result<Vec<u8>, String> {
     let r: UnitReq = de(req, "request")?;
     en(&api::unit_markup(&r))
-}
-
-/// Problems with the option units, or none.
-#[wasm_func]
-pub fn check_units(cfg: &[u8]) -> Result<Vec<u8>, String> {
-    let c: Cfg = de(cfg, "options")?;
-    en(&api::check_units(&c))
 }
 
 /// (env, request) → the prepared function as bytes, or an error message as (err: …).
@@ -104,24 +105,6 @@ pub fn lam_eval(lam: &[u8], args: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
-#[derive(serde::Deserialize)]
-struct QReq {
-    cfg: Cfg,
-    src: String,
-    mode: Mode,
-}
-
-/// The value of an expression of defined names: (v: SI value, d: dims) or (err: …).
-#[wasm_func]
-pub fn quantity(env: &[u8], req: &[u8]) -> Result<Vec<u8>, String> {
-    let e = env_of(env)?;
-    let r: QReq = de(req, "request")?;
-    match api::quantity(&e, &r.cfg, &r.src, r.mode) {
-        Ok((v, d)) => en(&Value::Map(vec![(Value::Text("v".into()), Value::Float(v)), (Value::Text("d".into()), to_value(&d)?)])),
-        Err(m) => en(&Value::Map(vec![(Value::Text("err".into()), Value::Text(m))])),
-    }
-}
-
 /// (env, graph request) → (env: with what its curves written with := define, errors: problems of these lines).
 /// Nothing is defined when the curves can't be read; the graph itself reports that.
 #[wasm_func]
@@ -130,7 +113,7 @@ pub fn graph_define(env: &[u8], req: &[u8]) -> Result<Vec<u8>, String> {
     let r: solveng_core::graph::GraphReq = de(req, "request")?;
     let mut errors = vec![];
     for d in solveng_core::graph::defines(&e, &r).unwrap_or_default() {
-        errors.extend(api::line(&mut e, &LineReq { src: d.src, mode: d.mode, cfg: r.cfg.clone(), listed: true }).errors);
+        errors.extend(api::line(&mut e, &LineReq { src: d.src, cfg: r.cfg.clone(), listed: true }).errors);
     }
     en(&Value::Map(vec![(Value::Text("env".into()), Value::Bytes(en(&e)?)), (Value::Text("errors".into()), to_value(&errors)?)]))
 }
@@ -155,8 +138,8 @@ pub fn graph(env: &[u8], req: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[wasm_func]
-pub fn statements(src: &[u8], mode: &[u8]) -> Result<Vec<u8>, String> {
-    en(&solveng_core::parse::statements(&de::<String>(src, "source")?, de(mode, "mode")?))
+pub fn statements(src: &[u8]) -> Result<Vec<u8>, String> {
+    en(&solveng_core::parse::statements(&de::<String>(src, "source")?))
 }
 
 #[wasm_func]

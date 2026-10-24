@@ -1,3 +1,6 @@
+#import "/src/unit-words.typ" as units
+#import "/src/constants.typ" as constants
+#import "/src/builtins.typ": *
 #import "/lib.typ": *
 #import "/tests/util.typ": expect, passes
 #import functions: *

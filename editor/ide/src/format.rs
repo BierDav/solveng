@@ -3,22 +3,18 @@
 use crate::{Analysis, Context, Edit, TokenKind};
 use crate::text::{starts_with, sub};
 
-/// Whitespace edits in solveng blocks, calculated math and call strings, in ascending UTF-16 order.
+/// Whitespace edits in calculated math and call strings, in ascending UTF-16 order.
 pub fn format(document: &str, context: &Context) -> Vec<Edit> {
     let a = Analysis::new(document, context);
     let highlighted = crate::document_tokens(document, context);
-    let joins: Vec<(usize, usize)> = highlighted.windows(2).filter_map(|t| {
-        (t[0].kind == TokenKind::NUMBER && t[1].kind == TokenKind::UNIT).then(|| {
-            (a.doc.from16((t[0].start + t[0].length) as usize), a.doc.from16(t[1].start as usize))
-        })
-    }).collect();
+    let joins: Vec<(usize, usize)> = highlighted.windows(2).filter(|&t| t[0].kind == TokenKind::NUMBER && t[1].kind == TokenKind::UNIT).map(|t| (a.doc.from16((t[0].start + t[0].length) as usize), a.doc.from16(t[1].start as usize))).collect();
     let mut out = Vec::new();
-    for e in a.elements.iter().filter(|e| a.shown(e)) {
+    for e in a.elements.iter().filter(|e| a.active(e)) {
         let body = &a.doc.c[e.body_start..e.body_end];
         let local_joins: Vec<(usize, usize)> = joins.iter().filter(|&&(s, end)| s >= e.body_start && end < e.body_end)
             .map(|&(s, end)| (s - e.body_start, end - e.body_start)).collect();
         let mut text = format_body(body, &local_joins, None);
-        if e.math && a.doc.c.get(e.body_end) == Some(&'$') {
+        if a.doc.c.get(e.body_end) == Some(&'$') {
             let display = body.first().is_some_and(|c| c.is_whitespace())
                 && body.last().is_some_and(|c| c.is_whitespace());
             if !text.contains(['\n', '\r']) {

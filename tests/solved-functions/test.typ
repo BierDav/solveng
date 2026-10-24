@@ -1,6 +1,6 @@
 #import "/lib.typ": *
 #import "/tests/util.typ": expect, passes, fails, result
-#import functions: *
+#import functions: at
 #set page(width: 18cm, height: auto)
 #show: worksheet
 $b := 99$
@@ -15,9 +15,10 @@ $L := "lower"(3, 5) =$
 #expect("L", -4)
 $U := "upper"(3, 5) =$
 #expect("U", 4)
-#worksheet(raw("circle(x, r) := pytagoras(x, b, r) -> solve(b)"))
+// equations passed to worksheet share the definitions
+#worksheet($"circle"(x, r) := "pytagoras"(x, b, r) -> solve(b)$)
 #passes()
-#worksheet(raw("circle(3, 5) ="))
+#worksheet($"circle"(3, 5) =$)
 #passes() #result("vec(\"−4\", \"4\")")
 $"pair"(a) := vec(u + v = a, u - v = 2) -> solve(u, v)$
 #passes()
@@ -34,13 +35,12 @@ $"pytagoras"(3, b, 5) -> solve(b)$
   [#graph($"circle"(x, 5)$, xrange: (-5, 5), mark: (), width: 1fr)],
   [#graph($"circle"(x, 4)$, xrange: (-5, 5), mark: (), width: 1fr)],
 )
-```solveng
-pytagoras(a, b, c) := a^2 + b^2 = c^2
-circle(x, r) := pytagoras(x, b, r) -> solve(b)
-circle(3, 5) =
-roots := y^2 = 9 -> solve(y)
-roots =
-```
-#passes()
+$"pytagoras"(a, b, c) := a^2 + b^2 = c^2$
+$"circle"(x, r) := "pytagoras"(x, b, r) -> solve(b)$
+$"circle"(3, 5) =$
+#passes() #result("vec(\"−4\", \"4\")")
+$"roots" := y^2 = 9 -> solve(y)$
+$"roots" =$
+#passes() #result("vec(\"−3\", \"3\")")
 $"bad"(x, r) := "pytagoras"(x, b, r) = b -> solve(b)$
 #fails("omit the extra = b")

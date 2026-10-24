@@ -1,10 +1,11 @@
 //! Solving equations: symbolically where it can be done (isolating, polynomials, linear systems, eliminating),
 //! numerically otherwise (sign changes and Newton, all roots of polynomials, Newton for systems).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::dim::{self, Dim};
+use crate::dim::Dim;
 use crate::eval::eval_f;
+use crate::complex::{CVal, Z};
 use crate::expr::{self, Expr, Func, Val, int, simp};
 use crate::num::{Num, Rat};
 use crate::poly::{coeffs, simplify, together};
@@ -35,6 +36,7 @@ pub fn solve1(e: &Expr, x: &str, numeric_params: &dyn Fn(&str) -> bool) -> Resul
             return Err(Fail::Cancels);
         }
         let only_known = cs.iter().all(|c| c.syms().iter().all(|s| numeric_params(s)));
+        let root = |v: Expr| -> Option<Expr> { Some(simplify(&expr::sqrt(v))) };
         let sols: Vec<Expr> = if deg == 1 {
             vec![simplify(&expr::div(expr::neg(cs[0].clone()), cs[1].clone()))]
         } else if deg == 2 && !(only_known && cs.iter().any(|c| !c.syms().is_empty())) {
@@ -42,22 +44,18 @@ pub fn solve1(e: &Expr, x: &str, numeric_params: &dyn Fn(&str) -> bool) -> Resul
             let disc = simplify(&expr::sub(expr::pow(b.clone(), int(2)), expr::mul(vec![int(4), a.clone(), c0.clone()])));
             if b.is_zero() {
                 let square = simplify(&expr::div(expr::neg(c0), a));
-                if square.as_c().is_some_and(|v| v.v.is_neg()) { vec![] }
-                else if square.is_zero() { vec![int(0)] }
-                else {
-                    let root = simplify(&expr::sqrt(square));
+                if square.is_zero() { vec![int(0)] }
+                else if let Some(root) = root(square) {
                     vec![simp(&expr::neg(root.clone())), root]
-                }
-            } else if let Some(dv) = disc.as_c() {
-                if dv.v.is_neg() {
-                    return Ok(vec![]);
-                }
-                if dv.is_zero() {
+                } else { vec![] }
+            } else if disc.as_c().is_some() {
+                if disc.is_zero() {
                     vec![simplify(&expr::div(expr::neg(b), expr::mul(vec![int(2), a])))]
                 } else {
+                    let Some(r) = root(disc.clone()) else { return Ok(vec![]) };
                     let mut v: Vec<Expr> = [-1, 1]
                         .iter()
-                        .map(|s| simplify(&expr::div(expr::add(vec![expr::neg(b.clone()), expr::mul(vec![int(*s), expr::sqrt(disc.clone())])]), expr::mul(vec![int(2), a.clone()]))))
+                        .map(|s| simplify(&expr::div(expr::add(vec![expr::neg(b.clone()), expr::mul(vec![int(*s), r.clone()])]), expr::mul(vec![int(2), a.clone()]))))
                         .collect();
                     sort_num(&mut v);
                     v
@@ -69,11 +67,20 @@ pub fn solve1(e: &Expr, x: &str, numeric_params: &dyn Fn(&str) -> bool) -> Resul
                     .collect()
             }
         } else if cs.iter().all(|c| c.syms().is_empty()) {
-            // numbers only: every real root
-            let Some(cn) = cs.iter().map(|c| c.as_c().map(|v| v.clone())).collect::<Option<Vec<Val>>>() else { return Err(Fail::NotSymbolic) };
-            let dx = poly_dim(&cn);
-            let rs = roots(&cn.iter().map(|v| v.v.f()).collect::<Vec<_>>());
-            rs.into_iter().map(|r| Expr::C(Val::new(snap(r), dx.unwrap_or(Dim::ONE)))).collect()
+            // numbers only: every root, the real ones exactly where they can be
+            let Some(cz) = cs.iter().map(crate::complex::parts).collect::<Option<Vec<CVal>>>() else { return Err(Fail::NotSymbolic) };
+            let dx = poly_dim(&cz.iter().map(|z| if z.re.v.is_zero() { z.im.clone() } else { z.re.clone() }).collect::<Vec<_>>()).unwrap_or(Dim::ONE);
+            let val = |x: f64| Val::new(snap(x), dx.clone());
+            let all = complex_roots(&cz.iter().map(CVal::z).collect::<Vec<_>>());
+            let complex = |z: &Z| z.im.abs() > 1e-9 * z.abs();
+            let mut out: Vec<Expr> = vec![];
+            if cz.iter().all(CVal::is_real) {
+                out.extend(roots(&cz.iter().map(|z| z.re.v.f()).collect::<Vec<_>>()).into_iter().map(|r| Expr::C(val(r))));
+                out.extend(all.iter().filter(|z| complex(z)).map(|z| crate::complex::expr(CVal { re: val(z.re), im: val(z.im) })));
+            } else {
+                out.extend(all.iter().map(|z| if complex(z) { crate::complex::expr(CVal { re: val(z.re), im: val(z.im) }) } else { Expr::C(val(z.re)) }));
+            }
+            out
         } else {
             return Err(Fail::NotSymbolic);
         };
@@ -176,7 +183,7 @@ fn isolate(mut l: Expr, mut r: Expr, x: &str) -> Option<Expr> {
                 };
                 l = *a;
             }
-            Expr::Cast(..) | Expr::Cmp(..) => return None,
+            Expr::Number(..) | Expr::Cmp(..) => return None,
             _ => return None,
         }
     }
@@ -275,6 +282,64 @@ pub fn roots(c: &[f64]) -> Vec<f64> {
         }
     }
     uniq(rs)
+}
+
+/// Every root of Σ c_k x^k with complex coefficients (Durand–Kerner, then Newton), in order of their real parts.
+pub fn complex_roots(c: &[Z]) -> Vec<Z> {
+    let zero = |z: &Z| z.re == 0.0 && z.im == 0.0;
+    let mut c: Vec<Z> = c.to_vec();
+    while c.len() > 1 && zero(c.last().unwrap()) {
+        c.pop();
+    }
+    let lead = c.iter().take_while(|z| zero(z)).count();
+    let mut out = vec![Z::real(0.0); lead.min(c.len().saturating_sub(1))];
+    let c = &c[lead.min(c.len())..];
+    let n = c.len().saturating_sub(1);
+    if n == 0 {
+        return out;
+    }
+    // monic and rescaled, so that the roots are of size ~1
+    let r0 = c[0].div(c[n]).abs().powf(1.0 / n as f64);
+    let r0 = if r0 > 0.0 && r0.is_finite() { r0 } else { 1.0 };
+    let m: Vec<Z> = (0..=n).map(|i| c[i].div(c[n]).scale(r0.powi(i as i32 - n as i32))).collect();
+    let p = |z: Z| (0..=n).rev().fold((Z::real(0.0), Z::real(0.0)), |(v, g), i| (v.mul(z).add(m[i]), g.mul(z).add(v)));
+    let mut zs: Vec<Z> = (0..n).map(|k| {
+        let t = 2.0 * std::f64::consts::PI * k as f64 / n as f64 + 0.4;
+        Z::new(t.cos(), t.sin())
+    }).collect();
+    for _ in 0..800 {
+        let mut most: f64 = 0.0;
+        for k in 0..n {
+            let mut den = Z::real(1.0);
+            for j in 0..n {
+                if j != k {
+                    den = den.mul(zs[k].sub(zs[j]));
+                }
+            }
+            if den.abs() == 0.0 {
+                den = Z::real(1e-12);
+            }
+            let dz = p(zs[k]).0.div(den);
+            zs[k] = zs[k].sub(dz);
+            most = most.max(dz.abs());
+        }
+        if most < 1e-15 {
+            break;
+        }
+    }
+    for z in &mut zs {
+        for _ in 0..8 {
+            let (v, g) = p(*z);
+            if g.abs() == 0.0 {
+                break;
+            }
+            let next = z.sub(v.div(g));
+            if p(next).0.abs() < v.abs() { *z = next } else { break }
+        }
+    }
+    out.extend(zs.into_iter().map(|z| z.scale(r0).cleaned()));
+    out.sort_by(|a, b| a.re.total_cmp(&b.re).then(a.im.total_cmp(&b.im)));
+    out
 }
 
 pub fn uniq(mut rs: Vec<f64>) -> Vec<f64> {
@@ -494,15 +559,21 @@ fn abs_terms(e: &Expr) -> Expr {
 /// A dimension linear in the unknowns' dimensions: c + Σ a_j·dim(x_j); None is a literal 0 (fits any unit).
 #[derive(Clone, Debug)]
 struct Lin {
-    c: Vec<f64>,
+    c: BTreeMap<String, f64>,
     a: Vec<f64>,
+}
+
+fn combine_dims(a: &BTreeMap<String, f64>, b: &BTreeMap<String, f64>, scale: f64) -> BTreeMap<String, f64> {
+    let mut c = a.clone();
+    for (k, v) in b { *c.entry(k.clone()).or_default() += scale * v; }
+    c
 }
 
 fn lin(e: &Expr, xs: &[String], known: &dyn Fn(&str) -> Option<Dim>, cons: &mut Vec<Lin>) -> Result<Option<Lin>, String> {
     let n = xs.len();
-    let k = |d: Dim| Lin { c: (0..dim::N).map(|i| d.exp(i).to_f64()).collect(), a: vec![0.0; n] };
-    let addl = |x: &Lin, y: &Lin, s: f64| Lin { c: x.c.iter().zip(&y.c).map(|(p, q)| p + s * q).collect(), a: x.a.iter().zip(&y.a).map(|(p, q)| p + s * q).collect() };
-    let scale = |x: &Lin, f: f64| Lin { c: x.c.iter().map(|z| z * f).collect(), a: x.a.iter().map(|z| z * f).collect() };
+    let k = |d: Dim| Lin { c: d.0.iter().map(|(k, e)| (k.clone(), *e as f64 / 60.0)).collect(), a: vec![0.0; n] };
+    let addl = |x: &Lin, y: &Lin, s: f64| Lin { c: combine_dims(&x.c, &y.c, s), a: x.a.iter().zip(&y.a).map(|(p, q)| p + s * q).collect() };
+    let scale = |x: &Lin, f: f64| Lin { c: x.c.iter().map(|(k, z)| (k.clone(), z * f)).collect(), a: x.a.iter().map(|z| z * f).collect() };
     Ok(match e {
         Expr::Cases(v) => {
             let mut result = None;
@@ -519,15 +590,16 @@ fn lin(e: &Expr, xs: &[String], known: &dyn Fn(&str) -> Option<Dim>, cons: &mut 
             if v.is_zero() && v.d.is_one() {
                 None
             } else {
-                Some(k(v.d))
+                Some(k(v.d.clone()))
             }
         }
-        Expr::Pi | Expr::E => Some(k(Dim::ONE)),
+        Expr::Pi | Expr::E | Expr::I => Some(k(Dim::ONE)),
+        Expr::Const(_, backing) => crate::eval::dim_of(backing, &|_| None)?.map(k),
         Expr::Sym(s) => {
             if let Some(i) = xs.iter().position(|y| y == s) {
                 let mut a = vec![0.0; n];
                 a[i] = 1.0;
-                Some(Lin { c: vec![0.0; dim::N], a })
+                Some(Lin { c: BTreeMap::new(), a })
             } else {
                 Some(k(known(s).ok_or_else(|| format!("'{s}' isn't defined"))?))
             }
@@ -604,7 +676,7 @@ fn lin(e: &Expr, xs: &[String], known: &dyn Fn(&str) -> Option<Dim>, cons: &mut 
         }
         Expr::Subs(body, var, by) => {
             let d = crate::eval::dim_of(by, known)?;
-            lin(body, xs, &|n| if n == var { d } else { known(n) }, cons)?
+            lin(body, xs, &|n| if n == var { d.clone() } else { known(n) }, cons)?
         }
         Expr::Derivative(body, var) => {
             let d = crate::eval::dim_of(body, known)?;
@@ -625,12 +697,13 @@ fn lin(e: &Expr, xs: &[String], known: &dyn Fn(&str) -> Option<Dim>, cons: &mut 
             let h = lin(hi, xs, known, cons)?;
             if let (Some(a), Some(b)) = (&l, &h) { cons.push(addl(a, b, -1.0)); }
             let d = crate::eval::dim_of(lo, known)?.or(crate::eval::dim_of(hi, known)?);
-            let body = lin(body, xs, &|s| if s == var { d } else { known(s) }, cons)?;
+            let body = lin(body, xs, &|s| if s == var { d.clone() } else { known(s) }, cons)?;
             match (l.or(h), body) { (Some(a), Some(b)) => Some(addl(&a, &b, 1.0)), _ => None }
         }
-        Expr::Cast(a, _, d, _) => {
-            lin(a, xs, known, cons)?;
-            Some(k(*d))
+        // the value has the unit's dimension, the number none
+        Expr::Number(a, _, d, _) => {
+            if let Some(l) = lin(a, xs, known, cons)? { cons.push(addl(&l, &k(d.clone()), -1.0)); }
+            Some(k(Dim::ONE))
         }
     })
 }
@@ -643,11 +716,12 @@ pub fn infer_dims(eqs: &[(Expr, Expr)], xs: &[String], known: &dyn Fn(&str) -> O
         let a = lin(l, xs, known, &mut cons)?;
         let b = lin(r, xs, known, &mut cons)?;
         if let (Some(a), Some(b)) = (a, b) {
-            cons.push(Lin { c: a.c.iter().zip(&b.c).map(|(p, q)| p - q).collect(), a: a.a.iter().zip(&b.a).map(|(p, q)| p - q).collect() });
+            cons.push(Lin { c: combine_dims(&a.c, &b.c, -1.0), a: a.a.iter().zip(&b.a).map(|(p, q)| p - q).collect() });
         }
     }
+    let identities: Vec<String> = cons.iter().flat_map(|l| l.c.keys().cloned()).collect::<BTreeSet<_>>().into_iter().collect();
     // rows: a | -c
-    let mut rows: Vec<Vec<f64>> = cons.iter().map(|l| l.a.iter().copied().chain(l.c.iter().map(|z| -z)).collect()).collect();
+    let mut rows: Vec<Vec<f64>> = cons.iter().map(|l| l.a.iter().copied().chain(identities.iter().map(|k| -l.c.get(k).copied().unwrap_or(0.0))).collect()).collect();
     let mut piv = vec![];
     let mut r = 0;
     for col in 0..n {
@@ -681,7 +755,8 @@ pub fn infer_dims(eqs: &[(Expr, Expr)], xs: &[String], known: &dyn Fn(&str) -> O
         let mut d = Dim::ONE;
         for (k, z) in rows[i][n..].iter().enumerate() {
             let q = Rat::approx(*z, 60).ok_or("a unit to a power that isn't a simple fraction")?;
-            d.0[k] = (q.mul(Rat::int(60)).unwrap().to_f64().round()) as i32;
+            let power = (q.mul(Rat::int(60)).unwrap().to_f64().round()) as i32;
+            if power != 0 { d.0.insert(identities[k].clone(), power); }
         }
         out[col] = Some(d);
     }

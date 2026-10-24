@@ -1,4 +1,4 @@
-// Per-element activity from the compiler's report, definitions, usages and unknown-unit warnings.
+// Per-element activity from the compiler's report, definitions, usages and imports of solveng's names.
 
 use solveng_ide::*;
 
@@ -22,7 +22,7 @@ fn report(doc: &str, elements: &[(&str, bool, bool)]) -> Report {
                 start: u16_at(doc, text) as usize,
                 end: (u16_at(doc, text) + text.encode_utf16().count() as u32) as usize,
                 text: (*text).into(),
-                kind: if text.starts_with('$') { "math".into() } else { "code".into() },
+                kind: "math".into(),
                 active: *active,
                 evaluate: *evaluate,
             })
@@ -65,15 +65,18 @@ fn files_without_reported_elements_keep_the_settings() {
 }
 
 #[test]
-fn tagged_code_is_shown_but_defines_only_when_calculated() {
+fn solveng_raw_blocks_are_plain_text() {
     let doc = "```solveng\nk := 1\n```\n#show: worksheet\n$b := 2$\n$b + k =$\n";
     let compiled = report(doc, &[("$b := 2$", true, true), ("$b + k =$", true, true)]);
-    let context = Context::new("").with_report(&compiled, "main.typ", true);
-    assert!(coloured(doc, &context, "k := 1"));
-    let at = u16_at(doc, "$b + k =$") + 1;
-    let items = complete(doc, &context, at).unwrap().items;
-    assert!(items.iter().any(|i| i.label == "b"));
-    assert!(!items.iter().any(|i| i.label == "k"));
+    for context in [Context::new("").with_report(&compiled, "main.typ", true), Context::default()] {
+        assert!(!coloured(doc, &context, "k := 1"));
+        assert!(regions(doc, &context).iter().all(|r| r.start > u16_at(doc, "```\n#show")));
+        let at = u16_at(doc, "$b + k =$") + 1;
+        let items = complete(doc, &context, at).unwrap().items;
+        assert!(items.iter().any(|i| i.label == "b"));
+        assert!(!items.iter().any(|i| i.label == "k"));
+        assert!(complete(doc, &context, u16_at(doc, "k := 1") + 5).is_none());
+    }
 }
 
 /// The UTF-16 offset of the `n`th (from 0) `needle` in `doc`.
@@ -172,7 +175,7 @@ fn redefinitions_split_usages() {
     assert_eq!(definition(doc, &c, nth(doc, "x", 1)).unwrap().start, nth(doc, "x", 0));
     assert_eq!(definition(doc, &c, nth(doc, "x", 2)).unwrap().start, nth(doc, "x", 0));
     // The right side still means the old value.
-    let doc = "```solveng\nx := 1\nx := x + 1\ny := x\n```\n";
+    let doc = "#show: worksheet\n$x := 1$\n$x := x + 1$\n$y := x$\n";
     assert_eq!(definition(doc, &c, nth(doc, "x", 2)).unwrap().start, nth(doc, "x", 0));
     assert_eq!(definition(doc, &c, nth(doc, "x", 3)).unwrap().start, nth(doc, "x", 1));
     // what's solved for is defined in the clause
@@ -231,43 +234,47 @@ fn follows_includes_in_compile_order() {
 
 #[test]
 fn ignores_units_and_prose() {
-    let doc = "#show: worksheet\n$U := 5 unit(\"V\")$, $P := U dot 2 unit(\"V\") = mV$ and U in prose\n";
+    let doc = "#import units: V, mV\n#show: worksheet\n$U := 5 #V$, $P := U dot 2 #V = mV$ and U in prose\n";
     let found = used(doc, &Context::new(""), nth(doc, "U", 0));
     assert_eq!(found, [nth(doc, "U", 0), nth(doc, "U", 1)]);
 }
 
 #[test]
 fn finds_math_names_with_subscripts() {
-    let doc = "#show: worksheet\n$Q_0 := 3450 mAh$, $t_\"half\" := Q_0 / 2 A$\n```solveng\nx := t_half\n```\n";
+    let doc = "#import units: mAh, A\n#show: worksheet\n$Q_0 := 3450 mAh$, $t_\"half\" := Q_0 / 2 #A$\n#clear(\"t_half\")\n";
     let found = usages(doc, &Context::new(""), u16_at(doc, "t_half"));
     assert_eq!(found.len(), 2);
+    assert_eq!(text_at(doc, found[1].start, found[1].end), "t_half");
     assert_eq!(text_at(doc, found[0].start, found[0].end), "t_\"half\"");
     let q = definition(doc, &Context::new(""), u16_at(doc, "Q_0 / 2")).unwrap();
     assert_eq!(text_at(doc, q.start, q.end), "Q_0");
 }
 
 #[test]
-fn warns_of_unknown_units_where_calculated() {
-    let doc = "$a := 3 unit(\"zorp\")$\n#show: worksheet\n$b := 3 unit(\"zorp\")$\n#lambdify($b$, \"b\", unit: \"blop\")\n```solveng\nc := b = [blip]\n```\n#worksheet(units: (zorp: $2 m$), evaluate: false)[]\n";
-    let compiled = report(doc, &[("$b := 3 unit(\"zorp\")$", true, true)]);
-    let context = Context::new("").with_report(&compiled, "main.typ", true);
-    let found = diagnostics(doc, &context);
-    let words: Vec<String> = found.iter().map(|p| text_at(doc, p.start, p.end)).collect();
-    assert_eq!(words, ["blip", "blop"]);
-    assert!(found.iter().all(|p| p.severity == "warning"));
-    // Without the custom unit, only the calculated equation warns.
-    let bare = doc.replace("#worksheet(units: (zorp: $2 m$), evaluate: false)[]\n", "");
-    let compiled = report(&bare, &[("$b := 3 unit(\"zorp\")$", true, true)]);
-    let found = diagnostics(&bare, &Context::new("").with_report(&compiled, "main.typ", true));
-    assert_eq!(found.iter().filter(|p| text_at(&bare, p.start, p.end) == "zorp").count(), 1);
+fn offers_imports_of_solvengs_names_where_calculated() {
+    let doc = "#import \"@preview/solveng:1.0.0\": *\n$a := 3 km$\n#show: worksheet\n$b := 3 km + tri(1) + 2 pi$\n";
+    let context = Context::default();
+    // Typst reports the unknown names; solveng only offers to import them.
+    assert!(diagnostics(doc, &context).is_empty());
+    let fix = |needle: &str, n: usize| unit_fixes(doc, &context, nth(doc, needle, n) + 1).into_iter().find(|f| f.title.starts_with("Import"));
+    assert!(fix("km", 0).is_none());
+    for (needle, module) in [("km", "units"), ("tri", "functions"), ("pi", "constants")] {
+        let f = fix(needle, if needle == "km" { 1 } else { 0 }).unwrap_or_else(|| panic!("{needle}"));
+        assert_eq!(f.title, format!("Import {needle} from solveng's {module}"));
+        assert!(f.edits.iter().any(|e| e.text == format!("\n#import {module}: {needle}")), "{:?}", f.edits);
+    }
+    // A name the document binds, or one of no module, gets none.
+    let bound = doc.replace("#show: worksheet", "#let km = 3\n#show: worksheet");
+    assert!(unit_fixes(&bound, &context, nth(&bound, "km", 2) + 1).iter().all(|f| !f.title.starts_with("Import")));
+    let other = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet\n$b := 3 zorp$";
+    assert!(unit_fixes(other, &context, u16_at(other, "zorp") + 1).iter().all(|f| !f.title.starts_with("Import")));
 }
 
 #[test]
 fn backslashes_separate_definitions_and_result_markers() {
     for doc in [
         "#worksheet($ t := 1 \\ g := t + 2 \\ g = $)",
-        "#worksheet(`t := 1 \\ g := t + 2 \\ g =`)",
-        "#show: worksheet\n```solveng\nt := 1 \\ g := t + 2 \\ g =\n```",
+        "#show: worksheet\n$ t := 1 \\ g := t + 2 \\ g = $",
     ] {
         let context = Context::default();
         let at = doc.rfind("g =").unwrap();

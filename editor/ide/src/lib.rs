@@ -1,8 +1,8 @@
-//! Editor support for solveng (`@preview/solveng`), the calculation language of Typst documents: ```` ```solveng ````
-//! code blocks, math in a `worksheet` (unless the innermost one says `evaluate: false`) and equations and code
-//! passed to `#worksheet(…)`, and explicit unit and operation names. Like Mathcad, `:=` defines, a
+//! Editor support for solveng (`@preview/solveng`), calculations in Typst math: math in a `worksheet` (unless the
+//! innermost one says `evaluate: false`) and equations passed to `#worksheet(…)`. Like Mathcad, `:=` defines, a
 //! trailing `=` shows a value and `->` a symbolic result or a solution, each followed by a clause of a unit and
-//! keywords.
+//! keywords. Units, constants and operations are Typst bindings: imported from solveng's `units`, `constants` and
+//! `functions` modules or made with `base-unit`, `unit`, `constant` and `operation`.
 //!
 //! Everything is a pure function of the document and a [`Context`] (the files around it, what the compiler
 //! reported). Offsets are UTF-16 code units, as editors and LSP count them.
@@ -12,7 +12,6 @@ mod calls;
 mod clause;
 mod complete;
 mod conceal;
-mod convert;
 mod depends;
 mod errors;
 mod format;
@@ -25,7 +24,6 @@ mod report;
 mod scope;
 mod text;
 mod tokens;
-mod unit_refs;
 mod units;
 
 use std::cell::OnceCell;
@@ -37,18 +35,14 @@ use serde::Serialize;
 pub use bindings::unit_fixes;
 pub use format::format;
 pub use complete::complete;
-pub use conceal::{conceals, conceals_of, resolved_name};
-pub use convert::{conversions, from_math, to_math};
+pub use conceal::{conceals, resolved_name};
 pub use navigate::{definition, rename, rename_target, usages};
-pub use highlight::{diagnostics, document_tokens, hover, math_tokens, math_tokens_of, pretty, regions, tokens, tokens_with_units};
+pub use highlight::{diagnostics, document_tokens, hover, math_tokens, math_tokens_of, regions};
 pub use report::{Report, ReportElement, ReportError, ReportValue};
 pub use units::{is_unit, unit_name};
 
 use elements::Element;
 use text::Doc;
-
-/// Language tag of solveng code.
-pub const TAG: &str = "solveng";
 
 /// This crate's version, for editors to show what they bundle.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -76,7 +70,7 @@ impl TokenKind {
     pub const FUNCTION_CALL: u8 = 12;
     /// A built-in calculation function, shown as a predefined symbol.
     pub const BUILTIN_FUNCTION: u8 = 13;
-    /// The gray hash of an explicit Typst unit binding reference.
+    /// The gray hash before a unit, constant or operation binding in math: `#s`.
     pub const UNIT_REFERENCE: u8 = 14;
 }
 
@@ -87,11 +81,11 @@ impl ItemKind {
     pub const FUNCTION: u8 = 1;
     pub const UNIT: u8 = 2;
     pub const CONSTANT: u8 = 3;
-    /// A named parameter of a solveng function: `steps: `.
+    /// A named parameter of a solveng function: `form: `.
     pub const PARAMETER: u8 = 4;
     /// One of an option's values: `"value"`.
     pub const VALUE: u8 = 5;
-    /// A word of solveng's own: `as`, `any`.
+    /// A word of solveng's own: `any`, a clause keyword.
     pub const KEYWORD: u8 = 6;
 }
 
@@ -129,8 +123,9 @@ impl Item {
     }
 }
 
-/// Completions at a caret: `items` replace the UTF-16 range `from..<(to.unwrap_or(offset))`. `exclusive` ones (in solveng code
-/// and strings) replace the Typst language server's; others (in math, parameter names) come first next to its.
+/// Completions at a caret: `items` replace the UTF-16 range `from..<(to.unwrap_or(offset))`. `exclusive` ones (units,
+/// clauses and strings) replace the Typst language server's; others (names in math, parameter names) come first next
+/// to its.
 #[derive(Clone, Debug, Serialize)]
 pub struct Completions {
     pub from: u32,
@@ -140,7 +135,7 @@ pub struct Completions {
     pub exclusive: bool,
 }
 
-/// Rewrites the call, equation or code at a caret into the other spelling: replace `start..<end` with `text`.
+/// A quick fix at a caret: replace `start..<end` with `text`, and apply `edits` with it.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Conversion {
     pub title: String,
@@ -152,8 +147,8 @@ pub struct Conversion {
     pub edits: Vec<Edit>,
 }
 
-/// Code shown as it renders while the caret is elsewhere: UTF-16 `start` and `length` show as `character` (a
-/// Unicode scalar), in the element `element_start..<element_end`.
+/// Source shown as it renders while the caret is elsewhere: UTF-16 `start` and `length` show as `character` (a
+/// Unicode scalar, 0 to hide them), in the element `element_start..<element_end`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct Conceal {
     pub start: u32,
@@ -163,8 +158,8 @@ pub struct Conceal {
     pub element_end: u32,
 }
 
-/// A problem in the document: an inspection found while typing (unknown units, redefinitions or scope surprises),
-/// or an error the last compile reported where it still applies.
+/// A problem in the document: an inspection found while typing (redefinitions, binding references or scope
+/// surprises), or an error the last compile reported where it still applies.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Problem {
     pub start: u32,
@@ -213,12 +208,12 @@ pub struct Hover {
     pub markdown: String,
 }
 
-/// A stretch solveng reads: a raw element's body, an equation's, a string argument's contents.
+/// A stretch solveng reads: an equation's body, a string argument's contents, a call's arguments.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Region {
     pub start: u32,
     pub end: u32,
-    /// `code`, `math` or `string`.
+    /// `math`, `string` or `call`.
     pub kind: &'static str,
 }
 
@@ -231,11 +226,9 @@ pub struct Context {
     pub evaluate: Option<bool>,
     /// Values the compiler computed, used as completion details.
     pub defined: Vec<ReportValue>,
-    /// Units the `worksheet(units: …)` option set, as the compiler saw them.
-    pub units: Vec<ReportValue>,
     /// The document's path, relative to the root, as given to [`Context::with_report`].
     pub path: String,
-    /// The equations and raw elements the compile saw, in every file; empty without a report.
+    /// The equations the compile saw, in every file; empty without a report.
     pub reported: Vec<ReportElement>,
     /// The files around one by one, when known; `text` joins them.
     pub files: Vec<ContextFile>,
@@ -264,7 +257,6 @@ impl Context {
             self.evaluate = Some(e);
         }
         self.defined = report.defined.clone();
-        self.units = report.units.clone();
         self.path = path.into();
         if main && self.main.is_none() {
             self.main = Some(path.into());
@@ -390,32 +382,18 @@ fn wrapped(context: &Context, path: &str) -> Option<bool> {
     })
 }
 
-/// Math if `math`, unless the innermost worksheet around it says otherwise; of raw elements only ```` ```solveng ````
-/// code blocks, wherever they are.
+/// Whether an equation is calculated as the worksheets written around it say: the innermost one's `evaluate`, else
+/// `math` (whether the file is included in a calculating worksheet).
 pub(crate) fn is_solveng(e: &Element, math: Option<bool>, scopes: &[calls::Scope]) -> bool {
-    if e.math {
-        // The compile reached the file and found no math in a worksheet: it has the last word.
-        if math == Some(false) {
-            return false;
-        }
-        calls::evaluates_at(scopes, e.start).or(math).unwrap_or(false)
-    } else {
-        e.tag == TAG && e.block
+    // The compile reached the file and found no math in a worksheet: it has the last word.
+    if math == Some(false) {
+        return false;
     }
+    calls::evaluates_at(scopes, e.start).or(math).unwrap_or(false)
 }
 
-/// The UTF-16 `(body_start, body_end)` of a raw element that holds solveng code: a ```` ```solveng ```` block.
-pub fn body(raw: &str) -> Option<(u32, u32)> {
-    let doc = Doc::new(raw);
-    let r = elements::elements(&doc.c).into_iter().next()?;
-    if r.start != 0 || r.math || !is_solveng(&r, None, &[]) {
-        return None;
-    }
-    Some((doc.to16(r.body_start), doc.to16(r.body_end)))
-}
-
-/// Raw elements and equations outside the strings of solveng's calls, where a `$` or a backtick is just text.
-pub(crate) fn scan(doc: &Doc, _calls: &[calls::Call]) -> Vec<Element> {
+/// Equations outside the strings of Typst code, where a `$` or a backtick is just text.
+pub(crate) fn scan(doc: &Doc) -> Vec<Element> {
     use typst_syntax::{LinkedNode, SyntaxKind};
     fn mask(node: &LinkedNode, doc: &Doc, c: &mut [char]) {
         if node.kind() == SyntaxKind::Str || node.kind() == SyntaxKind::Error && node.get().clone().full_text().starts_with('"') {
@@ -432,7 +410,7 @@ pub(crate) fn scan(doc: &Doc, _calls: &[calls::Call]) -> Vec<Element> {
     elements::elements(&c)
 }
 
-/// Which elements solveng calculates. Without the compiler's elements for the file (`reported`) the worksheets
+/// Which equations solveng calculates. Without the compiler's elements for the file (`reported`) the worksheets
 /// written in the source decide, and `math` for what none of them covers.
 ///
 /// With them, an element whose source matches one takes its flag; copies of the same source are aligned in order,
@@ -441,7 +419,7 @@ pub(crate) fn scan(doc: &Doc, _calls: &[calls::Call]) -> Vec<Element> {
 /// Outside every written worksheet, a template solveng can't read may hold the worksheet: an element there is
 /// calculated like the last calculated element before it outside written worksheets, if that one's block holds it,
 /// else when `included` says a worksheet of another file includes this one.
-/// Equations and code passed to `worksheet` are calculated wherever they are.
+/// Equations passed to `worksheet` (and the other calls that read math) are calculated wherever they are.
 pub(crate) fn activity(
     doc: &Doc,
     elements: &[Element],
@@ -455,11 +433,8 @@ pub(crate) fn activity(
     if reported.is_empty() {
         return elements.iter().map(|e| is_solveng(e, math, scopes) || in_call(e)).collect();
     }
-    // What the worksheets written around say: math as their `evaluate`, solveng code blocks always, other raw never.
-    let written: Vec<Option<bool>> = elements.iter().map(|e| {
-        let around = calls::evaluates_at(scopes, e.start);
-        if e.math { around } else if e.tag == TAG && e.block { around.map(|_| true) } else { Some(false) }
-    }).collect();
+    // What the worksheets written around say.
+    let written: Vec<Option<bool>> = elements.iter().map(|e| calls::evaluates_at(scopes, e.start)).collect();
     // Disagreeing with the written worksheets costs more than any movement; being calculated outside every one
     // (only a template explains it) less so.
     let cost = |i: usize, j: usize| {
@@ -488,11 +463,11 @@ pub(crate) fn activity(
                     if written.is_none() {
                         unwritten.push((block(e.start), reported[i].active.then_some(reported[i].evaluate)));
                     }
-                    reported[i].active && !(e.math && written == Some(false))
+                    reported[i].active && written != Some(false)
                 }
                 (None, Some(evaluates)) => evaluates,
                 (None, None) => match unwritten.iter().rev().find(|(b, _)| b.0 <= e.start && e.end <= b.1) {
-                    Some((_, evaluate)) => evaluate.is_some_and(|evaluate| evaluate || !e.math),
+                    Some((_, evaluate)) => *evaluate == Some(true),
                     None => *included_once.get_or_insert_with(included),
                 },
             };
@@ -509,6 +484,7 @@ pub(crate) struct Part {
     pub calls: Vec<calls::Call>,
     pub elements: Vec<Element>,
     pub active: Vec<bool>,
+    pub bindings: bindings::Bindings,
 }
 
 impl Part {
@@ -516,12 +492,13 @@ impl Part {
         let doc = Doc::new(text);
         let aliases = if text.is_empty() { calls::Aliases::new() } else { calls::aliases(&doc, &context.files, path.as_deref().unwrap_or("")) };
         let (calls, scopes) = if text.is_empty() { Default::default() } else { calls::read(&doc, &aliases) };
-        let elements = scan(&doc, &calls);
+        let elements = scan(&doc);
         let reported = path.as_deref().map(|p| context.reported_in(p)).unwrap_or_default();
         // Included where a worksheet of another file evaluates math.
         let math = path.as_deref().filter(|p| included_in_worksheet(context, p)).map(|_| true);
         let active = activity(&doc, &elements, &calls, &scopes, &reported, math, &|| math == Some(true));
-        Part { path, doc, calls, elements, active }
+        let bindings = bindings::Bindings::new(&doc);
+        Part { path, doc, calls, elements, active, bindings }
     }
 
     pub fn active(&self, e: &Element) -> bool {
@@ -537,12 +514,8 @@ pub(crate) struct Analysis<'a> {
     /// Per element: calculated.
     pub calculated: Vec<bool>,
     pub calls: Vec<calls::Call>,
-    pub units: Vec<units::Custom>,
-    unit_equations: Vec<(usize, usize)>,
     pub bindings: bindings::Bindings,
-    unit_scopes: Vec<calls::Scope>,
-    unit_context: Vec<units::Custom>,
-    reported_units: Vec<units::Custom>,
+    scopes: Vec<calls::Scope>,
     around: OnceCell<Vec<Part>>,
 }
 
@@ -551,37 +524,26 @@ impl<'a> Analysis<'a> {
         let doc = Doc::new(document);
         let aliases = calls::aliases(&doc, &context.files, &context.path);
         let (calls, scopes) = calls::read(&doc, &aliases);
-        let elements = scan(&doc, &calls);
-        let mut units = Vec::new();
-        units::custom_units(&context.text, &mut units);
-        let unit_context = units.clone();
-        units::custom_units(document, &mut units);
-        // The compiler's units the text doesn't define, e.g. from a package.
-        let reported_units: Vec<units::Custom> = context.units.iter().filter(|u| !units.iter().any(|c| c.name == u.name))
-            .map(|u| units::Custom { name: u.name.clone(), value: u.value.clone() }).collect();
-        units.extend(reported_units.iter().cloned());
+        let elements = scan(&doc);
         let math = wrapped(context, &context.path);
         let calculated = activity(&doc, &elements, &calls, &scopes, &context.reported_in(&context.path), math,
             &|| included_in_worksheet(context, &context.path));
         let bindings = bindings::Bindings::new(&doc);
-        let entries = units::entries(document);
-        let unit_equations = elements.iter().filter(|e| e.math && entries.iter().any(|entry| entry.start < doc.sub(0, e.start).len() && doc.sub(0, e.end).len() <= entry.value_end)).map(|e| (e.start, e.end)).collect();
-        Analysis { doc, context, elements, calculated, calls, units, unit_equations, bindings, unit_scopes: scopes, unit_context, reported_units, around: OnceCell::new() }
+        Analysis { doc, context, elements, calculated, calls, bindings, scopes, around: OnceCell::new() }
     }
 
     fn index(&self, e: &Element) -> Option<usize> {
         self.elements.binary_search_by_key(&e.start, |x| x.start).ok()
     }
 
-    /// Whether solveng calculates an element; see [`activity`].
+    /// Whether solveng calculates an equation; see [`activity`].
     pub fn active(&self, e: &Element) -> bool {
         self.index(e).is_some_and(|i| self.calculated[i])
     }
 
-    /// Whether an element is solveng to the editor: calculated, or a ```` ```solveng ```` block, which is the
-    /// language wherever it is.
-    pub fn shown(&self, e: &Element) -> bool {
-        (!e.math && e.tag == TAG && e.block) || self.active(e) || self.unit_equations.contains(&(e.start, e.end))
+    /// The calculated equation whose body holds the character range `start..end`.
+    pub fn calculated_at(&self, start: usize, end: usize) -> Option<&Element> {
+        self.elements.iter().find(|e| e.body_start <= start && end <= e.body_end && self.active(e))
     }
 
     /// The files around, read when first needed: one by one when known, else their join.
@@ -597,68 +559,20 @@ impl<'a> Analysis<'a> {
         })
     }
 
-    pub fn builtin_functions_at(&self, at: usize) -> bool {
-        let mut enabled = true;
-        let mut scopes: Vec<_> = self.unit_scopes.iter().filter(|s| s.start <= at && at < s.end).collect();
-        scopes.sort_by_key(|s| s.start);
-        for scope in scopes { if let Some(value) = scope.builtin_functions { enabled = value; } }
-        for call in self.calls.iter().filter(|c| c.args_start <= at && at <= c.args_end) {
-            for (name, value) in &call.args {
-                if name.as_deref() == Some("builtin-functions") {
-                    if let Ok(value) = value.trim().parse() { enabled = value; }
-                }
-            }
-        }
-        enabled
-    }
-
-    /// String contents of explicit constructors. Quotes stay ordinary Typst syntax.
+    /// The strings of explicit operation references (`op("tri")`, `math.op("tri")`, `operation("tri")`), which name
+    /// operations as written.
     pub fn reference_strings(&self) -> Vec<(usize, usize)> {
-        self.bindings.operator_strings().iter().map(|(s, e, _)| (*s, *e))
-            .chain(self.calls.iter().filter(|call| call.function.name == "unit")
-                .flat_map(|call| call.texts.iter().filter(|t| t.param.is_none()).map(|t| (t.start, t.end)))).collect()
+        self.bindings.operator_strings().iter().map(|(s, e, _)| (*s, *e)).collect()
     }
 
+    /// Whether the math at `at` is calculated: in a calculated equation, or in a worksheet that evaluates math.
     pub fn evaluates_at(&self, at: usize) -> bool {
-        self.elements.iter().any(|e| e.math && self.active(e) && e.body_start <= at && at < e.body_end)
-            || calls::evaluates_at(&self.unit_scopes, at) == Some(true)
+        self.elements.iter().any(|e| self.active(e) && e.body_start <= at && at < e.body_end)
+            || calls::evaluates_at(&self.scopes, at) == Some(true)
     }
 
-    /// The units in effect at `at`: the files around's and the compiler's, then each worksheet around from the
-    /// outside in. An isolated one starts over with only the built-in units (if `builtin-units` is still on).
-    /// `explicit`: for `unit("…")`, which still reaches names removed with `none`.
-    fn local_units_at(&self, at: usize, explicit: bool) -> Vec<units::Custom> {
-        let mut units = self.unit_context.clone();
-        units.extend(self.reported_units.iter().filter(|u| !self.unit_context.iter().any(|c| c.name == u.name)).cloned());
-        let mut scopes = self.unit_scopes.iter().filter(|s| s.start <= at && at < s.end).collect::<Vec<_>>();
-        scopes.sort_by_key(|s| s.start);
-        for scope in scopes {
-            if scope.isolated {
-                units.retain(|u| u.name.is_empty());
-            }
-            for unit in &scope.units {
-                if explicit && unit.value == "none" { continue; }
-                units.retain(|u| u.name != unit.name);
-                units.push(unit.clone());
-            }
-        }
-        for call in self.calls.iter().filter(|c| c.args_start <= at && at <= c.args_end) {
-            for (name, value) in &call.args {
-                if matches!(name.as_deref(), Some("units" | "builtin-units")) {
-                    units::custom_units(&format!("{}: {value}", name.as_deref().unwrap()), &mut units);
-                }
-            }
-        }
-        units
-    }
-
-    pub fn unit_completion_context(&self, at: usize) -> Vec<units::Custom> { self.local_units_at(at, true) }
-
-    pub fn units_at(&self, at: usize) -> Vec<units::Custom> {
-        self.local_units_at(at, false)
-    }
-
-    pub fn is_custom_unit(&self, word: &str) -> bool {
-        self.units.iter().any(|u| u.name == word)
+    /// Whether `word` names a unit at `at`: a Typst binding of one in scope, as math uses it there.
+    pub fn is_unit_at(&self, at: usize, word: &str) -> bool {
+        self.bindings.unit_at(at, word).is_some()
     }
 }

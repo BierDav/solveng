@@ -1,5 +1,5 @@
 //! Source ranges of sum binders. Keep bounds outside the index's scope, just as
-//! the engine does, and retain source offsets through escaped Typst strings.
+//! the engine does.
 
 #[derive(Clone, Debug)]
 pub(crate) struct Local {
@@ -91,16 +91,16 @@ fn term_end(t: &[Token], start: usize) -> usize {
 }
 
 /// Read each complete sum while tolerating unfinished text elsewhere.
-pub(crate) fn read(source: &[char], base: usize, string: bool, code: bool) -> Vec<Local> {
-    let (c, offsets) = if string { crate::text::unescape(source) } else { (source.to_vec(), (0..=source.len()).collect()) };
+pub(crate) fn read(source: &[char], base: usize) -> Vec<Local> {
+    let c = source;
     let mut out = Vec::new();
-    for (start, equation_end) in crate::text::equation_ranges(&c, code) {
+    for (start, equation_end) in crate::text::equation_ranges(c) {
         let t = tokens(&c[start..equation_end]);
-        let at = |i: usize| base + offsets[start + i];
+        let at = |i: usize| base + start + i;
         for (i, token) in t.iter().enumerate() {
             let notation = token.text == "sum_";
             if !notation && token.text != "sum" { continue; }
-            // Typst writes sum_(k=0)^n, code also accepts sum(body, k, lo, hi).
+            // sum_(k=0)^n, or the call sum(body, k, lo, hi).
             if t.get(i + 1).map(|t| t.text.as_str()) != Some("(") { continue; }
             let Some(end) = close(&t, i + 1) else { continue };
             let (declaration, body) = if notation {

@@ -9,7 +9,7 @@ fn slice(text: &str, start: u32, end: u32) -> String {
     String::from_utf16_lossy(&units)
 }
 
-/// A name as written in math or code, as solveng stores it: `t_"half"` → `t_half`, `Delta""r` → `Δr`.
+/// A name as written in math or a string, as solveng stores it: `t_"half"` → `t_half`, `Delta""r` → `Δr`.
 pub(crate) fn key(name: &str) -> String {
     crate::resolved_name(&name.replace("\"\"", "\0").replace('"', "").replace('\0', "\"\""))
 }
@@ -35,7 +35,7 @@ pub(crate) fn dependencies(document: &str, context: &Context, definition: Locati
             }
             _ => (document, context.clone()),
         };
-        // Its statement: the innermost equation, code or string around it; in code its line or what `;` ends.
+        // Its statement: the innermost equation or string around it; in a string what a line break or `;` ends.
         let Some(region) = crate::regions(source, &c)
             .into_iter()
             .filter(|r| r.kind != "call" && r.start <= location.start && location.end <= r.end)
@@ -82,8 +82,8 @@ pub(crate) fn dependencies(document: &str, context: &Context, definition: Locati
     out
 }
 
-/// The `### Depends on` section of a defined name's hover, None when it depends on nothing: each name as a line
-/// of solveng code, with its value or formula where known, so editors highlight them.
+/// The `### Depends on` section of a defined name's hover, None when it depends on nothing: each name on a line,
+/// with its value or formula where known.
 pub(crate) fn section(a: &Analysis, document: &str, definition: Location, name: &str) -> Option<String> {
     let lines: Vec<String> = dependencies(document, a.context, definition, name)
         .into_iter()
@@ -93,5 +93,5 @@ pub(crate) fn section(a: &Analysis, document: &str, definition: Location, name: 
             None => name,
         })
         .collect();
-    (!lines.is_empty()).then(|| format!("### Depends on\n\n```{}\n{}\n```", crate::complete::fence(a), lines.join("\n")))
+    (!lines.is_empty()).then(|| format!("### Depends on\n\n```text\n{}\n```", lines.join("\n")))
 }

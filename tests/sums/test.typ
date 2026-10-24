@@ -1,3 +1,6 @@
+#import "/src/unit-words.typ" as units
+#import "/src/constants.typ" as constants
+#import "/src/builtins.typ": *
 #import "/lib.typ": *
 #import "/tests/util.typ": expect, passes
 #import functions: *
@@ -18,7 +21,7 @@ $"finite" := sum_(k=0)^3 k^2 =$
 #passes() #expect("finite", 14)
 $"geometric" := sum_(k=0)^infinity (1/2)^k =$
 #passes() #expect("geometric", 2)
-#worksheet(raw("a := sum_(k=0)^3 k^2 ="))
+#worksheet($a := sum_(k=0)^3 k^2 =$)
 #passes() #expect("a", 14)
 
 // Two explicit conditions with the user's English label, then a named sum.

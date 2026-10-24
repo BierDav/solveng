@@ -3,13 +3,13 @@
 //! Markup refers to a few names the Typst side puts in scope: `svsep` (between units), `svimp` (between steps),
 //! `svgroup` (digit groups, when they are content), `svu` (unit-style), `svchip` (casts and types).
 
-use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::dim::Dim;
+use crate::complex::CVal;
 use crate::expr::Val;
 use crate::num::{Num, Rat};
-use crate::units::{Prefixes, UnitExpr, UnitOpt, Units, display_name};
+use crate::units::{Prefixes, UnitExpr, Units, display_name};
 
 fn d_digits() -> u32 {
     4
@@ -31,12 +31,6 @@ fn d_maxden() -> i64 {
 }
 fn d_stacked() -> String {
     "stacked".into()
-}
-fn d_full() -> String {
-    "full".into()
-}
-fn d_row() -> String {
-    "row".into()
 }
 pub(crate) fn d_true() -> bool {
     true
@@ -77,18 +71,7 @@ pub struct Cfg {
     #[serde(default = "d_prefixes")]
     pub prefixes: Prefixes,
     pub show_si: bool,
-    pub units: IndexMap<String, UnitOpt>,
-    #[serde(default = "d_true")]
-    pub builtin_units: bool,
-    /// The built-in overlay of function names: standard names reach operations by plain lookup.
-    #[serde(default = "d_true")]
-    pub builtin_functions: bool,
     pub preferred_units: Vec<String>,
-    pub strict: bool,
-    #[serde(default = "d_full")]
-    pub steps: String,
-    #[serde(default = "d_row")]
-    pub layout: String,
     #[serde(default = "d_true")]
     pub approximate: bool,
     #[serde(default = "d_true")]
@@ -96,10 +79,8 @@ pub struct Cfg {
     #[serde(default = "d_maxsol")]
     pub max_solutions: usize,
     #[serde(default = "d_chip")]
-    pub show_casts: String,
-    #[serde(default = "d_chip")]
     pub show_types: String,
-    /// The word shown for casts and any-unit types.
+    /// The word shown for any-unit types.
     pub words: Words,
     /// A unit-style function is set: units are wrapped in svu(…).
     pub unit_style: bool,
@@ -108,12 +89,11 @@ pub struct Cfg {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Words {
-    pub cast: String,
     pub any: String,
 }
 impl Default for Words {
     fn default() -> Self {
-        Words { cast: "as".into(), any: "any".into() }
+        Words { any: "any".into() }
     }
 }
 
@@ -137,17 +117,10 @@ fn serde_json_like_default() -> Cfg {
         fractions: "stacked".into(),
         prefixes: Prefixes::All,
         show_si: false,
-        units: IndexMap::new(),
-        builtin_units: true,
-        builtin_functions: true,
         preferred_units: vec![],
-        strict: false,
-        steps: "full".into(),
-        layout: "row".into(),
         approximate: true,
         block: true,
         max_solutions: 6,
-        show_casts: "chip".into(),
         show_types: "chip".into(),
         words: Words::default(),
         unit_style: false,
@@ -209,7 +182,8 @@ pub fn unit(u: &UnitExpr, units: &Units, cfg: &Cfg) -> String {
     let w = |ts: Vec<(&String, i32)>| {
         ts.iter()
             .map(|(n, e)| {
-                let s = format!("upright({})", q(&display_name(n, units)));
+                // a unit binding: as its display, which the Typst side knows once it was placed; its name meanwhile
+                let s = if n.starts_with("sv") && n.len() == 66 { format!("#svref({}, {})", q(n), q(&display_name(n, units))) } else { format!("upright({})", q(&display_name(n, units))) };
                 if *e == 1 { s } else { format!("{s}^({e})") }
             })
             .collect::<Vec<_>>()
@@ -219,7 +193,8 @@ pub fn unit(u: &UnitExpr, units: &Units, cfg: &Cfg) -> String {
     let down: Vec<_> = u.0.iter().filter(|t| t.1 < 0).map(|(n, e)| (n, -e)).collect();
     let mut s = if up.is_empty() { "1".into() } else { w(up) };
     if !down.is_empty() {
-        s = format!("{s} \\/ {}", w(down));
+        // no spaces: next to a #call, math keeps them as spaces (m / s)
+        s = format!("{s}\\/{}", w(down));
     }
     if cfg.unit_style { format!("#svu(${s}$)") } else { s }
 }
@@ -363,23 +338,24 @@ pub fn preferred_unit(d: Dim, units: &Units, cfg: &Cfg) -> Option<UnitExpr> {
 pub fn pick(v: &Val, want: Option<&UnitExpr>, hint: Option<&UnitExpr>, units: &Units, cfg: &Cfg) -> Result<Shown, String> {
     let si = v.v;
     if let Some(u) = want {
-        let d = units.dim(u).ok_or_else(|| format!("unknown unit '{}'", u.text()))?;
+        let d = units.dim(u).ok_or_else(|| format!("unknown unit '{}'", units.text(u)))?;
         if d != v.d {
             return Err(format!(
                 "the result has unit {}, not {}",
-                if v.d.is_one() { "1 (no unit)".to_string() } else { units.auto(&v.d).text() },
-                u.text()
+                if v.d.is_one() { "1 (no unit)".to_string() } else { units.text(&units.auto(&v.d)) },
+                units.text(u)
             ));
         }
         let f = units.factor(u);
         return Ok(Shown { n: si.div(f).unwrap_or(si), u: u.clone(), raw: None, bare: false });
     }
-    if let Some(u) = preferred_unit(v.d, units, cfg) {
+    if let Some(u) = preferred_unit(v.d.clone(), units, cfg) {
         return Ok(Shown { n: si.div(units.factor(&u)).unwrap_or(si), u, raw: None, bare: false });
     }
-    // the unit it was written in (7.2 kΩ), or a unit that isn't SI it came from (2 p in bar)
-    if let Some(u) = v.u.as_ref().filter(|u| v.raw.is_some() || !si_unit(u, units)) {
-        if units.dim(u) == Some(v.d) {
+    // the unit it was written in (7.2 kΩ), or a unit that isn't SI it came from (2 p in bar); a zero, which has
+    // no size to pick a prefix by, in the unit it came with (0 ms)
+    if let Some(u) = v.u.as_ref().filter(|u| v.raw.is_some() || si.is_zero() || !si_unit(u, units)) {
+        if units.dim(u) == Some(v.d.clone()) {
             let f = units.factor(u);
             let n = si.div(f).unwrap_or(si);
             // as written: 7.20 kΩ keeps its zero
@@ -392,7 +368,7 @@ pub fn pick(v: &Val, want: Option<&UnitExpr>, hint: Option<&UnitExpr>, units: &U
         return Ok(Shown { n: si, u: UnitExpr::default(), raw, bare: false });
     }
     if let Some(h) = hint {
-        if units.dim(h) == Some(v.d) {
+        if units.dim(h) == Some(v.d.clone()) {
             return Ok(Shown { n: si.div(units.factor(h)).unwrap_or(si), u: h.clone(), raw: None, bare: false });
         }
     }
@@ -413,10 +389,10 @@ pub fn pick(v: &Val, want: Option<&UnitExpr>, hint: Option<&UnitExpr>, units: &U
 
 /// Whether a unit is SI (with a prefix or not): those get picked anew for results.
 pub fn si_unit(u: &UnitExpr, units: &Units) -> bool {
-    const SI: [&str; 21] = ["V", "A", "Ω", "Omega", "W", "J", "C", "F", "H", "S", "N", "Pa", "T", "Wb", "s", "m", "g", "K", "Hz", "mol", "cd"];
-    u.0.iter().all(|(n, _)| {
-        let base: String = if units.map.contains_key(n) { n.clone() } else { n.chars().skip(1).collect() };
-        SI.contains(&base.as_str()) && units.map.get(&base).is_some_and(|u| !u.own)
+    u.0.iter().all(|(n, _)| match units.def(n) {
+        Some(_) => units.si(n).is_some(),
+        // a prefix on an SI unit: kΩ
+        None => n.char_indices().nth(1).is_some_and(|(i, _)| units.si(&n[i..]).is_some_and(|(_, e)| e == 0)),
     })
 }
 
@@ -446,13 +422,61 @@ pub fn plain(v: &Val, unit_: Option<&UnitExpr>, units: &Units, cfg: &Cfg) -> Str
     }
     if !s.u.is_empty() {
         out += " ";
-        out += &s.u.text();
+        out += &units.text(&s.u);
     }
     out
 }
 
+/// A complex value as markup, (re + im i) unit: both parts in the unit picked for its magnitude; (markup, exact).
+/// `i` is shown as the worksheet shows the identity imaginary.
+pub fn complex(z: &CVal, want: Option<&UnitExpr>, hint: Option<&UnitExpr>, units: &Units, cfg: &Cfg) -> Result<(String, bool), String> {
+    if z.is_real() {
+        return pick(&z.re, want, hint, units, cfg).map(|s| shown(&s, units, cfg));
+    }
+    let size = Val::new(Num::F(z.z().abs()), z.d().clone());
+    let u = pick(&size, want, hint, units, cfg)?.u;
+    let part = |v: &Val| -> Result<Num, String> {
+        Ok(if u.is_empty() { v.v } else { pick(&Val { u: None, raw: None, ..v.clone() }, Some(&u), None, units, cfg)?.n })
+    };
+    let (re, im) = (part(&z.re)?, part(&z.im)?);
+    let i = crate::render::constant("imaginary", None);
+    let (im_s, im_exact) = number(im.abs(), None, cfg);
+    let im_term = if im.abs().is_one() { i } else { format!("{im_s} {i}") };
+    let (body, exact, sum) = if re.is_zero() {
+        (format!("{}{im_term}", if im.is_neg() { "-" } else { "" }), im_exact, false)
+    } else {
+        let (re_s, re_exact) = number(re, None, cfg);
+        (format!("{re_s} {} {im_term}", if im.is_neg() { "-" } else { "+" }), re_exact && im_exact, true)
+    };
+    if u.is_empty() {
+        return Ok((body, exact));
+    }
+    let body = if sum { format!("lr(({body}))") } else { body };
+    Ok((format!("{body} thin {}", unit(&u, units, cfg)), exact))
+}
+
+/// A complex value in plain text, for editors: "(3 + 4i) Ω".
+pub fn complex_plain(z: &CVal, unit_: Option<&UnitExpr>, units: &Units, cfg: &Cfg) -> String {
+    if z.is_real() {
+        return plain(&z.re, unit_, units, cfg);
+    }
+    let c = Cfg { digits: cfg.digits.max(4), ..cfg.clone() };
+    let size = Val::new(Num::F(z.z().abs()), z.d().clone());
+    let u = pick(&size, unit_, None, units, &c).map(|s| s.u).unwrap_or_default();
+    let n = |v: &Val| {
+        let x = if u.is_empty() { v.v.f() } else { v.v.f() / units.factor(&u).f() };
+        let (m, e) = fmt(x, &c);
+        if let Some(e) = e { format!("{m}e{e}") } else { m }
+    };
+    let im = n(&Val { v: z.im.v.abs(), ..z.im.clone() });
+    let body = if z.re.v.is_zero() { format!("{}{im}i", if z.im.v.is_neg() { "-" } else { "" }) } else { format!("{} {} {im}i", n(&z.re), if z.im.v.is_neg() { "-" } else { "+" }) };
+    if u.is_empty() { return body; }
+    let ut = units.text(&u);
+    if z.re.v.is_zero() { format!("{body} {ut}") } else { format!("({body}) {ut}") }
+}
+
 pub fn dim_text(d: &Dim, units: &Units) -> String {
-    if d.is_one() { "1 (no unit)".into() } else { units.auto(d).text() }
+    if d.is_one() { "1 (no unit)".into() } else { units.text(&units.auto(d)) }
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 [package]
 name = "solveng-ide"
-description = "Editor support for solveng calculations in Typst: highlighting, completions, conversions"
+description = "Editor support for solveng calculations in Typst: highlighting, completions, navigation, quick fixes"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

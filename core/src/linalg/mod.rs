@@ -394,7 +394,7 @@ fn eval(op: Op, args: &[Expr]) -> Result<Option<Expr>, String> {
         let n = x.len() + h.len() - 1;
         // sequences of values (the usual case, sampled signals): computed with their numbers directly
         let values = |v: &[Expr]| -> Option<(Vec<Num>, Dim)> {
-            let d = v.first()?.as_c()?.d;
+            let d = v.first()?.as_c()?.d.clone();
             v.iter().map(|e| e.as_c().filter(|c| c.d == d).map(|c| c.v)).collect::<Option<Vec<_>>>().map(|ns| (ns, d))
         };
         if let (Some((xs, dx)), Some((hs, dh))) = (values(&x), values(&h)) {
@@ -412,7 +412,7 @@ fn eval(op: Op, args: &[Expr]) -> Result<Option<Expr>, String> {
                     } else {
                         Num::F((lo..=hi).map(|i| xf[i] * hf[k - i]).sum())
                     };
-                    Expr::C(Val::new(v, d))
+                    Expr::C(Val::new(v, d.clone()))
                 })
                 .collect();
             return Ok(Some(Expr::Vector(out)));
@@ -540,7 +540,7 @@ fn tolerance(a: &Array, vals: &[&Val]) -> f64 {
 fn pattern(rows: usize, cols: usize, vals: &[&Val]) -> Option<(Vec<Dim>, Vec<Dim>)> {
     let fixed = |i: usize, j: usize| -> Option<Dim> {
         let v = vals[i * cols + j];
-        (!(v.is_zero() && v.d.is_one())).then_some(v.d)
+        (!(v.is_zero() && v.d.is_one())).then_some(v.d.clone())
     };
     let (mut r, mut c): (Vec<Option<Dim>>, Vec<Option<Dim>>) = (vec![None; rows], vec![None; cols]);
     // each connected group of rows and columns: its first row unitless, the others follow from the entries
@@ -555,7 +555,7 @@ fn pattern(rows: usize, cols: usize, vals: &[&Val]) -> Option<(Vec<Dim>, Vec<Dim
             for l in 0..n {
                 let (i, j) = if row { (k, l) } else { (l, k) };
                 let Some(d) = fixed(i, j) else { continue };
-                let (known, other) = if row { (r[i], &mut c[j]) } else { (c[j], &mut r[i]) };
+                let (known, other) = if row { (<std::option::Option<Dim> as Clone>::clone(&r[i]), &mut c[j]) } else { (<std::option::Option<Dim> as Clone>::clone(&c[j]), &mut r[i]) };
                 let want = d.div(&known.unwrap());
                 match other {
                     None => {
@@ -607,14 +607,14 @@ fn lsolve(a: &Array, b: &Array) -> Result<Array, String> {
                 continue;
             }
             let want = v.d.div(&n.r[p / b.cols]);
-            match k[p % b.cols] {
+            match k[p % b.cols].clone() {
                 None => k[p % b.cols] = Some(want),
                 Some(x) if x != want => return Err("the units of the right side don't fit the rows of the matrix".into()),
                 _ => {}
             }
         }
         let x = eliminate::solve(&n.m, &Mat::new(b.rows, b.cols, rhs.iter().map(|v| v.v).collect()), n.tol).ok_or(NO_UNIQUE)?;
-        return Ok(Array { rows: b.rows, cols: b.cols, a: x.a.iter().enumerate().map(|(p, v)| Expr::C(Val::new(*v, k[p % b.cols].unwrap_or(Dim::ONE).div(&n.c[p / b.cols])))).collect() });
+        return Ok(Array { rows: b.rows, cols: b.cols, a: x.a.iter().enumerate().map(|(p, v)| Expr::C(Val::new(*v, <std::option::Option<Dim> as Clone>::clone(&k[p % b.cols]).unwrap_or(Dim::ONE).div(&n.c[p / b.cols])))).collect() });
     }
     let x = eliminate::solve(&a.mat(), &b.mat(), 0.0).ok_or(NO_UNIQUE)?;
     Ok(Array { rows: x.rows, cols: x.cols, a: x.a })

@@ -1,8 +1,8 @@
-//! solveng's units: the built-in ones with prefixes and spellings, and the document's own.
+//! The units of solveng's `units` module: their names, prefixes and spellings, what they're made of, and the names
+//! the module exports. Units in math are Typst bindings; this table describes the module's.
 
 use std::sync::LazyLock;
 
-use regex::Regex;
 
 use crate::{Item, ItemKind};
 
@@ -65,90 +65,6 @@ pub fn is_unit(name: &str) -> bool {
     unit_name(name).is_some()
 }
 
-/// A unit the document defines, with what it stands for.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Custom {
-    pub name: String,
-    /// `100 kPa`, `auto` for a base unit of its own; empty when only the compiler knows it exists.
-    pub value: String,
-}
-
-pub(crate) struct Entry {
-    pub name: String,
-    pub start: usize,
-    pub end: usize,
-    pub value_start: usize,
-    pub value_end: usize,
-    pub value: String,
-}
-
-pub(crate) fn entries(text: &str) -> Vec<Entry> {
-    use typst_syntax::{LinkedNode, SyntaxKind};
-    fn visit(node: &LinkedNode, out: &mut Vec<Entry>) {
-        if node.kind() == SyntaxKind::Named {
-            let parts: Vec<_> = node.children().filter(|n| !n.kind().is_trivia() && n.kind() != SyntaxKind::Colon).collect();
-            if parts.first().is_some_and(|n| n.get().leaf_text() == "units") {
-                if let Some(dict) = parts.get(1).filter(|n| n.kind() == SyntaxKind::Dict) {
-                    for entry in dict.children().filter(|n| matches!(n.kind(), SyntaxKind::Named | SyntaxKind::Keyed)) {
-                        let parts: Vec<_> = entry.children().filter(|n| !n.kind().is_trivia() && n.kind() != SyntaxKind::Colon).collect();
-                        let [key, value] = parts.as_slice() else { continue };
-                        if value.kind() == SyntaxKind::Str { continue; }
-                        let name = key.get().clone().full_text();
-                        let quoted = usize::from(name.starts_with('"'));
-                        out.push(Entry { value_start: value.offset(), value_end: value.offset() + value.len(), name: crate::resolved_name(name.trim_matches('"')), start: key.offset() + quoted, end: key.offset() + key.len() - quoted, value: value.get().clone().full_text().trim_matches('$').trim().to_string() });
-                    }
-                }
-            }
-        }
-        for child in node.children() { visit(&child, out); }
-    }
-    let root = typst_syntax::parse(text);
-    let mut out = Vec::new();
-    visit(&LinkedNode::new(&root), &mut out);
-    out
-}
-
-/// Units from math definitions, with later definitions winning.
-pub(crate) fn custom_units(text: &str, out: &mut Vec<Custom>) {
-    static BUILTIN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"builtin-units\s*:\s*(true|false)").unwrap());
-    for c in BUILTIN.captures_iter(text) {
-        out.retain(|u| !u.name.is_empty());
-        out.push(Custom { name: String::new(), value: c[1].into() });
-    }
-    let source = if text.trim_start().starts_with("units:") { format!("#let _ = ({text})") } else { text.to_string() };
-    for entry in entries(&source) {
-        out.retain(|u| u.name != entry.name);
-        out.push(Custom { name: entry.name, value: entry.value });
-    }
-}
-
-static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\p{L}°%‰µΩ]+").unwrap());
-
-/// What a custom unit stands for, with the custom units it uses spelled out: `= 10 bar (bar = 100 kPa)`.
-pub(crate) fn resolve(unit: &Custom, all: &[Custom]) -> String {
-    if unit.value.is_empty() {
-        return "defined unit".into();
-    }
-    if unit.value == "auto" {
-        return "defined base unit".into();
-    }
-    let mut out = format!("= {}", unit.value);
-    let mut seen = vec![unit.name.clone()];
-    let mut queue = vec![unit.value.clone()];
-    while let Some(value) = queue.pop() {
-        for w in WORD.find_iter(&value) {
-            let Some(u) = all.iter().find(|u| u.name == w.as_str()) else { continue };
-            if seen.contains(&u.name) || u.value.is_empty() || u.value == "auto" || seen.len() > 8 {
-                continue;
-            }
-            seen.push(u.name.clone());
-            out.push_str(&format!(" ({} = {})", u.name, u.value));
-            queue.push(u.value.clone());
-        }
-    }
-    out
-}
-
 /// What typing matches for a built-in unit, words apart: the unit (`kΩ`), how it's typed when that differs
 /// (`kOmega`) and its name (`kiloohm`), so `ohm` and `volt` find Ω and V.
 fn unit_filter(unit: &str, prefix: &str, name: &str) -> String {
@@ -159,22 +75,12 @@ fn unit_filter(unit: &str, prefix: &str, name: &str) -> String {
     words.join(" ")
 }
 
-/// Every unit a completion offers: the document's first, then the built-in ones with common prefixes.
-pub(crate) fn unit_items(custom: &[Custom]) -> Vec<Item> { items(custom, true) }
-pub(crate) fn explicit_items(custom: &[Custom]) -> Vec<Item> { items(custom, false) }
-
-fn items(custom: &[Custom], implicit: bool) -> Vec<Item> {
+/// The units of solveng's `units` module a completion offers: the base and common prefixed ones, the engineering
+/// ones first. What typing matches includes their names: `ohm` finds Ω.
+pub(crate) fn unit_items() -> Vec<Item> {
     let mut items = Vec::new();
-    for u in custom.iter().filter(|u| !u.name.is_empty() && u.value != "none") {
-        let r = resolve(u, custom);
-        let detail = if r.starts_with("defined") { r } else { format!("defined · {r}") };
-        let mut item = Item::new(&u.name, ItemKind::UNIT, &detail, &u.name);
-        let spelling = crate::conceal::spelled(&u.name);
-        if spelling != u.name { item.filter = Some(format!("{} {spelling}", u.name)); }
-        items.push(item);
-    }
-    for (u, name) in PREFIXABLE.iter().filter(|_| builtin(custom)) {
-        let mut item = Item::new(u, ItemKind::UNIT, &format!("{name} · built-in"), u);
+    for (u, name) in PREFIXABLE {
+        let mut item = Item::new(u, ItemKind::UNIT, &format!("{name} · solveng units"), u);
         item.filter = Some(unit_filter(u, "", name));
         items.push(item);
         for p in COMMON_PREFIXES {
@@ -183,27 +89,22 @@ fn items(custom: &[Custom], implicit: bool) -> Vec<Item> {
             }
             let label = format!("{p}{u}");
             let full = format!("{}{name}", lookup(PREFIXES, p).unwrap());
-            let mut item = Item::new(&label, ItemKind::UNIT, &format!("{full} · built-in"), &label);
+            let mut item = Item::new(&label, ItemKind::UNIT, &format!("{full} · solveng units"), &label);
             item.filter = Some(unit_filter(u, p, &full));
             items.push(item);
         }
     }
-    for (u, name) in PLAIN.iter().filter(|_| builtin(custom)) {
-        let mut item = Item::new(u, ItemKind::UNIT, &format!("{name} · built-in"), u);
+    for (u, name) in PLAIN {
+        let mut item = Item::new(u, ItemKind::UNIT, &format!("{name} · solveng units"), u);
         item.filter = Some(unit_filter(u, "", name));
         items.push(item);
     }
     let mut seen = std::collections::HashSet::new();
-    items.retain(|i| seen.insert(i.label.clone()));
-    if implicit { items.retain(|item| visible(&item.insert, custom)); } else { items.retain(|item| known(&item.insert, custom)); }
-    // Common engineering units precede uncommon prefixes; custom overlays stay first.
-    const COMMON: &[&str] = &["m", "s", "kg", "A", "K", "V", "Ω", "W", "Hz", "N", "Pa", "J", "C", "F", "H", "mol", "cd", "mm", "cm", "km", "ms", "mA", "mV", "kΩ", "kW", "kHz", "MHz", "µA", "uA", "nF", "µF", "uF", "pF", "h", "min", "°C", "L", "l", "mAh", "Wh", "kWh", "%", "rad", "°"];
-    items.sort_by_key(|item| {
-        if custom.iter().any(|u| u.name == item.label) { (0, 0) }
-        else if let Some(rank) = COMMON.iter().position(|name| *name == item.label) { (1, rank) }
-        else if PREFIXABLE.iter().chain(PLAIN).any(|(name, _)| *name == item.label) { (2, 0) }
-        else { (3, 0) }
-    });
+    // Only what the module exports: `°` and `%` are no Typst names.
+    items.retain(|i| seen.insert(i.label.clone()) && shorthand(&i.label));
+    // Common engineering units precede uncommon prefixes.
+    const COMMON: &[&str] = &["m", "s", "kg", "A", "K", "V", "Ω", "W", "Hz", "N", "Pa", "J", "C", "F", "H", "mol", "cd", "mm", "cm", "km", "ms", "mA", "mV", "kΩ", "kW", "kHz", "MHz", "µA", "uA", "nF", "µF", "uF", "pF", "h", "min", "degC", "L", "l", "mAh", "Wh", "kWh", "rad", "deg"];
+    items.sort_by_key(|item| COMMON.iter().position(|name| *name == item.label).map_or((1, 0), |rank| (0, rank)));
     items
 }
 
@@ -273,98 +174,14 @@ fn heritage(word: &str) -> Vec<String> {
     lines
 }
 
-/// What a unit is, for hovers: its name and kind, then where it comes from down to the SI base units, a line each:
-/// `**kΩ** kiloohm · built-in unit`, `kΩ = 10³ Ω`, `Ω = V/A = kg·m²·s⁻³·A⁻²`; `**bar** defined unit`, `bar = 100 kPa`, ….
-pub(crate) fn describe(word: &str, custom: &[Custom]) -> Option<String> {
-    let (title, lines) = if let Some(u) = custom.iter().find(|u| u.name == word) {
-        if u.value == "auto" {
-            (format!("`{word}` defined base unit: a dimension of its own"), Vec::new())
-        } else {
-            // the defined units it's made of, then the built-in ones those use
-            let mut lines = Vec::new();
-            let mut queue = vec![u.clone()];
-            let mut builtin = Vec::new();
-            while let Some(d) = queue.pop() {
-                if d.value.is_empty() || lines.len() > 8 {
-                    continue;
-                }
-                lines.push(format!("{} = {}", d.name, d.value));
-                for w in WORD.find_iter(&d.value).map(|w| w.as_str().to_string()) {
-                    match custom.iter().find(|c| c.name == w) {
-                        Some(c) if c.value != "auto" && !lines.iter().any(|l| l.starts_with(&format!("{} =", c.name))) => queue.push(c.clone()),
-                        Some(_) => {}
-                        None if is_unit(&w) && !builtin.contains(&w) => builtin.push(w),
-                        None => {}
-                    }
-                }
-            }
-            for w in builtin {
-                for l in heritage(&w) {
-                    if !lines.contains(&l) {
-                        lines.push(l);
-                    }
-                }
-            }
-            (format!("`{word}` defined unit"), lines)
-        }
-    } else {
-        let name = unit_name(word)?;
-        let kind = if BASE.contains(&spelled(&crate::resolved_name(word))) { "built-in SI base unit" } else { "built-in unit" };
-        (format!("`{word}` {name} · {kind}"), heritage(word))
-    };
+/// What a unit of solveng's `units` module is, for hovers: its name and kind, then where it comes from down to the SI
+/// base units, a line each: `**kΩ** kiloohm · built-in unit`, `kΩ = 10³ Ω`, `Ω = V/A = kg·m²·s⁻³·A⁻²`.
+pub(crate) fn describe(word: &str) -> Option<String> {
+    let name = unit_name(word)?;
+    let kind = if BASE.contains(&spelled(&crate::resolved_name(word))) { "built-in SI base unit" } else { "built-in unit" };
+    let title = format!("`{word}` {name} · {kind}");
+    let lines = heritage(word);
     Some(if lines.is_empty() { title } else { format!("{title}\n\n{}", lines.iter().map(|l| format!("`{l}`")).collect::<Vec<_>>().join(" · ")) })
-}
-
-/// Whether the built-in units are on: `builtin-units: false` leaves only the document's own.
-pub(crate) fn builtin(custom: &[Custom]) -> bool {
-    custom.iter().rfind(|u| u.name.is_empty()).is_none_or(|u| u.value != "false")
-}
-
-/// Whether solveng reads `word` as a unit: one of its table (unless `builtin-units: false`) or the document's, or
-/// any prefix and one.
-pub(crate) fn known(word: &str, custom: &[Custom]) -> bool {
-    let normalized = crate::resolved_name(word);
-    let word = normalized.as_str();
-    if word.contains("\"\"") {
-        return known(&crate::resolved_name(word), custom);
-    }
-    let builtin = builtin(custom);
-    let table = |w: &str| {
-        (builtin && (lookup(PREFIXABLE, w).is_some() || lookup(PLAIN, w).is_some() || lookup(SPELLINGS, w).is_some() || w == "\u{2126}"))
-            || custom.iter().any(|u| u.name == w && u.value != "none")
-    };
-    if table(word) {
-        return true;
-    }
-    let mut c = word.chars();
-    let first = c.next().map(String::from).unwrap_or_default();
-    let rest = c.as_str();
-    !rest.is_empty() && rest != "Omega" && lookup(PREFIXES, &first).is_some() && table(rest)
-}
-
-/// Unit words of a unit expression (`kg m/s^2`) that neither solveng nor the document knows, as character ranges.
-pub(crate) fn unknown_words(expr: &str, custom: &[Custom]) -> Vec<(usize, usize, String)> {
-    let words: Vec<_> = WORD.find_iter(expr).collect();
-    let mut out = Vec::new();
-    for (i, w) in words.iter().enumerate() {
-        if known(w.as_str(), custom) {
-            continue;
-        }
-        // A prefix written apart: "k Ω".
-        let next = words.get(i + 1).map(|n| n.as_str());
-        if lookup(PREFIXES, w.as_str()).is_some() && next.is_some_and(|n| known(n, custom)) {
-            continue;
-        }
-        out.push((crate::text::char_index(expr, w.start()), crate::text::char_index(expr, w.end()), w.as_str().to_string()));
-    }
-    out
-}
-
-/// A unit name in effect: known, and not removed with `none`.
-pub(crate) fn visible(word: &str, custom: &[Custom]) -> bool {
-    let normalized = crate::resolved_name(word);
-    let word = normalized.as_str();
-    !custom.iter().any(|u| u.name == word && u.value == "none") && known(word, custom)
 }
 
 /// The names of solveng's `units` module, for `#import units: *`, read from the package.
@@ -374,7 +191,7 @@ static SHORTHANDS: LazyLock<Vec<String>> = LazyLock::new(|| {
         .filter(|name| !name.starts_with('_') && !name.contains('(')).collect()
 });
 
-/// Whether solveng's `units` module holds a shorthand for the built-in unit `name`.
+/// Whether solveng's `units` module exports `name`.
 pub(crate) fn shorthand(name: &str) -> bool {
     SHORTHANDS.iter().any(|n| n == name)
 }

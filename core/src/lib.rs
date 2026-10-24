@@ -1,9 +1,11 @@
-//! solveng's calculation engine: reads equations as solveng writes them (math as Typst gives it, code lines),
+//! solveng's calculation engine: reads equations as Typst math gives them (with explicit references for bindings),
 //! calculates them like a Mathcad worksheet and writes the results as Typst math markup.
 
 pub mod api;
+pub mod bindings;
 pub mod builtins;
 pub mod calculus;
+pub mod complex;
 pub mod convolution;
 pub mod dim;
 pub mod env;
@@ -21,3 +23,9 @@ pub mod solve;
 pub mod units;
 pub mod transforms;
 mod inverse_laplace;
+
+#[cfg(test)]
+extern crate self as solveng_core;
+#[cfg(test)]
+#[path = "../tests/support/mod.rs"]
+mod test_support;

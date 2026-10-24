@@ -1,10 +1,10 @@
 //! Highlighting, regions, problems and hovers over a whole document.
 
+use crate::bindings::{Meaning, Module};
 use crate::calls::Role;
 use crate::complete::{FUNCTIONS, defined, definitions};
-use crate::text::{Doc, chars, is_letter_or_digit};
-use crate::tokens::{CONSTANTS, Tok, code_tokens, visible_code_tokens, math_tokens as math_toks};
-use crate::units::{self, Custom};
+use crate::text::{Doc, is_letter_or_digit};
+use crate::tokens::{CONSTANTS, Tok, math_tokens as math_toks};
 use crate::{Analysis, Context, Hover, Problem, Region, Token, TokenKind as K};
 
 fn utf16(doc: &Doc, base: usize, toks: Vec<Tok>) -> impl Iterator<Item = Token> + '_ {
@@ -14,17 +14,7 @@ fn utf16(doc: &Doc, base: usize, toks: Vec<Tok>) -> impl Iterator<Item = Token> 
     })
 }
 
-fn local(text: &str, toks: Vec<Tok>, math: bool) -> Vec<Token> {
-    let doc = Doc::new(text);
-    let element = crate::elements::Element { start: 0, end: doc.c.len(), body_start: 0, body_end: doc.c.len(), tag: crate::TAG.into(), math, block: true };
-    let defs = definitions(&doc, &[element], &[], &|_| true);
-    let mut tokens = utf16(&doc, 0, toks).collect::<Vec<_>>();
-    let context = Context::default();
-    let a = Analysis::new(text, &context);
-    function_styles(&a, &mut tokens, &defs);
-    tokens
-}
-
+/// Functions as defined, called by the user, or solveng's operations.
 fn function_styles(a: &Analysis, tokens: &mut [Token], defs: &[crate::complete::Definition]) {
     let doc = &a.doc;
     for token in tokens.iter_mut().filter(|t| t.kind == K::FUNCTION || t.kind == K::VARIABLE && a.bindings.operation(doc.from16(t.start as usize)).is_some()) {
@@ -47,131 +37,49 @@ fn function_styles(a: &Analysis, tokens: &mut [Token], defs: &[crate::complete::
         let (text, _) = crate::text::unescape(&doc.c[start..end]);
         let name = crate::resolved_name(&text.iter().collect::<String>());
         let quoted = doc.c.get(start) == Some(&'"');
-        let op = a.bindings.operation(start).is_some_and(|op| FUNCTIONS.contains(&op)) && (!a.bindings.imported_at(start) || a.builtin_functions_at(start))
-            || !a.bindings.contains(start) && !quoted && FUNCTIONS.contains(&name.as_str()) && {
-                // In math Typst needs the name: its own math operators, or a shorthand imported from `functions`.
-                let math = a.elements.iter().any(|e| e.math && e.body_start <= start && start < e.body_end);
-                if math { !crate::params::automatic_math(&name) } else { a.builtin_functions_at(start) }
-            };
+        // An operation binding, or a name Typst's math knows itself (sin, sqrt); solveng's own operations need
+        // their binding in math.
+        let op = a.bindings.operation(start).is_some_and(|op| FUNCTIONS.contains(&op))
+            || !a.bindings.contains(start) && !quoted && FUNCTIONS.contains(&name.as_str()) && !crate::params::automatic_math(&name);
         token.kind = if op && !defs.iter().any(|d| d.function && d.base() == name) {
             K::BUILTIN_FUNCTION
         } else { K::FUNCTION_CALL };
     }
 }
 
-/// Tokens of solveng code with kinds from [`K`]: numbers and their units, variables, functions, `@`-inlined
-/// formulas, relations and `->`, comments.
-pub fn tokens(code: &str) -> Vec<Token> {
-    local(code, code_tokens(&chars(code), &|_| false), false)
-}
-
-/// solveng code as documentation shows it, with its tokens: powers and indices written out (`A^2` is A², `m^-1` m⁻¹,
-/// `x_2` x₂, where every character has a subscript), spaces inside brackets and before commas left out
-/// (`f ( x , y )` from math is f(x, y)).
-/// `units` are the document's own unit names, read as units after a number like the built-in ones.
-pub fn pretty(code: &str, units: &[String]) -> (String, Vec<Token>) {
-    const SUP: &str = "⁰¹²³⁴⁵⁶⁷⁸⁹";
-    const SUB_FROM: &str = "0123456789aehijklmnoprstuvx";
-    const SUB: &str = "₀₁₂₃₄₅₆₇₈₉ₐₑₕᵢⱼₖₗₘₙₒₚᵣₛₜᵤᵥₓ";
-    let sup = |d: char| SUP.chars().nth(d.to_digit(10).unwrap_or(0) as usize).unwrap_or(d);
-    let sub = |ch: char| SUB_FROM.chars().position(|f| f == ch).and_then(|i| SUB.chars().nth(i));
-    let c = chars(code);
-    let toks = code_tokens(&c, &|w| units.iter().any(|u| u == w));
-    // calls lose the space before their parenthesis: f ( x ) is f(x)
-    let calls: Vec<usize> = toks.iter().filter(|t| t.2 == K::FUNCTION).map(|t| t.0 + t.1).collect();
-    let mut out: Vec<char> = Vec::new();
-    // where each character of the code went
-    let mut at = vec![0; c.len() + 1];
-    let mut i = 0;
-    while i < c.len() {
-        at[i] = out.len();
-        let mut end = None;
-        if c[i] == '^' && i > 0 {
-            // ^2, ^-1, ^(2), ^(-1)
-            let paren = c.get(i + 1) == Some(&'(');
-            let mut j = i + 1 + paren as usize;
-            let neg = matches!(c.get(j), Some('-' | '−'));
-            j += neg as usize;
-            let digits = j;
-            while j < c.len() && c[j].is_ascii_digit() {
-                j += 1;
-            }
-            if j > digits && (!paren || c.get(j) == Some(&')')) {
-                if neg {
-                    out.push('⁻');
-                }
-                out.extend(c[digits..j].iter().map(|&d| sup(d)));
-                end = Some(j + paren as usize);
-            }
-        } else if c[i] == '_' && i > 0 && is_letter_or_digit(c[i - 1]) {
-            let mut j = i + 1;
-            while j < c.len() && is_letter_or_digit(c[j]) {
-                j += 1;
-            }
-            if j > i + 1 && c[i + 1..j].iter().all(|&ch| sub(ch).is_some()) {
-                out.extend(c[i + 1..j].iter().filter_map(|&ch| sub(ch)));
-                end = Some(j);
-            }
-        } else if c[i].is_whitespace() {
-            let next = c[i..].iter().find(|ch| !ch.is_whitespace());
-            let call = next == Some(&'(') && calls.iter().any(|&e| e <= i && c[e..i].iter().all(|ch| ch.is_whitespace()));
-            if matches!(next, Some(')' | ',')) || out.last() == Some(&'(') || call {
-                end = Some(i + 1);
-            }
-        }
-        match end {
-            Some(e) => {
-                // what's inside starts where the span does, so the exponent's token covers the ²
-                for k in i + 1..e {
-                    at[k] = at[i];
-                }
-                i = e;
-            }
-            None => {
-                out.push(c[i]);
-                i += 1;
-            }
-        }
-    }
-    at[c.len()] = out.len();
-    let text: String = out.iter().collect();
-    let moved = toks.into_iter().map(|(s, n, k)| (at[s], at[s + n] - at[s], k)).filter(|t| t.1 > 0).collect();
-    let tokens = local(&text, moved, false);
-    (text, tokens)
-}
-
-/// [`tokens`], with the document's own unit names (`bar`) read as units after a number.
-pub fn tokens_with_units(code: &str, units: &[String]) -> Vec<Token> {
-    local(code, code_tokens(&chars(code), &|w| units.iter().any(|u| u == w)), false)
-}
-
-/// Tokens of one equation's body.
+/// Tokens of one equation's body, on its own: the words of solveng's `units` module are its units.
 pub fn math_tokens_of(math: &str) -> Vec<Token> {
-    local(math, math_toks(&chars(math), &crate::is_unit, &|_| false), true)
+    let context = Context::default();
+    let a = Analysis::new(math, &context);
+    let element = crate::elements::Element { start: 0, end: a.doc.c.len(), body_start: 0, body_end: a.doc.c.len() };
+    let defs = definitions(&a.doc, &[element], &|_| true);
+    let mut tokens: Vec<Token> = utf16(&a.doc, 0, math_toks(&a.doc.c, &crate::is_unit)).collect();
+    function_styles(&a, &mut tokens, &defs);
+    tokens
 }
 
-/// Tokens of the equations solveng reads (in a `worksheet` that evaluates them, or passed to one),
-/// over the whole document, coloured like solveng code: numbers, quoted units, variables, functions.
+/// Tokens of an equation's body, its unit bindings read where it is.
+fn equation_tokens(a: &Analysis, e: &crate::elements::Element) -> Vec<Tok> {
+    math_toks(&a.doc.c[e.body_start..e.body_end], &|w| a.is_unit_at(e.body_start, w))
+}
+
+/// Tokens of the equations solveng reads (in a `worksheet` that evaluates them, or passed to one), over the whole
+/// document: numbers, variables, functions, operators, results and their clauses.
 pub fn math_tokens(document: &str, context: &Context) -> Vec<Token> {
     let a = Analysis::new(document, context);
-    let defs = definitions(&a.doc, &a.elements, &a.calls, &|e| a.active(e));
-    let defined = |w: &str| defs.iter().any(|d| d.base() == w);
+    let defs = definitions(&a.doc, &a.elements, &|e| a.active(e));
     let mut out = Vec::new();
-    for e in a.elements.iter().filter(|e| e.math && a.active(e)) {
-        let units = a.units_at(e.body_start);
-        out.extend(utf16(&a.doc, e.body_start, math_toks(&a.doc.c[e.body_start..e.body_end], &|w| units::visible(w, &units), &defined)));
+    for e in a.elements.iter().filter(|e| a.active(e)) {
+        out.extend(utf16(&a.doc, e.body_start, equation_tokens(&a, e)));
     }
-    out.extend(call_tokens(&a).into_iter().filter(|token| a.elements.iter().any(|e|
-        e.math && a.active(e) && a.doc.to16(e.body_start) <= token.start && token.start + token.length <= a.doc.to16(e.body_end))));
     function_styles(&a, &mut out, &defs);
     reference_tokens(&a, &mut out);
-    out.retain(|token| a.elements.iter().any(|e| e.math && a.active(e)
-        && a.doc.to16(e.body_start) <= token.start && token.start + token.length <= a.doc.to16(e.body_end)));
+    out.retain(|token| a.calculated_at(a.doc.from16(token.start as usize), a.doc.from16((token.start + token.length) as usize)).is_some());
     out.sort_by_key(|t| t.start);
     out
 }
 
-/// Highlight constructor string contents without claiming their quotes or emitting overlapping tokens.
+/// Highlight the names of explicit operation references without claiming their quotes or emitting overlapping tokens.
 fn reference_tokens(a: &Analysis, out: &mut Vec<Token>) {
     for (start, end) in a.reference_strings() {
         let (inner_start, inner_end) = (a.doc.to16(start), a.doc.to16(end));
@@ -187,22 +95,7 @@ fn reference_tokens(a: &Analysis, out: &mut Vec<Token>) {
     }
 }
 
-/// A unit string's tokens: every word is a unit, as after `->`, if it's one in effect there.
-fn unit_tokens(code: &[char], custom: &[Custom]) -> Vec<Tok> {
-    let mut with: Vec<char> = "-> ".chars().collect();
-    with.extend_from_slice(code);
-    code_tokens(&with, &|w| custom.iter().any(|u| u.name == w))
-        .into_iter()
-        .filter(|t| t.0 >= 3)
-        .map(|(s, l, k)| {
-            let word: String = with[s..s + l].iter().collect();
-            let unit = k == K::UNIT && word.chars().all(|c| c.is_ascii_digit()) || units::known(&word, custom);
-            (s - 3, l, if k == K::NUMBER { K::NUMBER } else if unit { K::UNIT } else { K::VARIABLE })
-        })
-        .collect()
-}
-
-/// Tokens of unit substitutions, names and option values.
+/// Tokens of the strings of solveng's calls: names and option values.
 fn call_tokens(a: &Analysis) -> Vec<Token> {
     let mut out = Vec::new();
     for call in &a.calls {
@@ -214,20 +107,14 @@ fn call_tokens(a: &Analysis) -> Vec<Token> {
                 let lead = text.chars().take_while(|c| c.is_whitespace()).count();
                 vec![(lead, trimmed.chars().count(), kind)]
             };
-            let mut settings = a.units_at(t.start);
-            // a worksheet's units may use the ones it defines next to them
-            for (name, value) in call.args.iter().filter(|(n, _)| n.as_deref() == Some("units")) {
-                units::custom_units(&format!("{}: {value}", name.as_deref().unwrap_or_default()), &mut settings);
-            }
             let toks = match t.role {
-                Role::Unit => unit_tokens(code, &settings),
                 Role::Name if !trimmed.is_empty() => whole(K::VARIABLE),
                 Role::Choice => {
                     let param = call.function.named.iter().find(|p| Some(&p.name) == t.param.as_ref());
                     if param.is_some_and(|p| p.values.iter().any(|v| v == trimmed)) { whole(K::KEYWORD) } else { Vec::new() }
                 }
                 Role::Mark if ["crossings", "roots", "extrema"].contains(&trimmed) => whole(K::KEYWORD),
-                _ => Vec::new(),
+                Role::Name | Role::Mark => Vec::new(),
             };
             out.extend(utf16(&a.doc, t.start, toks.into_iter().filter(|t| t.1 > 0).collect()));
         }
@@ -235,22 +122,14 @@ fn call_tokens(a: &Analysis) -> Vec<Token> {
     out
 }
 
-/// Every solveng token of a document, sorted: calculated raw code, calculated math and the strings of solveng's
-/// calls. Editors without their own raw-block injection can take just this.
+/// Every solveng token of a document, sorted: calculated math, the bindings it uses and the strings of solveng's
+/// calls.
 pub fn document_tokens(document: &str, context: &Context) -> Vec<Token> {
     let a = Analysis::new(document, context);
-    let unit = |w: &str| a.is_custom_unit(w);
-    let defs = definitions(&a.doc, &a.elements, &a.calls, &|e| a.shown(e));
-    let defined = |w: &str| defs.iter().any(|d| d.base() == w);
+    let defs = definitions(&a.doc, &a.elements, &|e| a.active(e));
     let mut out = Vec::new();
-    for e in a.elements.iter().filter(|e| a.shown(e)) {
-        let body = &a.doc.c[e.body_start..e.body_end];
-        let units = a.units_at(e.body_start);
-        let toks = if e.math { math_toks(body, &|w| units::visible(w, &units), &defined) } else {
-            let units = a.units_at(e.body_start);
-            visible_code_tokens(body, &unit, &|w| units::visible(w, &units))
-        };
-        out.extend(utf16(&a.doc, e.body_start, toks));
+    for e in a.elements.iter().filter(|e| a.active(e)) {
+        out.extend(utf16(&a.doc, e.body_start, equation_tokens(&a, e)));
     }
     out.extend(call_tokens(&a));
     // Parameters stand out, in their function and graphs.
@@ -264,33 +143,30 @@ pub fn document_tokens(document: &str, context: &Context) -> Vec<Token> {
         if a.bindings.contains(a.doc.from16(token.start as usize)) { token.kind = K::VARIABLE; }
     }
     function_styles(&a, &mut out, &defs);
-    for (start, end, name, imported) in a.bindings.operation_uses() {
-        if a.elements.iter().any(|e| e.math && a.shown(e) && e.body_start <= start && end <= e.body_end)
-            && FUNCTIONS.contains(&name) && (!imported || a.builtin_functions_at(start)) {
-            let from = a.doc.to16(start);
-            out.retain(|t| t.start != from);
-            out.push(Token { start: from, length: a.doc.to16(end) - from, kind: K::BUILTIN_FUNCTION });
+    // Units, constants and operations where calculated math uses their bindings, with the `#` before them gray.
+    for (start, end, meaning) in a.bindings.solveng_uses() {
+        if a.calculated_at(start, end).is_none() { continue; }
+        let kind = match meaning {
+            Meaning::Operation(op) if FUNCTIONS.contains(&op.as_str()) => K::BUILTIN_FUNCTION,
+            Meaning::Operation(_) => continue,
+            Meaning::Constant { .. } => K::KEYWORD,
+            _ => K::UNIT,
+        };
+        let from = a.doc.to16(start);
+        out.retain(|t| t.start != from);
+        out.push(Token { start: from, length: a.doc.to16(end) - from, kind });
+        if start > 0 && a.doc.c[start - 1] == '#' {
+            out.push(Token { start: a.doc.to16(start - 1), length: 1, kind: K::UNIT_REFERENCE });
         }
     }
-    for (start, end, unit, imported) in a.bindings.unit_uses() {
-        let units = a.units_at(start);
-        let exists = if imported { units::visible(unit, &units) } else { units::known(unit, &units) };
-        if exists && a.elements.iter().any(|e| e.math && a.shown(e) && e.body_start <= start && end <= e.body_end) {
-            let from = a.doc.to16(start);
-            out.retain(|t| t.start != from);
-            out.push(Token { start: from, length: a.doc.to16(end) - from, kind: K::UNIT });
-            if start > 0 && a.doc.c[start - 1] == '#' {
-                out.push(Token { start: a.doc.to16(start - 1), length: 1, kind: K::UNIT_REFERENCE });
-            }
-        }
-    }
-    // Imported shorthands are units or operations where they're imported too; a renamed one's module name isn't
-    // a name in the document, so it's plain text.
-    for ((start, end), units, original) in a.bindings.shorthand_imports() {
-        let spans = std::iter::once((start, end, if units { K::UNIT } else { K::BUILTIN_FUNCTION }))
+    // Names imported from solveng's modules are units, constants or operations where they're imported too; a
+    // renamed one's module name isn't a name in the document, so it's plain text.
+    for ((start, end), meaning, original) in a.bindings.shorthand_imports() {
+        let kind = match meaning { Meaning::Operation(_) => K::BUILTIN_FUNCTION, Meaning::Constant { .. } => K::KEYWORD, _ => K::UNIT };
+        let spans = std::iter::once((start, end, kind))
             .chain(original.map(|(s, e)| (s, e, K::FUNCTION_CALL)));
         for (s, e, kind) in spans {
-            let (from, to) = (a.doc.to16(s) as u32, a.doc.to16(e) as u32);
+            let (from, to) = (a.doc.to16(s), a.doc.to16(e));
             out.retain(|t| t.start + t.length <= from || to <= t.start);
             out.push(Token { start: from, length: to - from, kind });
         }
@@ -300,14 +176,14 @@ pub fn document_tokens(document: &str, context: &Context) -> Vec<Token> {
     out
 }
 
-/// Where solveng reads the document: calculated code and math, the strings of its calls, and the calls'
-/// arguments (`kind: "call"`), where its options complete. A language server next to tinymist answers there only.
+/// Where solveng reads the document: calculated math, the strings of its calls, and the calls' arguments
+/// (`kind: "call"`), where its options complete. A language server next to tinymist answers there only.
 pub fn regions(document: &str, context: &Context) -> Vec<Region> {
     let a = Analysis::new(document, context);
     let r = |s: usize, e: usize, kind| Region { start: a.doc.to16(s), end: a.doc.to16(e), kind };
     let mut out: Vec<Region> = Vec::new();
-    for e in a.elements.iter().filter(|e| a.shown(e)) {
-        out.push(r(e.body_start, e.body_end, if e.math { "math" } else { "code" }));
+    for e in a.elements.iter().filter(|e| a.active(e)) {
+        out.push(r(e.body_start, e.body_end, "math"));
     }
     for call in &a.calls {
         out.push(r(call.args_start, call.args_end, "call"));
@@ -318,83 +194,12 @@ pub fn regions(document: &str, context: &Context) -> Vec<Region> {
 }
 
 /// Problems: the errors the last compile reported (see [`crate::Report::errors`]) where they still apply, and source
-/// inspections, unknown units, redefinitions and worksheet scope surprises.
+/// inspections: redefinitions, binding references and worksheet scope surprises.
 pub fn diagnostics(document: &str, context: &Context) -> Vec<Problem> {
     let a = Analysis::new(document, context);
     let mut out = Vec::new();
-    let mut report = |base: usize, expr: &str| {
-        for (s, e, word) in units::unknown_words(expr, &a.units) {
-            out.push(Problem {
-                start: a.doc.to16(base + s),
-                end: a.doc.to16(base + e),
-                message: format!("unknown unit '{word}' – define it with the units option, worksheet(units: ({word}: $…$))"),
-                severity: "warning",
-            });
-        }
-    };
-    let code = |start: usize, end: usize, report: &mut dyn FnMut(usize, &str)| {
-        // Units after `->` and in brackets, line by line, comments left out.
-        let c = &a.doc.c;
-        let mut i = start;
-        while i < end {
-            let line_end = (i..end).find(|&j| c[j] == '\n').unwrap_or(end);
-            let line: String = c[i..line_end].iter().collect();
-            let line = crate::text::before(&line, "//");
-            for (k, part) in line.split(';').scan(0usize, |at, p| {
-                let s = *at;
-                *at += p.chars().count() + 1;
-                Some((s, p))
-            }) {
-                // the units of a clause, its keywords left out: t = [h], digits(2)
-                let pc: Vec<char> = part.chars().collect();
-                // (a bracketed unit is one whatever it says: [furlong])
-                let loose = |w: &str| a.is_custom_unit(w);
-                let bracketed: String = pc.iter().map(|ch| if *ch == '[' || *ch == ']' { ' ' } else { *ch }).collect();
-                let marked = crate::clause::marker(&pc, &loose).or_else(|| crate::clause::marker(&chars(&bracketed), &|_| true).filter(|_| part.contains('[')));
-                if let Some((_, e, _)) = marked {
-                    let mut at = e;
-                    for item in crate::clause::split_top(&crate::text::sub(&pc, e, pc.len())) {
-                        let word: String = item.trim().chars().take_while(|ch| ch.is_alphabetic()).collect();
-                        if !crate::clause::is_keyword(&word) {
-                            let open = item.find('[').map_or(0, |b| item[..b].chars().count() + 1);
-                            report(i + k + at + open, &item.replace(['[', ']'], " ")[item.find('[').map_or(0, |b| b + 1)..]);
-                        }
-                        at += item.chars().count() + 1;
-                    }
-                }
-                let pc: Vec<char> = part.chars().collect();
-                let mut j = 0;
-                while j < pc.len() {
-                    if pc[j] == '[' {
-                        let close = (j..pc.len()).find(|&x| pc[x] == ']').unwrap_or(pc.len());
-                        let inner: String = pc[j + 1..close].iter().collect();
-                        // The value's number comes first: [5 V].
-                        let skip = inner.chars().take_while(|ch| !ch.is_alphabetic() && !"°%‰µΩ".contains(*ch)).count();
-                        if skip > 0 {
-                            report(i + k + j + 1 + skip, &inner.chars().skip(skip).collect::<String>());
-                        }
-                        j = close;
-                    }
-                    j += 1;
-                }
-            }
-
-            i = line_end + 1;
-        }
-    };
-    for e in a.elements.iter().filter(|e| !e.math && a.active(e)) {
-        code(e.body_start, e.body_end, &mut report);
-    }
-    for call in &a.calls {
-        for t in &call.texts {
-            match t.role {
-                Role::Unit if call.function.name != "unit" || a.evaluates_at(t.start) => report(t.start, &a.doc.sub(t.start, t.end)),
-                _ => {}
-            }
-        }
-    }
     // A name assigned again in its scope: the last assignment wins, so the earlier one counts only until there.
-    let defs = crate::complete::definitions(&a.doc, &a.elements, &a.calls, &|e| a.active(e));
+    let defs = crate::complete::definitions(&a.doc, &a.elements, &|e| a.active(e));
     for (earlier, later) in crate::navigate::replaced(&a) {
         let Some(d) = defs.iter().find(|d| d.start == earlier) else { continue };
         let line = a.doc.c[..later].iter().filter(|&&ch| ch == '\n').count() + 1;
@@ -430,7 +235,8 @@ pub(crate) fn function_docs(f: &crate::params::Function) -> String {
 }
 
 /// What the word at `offset` is: a defined name with its value (or formula) and what it depends on, a unit,
-/// solveng's functions and constants, or a parameter of solveng's functions with its docs.
+/// constant or operation binding, solveng's keywords and functions, or a parameter of solveng's functions with its
+/// docs.
 pub fn hover(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     let found = hover_at(document, context, offset);
     // A defined name, where it's defined or used: also what its formula depends on.
@@ -454,53 +260,45 @@ pub fn hover(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     Some(Hover { start: target.start, end: target.end, markdown })
 }
 
-/// The docs of solveng's `units` or `functions` module: the leading `///` block of its file.
-fn module_docs(units: bool) -> String {
-    let source = if units { include_str!("../../../src/unit-words.typ") } else { include_str!("../../../src/builtins.typ") };
-    source.lines().map_while(|l| l.strip_prefix("///")).map(|l| l.strip_prefix(' ').unwrap_or(l)).collect::<Vec<_>>().join("\n")
+/// The docs of one of solveng's modules: the leading `///` block of its file.
+fn module_docs(module: Module) -> String {
+    module.source().lines().map_while(|l| l.strip_prefix("///")).map(|l| l.strip_prefix(' ').unwrap_or(l)).collect::<Vec<_>>().join("\n")
 }
 
-/// Hovers of solveng's modules in their imports and of the shorthands imported from them.
-fn shorthand_hover(a: &Analysis, at: usize) -> Option<Hover> {
-    let hover = |s: usize, e: usize, markdown: String| Hover { start: a.doc.to16(s) as u32, end: a.doc.to16(e) as u32, markdown };
-    if let Some((s, e, units)) = a.bindings.module_at(at) {
-        let module = if units { "units" } else { "functions" };
-        return Some(hover(s, e, format!("`{module}` module of solveng\n\n{}", module_docs(units))));
+/// Hovers of solveng's modules in their imports, of the names imported from them, and of the document's own unit,
+/// constant and operation bindings where math uses them.
+fn binding_hover(a: &Analysis, at: usize) -> Option<Hover> {
+    let hover = |s: usize, e: usize, markdown: String| Hover { start: a.doc.to16(s), end: a.doc.to16(e), markdown };
+    if let Some((s, e, module)) = a.bindings.module_at(at) {
+        let docs = module_docs(module);
+        let docs = if docs.is_empty() { String::new() } else { format!("\n\n{docs}") };
+        return Some(hover(s, e, format!("`{}` module of solveng{docs}", module.name())));
     }
-    let (s, e, name, original, units) = a.bindings.shorthand_info(at)?;
-    let module = if units { "units" } else { "functions" };
-    let what = if units {
-        units::describe(&original, &a.units_at(at)).unwrap_or_else(|| format!("`{original}` unit"))
-    } else {
-        crate::params::builtin(&original).map(function_docs).unwrap_or_else(|| format!("`{original}()` built-in function"))
-    };
-    let title = if name == original { format!("`{name}`: shorthand from solveng's `{module}`") }
-        else { format!("`{name}`: shorthand for `{original}` from solveng's `{module}`") };
-    Some(hover(s, e, format!("{title}\n\n{what}\n\nSee `{module}` in the import for how shorthands work.")))
+    if let Some((s, e, name, original, module, meaning)) = a.bindings.shorthand_info(at) {
+        let module = module.name();
+        let title = if name == original { format!("`{name}`: shorthand from solveng's `{module}`") }
+            else { format!("`{name}`: shorthand for `{original}` from solveng's `{module}`") };
+        return Some(hover(s, e, format!("{title}\n\n{}\n\nSee `{module}` in the import for how shorthands work.", meaning.describe())));
+    }
+    // A binding of the document's own, where calculated math uses it.
+    let (s, e, name, meaning) = a.bindings.use_at(at)?;
+    a.calculated_at(s, e)?;
+    Some(hover(s, e, format!("`{name}`: {}", meaning.describe())))
 }
 
 fn hover_at(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     let a = Analysis::new(document, context);
     let at = a.doc.from16(offset as usize);
-    if let Some(h) = shorthand_hover(&a, at) { return Some(h); }
-    if let Some((name, unit, start, end)) = a.bindings.unit_shortcut(at) {
-        let settings = a.unit_completion_context(at);
-        if a.evaluates_at(at) {
-            let detail = units::describe(unit, &settings).unwrap_or_else(|| format!("`{unit}` unit"));
-            return Some(Hover { start: a.doc.to16(start), end: a.doc.to16(end),
-                markdown: format!("`{name}` unit shortcut for `{unit}`\n\nDetected from `unit(…)`: an explicit unit reference. The unit is resolved through the active worksheet overlays at each use.\n\n{detail}") });
-        }
-    }
-    if let Some((start, end, name)) = a.bindings.operator_strings().iter().find(|(s, e, _)| *s <= at && at <= *e) {
-        if a.evaluates_at(at) && FUNCTIONS.contains(&name.as_str()) {
+    if let Some(h) = binding_hover(&a, at) { return Some(h); }
+    if let Some((start, end, name)) = a.bindings.operator_strings().iter().find(|(s, e, _)| *s <= at && at <= *e)
+        && FUNCTIONS.contains(&name.as_str()) {
             let markdown = crate::params::builtin(name).map(function_docs).unwrap_or_else(|| format!("`{name}()` built-in function"));
             return Some(Hover { start: a.doc.to16(*start), end: a.doc.to16(*end), markdown });
         }
-    }
-    if a.bindings.at(&a.doc, offset) && a.bindings.operation(a.doc.from16(offset as usize)).is_none() { return None; }
-    let at = a.doc.from16(offset as usize);
+    // Typst's language server owns the other bindings.
+    if a.bindings.at(&a.doc, offset) { return None; }
     let c = &a.doc.c;
-    let part = |ch: char| is_letter_or_digit(ch) || "_°%‰µΩ".contains(ch);
+    let part = |ch: char| is_letter_or_digit(ch) || ch == '_';
     let mut s = at;
     while s > 0 && part(c[s - 1]) {
         s -= 1;
@@ -535,13 +333,12 @@ fn hover_at(document: &str, context: &Context, offset: u32) -> Option<Hover> {
             let default = if p.default.is_empty() { String::new() } else { format!(" = {}", p.default) };
             return hover(format!("`{}` ({}){default}\n\n{}", p.name, p.types, p.doc));
         }
-    let inside = a.elements.iter().any(|el| el.body_start <= s && e <= el.body_end && a.shown(el))
-        || a.calls.iter().any(|call| call.texts.iter().any(|t| t.start <= s && e <= t.end));
+    let inside = a.calculated_at(s, e).is_some() || a.calls.iter().any(|call| call.texts.iter().any(|t| t.start <= s && e <= t.end));
     if !inside {
         return None;
     }
-    // solveng's words: as casting where it's highlighted so (after a number it's the unit attosecond), any as a type
-    let (start, end) = (a.doc.to16(s) as u32, a.doc.to16(e) as u32);
+    // solveng's words: the keywords of a clause, any as a type
+    let (start, end) = (a.doc.to16(s), a.doc.to16(e));
     let kind = tokens.iter().find(|t| t.start <= start && end <= t.start + t.length).map(|t| t.kind);
     if kind == Some(K::KEYWORD)
         && let Some((k, d)) = crate::clause::KEYWORDS.iter().find(|(k, _)| *k == word) {
@@ -550,19 +347,9 @@ fn hover_at(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     if kind == Some(K::EVALUATE) || word.is_empty() {
         return None;
     }
-    if word == "as" {
-        if kind == Some(K::KEYWORD) {
-            return hover("`as` cast: the number of what's before it, in SI units, as a value in the unit after it – with `U = 5 V`, `U as A` is 5 A, `U as mA` 5 mA, `U as 1` the plain number 5. It casts the term before it with its power: `2 U as A` is 2 · (U as A).".to_string());
-        }
-    }
-    if word == "any" && a.doc.sub(0, s).trim_end().trim_end_matches('"').trim_end().ends_with(':') {
+    if word == "any" && a.doc.sub(0, s).trim_end().ends_with(':') {
         return hover("`any` type: a parameter that takes every unit; the result's unit follows what's passed. `1` is the type of a plain number.".to_string());
     }
-    // a unit where one is read, though a variable has its name: V in f(x: V) or x as "V"
-    if kind == Some(K::UNIT)
-        && let Some(d) = units::describe(&word, &a.units) {
-            return hover(d);
-        }
     if let Some(name) = crate::navigate::local_at(&a, at) { return hover(format!("`{name}` local sum index (unitless integer)")); }
     if let Some((name, owner)) = crate::navigate::parameter_at(&a, at) {
         let Some((function, written)) = owner else { return hover(format!("`{word}` what the graph plots against, its x axis")) };
@@ -579,16 +366,14 @@ fn hover_at(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     if let Some(d) = defined(&a, &word) {
         return hover(d);
     }
+    // Operations Typst's math knows itself (sin, sqrt) and the explicit references of solveng's.
     let builtin = if word == "sum_" { "sum".to_string() } else { word.clone() };
-    if let Some(op) = a.bindings.operation(at).map(str::to_string).or_else(|| a.bindings.operator_strings().iter().find(|(s, e, _)| *s <= at && at <= *e).map(|(_, _, n)| n.clone())).or_else(||
-        (a.builtin_functions_at(at) && FUNCTIONS.contains(&builtin.as_str())).then(|| builtin.clone())) {
-        let docs = crate::params::builtin(&op).map(function_docs).unwrap_or_else(|| format!("`{op}()` built-in function"));
-        return hover(if op == builtin { docs } else { format!("`{builtin}` stands for `{op}` (math.op)\n\n{docs}") });
+    let explicit = a.bindings.operator_strings().iter().find(|(s, e, _)| *s <= at && at <= *e).map(|(_, _, n)| n.clone());
+    let native = (FUNCTIONS.contains(&builtin.as_str()) && !crate::params::automatic_math(&builtin)).then(|| builtin.clone());
+    if let Some(op) = explicit.or(native) {
+        return hover(crate::params::builtin(&op).map(function_docs).unwrap_or_else(|| format!("`{op}()` built-in function")));
     }
-    if let Some((_, d)) = CONSTANTS.iter().find(|(n, _)| *n == word) {
-        return hover(format!("`{word}` {d}"));
-    }
-    units::visible(&word, &a.units_at(at)).then(|| units::describe(&word, &a.units)).flatten().and_then(hover)
+    CONSTANTS.iter().find(|(n, _)| *n == word).and_then(|(_, d)| hover(format!("`{word}` {d}")))
 }
 
 /// The typst identifier in code at character `at` (or just before it), not a named argument's: its range and text.

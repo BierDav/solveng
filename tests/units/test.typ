@@ -1,89 +1,75 @@
-// Units and variables: what is a unit, what is a variable, and what is refused as unclear.
+// Units are Typst bindings: imported from `units`, or made with base-unit and unit.
 #import "/tests/util.typ": *
-#import units: *
+#import units: m, s, km, h, A, V, W, Ω, kΩ, mΩ, mm, mAh, mmol, cd, kPa, cm, N, Hz, min
+#set page(width: 18cm, height: auto)
+#include "math-inputs.typ"
+#include "math-definitions.typ"
+#show: worksheet.with(errors: "panic")
+#let second = base-unit("time", display: () => math.upright("s"))
+#let minute = unit($60 second$, display: () => math.upright("min"))
+#let hour = unit($60 minute$, display: () => math.upright("h"))
+$T := 2 minute =$ #expect("T", 120, u: "min")
+$t := T = second$ #expect("t", 120, u: "s")
+$d := 1 km =$ #expect("d", 1000, u: "km")
+$v := d / T = #m / #s$ #expect("v", 1000 / 120)
+#let travel = constant("speed-of-light", $299792458 #m / #s$)
+$u := travel =$ #expect("u", 299792458)
+#let length = base-unit("length", display: () => math.upright("metre"))
+$x := 2 #m + 3 length =$ #expect("x", 5)
+#let inch = unit($0.0254 #m$, display: () => math.upright("in"))
+$L := 10 inch = #m$ #expect("L", 0.254)
+#worksheet(scope: "isolated")[$"time" := 2 minute =$ #expect("time", 120)]
+#let tau = base-unit("oscillation-count", display: () => math.upright("count"))
+$N_c := 4 tau =$ #expect("N_c", 4, u: "count")
 
-// code: a unit right after a number or in brackets, names in equations are variables
-#worksheet[
-  #def("A := 12", "x := A [A]") #expect("x", 12, u: "A")
-  #def("z := [A] A") #expect("z", 12)
-  // a value whose unit is also a variable is refused
-  #def("T := 2 s")
-  #def("f := 1/T") #passes() #expect("f", 0.5)
-  #def("y := 3 T") #fails("both a defined variable and a unit")
-  #def("y2 := 3*T") #expect("y2", 6)
-  #def("B := [3 T]") #expect("B", 3, u: "T")
-]
-
-// Math uses quoted single-letter units; bare single letters stay variables.
+// a single letter is a variable; its unit binding needs #
 #worksheet[
   $h := 2$ $t := 3 h$ #expect("t", 6)
-  $t_h := 3 unit("h")$ #expect("t_h", 10800)
+  $t_h := 3 #units.h$ #expect("t_h", 10800, u: "h")
   $t_1 := 3 dot h$ #expect("t_1", 6)
-  $U := 5 unit("V")$ #expect("U", 5, u: "V")
-  $R := 4.7 kΩ$ #expect("R", 4700)
-  $R_2 := 1 unit("kΩ")$ #expect("R_2", 1000)
-  $s := 2 mΩ$ #expect("s", 0.002)
-  $rho := 0.0178 unit("Ω") mm^2/unit("m")$ #expect("ρ", 1.78e-8)
+  $U := 5 #V$ #expect("U", 5, u: "V")
+  $R := 4.7 kΩ$ #expect("R", 4700, u: "kΩ")
+  $s := 2 mΩ$ #expect("s", 0.002, u: "mΩ")
+  $rho := 0.0178 #Ω mm^2/#m$ #expect("ρ", 1.78e-8)
   $Q_0 := frac(3450, 2) mAh$ #expect("Q_0", 6210)
-  $p := 3 unit("bar")$ #fails("unknown unit 'bar'")
-  $I := 2 unit("A")$ $P := I^2 dot 3 unit("Ω") = 1 unit("W")$ #expect("P", 12)
-  $U_2 := 1,5 unit("V")$ #expect("U_2", 1.5)
-  $m_O := 2 unit("mΩ")$ #expect("m_O", 0.002)
-  $A_x := 12$ $x := A_x dot 2 unit("A") =$ #expect("x", 24)
+  $I := 2 #A$ $P := I^2 dot 3 #Ω = #W$ #expect("P", 12, u: "W")
+  $U_2 := 1,5 #V$ #expect("U_2", 1.5)
+  $A_x := 12$ $x := A_x dot 2 #A =$ #expect("x", 24)
+  // A·A is A², not "A A"; mol and cd
+  $P_2 := I I =$ #expect("P_2", 4, u: "A^2")
+  $n := 2 mmol$ #expect("n", 0.002, u: "mmol") $c := 3 cd$ #expect("c", 3, u: "cd")
+  // a variable T and the unit T (tesla) are different things
+  $T := 2 #s$ $y := 3 T$ #expect("y", 6, u: "s")
+  $B := 3 #units.T =$ #expect("B", 3, u: "T")
+]
+// quoted text is a worksheet variable, never a unit
+#worksheet(errors: "document")[
+  $p := 3 "bar" =$ #fails("'bar' in 'p' isn't defined")
 ]
 
-// A·A is A², not "A A"; mol and cd
+// own units, conversions, preferred result units
 #worksheet[
-  #def("I := 2 A", "P := I I") #expect("P", 4, u: "A^2")
-  #def("n := 2 mmol", "c := 3 cd") #expect("n", 0.002, u: "mmol") #expect("c", 3)
-]
-
-// custom units, removing units, preferred result units
-#worksheet(units: (bar: $100 unit("kPa")$, rpm: $1/unit("min")$))[
-  #def("p := 3 bar") #expect("p", 3e5)
-  #def("F := p [2 cm^2]") #expect("F", 60, u: "N")
-  #def("w := 3000 rpm") #expect("w", 50)
-  #def("w2 := w = [Hz]") #expect("w2", 50, u: "Hz")
-  #def("p2 := 2 mbar") #expect("p2", 200)
-  #worksheet(scope: "inherit", preferred-units: ("bar",))[
-    #def("p3 := 2 p") #expect("p3", 6e5, u: "bar")
+  #let bar = unit($100 kPa$, display: () => math.upright("bar"))
+  #let rpm = unit($1 / min$, display: () => math.upright("rpm"))
+  #let tesla = unit($1 #units.kg / (#s^2 #A)$, display: () => math.upright("tesla"))
+  $p := 3 bar$ #expect("p", 3e5, u: "bar")
+  $F := p dot 2 cm^2 = #N$ #expect("F", 60, u: "N")
+  $w := 3000 rpm$ #expect("w", 50, u: "rpm")
+  $w_2 := w = Hz$ #expect("w_2", 50, u: "Hz")
+  #worksheet(scope: "inherit", preferred-units: ($bar$,))[
+    $p_3 := 2 p =$ #expect("p_3", 6e5, u: "bar")
   ]
-  #def("p4 := 2 p") #expect("p4", 6e5, u: "bar") // the unit of the inputs
-]
-#worksheet(units: (T: none))[
-  #def("T := 2 s", "y := 3 T") #expect("y", 6) // T is no unit any more: 3 times T
-  #def("x := [2 T]") #passes() #expect("x", 2, u: "T")
-]
-#worksheet(units: (T: $1 unit("kg")/(s^2 A)$))[
-  #def("B := 2 T") #expect("B", 2)
+  $p_4 := 2 p =$ #expect("p_4", 6e5, u: "bar") // the unit of the inputs
+  $B := 2 tesla =$ #expect("B", 2, u: "tesla")
 ]
 
-// strict: unit names can't be variables
-#worksheet(strict: true)[
-  #def("A := 3 m^2") #fails("is a unit and can't be a variable")
-  #def("f(V) := 2 V") #fails("is a unit and can't be a variable")
-  #def("Area := 3 m^2") #passes()
-  #def("P_1 := Area [2 Pa]") #expect("P_1", 6)
-  #def("5 = A_1 + 2 -> solve(A_1)") #expect("A_1", 3)
-]
-
-// auto: a base unit of its own, with prefixes and in products; numbers are plain factors
-#worksheet(units: (ü: auto, sheep: auto, dozen: 12))[
-  #def("x := 3 mü", "y := 2 ü", "n := 2 dozen", "a := 4 [sheep m]")
-  #def("w := x * y", "v := x + y = [ü]")
-  #expect("x", 0.003) #expect("y", 2) #expect("n", 24) #expect("a", 4) #expect("w", 0.006) #expect("v", 2.003, u: "ü")
-  #def("z := x + [1 m] =") #fails("different units")
-]
-
-// options are checked
-#worksheet(units: (furl: $100000 unit("furlong")$))[
-  // a unit the engine can't read is left out (with a note)
-  #def("p := 1 furl =") #fails("'furl' in 'p' isn't defined")
-]
-
-// Omega is Ω; a prefix goes with it glued, as in math, never written together
+// base units of their own: in products, and numbers as plain factors
 #worksheet[
-  #def("R1 := 3 k\"\"Omega", "R2 := 3 kΩ", "R3 := 2 Omega")
-  #expect("R1", 3000) #expect("R2", 3000) #expect("R3", 2)
-  #def("R5 := 3 kOmega =") #fails("kOmega")
+  #let ue = base-unit("ü", display: () => math.upright("ü"))
+  #let sheep = base-unit("sheep")
+  #let dozen = unit($12$, display: () => math.upright("dozen"))
+  $x := 3 ue$ $y := 2 ue$ $n := 2 dozen$ $a := 4 sheep #m$
+  $w := x y$ $v := x + y = ue$
+  #expect("x", 3) #expect("y", 2) #expect("n", 24) #expect("a", 4, u: "sheep·m") #expect("w", 6, u: "ü^2") #expect("v", 5, u: "ü")
+  #worksheet(errors: "document", scope: "inherit")[$z := x + 1 #m =$ #fails("different units")]
 ]

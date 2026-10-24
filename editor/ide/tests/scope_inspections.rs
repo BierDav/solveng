@@ -1,12 +1,11 @@
 use solveng_ide::{Context, diagnostics};
 
 #[test]
-fn warns_when_an_auto_scope_block_collapses_to_an_expression() {
+fn warns_when_an_auto_scope_block_collapses_to_an_equation() {
     for call in [
         "#worksheet[$x := 1$]",
         "#worksheet(scope: auto)[$x := 1$]",
         "#solveng.worksheet(digits: 3)[/*comment*/$x := 1$]",
-        "#worksheet[```solveng\nx := 1\n```]",
     ] {
         let doc = format!("😀 text\n{call}");
         let problems = diagnostics(&doc, &Context::default());
@@ -31,6 +30,8 @@ fn explicit_scope_and_actual_content_blocks_do_not_warn() {
         "#worksheet($x := 1$)",
         "#worksheet[$x := 1$", // unfinished block
         "#other[$x := 1$]",
+        // raw text is content, not an equation: the block stays isolated
+        "#worksheet[```solveng\nx := 1\n```]",
     ] {
         assert!(diagnostics(doc, &Context::default()).iter().all(|p| !p.message.contains("scope: auto")), "{doc}");
     }

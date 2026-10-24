@@ -59,10 +59,10 @@ impl Val {
             return None;
         }
         let u = if self.u == o.u { self.u.clone() } else { None };
-        Some(Val { v: self.v.add(o.v), d: self.d, u, raw: None })
+        Some(Val { v: self.v.add(o.v), d: self.d.clone(), u, raw: None })
     }
     pub fn neg(&self) -> Val {
-        Val { v: self.v.neg(), d: self.d, u: self.u.clone(), raw: None }
+        Val { v: self.v.neg(), d: self.d.clone(), u: self.u.clone(), raw: None }
     }
     /// self^e for a dimensionless rational or float e.
     pub fn pow(&self, e: Num) -> Option<Val> {
@@ -103,6 +103,11 @@ pub enum Func {
     Sgn,
     Floor,
     Factorial,
+    /// Real part, imaginary part, complex conjugate and argument (angle) of a complex number.
+    Re,
+    Im,
+    Conj,
+    Arg,
 }
 
 impl Func {
@@ -126,6 +131,10 @@ impl Func {
             "sgn" => Func::Sgn,
             "floor" => Func::Floor,
             "factorial" => Func::Factorial,
+            "Re" | "re" => Func::Re,
+            "Im" | "im" => Func::Im,
+            "conj" => Func::Conj,
+            "arg" => Func::Arg,
             _ => return None,
         })
     }
@@ -149,6 +158,10 @@ impl Func {
             Func::Sgn => "sgn",
             Func::Floor => "floor",
             Func::Factorial => "factorial",
+            Func::Re => "Re",
+            Func::Im => "Im",
+            Func::Conj => "conj",
+            Func::Arg => "arg",
         }
     }
     pub fn inverse(self) -> Option<Func> {
@@ -185,6 +198,10 @@ impl Func {
             Func::Sgn => if x == 0.0 { 0.0 } else { x.signum() },
             Func::Floor => x.floor(),
             Func::Factorial if (0.0..=170.0).contains(&x) && x.fract() == 0.0 => (1..=x as u32).fold(1.0, |a, b| a * b as f64),
+            Func::Re | Func::Conj => x,
+            Func::Im => 0.0,
+            Func::Arg if x < 0.0 => std::f64::consts::PI,
+            Func::Arg if x > 0.0 => 0.0,
             _ => return None,
         };
         (r.is_finite()).then_some(r)
@@ -197,6 +214,11 @@ pub enum Expr {
     Sym(String),
     Pi,
     E,
+    /// The imaginary unit.
+    I,
+    /// A constant of an identity the engine knows nothing more about: kept by its identity, calculated with its
+    /// expression (speed-of-light, 299792458 m/s).
+    Const(String, Box<Expr>),
     Vector(Vec<Expr>),
     /// A matrix of more than one column, row by row (one column is a `Vector`).
     Matrix(Vec<Vec<Expr>>),
@@ -212,8 +234,9 @@ pub enum Expr {
     Call(String, Vec<Expr>),
     /// a = b < c: 1 where all hold, else 0.
     Cmp(Vec<Expr>, Vec<Rel>),
-    /// e as u: e's SI number as a value in u (factor, dims, unit).
-    Cast(Box<Expr>, Num, Dim, UnitExpr),
+    /// number(e, u): e's value in the unit u as a plain number (u's factor, its dimension, which e must have,
+    /// and u as written).
+    Number(Box<Expr>, Num, Dim, UnitExpr),
     Sum(Box<Expr>, String, Box<Expr>, Box<Expr>),
     Integral(Box<Expr>, String, Box<Expr>, Box<Expr>),
     Derivative(Box<Expr>, String),
@@ -286,7 +309,7 @@ impl Expr {
             Expr::Matrix(rs) => rs.iter().flatten().collect(),
             Expr::Pow(a, b) | Expr::Subs(a, _, b) | Expr::InverseLaplace(a, _, b) => vec![a, b],
             Expr::Integral(body, _, lo, hi) | Expr::Sum(body, _, lo, hi) => vec![body, lo, hi],
-            Expr::F(_, a) | Expr::Cast(a, ..) | Expr::Derivative(a, _) => vec![a],
+            Expr::F(_, a) | Expr::Number(a, ..) | Expr::Derivative(a, _) => vec![a],
             _ => vec![],
         }
     }
@@ -305,7 +328,7 @@ impl Expr {
             Expr::Derivative(a, x) => Expr::Derivative(Box::new(f(a)), x.clone()),
             Expr::Subs(a, x, by) => Expr::Subs(Box::new(f(a)), x.clone(), Box::new(f(by))),
             Expr::InverseLaplace(a, x, by) => Expr::InverseLaplace(Box::new(f(a)), x.clone(), Box::new(f(by))),
-            Expr::Cast(a, k, d, u) => Expr::Cast(Box::new(f(a)), *k, *d, u.clone()),
+            Expr::Number(a, k, d, u) => Expr::Number(Box::new(f(a)), *k, d.clone(), u.clone()),
             Expr::Sum(a, v, lo, hi) => Expr::Sum(Box::new(f(a)), v.clone(), Box::new(f(lo)), Box::new(f(hi))),
             Expr::Integral(a, v, lo, hi) => Expr::Integral(Box::new(f(a)), v.clone(), Box::new(f(lo)), Box::new(f(hi))),
             e => e.clone(),
@@ -473,12 +496,15 @@ impl Expr {
                             (int(0), Expr::Cmp(vec![a0.clone(), int(1)], vec![Rel::Gt])),
                         ])
                     }
-                    Func::Rect | Func::Sgn | Func::Floor | Func::Factorial => return Expr::Derivative(Box::new(self.clone()), x.into()),
+                    // linear: the part (or conjugate) of the derivative, for a real variable
+                    Func::Re | Func::Im | Func::Conj => return func(*f, a.d(x)),
+                    Func::Rect | Func::Sgn | Func::Floor | Func::Factorial | Func::Arg => return Expr::Derivative(Box::new(self.clone()), x.into()),
                     Func::Abs => mul(vec![a0.clone(), pow(func(Func::Abs, a0), int(-1))]),
                 };
                 mul(vec![inner, a.d(x)])
             }
-            Expr::Cast(a, k, d, u) => Expr::Cast(Box::new(a.d(x)), *k, *d, u.clone()),
+            // linear: the derivative over the unit, d/dx (e / u)
+            Expr::Number(a, k, d, _) => mul(vec![a.d(x), pow(Expr::C(Val::new(*k, d.clone())), int(-1))]),
             Expr::Sum(..) => Expr::Derivative(Box::new(self.clone()), x.into()),
             Expr::Integral(a, v, lo, hi) => {
                 let boundary = sub(mul(vec![a.subst(v, hi), hi.d(x)]), mul(vec![a.subst(v, lo), lo.d(x)]));
@@ -494,7 +520,7 @@ impl Expr {
 fn kind_rank(e: &Expr) -> u8 {
     match e {
         Expr::C(_) => 0,
-        Expr::Pi | Expr::E => 1,
+        Expr::Pi | Expr::E | Expr::I | Expr::Const(..) => 1,
         Expr::Sym(_) => 2,
         Expr::Pow(b, _) if matches!(**b, Expr::Sym(_)) => 2,
         Expr::Pow(..) => 3,
@@ -627,7 +653,7 @@ pub fn simp(e: &Expr) -> Expr {
             }
             Expr::Cases(branches)
         }
-        Expr::C(_) | Expr::Sym(_) | Expr::Pi | Expr::E => e.clone(),
+        Expr::C(_) | Expr::Sym(_) | Expr::Pi | Expr::E | Expr::I | Expr::Const(..) => e.clone(),
         Expr::Subs(body, var, by) => {
             let body = simp(body);
             let by = simp(by);
@@ -650,11 +676,11 @@ pub fn simp(e: &Expr) -> Expr {
         Expr::Pow(a, b) => simp_pow(simp(a), simp(b)),
         Expr::F(f, a) => simp_f(*f, simp(a)),
         Expr::Cmp(v, r) => simp_cmp(v.iter().map(simp).collect(), r.clone()),
-        Expr::Cast(a, k, d, u) => {
+        Expr::Number(a, k, d, u) => {
             let a = simp(a);
             match &a {
-                Expr::C(v) => Expr::C(Val { v: v.v.mul(*k), d: *d, u: Some(u.clone()), raw: None }),
-                _ => Expr::Cast(Box::new(a), *k, *d, u.clone()),
+                Expr::C(v) if v.d == *d && !k.is_zero() => Expr::C(Val::num(v.v.div(*k).unwrap())),
+                _ => Expr::Number(Box::new(a), *k, d.clone(), u.clone()),
             }
         }
     }
@@ -682,7 +708,7 @@ fn simp_add(v: Vec<Expr>) -> Expr {
     }
     // constants of one unit that cancel are 0 of that unit (1 s − 1 s is 0 s, not a plain 0)
     let zero = match groups.first() {
-        Some((None, c)) if groups.iter().all(|(r, g)| r.is_none() && g.d == c.d && g.is_zero()) && !c.d.is_one() => Some(c.d),
+        Some((None, c)) if groups.iter().all(|(r, g)| r.is_none() && g.d == c.d && g.is_zero()) && !c.d.is_one() => Some(c.d.clone()),
         _ => None,
     };
     if let Some(d) = zero {
@@ -733,7 +759,7 @@ fn simp_mul(v: Vec<Expr>) -> Expr {
         }
     }
     if coef.is_zero() {
-        return Expr::C(Val::new(Num::ZERO, coef.d));
+        return Expr::C(Val { v: Num::ZERO, raw: None, ..coef });
     }
     let mut fs = vec![];
     for (b, x) in bases {
@@ -751,7 +777,7 @@ fn simp_mul(v: Vec<Expr>) -> Expr {
         }
     }
     if coef.is_zero() {
-        return Expr::C(Val::new(Num::ZERO, coef.d));
+        return Expr::C(Val { v: Num::ZERO, raw: None, ..coef });
     }
     // equal bases may have come together again (√2·√2): one more round if anything repeats
     let n = fs.len();
@@ -768,6 +794,26 @@ fn simp_mul(v: Vec<Expr>) -> Expr {
         let mut v = vec![Expr::C(coef)];
         v.extend(fs);
         return simp_mul(v);
+    }
+    // complex constants are numbers: (1 + 2i)(3 − i) is 5 + 5i, 2i·3i is −6
+    if fs.iter().any(crate::complex::is_complex) {
+        let mut z = crate::complex::CVal::real(coef);
+        fs.retain(|f| match crate::complex::parts(f).filter(|_| crate::complex::is_complex(f)) {
+            Some(p) => { z = z.mul(&p); false }
+            None => true,
+        });
+        if fs.is_empty() {
+            return crate::complex::expr(z);
+        }
+        if z.re.v.is_zero() {
+            coef = z.im;
+            fs.push(Expr::I);
+        } else if z.im.v.is_zero() {
+            coef = z.re;
+        } else {
+            coef = Val::int(1);
+            fs.push(crate::complex::expr(z));
+        }
     }
     fs.sort_by(factor_cmp);
     if fs.is_empty() {
@@ -789,6 +835,41 @@ fn simp_pow(b: Expr, x: Expr) -> Expr {
     }
     if b.is_one() {
         return b;
+    }
+    // whole powers of i and of complex constants, exactly: i² = −1, (1 + i)² = 2i, 1/(1 + i) = (1 − i)/2
+    if let Some(n) = x.as_num().filter(|n| n.is_int()).and_then(Num::as_int) {
+        if b == Expr::I {
+            return match n.rem_euclid(4) {
+                0 => int(1),
+                1 => Expr::I,
+                2 => int(-1),
+                _ => Expr::Mul(vec![int(-1), Expr::I]),
+            };
+        }
+        if crate::complex::is_complex(&b) && n.abs() <= 256 {
+            if let Some(z) = crate::complex::parts(&b).and_then(|z| z.powi(n)) {
+                return crate::complex::expr(z);
+            }
+        }
+    }
+    // a negative number to a power of halves has no real value: (−a)^(p/2) = a^(p/2) · i^p, √−4 = 2i
+    if let (Expr::C(bv), Some(Num::R(xr))) = (&b, x.as_num()) {
+        if bv.v.is_neg() && xr.denom() == 2 {
+            let i = simp_pow(Expr::I, int(xr.numer()));
+            return simp_mul(vec![simp_pow(Expr::C(bv.neg()), x.clone()), i]);
+        }
+    }
+    // the principal square root of a complex constant, where it is exact: √(2i) = 1 + i
+    if x.as_num().is_some_and(|n| n.same(Num::R(Rat::new(1, 2).unwrap()))) && crate::complex::is_complex(&b) {
+        if let Some(z) = crate::complex::parts(&b).and_then(|z| z.sqrt()) {
+            return crate::complex::expr(z);
+        }
+    }
+    // e^(iθ) on the axes: e^(iπ) = −1, e^(iπ/2) = i
+    if b == Expr::E {
+        if let Some(z) = euler(&x) {
+            return z;
+        }
     }
     if let (Expr::C(bv), Some(xn)) = (&b, x.as_num()) {
         if bv.is_zero() && !xn.is_neg() {
@@ -838,6 +919,41 @@ fn simp_f(f: Func, a: Expr) -> Expr {
     if linalg::is_array(&a) {
         return linalg::func(f, a);
     }
+    if f == Func::Exp {
+        if let Some(z) = euler(&a) {
+            return z;
+        }
+    }
+    if let (Func::Sin | Func::Cos | Func::Tan, Some(q)) = (f, pi_multiple(&a)) {
+        if let Some(v) = unit_circle(f, q) {
+            return v;
+        }
+    }
+    // parts of constants, exactly: Re(1 + 2i) = 1, |3 + 4i| = 5, arg(−2) = π
+    if let Some(z) = crate::complex::parts(&a) {
+        let zero = Val::new(Num::ZERO, z.re.d.clone());
+        match f {
+            Func::Re => return Expr::C(z.re),
+            Func::Im => return Expr::C(z.im),
+            Func::Conj => return crate::complex::expr(crate::complex::CVal { re: z.re, im: z.im.neg() }),
+            Func::Abs if !z.is_real() => {
+                let m2 = z.re.mul(&z.re).add(&z.im.mul(&z.im)).unwrap_or(zero);
+                return simp_pow(Expr::C(m2), rat(1, 2));
+            }
+            Func::Arg => {
+                let (re, im) = (z.re.v, z.im.v);
+                let axis = if im.is_zero() && !re.is_zero() {
+                    Some(if re.is_neg() { Expr::Pi } else { int(0) })
+                } else if re.is_zero() && !im.is_zero() {
+                    Some(mul(vec![rat(if im.is_neg() { -1 } else { 1 }, 2), Expr::Pi]))
+                } else { None };
+                if let Some(v) = axis {
+                    return simp(&v);
+                }
+            }
+            _ => {}
+        }
+    }
     // inverse pairs: exp(ln x) = x, ln(exp x) = x
     if let Expr::F(g, inner) = &a {
         if (f == Func::Exp && *g == Func::Ln) || (f == Func::Ln && *g == Func::Exp) {
@@ -845,6 +961,14 @@ fn simp_f(f: Func, a: Expr) -> Expr {
         }
         if f == Func::Abs && *g == Func::Abs {
             return a;
+        }
+    }
+    // the principal logarithm of a negative number: ln(−a) = ln a + iπ
+    if f == Func::Ln {
+        if let Expr::C(v) = &a {
+            if v.v.is_neg() && v.d.is_one() {
+                return simp(&add(vec![func(Func::Ln, Expr::C(v.neg())), mul(vec![Expr::I, Expr::Pi])]));
+            }
         }
     }
     if f == Func::Ln && a == Expr::E {
@@ -896,8 +1020,84 @@ fn simp_f(f: Func, a: Expr) -> Expr {
     func(f, a)
 }
 
+/// q for an angle q·π with q rational: π, π/2, 3π/4.
+fn pi_multiple(e: &Expr) -> Option<Rat> {
+    match e {
+        Expr::Pi => Some(Rat::ONE),
+        Expr::Mul(fs) if fs.len() == 2 && fs[1] == Expr::Pi => fs[0].as_num()?.rat(),
+        _ => None,
+    }
+}
+
+/// sin, cos and tan exactly at multiples of 30° and 45°: sin(π/6) = 1/2, cos(π/4) = √2/2, tan(π) = 0.
+fn unit_circle(f: Func, q: Rat) -> Option<Expr> {
+    // the angle in steps of 15°
+    let steps = q.mul(Rat::int(12))?;
+    if !steps.is_int() {
+        return None;
+    }
+    let sin = |n: i128| -> Option<Expr> {
+        let n = n.rem_euclid(24);
+        let sign = if n >= 12 { -1 } else { 1 };
+        let m = n % 12;
+        let r = if m > 6 { 12 - m } else { m };
+        let v = match r {
+            0 => int(0),
+            2 => rat(1, 2),
+            3 => mul(vec![rat(1, 2), sqrt(int(2))]),
+            4 => mul(vec![rat(1, 2), sqrt(int(3))]),
+            6 => int(1),
+            _ => return None,
+        };
+        Some(simp(&mul(vec![int(sign), v])))
+    };
+    let n = steps.numer();
+    match f {
+        Func::Sin => sin(n),
+        Func::Cos => sin(n + 6),
+        Func::Tan => {
+            let c = sin(n + 6)?;
+            if c.is_zero() { return None; }
+            Some(simp(&div(sin(n)?, c)))
+        }
+        _ => None,
+    }
+}
+
+/// e^(iθ) for θ a multiple of π/2, where it's a plain number: e^(iπ) = −1, e^(iπ/2) = i.
+fn euler(x: &Expr) -> Option<Expr> {
+    let Expr::Mul(fs) = x else { return None };
+    let at = fs.iter().position(|f| *f == Expr::I)?;
+    if fs.iter().filter(|f| **f == Expr::I).count() != 1 {
+        return None;
+    }
+    let mut rest = fs.clone();
+    rest.remove(at);
+    let q = pi_multiple(&simp_mul(rest))?;
+    if !q.mul(Rat::int(2))?.is_int() {
+        return None;
+    }
+    let (c, s) = (unit_circle(Func::Cos, q)?, unit_circle(Func::Sin, q)?);
+    Some(simp(&add(vec![c, mul(vec![s, Expr::I])])))
+}
+
 fn simp_cmp(v: Vec<Expr>, r: Vec<Rel>) -> Expr {
     // all known: 1 where every relation holds; values of different units are never equal (and not ordered)
+    // complex constants are equal when both parts are; they have no order
+    if v.iter().any(crate::complex::is_complex) {
+        let zs: Option<Vec<crate::complex::CVal>> = v.iter().map(crate::complex::parts).collect();
+        if let Some(zs) = zs {
+            if r.iter().all(|rel| matches!(rel, Rel::Eq | Rel::Ne)) {
+                let ok = r.iter().enumerate().all(|(i, rel)| {
+                    let (a, b) = (&zs[i], &zs[i + 1]);
+                    let same = a.d() == b.d() && a.re.v.same(b.re.v) && a.im.v.same(b.im.v);
+                    same == (*rel == Rel::Eq)
+                });
+                return int(ok as i128);
+            }
+        }
+        return Expr::Cmp(v, r);
+    }
     if v.iter().all(|e| matches!(e, Expr::C(_))) {
         let ok = r.iter().enumerate().all(|(i, rel)| {
             let (a, b) = (v[i].as_c().unwrap(), v[i + 1].as_c().unwrap());

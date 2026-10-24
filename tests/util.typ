@@ -6,8 +6,8 @@
 /// ```sh
 /// cargo test                                    # the engine (units, parsing, algebra, solving, worksheets, graphs, random inputs) and the editor (IDE, language server)
 /// plugin/build.sh                               # src/solveng.wasm from the engine (rustup target add wasm32-unknown-unknown; wasm-opt if installed)
-/// tt run                                        # units, solving, names, lambdify and the README examples (reference images)
-/// tt update readme                              # accept changed output of the README examples
+/// tt run                                        # units, complex numbers, solving, names, lambdify, … and the README examples (reference images)
+/// tt update readme document                     # accept changed output of the README and document examples
 /// python3 tests/examples.py                     # every example in README.md and docs/reference.md compiles on its own
 /// python3 tests/reference.py                    # docs/reference.md from the doc comments in src/ (--check: is it up to date?)
 /// python3 scripts/unit-words.py                # src/unit-words.typ (the units module) from the unit table (--check: is it up to date?)
@@ -17,10 +17,10 @@
 /// `cargo test` includes a fuzzer (`core/tests/fuzz.rs`): random nonlinear equations, polynomials, systems, physics formulas with random prefixes and random numbers to format, checked against direct calculation, and functions whose shown return unit must match what their calls produce; and one for the editor (`editor/ide/tests/fuzz.rs`): random and mutated documents through every editor feature at random positions, which must neither panic nor return ranges outside the text (`FUZZ_N=5000 cargo test --release fuzz` for more cases). `core/tests/oracle.rs` checks families of matrices, integrals, series, simplifications and equations against SymPy and mpmath (the results are in `core/tests/oracle/`, so `cargo test` needs neither); what the engine can't do yet is listed in `core/tests/oracle/known.txt`, which only shrinks: a listed case that passes fails the test until `ORACLE_BLESS=1 cargo test --test oracle` updates the list. `TYPST=…` picks another compiler for the examples, e.g. the oldest supported version.
 
 #import "/lib.typ": *
-#import "/src/api.typ": _rows, _st, _cf, _line
+#import "/src/api.typ": _rows, _st, _cf
 
-// definitions as code lines, silently
-#let def(..eqs) = eqs.pos().map(l => _line(l, true, quiet: true)).join()
+// definitions as equations, silently
+#let def(..eqs) = worksheet(..eqs.pos(), hidden: true)
 // the value of x is v (in SI), optionally shown in unit u
 #let expect(x, v, u: none) = context {
   let r = _rows(_st.get(), _cf.get()).find(r => r.name == x)
@@ -44,7 +44,11 @@
 // what the last line showed as its result (markup)
 #let result(want) = context {
   let r = _st.get().at("last").result
-  assert.eq(r, want, message: "result " + repr(r) + ", want " + repr(want))
+  // constants by their usual names, units (#svref("id", "Ω"), upright("mA")) by their spelling
+  let plain = r.replace("#svconst(\"euler\")", "e").replace("#svconst(\"pi\")", "pi").replace("#svconst(\"imaginary\")", "i")
+  let plain = plain.replace(regex("#svref\\(\"[^\"]*\", \"([^\"]*)\"\\)"), m => m.captures.at(0))
+  let plain = plain.replace(regex("upright\\(\"([^\"]*)\"\\)"), m => m.captures.at(0))
+  assert.eq(plain, want, message: "result " + repr(r) + ", want " + repr(want))
 }
 // some problem reported in the document contains msg (problems with arguments have no line, so the whole document)
 #let reported(msg) = context {

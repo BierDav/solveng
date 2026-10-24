@@ -1,4 +1,4 @@
-// What the Rust crate adds: solveng's calls, options, the document's units and the compiler's values.
+// What the Rust crate adds: solveng's calls, options, the document's bindings and the compiler's values.
 
 use solveng_ide::*;
 
@@ -28,42 +28,47 @@ fn found(doc: &str) -> Vec<String> {
     document_tokens(doc, &Context::default()).iter().map(|t| format!("{}:{}", slice(doc, t.start, t.length), t.kind)).collect()
 }
 
+const SOLVENG: &str = "#import \"@preview/solveng:1.0.0\": *\n";
+
 #[test]
 fn reads_the_package_signatures() {
     let ws = params::functions().iter().find(|f| f.name == "worksheet").unwrap();
-    let steps = ws.named.iter().find(|p| p.name == "steps").unwrap();
-    assert_eq!(steps.values, vec!["full", "formula", "result", "value", "auto"].into_iter().filter(|v| *v != "auto").collect::<Vec<_>>());
+    let form = ws.named.iter().find(|p| p.name == "form").unwrap();
+    assert_eq!(form.values, vec!["auto", "decimal", "fraction", "input"]);
     assert_eq!(ws.positional[0].name, "body");
-    assert!(!ws.named.iter().any(|p| p.name == "functions"));
+    // The unit table and automatic lookups are gone.
+    for removed in ["functions", "units", "builtin-units", "builtin-functions", "strict", "show-casts", "steps", "layout", "implies"] {
+        assert!(!ws.named.iter().any(|p| p.name == removed), "{removed}");
+    }
     let graph = params::functions().iter().find(|f| f.name == "graph").unwrap();
     // Options documented at worksheet.
     assert!(!graph.named.iter().find(|p| p.name == "digits").unwrap().doc.is_empty());
-    assert!(ws.named.iter().find(|p| p.name == "units").unwrap().doc.contains("user overlay"));
     assert_eq!(ws.named.iter().find(|p| p.name == "evaluate").unwrap().default, "true");
     let defined = params::functions().iter().find(|f| f.name == "defined").unwrap();
     assert_eq!(defined.named.iter().find(|p| p.name == "style").unwrap().values, vec!["grid", "column", "inline", "list"]);
-    // Keywords and the explicit unit constructor are documented.
-    assert!(params::functions().iter().any(|f| f.name == "unit"));
-    assert!(params::functions().iter().any(|f| f.name == "digits"));
+    // Keywords and the binding constructors are documented.
+    for f in ["unit", "base-unit", "constant", "operation", "digits"] {
+        assert!(params::functions().iter().any(|p| p.name == f), "{f}");
+    }
 }
 
 #[test]
 fn highlights_the_strings_of_calls() {
-    let doc = "#worksheet(`R := 7.2 kΩ`, steps: \"value\") #graph($P(..) = U^2/R$, mark: \"extrema\") #worksheet(units: (bar: $100 kPa$))[$p := 3 unit(\"bar\")$]";
+    let doc = "#import units: kΩ, kPa\n#worksheet($R := 7.2 kΩ$, form: \"fraction\") #graph($P(..) = U^2/R$, mark: \"extrema\") #worksheet[$p := 3 kPa$]";
     let t = found(doc);
     for want in [
         format!("R:{}", TokenKind::VARIABLE),
         format!("7.2:{}", TokenKind::NUMBER),
         format!("kΩ:{}", TokenKind::UNIT),
-        format!("value:{}", TokenKind::KEYWORD),
+        format!("fraction:{}", TokenKind::KEYWORD),
         format!("U:{}", TokenKind::PARAMETER),
         format!("extrema:{}", TokenKind::KEYWORD),
-        format!("bar:{}", TokenKind::UNIT),
+        format!("kPa:{}", TokenKind::UNIT),
     ] {
         assert!(t.contains(&want), "{want} in {t:?}");
     }
-    // A solveng call's string is read wherever it is, though math outside a worksheet isn't.
-    assert!(found("$p := 3 bar$").is_empty());
+    // Math outside a worksheet isn't calculated.
+    assert!(found("$p := 3 x$").is_empty());
     // Strings of other functions stay Typst's.
     assert!(found("#text(\"R = 3 V\")").is_empty());
     // A `$` in a string doesn't start math.
@@ -72,47 +77,49 @@ fn highlights_the_strings_of_calls() {
 
 #[test]
 fn completes_in_the_strings_of_calls() {
-    let names = labels("#worksheet(`R := 7.2 kΩ`)\n#worksheet(`U := |`)");
+    let names = labels("#worksheet($R := 7.2$)\n#worksheet($U := |$)");
     assert!(names.contains(&"R".into()) && names.contains(&"sqrt".into()));
-    assert!(labels("#worksheet(`I := 30 m|`)").contains(&"mA".into()));
-    let c = complete_at("#worksheet(`x =`, steps: \"r|\")", &Context::default()).unwrap();
+    assert!(labels("#import units: mA\n#worksheet($I := 30 m|$)").contains(&"mA".into()));
+    let c = complete_at("#worksheet($x =$, form: \"f|\")", &Context::default()).unwrap();
     assert!(c.exclusive);
-    assert_eq!(labels("#worksheet(`x =`, steps: \"r|\")"), vec!["full", "formula", "result", "value"]);
+    assert_eq!(labels("#worksheet($x =$, form: \"f|\")"), vec!["auto", "decimal", "fraction", "input"]);
     assert!(labels("#graph($y$, mark: \"|\")").contains(&"extrema".into()));
-    assert!(labels("#lambdify($U^2/R$, \"U\", unit: \"m|\")").contains(&"mW".into()));
-    assert!(labels("#worksheet[$p := 3 \"k|\"$]").contains(&"kΩ".into()));
-    // Unclosed strings are what's being typed.
+    assert!(labels("#import units: kΩ\n#worksheet[$p := 3 k|$]").contains(&"kΩ".into()));
+    // Strings of `worksheet` aren't calculated.
     assert!(labels("#worksheet(\"I := 30 m|").is_empty());
 }
 
 #[test]
 fn completes_options_of_calls() {
-    let c = complete_at("#worksheet($x =$, st|)", &Context::default()).unwrap();
+    let c = complete_at("#worksheet($x =$, fo|)", &Context::default()).unwrap();
     assert!(!c.exclusive);
-    let steps = c.items.iter().find(|i| i.label == "steps").unwrap();
-    assert_eq!(steps.insert, "steps: ");
-    assert_eq!(steps.kind, ItemKind::PARAMETER);
-    assert!(steps.documentation.as_deref().unwrap().contains("Default for `steps`"));
+    let form = c.items.iter().find(|i| i.label == "form").unwrap();
+    assert_eq!(form.insert, "form: ");
+    assert_eq!(form.kind, ItemKind::PARAMETER);
+    assert!(form.documentation.as_deref().unwrap().contains("How values are written"));
     // Given ones aren't offered again.
     assert!(!labels("#worksheet($x =$, digits: 2, |)").contains(&"digits".into()));
-    assert_eq!(labels("#worksheet($x =$, steps: |)"), vec!["\"full\"", "\"formula\"", "\"result\"", "\"value\""]);
+    assert_eq!(labels("#worksheet($x =$, form: |)"), vec!["\"auto\"", "\"decimal\"", "\"fraction\"", "\"input\""]);
     assert!(labels("#worksheet(|)").contains(&"evaluate".into()));
+    assert!(!labels("#worksheet(|)").contains(&"units".into()));
     assert!(labels("#defined(style: \"|\")").contains(&"grid".into()));
 }
 
 #[test]
-fn knows_the_documents_units() {
-    let doc = "#show: worksheet.with(units: (bar: $100 kPa$, mbar: $0.001 bar$), evaluate: false)\n```solveng\np := 3 mbar = [bar]\n```";
-    assert!(found(doc).contains(&format!("mbar:{}", TokenKind::UNIT)));
-    let c = complete_at("#show: worksheet.with(units: (bar: $100 kPa$, mbar: $0.001 bar$), evaluate: false)\n#worksheet(`p := 3 |`)", &Context::default()).unwrap();
-    assert_eq!(c.items.iter().find(|i| i.label == "mbar").unwrap().detail, "defined · = 0.001 bar (bar = 100 kPa)");
-    // The compiler's units count too, e.g. from a package.
-    let context = Context::new("").with_report(
-        &Report::parse(r#"{"blocks":1,"units":[{"name":"rpm","kind":"","value":"1/min"}]}"#),
-        "main.typ",
-        true,
-    );
-    assert!(complete_at("#worksheet(`n := 3 |`)", &context).unwrap().items.iter().any(|i| i.label == "rpm" && i.detail == "defined · = 1/min"));
+fn knows_the_documents_unit_bindings() {
+    let setup = "#let lux = base-unit(\"illuminance\")\n#let klux = unit($1000 lux$)\n#show: worksheet\n";
+    let doc = format!("{setup}$E := 3 klux + 2 lux$");
+    let t = found(&doc);
+    assert!(t.contains(&format!("klux:{}", TokenKind::UNIT)) && t.contains(&format!("lux:{}", TokenKind::UNIT)), "{t:?}");
+    let c = complete_at(&format!("{setup}$E := 3 |$"), &Context::default()).unwrap();
+    let detail = |l: &str| c.items.iter().find(|i| i.label == l).unwrap().detail.clone();
+    assert_eq!(detail("klux"), "unit = 1000 lux");
+    assert_eq!(detail("lux"), "base unit · illuminance");
+    // Bindings are lexical: not before they're made, not outside their block.
+    let c = complete_at("#show: worksheet\n$E := 3 |$\n#let lux = base-unit(\"illuminance\")", &Context::default()).unwrap();
+    assert!(!c.items.iter().any(|i| i.label == "lux"));
+    let c = complete_at("#[#let lux = base-unit(\"illuminance\")]\n#show: worksheet\n$E := 3 |$", &Context::default()).unwrap();
+    assert!(!c.items.iter().any(|i| i.label == "lux"));
 }
 
 #[test]
@@ -121,7 +128,7 @@ fn shows_the_compilers_values() {
         r#"{"blocks":1,"defined":[{"name":"I","kind":"given","value":"30 mA"},{"name":"t","kind":"computed","value":"115 h"},{"name":"f","kind":"function","value":"(x) = x^2"},{"name":"k","kind":"given","value":"3"}]}"#,
     );
     let context = Context::new("").with_report(&report, "main.typ", true);
-    let c = complete_at("#worksheet(`I := 30 mA`, `t := 3450 mAh / I`)\n#worksheet(`x := |`)", &context).unwrap();
+    let c = complete_at("#import units: mA, mAh\n#worksheet($I := 30 mA$, $t := 3450 mAh / I$)\n#worksheet($x := |$)", &context).unwrap();
     let get = |l: &str| c.items.iter().find(|i| name(&i.label) == l).unwrap().detail.clone();
     assert_eq!(get("I"), "= 30 mA");
     assert_eq!(get("t"), "= 3450 mAh / I = 115 h");
@@ -130,35 +137,56 @@ fn shows_the_compilers_values() {
     assert_eq!(get("f(x)"), "= x^2");
 }
 
+fn fix(doc: &str, needle: &str) -> Option<String> {
+    let at = u16len(&doc[..doc.find(needle).unwrap()]);
+    let fix = unit_fixes(doc, &Context::default(), at).into_iter().find(|f| f.title.starts_with("Import"))?;
+    let mut edits: Vec<(u32, u32, String)> = vec![(fix.start, fix.end, fix.text.clone())];
+    edits.extend(fix.edits.iter().map(|e| (e.start, e.end, e.text.clone())));
+    edits.sort_by_key(|e| std::cmp::Reverse(e.0));
+    let mut text: Vec<u16> = doc.encode_utf16().collect();
+    for (s, e, t) in edits { text.splice(s as usize..e as usize, t.encode_utf16()); }
+    Some(format!("{}\n{}", fix.title, String::from_utf16(&text).unwrap()))
+}
+
 #[test]
-fn finds_unknown_units() {
-    let problems = diagnostics("#lambdify($x$, \"x\", unit: \"furlong\")\n```solveng\nP := [5 Vv] I = [mW]\nQ := 3 = [parsec], digits(2)\n```", &Context::default());
-    let words: Vec<_> = problems.iter().map(|p| p.message.split('\'').nth(1).unwrap().to_string()).collect();
-    assert_eq!(words, vec!["Vv", "parsec", "furlong"]);
-    assert!(diagnostics("#show: worksheet.with(units: (bar: $100 kPa$), evaluate: false)\n#lambdify($p$, \"p\", unit: \"kbar\")", &Context::default()).is_empty());
-    // keywords aren't units
-    assert!(diagnostics("```solveng\nx^2 = 4 -> solve(x)\nt = [h], digits(2), sci\n```", &Context::default()).is_empty());
-    assert!(diagnostics("#show: worksheet\n$R := 7.2 kΩ$ $I := 3 unit(\"mA\")$", &Context::default()).is_empty());
+fn imports_the_modules_names_math_uses_unimported() {
+    // Typst can't find `km` without its import: the fix adds it after solveng's import, or to the module's.
+    let doc = format!("{SOLVENG}#show: worksheet\n$x := 2 km$");
+    assert_eq!(fix(&doc, "km$").unwrap(), format!("Import km from solveng's units\n{SOLVENG}#import units: km\n#show: worksheet\n$x := 2 km$"));
+    let doc = format!("{SOLVENG}#import units: m\n#show: worksheet\n$x := 2 km$");
+    assert!(fix(&doc, "km$").unwrap().contains("#import units: m, km\n"));
+    // constants and operations too
+    let doc = format!("{SOLVENG}#show: worksheet\n$x := 2 pi + tri(1)$");
+    assert!(fix(&doc, "pi +").unwrap().contains("#import constants: pi\n"));
+    assert!(fix(&doc, "tri(").unwrap().contains("#import functions: tri\n"));
+    // Not for names no module has, nor outside calculated math, nor without solveng's import.
+    assert!(fix(&format!("{SOLVENG}#show: worksheet\n$x := 2 furlong$"), "furlong").is_none());
+    assert!(fix(&format!("{SOLVENG}$x := 2 km$"), "km$").is_none());
+    assert!(fix("#show: worksheet\n$x := 2 km$", "km$").is_none());
+    // Keywords of a clause are no names to import, and nothing is wrong there.
+    assert!(diagnostics("#import units: h\n#show: worksheet\n$x^2 = 4 -> solve(x)$\n$t = #h, digits(2), sci$", &Context::default()).is_empty());
 }
 
 #[test]
 fn hovers_names_units_and_options() {
-    let doc = "#worksheet(`R := 7.2 kΩ`)\n#worksheet(`U := R I`, steps: \"value\")";
+    let doc = "#import units: kΩ\n#worksheet($R := 7.2 kΩ$)\n#worksheet($U := R I$, form: \"fraction\")";
     let at = |w: &str| u16len(&doc[..doc.rfind(w).unwrap()]) + 1;
-    assert_eq!(hover(doc, &Context::default(), at("R I")).unwrap().markdown, "```solveng\nR: kΩ = 7.2 kΩ\n```");
-    assert!(hover(doc, &Context::default(), at("steps")).unwrap().markdown.starts_with("`steps` (auto, str)"));
-    assert_eq!(hover(doc, &Context::default(), at("kΩ") + 1).unwrap().markdown, "`kΩ` kiloohm · built-in unit\n\n`kΩ = 10³ Ω` · `Ω = V/A = kg·m²·s⁻³·A⁻²`");
+    assert_eq!(hover(doc, &Context::default(), at("R I")).unwrap().markdown, "```text\nR: kΩ = 7.2 kΩ\n```");
+    assert!(hover(doc, &Context::default(), at("form")).unwrap().markdown.starts_with("`form` (auto, str)"));
+    let unit = hover(doc, &Context::default(), at("kΩ$")).unwrap().markdown;
+    assert!(unit.contains("`kΩ` kiloohm · built-in unit\n\n`kΩ = 10³ Ω` · `Ω = V/A = kg·m²·s⁻³·A⁻²`"), "{unit}");
     assert!(hover("text R here", &Context::default(), 6).is_none());
     // the keywords of a clause
-    let doc = "#show: worksheet\n$t := 3 h$ $t = min, digits(2)$";
+    let doc = "#import units: h, min\n#show: worksheet\n$t := 3 #h$ $t = min, digits(2)$";
     assert!(hover(doc, &Context::default(), u16len(&doc[..doc.find("digits").unwrap()]) + 1).unwrap().markdown.starts_with("`digits` keyword"));
 }
 
 #[test]
 fn lists_regions() {
-    let doc = "#show: worksheet\n$x := 1$ `y` ```solveng\nz := 2\n``` #worksheet(`z`)";
+    // Raw text is never solveng's, a ```solveng block included.
+    let doc = "#show: worksheet\n$x := 1$ `y` ```solveng\nz := 2\n``` #worksheet($z$)";
     let kinds: Vec<_> = regions(doc, &Context::default()).iter().map(|r| r.kind).collect();
-    assert_eq!(kinds, vec!["math", "code", "call", "code"]);
+    assert_eq!(kinds, vec!["math", "call", "math"]);
 }
 
 #[test]
@@ -176,49 +204,49 @@ fn resolves_spelled_greek_names() {
     assert_eq!(resolved_name("DeltaT"), "DeltaT");
     assert_eq!(resolved_name("R_1"), "R_1");
     // Completions insert the stored name and match its spelling.
-    let doc = "#show: worksheet\n$Delta_R := 5 cm$\n```solveng\nx := Del|\n```";
+    let doc = "#import units: cm\n#show: worksheet\n$Delta_R := 5 cm$\n$x := Del|$";
     let items = complete_at(doc, &Context::default()).unwrap().items;
     let item = items.iter().find(|i| i.label == "Δ_R: cm").unwrap();
     assert_eq!(item.insert, "Δ_R");
     assert_eq!(item.filter.as_deref(), Some("Del"));
-    // The spelled name in code is the math one.
-    let doc = "#show: worksheet\n$Delta_R := 5 cm$\n```solveng\nx := Delta_R\ny := Δ_R\n```";
-    let at = u16len(&doc[..doc.find("Δ_R\n").unwrap()]);
+    // The spelled name is the letter.
+    let doc = "#import units: cm\n#show: worksheet\n$Delta_R := 5 cm$\n$x := Delta_R$\n$y := Δ_R$";
+    let at = u16len(&doc[..doc.find("Δ_R$").unwrap()]);
     assert_eq!(usages(doc, &Context::default(), at).len(), 3);
 }
 
 #[test]
-fn value_reads_its_string_as_a_calculation() {
-    let doc = "#show: worksheet\n$U_2 := 5 unit(\"V\")$\nIt is #value($U_2 / 2 = unit(\"mV\")$).";
+fn value_reads_its_equation_as_a_calculation() {
+    let doc = "#import units: V, mV\n#show: worksheet\n$U_2 := 5 #V$\nIt is #value($U_2 / 2 = mV$).";
     let at = u16len(&doc[..doc.rfind("U_2").unwrap()]);
     assert_eq!(definition(doc, &Context::default(), at).unwrap().start, u16len(&doc[..doc.find("U_2").unwrap()]));
     assert_eq!(rename(doc, &Context::default(), at, "U_3").len(), 2);
     let tokens = found(doc);
-    assert!(tokens.contains(&"mV:9".to_string()), "{tokens:?}");
-    assert!(labels("#show: worksheet\n$U_2 := 5 unit(\"V\")$\n#value($U|$)").contains(&"U_2".to_string()));
+    assert!(tokens.contains(&format!("mV:{}", TokenKind::UNIT)), "{tokens:?}");
+    assert!(labels("#show: worksheet\n$U_2 := 5$\n#value($U|$)").contains(&"U_2".to_string()));
 }
 
 #[test]
 fn substitute_takes_names_of_the_worksheet() {
-    // highlighted as names, also where a name is spelled like a unit
-    let doc = "#show: worksheet\n$V := 2 m^3$\n$Q_0 := V a$\n$w := Q_0 + 1 -> substitute(Q_0, V)$";
+    // highlighted as names, also where a variable is spelled like a unit
+    let doc = "#import units: m\n#show: worksheet\n$V := 2 #m^3$\n$Q_0 := V a$\n$w := Q_0 + 1 -> substitute(Q_0, V)$";
     let tokens = found(doc);
     assert!(tokens.contains(&"substitute:0".to_string()), "{tokens:?}");
     assert_eq!(tokens.iter().filter(|t| *t == "V:6").count(), 3, "{tokens:?}");
-    // its names are uses: definition, usages and rename reach them, in math and code
+    // its names are uses: definition, usages and rename reach them
     let at = u16len(&doc[..doc.rfind("Q_0").unwrap()]);
     assert_eq!(definition(doc, &Context::default(), at).unwrap().start, u16len(&doc[..doc.find("Q_0").unwrap()]));
     assert_eq!(usages(doc, &Context::default(), at).len(), 3);
     let edits = rename(doc, &Context::default(), at, "Q_1");
     assert_eq!(edits.len(), 3, "{edits:?}");
-    let doc = "```solveng\nk := a b\nz := k c -> substitute(k)\n```\n";
+    let doc = "#show: worksheet\n$k := a b$\n$z := k c -> substitute(k)$\n";
     let at = u16len(&doc[..doc.rfind('k').unwrap()]);
     assert_eq!(usages(doc, &Context::default(), at).len(), 3);
-    assert_eq!(rename(doc, &Context::default(), at, "m").len(), 3);
+    assert_eq!(rename(doc, &Context::default(), at, "q").len(), 3);
     // it completes as a keyword, and the defined names inside its parentheses
-    let doc = "```solveng\nk := a b\nz := k c -> subst|";
+    let doc = "#show: worksheet\n$k := a b$\n$z := k c -> subst|$";
     assert!(labels(doc).contains(&"substitute".to_string()), "{:?}", labels(doc));
-    let doc = "```solveng\nk := a b\nz := k c -> substitute(|";
+    let doc = "#show: worksheet\n$k := a b$\n$z := k c -> substitute(|$";
     assert!(labels(doc).contains(&"k".to_string()), "{:?}", labels(doc));
 }
 
@@ -226,8 +254,8 @@ fn substitute_takes_names_of_the_worksheet() {
 fn glues_names_with_empty_strings() {
     assert_eq!(resolved_name("Delta\"\"r_R"), "Δr_R");
     assert_eq!(resolved_name("Delta\"\"Gamma\"\"Omega"), "ΔΓΩ");
-    // Math and code mean the same variable; completions insert it so math can read it.
-    let doc = "#show: worksheet\n$Delta\"\"r_R := 5 cm$\n```solveng\nx := Delta\"\"r_R + Δr_R\n```\n$y := Del|$";
+    // Both spellings mean the same variable; completions insert it so math can read it.
+    let doc = "#import units: cm\n#show: worksheet\n$Delta\"\"r_R := 5 cm$\n$x := Delta\"\"r_R + Δr_R$\n$y := Del|$";
     let items = complete_at(doc, &Context::default()).unwrap().items;
     let item = items.iter().find(|i| i.label == "Δr_R: cm").unwrap();
     assert_eq!(item.insert, "\"Δr\"_R");
@@ -239,174 +267,162 @@ fn glues_names_with_empty_strings() {
 }
 
 #[test]
-fn reads_base_units_and_numbers() {
-    let doc = "#show: worksheet.with(units: (ü: auto, mü: $10ü$, dozen: 12))\n```solveng\nx := 3 ü\nn := 2 dozen\ny := 5 mü\n```\n";
-    let at = |n: &str| doc[..doc.find(n).unwrap()].encode_utf16().count() as u32;
-    let h = hover(doc, &Context::default(), at("ü\n")).unwrap();
-    assert_eq!(h.markdown, "`ü` defined base unit: a dimension of its own");
-    assert_eq!(hover(doc, &Context::default(), at("dozen\n")).unwrap().markdown, "`dozen` defined unit\n\n`dozen = 12`");
-    assert_eq!(hover(doc, &Context::default(), at("mü\n")).unwrap().markdown, "`mü` defined unit\n\n`mü = 10ü`");
-    assert!(found(doc).contains(&"ü:9".to_string()) && found(doc).contains(&"dozen:9".to_string()));
+fn hovers_base_units_and_derived_ones() {
+    let doc = "#let lux = base-unit(\"illuminance\")\n#let klux = unit($1000 lux$)\n#let dozen = unit($12$)\n#show: worksheet\n$x := 3 lux$\n$n := 2 dozen$\n$y := 5 klux$\n";
+    let at = |n: &str| u16len(&doc[..doc.find(n).unwrap()]);
+    let md = |n: &str| hover(doc, &Context::default(), at(n)).unwrap().markdown;
+    assert!(md("lux$").starts_with("`lux`: base unit of the dimension `illuminance`"), "{}", md("lux$"));
+    assert_eq!(md("dozen$"), "`dozen`: unit: `12`");
+    assert_eq!(md("klux$"), "`klux`: unit: `1000 lux`");
+    // the binding itself is Typst's
+    assert!(hover(doc, &Context::default(), at("klux =")).is_none());
+    assert!(found(doc).contains(&"lux:9".to_string()) && found(doc).contains(&"dozen:9".to_string()));
     assert!(diagnostics(doc, &Context::default()).is_empty());
 }
 
 #[test]
 fn completes_units_after_a_colon() {
     let ctx = Context::default();
-    let full = "#show: worksheet.with(units: (über: auto))\n";
+    let setup = format!("{SOLVENG}#import units: m\n#let lux = base-unit(\"illuminance\")\n");
     let only_units = |doc: &str| {
-        let c = complete_at(&format!("{full}{doc}"), &ctx).unwrap();
+        let c = complete_at(&format!("{setup}{doc}"), &ctx).unwrap();
         // and the types that aren't units, any and 1
         assert!(c.exclusive && c.items.iter().all(|i| i.kind == ItemKind::UNIT || i.kind == ItemKind::KEYWORD), "{doc}");
         c.items.into_iter().filter(|i| i.kind == ItemKind::UNIT).collect::<Vec<_>>()
     };
-    // A parameter's unit, in code, strings and math.
-    only_units("```solveng\nf(x: m|) := x\n```");
-    only_units("```solveng\nf(x, y: |) := x\n```");
-    only_units("#worksheet(`f(I: |) := I`)");
-    let math = only_units("$ q(x: |) := x $");
-    // Math quotes what's longer than a letter (without solveng's names); Ω is found typing Omega or its name.
+    // A parameter's unit.
+    only_units("#show: worksheet\n$f(x: m|) := x$");
+    only_units("#show: worksheet\n$f(x, y: |) := x$");
+    only_units("#worksheet($f(I: |) := I$)");
+    let math = only_units("#show: worksheet\n$ q(x: |) := x $");
+    // Bindings of the document and its imports, then the module's units imported along; Ω is found typing its name.
+    assert_eq!(math.iter().find(|i| i.label == "m").unwrap().insert, "#m");
+    assert!(math.iter().any(|i| i.label == "lux" && i.insert == "lux" && i.edits.is_empty()));
     let k = math.iter().find(|i| i.label == "kΩ").unwrap();
-    assert_eq!((k.insert.as_str(), k.filter.as_deref()), ("unit(\"kΩ\")", Some("kΩ kOmega kiloohm")));
-    assert_eq!(math.iter().find(|i| i.label == "A").unwrap().insert, "unit(\"A\")");
-    assert!(math.iter().any(|i| i.label == "über" && i.insert == "unit(\"über\")"));
+    assert_eq!((k.insert.as_str(), k.filter.as_deref()), ("kΩ", Some("kΩ kOmega kiloohm")));
+    assert!(k.edits.iter().any(|e| e.text == ", kΩ"));
+    let a = math.iter().find(|i| i.label == "A").unwrap();
+    assert_eq!(a.insert, "#A");
     // Variables and what a function returns take no type.
-    let not_units = |doc: &str| complete_at(&format!("{full}{doc}"), &ctx).is_none_or(|c| !c.exclusive || c.items.iter().any(|i| i.kind != ItemKind::UNIT && i.kind != ItemKind::KEYWORD));
-    assert!(not_units("```solveng\nk := 2\nV: |\n```"));
-    assert!(not_units("```solveng\nf(x: A): |\n```"));
+    let not_units = |doc: &str| complete_at(&format!("{setup}{doc}"), &ctx).is_none_or(|c| !c.exclusive || c.items.iter().any(|i| i.kind != ItemKind::UNIT && i.kind != ItemKind::KEYWORD));
+    assert!(not_units("#show: worksheet\n$k := 2$\n$V: |$"));
+    assert!(not_units("#show: worksheet\n$f(x: #A): |$"));
     // Not in an equation's value.
-    assert!(complete_at(&format!("{full}```solveng\nV := |\n```"), &ctx).unwrap().items.iter().any(|i| i.kind != ItemKind::UNIT));
+    assert!(not_units("#show: worksheet\n$V := |$"));
 }
 
 #[test]
 fn completes_keywords() {
     let insert = |doc: &str, label: &str| complete_at(doc, &Context::default()).and_then(|c| c.items.into_iter().find(|i| i.label == label && i.kind == ItemKind::KEYWORD)).map(|i| i.insert);
-    // as after a term, in code and math (quoted), not after a number, where as is attosecond
-    assert_eq!(insert("#worksheet(`U := 5 V`, `I := U |`)", "as").as_deref(), Some("as"));
-    assert_eq!(insert("#worksheet[$ I := U | $]", "as").as_deref(), Some("\"as\""));
-    assert_eq!(insert("#worksheet(`t := 3 |`)", "as"), None);
-    // any and 1 where a type goes, not any after a cast
-    assert_eq!(insert("#worksheet(`f(x: |) := x`)", "any").as_deref(), Some("any"));
-    assert_eq!(insert("#worksheet[$ f(x: |) := x $]", "any").as_deref(), Some("\"any\""));
-    assert_eq!(insert("#worksheet(`f(x: |) := x`)", "1").as_deref(), Some("1"));
-    assert_eq!(insert("#worksheet(`U := 5 V`, `I := U as |`)", "any"), None);
+    // any and 1 where a type goes, quoted as math needs them
+    assert_eq!(insert("#worksheet[$ f(x: |) := x $]", "any").as_deref(), Some("any"));
+    assert_eq!(insert("#worksheet($f(x: |) := x$)", "1").as_deref(), Some("1"));
     // the keywords of a clause
     assert_eq!(insert("#worksheet[$ x^2 = 4 -> s| $]", "solve").as_deref(), Some("solve($0)"));
-    assert_eq!(insert("#worksheet[$ t := 2 h = min, | $]", "sci").as_deref(), Some("sci"));
+    assert_eq!(insert("#import units: h, min\n#worksheet[$ t := 2 #h = min, | $]", "sci").as_deref(), Some("sci"));
 }
 
 #[test]
 fn hovers_keywords() {
     let md = |doc: &str, word: &str| {
-        let doc = format!("#show: worksheet\n{doc}");
+        let doc = format!("#import units: A\n#show: worksheet\n{doc}");
         let at = u16len(&doc[..doc.find(word).unwrap()]) + 1;
         hover(&doc, &Context::default(), at).map(|h| h.markdown).unwrap_or_default()
     };
-    assert!(md("```solveng\nU := 5 V\nI := U as A\n```", "as A").starts_with("`as` cast"));
-    assert!(md("$ I := U \"as\" A $", "as\"").starts_with("`as` cast"));
-    // after a number it's the unit
-    assert!(!md("```solveng\nt := 3 as\n```", "as\n").starts_with("`as` cast"));
-    assert!(md("```solveng\nf(x: any) := x\n```", "any").starts_with("`any` type"));
+    assert!(md("$f(x: any) := x$", "any").starts_with("`any` type"));
     assert!(md("$ x^2 = 4 -> solve(x) $", "solve").starts_with("`solve` keyword"));
 }
 
 #[test]
 fn hovers_parameters_with_their_function() {
     let md = |doc: &str, word: &str, context: &Context| {
-        let doc = format!("#show: worksheet\n{doc}");
+        let doc = format!("#import units: V, mA\n#show: worksheet\n{doc}");
         let at = u16len(&doc[..doc.rfind(word).unwrap()]);
         hover(&doc, context, at).map(|h| h.markdown).unwrap_or_default()
     };
-    let doc = "$ U(x: V) := f(x \"as\" mA, y) $";
-    assert_eq!(md(doc, "x \"as", &Context::default()), "`x: V` parameter of `U`");
-    assert_eq!(md("```solveng\ng(t) := 2 t\n```", "t\n```", &Context::default()), "`t` parameter of `g`");
+    let doc = "$ U(x: #V) := f(x mA, y) $";
+    assert_eq!(md(doc, "x mA", &Context::default()), "`x: V` parameter of `U`");
+    assert_eq!(md("$g(t) := 2 t$", "t$", &Context::default()), "`t` parameter of `g`");
     // the compiler's types, inferred ones too
     let mut context = Context::default();
     context.defined.push(ReportValue { name: "g".into(), kind: "function".into(), value: "(t: s): s = 2 t".into() });
-    assert_eq!(md("```solveng\ng(t) := 2 t\n```", "t\n```", &context), "`t: s` parameter of `g`");
+    assert_eq!(md("$g(t) := 2 t$", "t$", &context), "`t: s` parameter of `g`");
     assert!(md("#graph($q(w) = w^2$)", "w^2", &Context::default()).contains("parameter of `q`"));
 }
 
 #[test]
-fn pretty_code() {
-    let (text, tokens) = pretty("U(x_2: V): A^2 = f ( x_2 as [A] , x_2 ) * [3 m^-1]", &[]);
-    assert_eq!(text, "U(x₂: V): A² = f(x₂ as [A], x₂) * [3 m⁻¹]");
-    let at = |s: &str| tokens.iter().find(|t| t.start == u16len(&text[..text.find(s).unwrap()])).map(|t| (t.length, t.kind));
-    assert_eq!(at("x₂ as"), Some((2, TokenKind::VARIABLE)));
-    assert_eq!(at("as ["), Some((2, TokenKind::KEYWORD)));
-    // R_load has no subscript letters for every character
-    assert_eq!(pretty("R_load = 2", &[]).0, "R_load = 2");
-}
-
-#[test]
 fn units_show_their_heritage() {
-    let doc = "#show: worksheet.with(units: (bar: $100 kPa$, mbar2: $10 bar$))\n```solveng\np := 3 mbar2\nq := 2 mA\nr := 4 kg\n```\n";
+    let doc = "#import units: mA, kg, kPa\n#show: worksheet\n$q := 2 mA$\n$r := 4 kg$\n$p := 3 kPa$\n";
     let md = |w: &str| hover(doc, &Context::default(), u16len(&doc[..doc.find(w).unwrap()]) + 1).unwrap().markdown;
-    assert_eq!(md("mbar2\n"), "`mbar2` defined unit\n\n`mbar2 = 10 bar` · `bar = 100 kPa` · `kPa = 10³ Pa` · `Pa = N/m² = kg·m⁻¹·s⁻²`");
-    assert_eq!(md("mA\n"), "`mA` milliampere · built-in unit\n\n`mA = 10⁻³ A`");
-    assert_eq!(md("kg\n"), "`kg` kilogram · built-in SI base unit");
+    assert!(md("mA$").contains("`mA` milliampere · built-in unit\n\n`mA = 10⁻³ A`"), "{}", md("mA$"));
+    assert!(md("kg$").contains("`kg` kilogram · built-in SI base unit"), "{}", md("kg$"));
+    assert!(md("kPa$").contains("`kPa = 10³ Pa` · `Pa = N/m² = kg·m⁻¹·s⁻²`"), "{}", md("kPa$"));
 }
 
 #[test]
-fn units_named_like_variables_hover_as_units() {
-    let doc = r#"#show: worksheet.with(units: (über: auto))
-$V := 4 unit("über")$
-$U(x: V) := f(x "as" V, x)$
-$W := V + 1 V$
-"#;
-    // the character after `before`
-    let md = |before: &str| hover(doc, &Context::default(), u16len(&doc[..doc.find(before).unwrap() + before.len()])).unwrap().markdown;
-    assert!(md("x: ").starts_with("`V` volt"), "{}", md("x: "));
-    assert!(md(r#""as" "#).starts_with("`V` volt"), "{}", md(r#""as" "#));
-    // the variable where one is read
-    let v = md("W := ");
-    assert!(v.starts_with("```solveng units=über\nV"), "{v}");
+fn variables_and_units_spelled_alike_stay_apart() {
+    // A bare letter is a variable, `#V` the unit binding.
+    let doc = "#import units: V\n#show: worksheet\n$V := 4$\n$W := V + 1 #V$\n";
+    let at = |before: &str| u16len(&doc[..doc.find(before).unwrap() + before.len()]);
+    let variable = hover(doc, &Context::default(), at("W := ")).unwrap().markdown;
+    assert!(variable.starts_with("```text\nV"), "{variable}");
+    let unit = hover(doc, &Context::default(), at("1 #")).unwrap().markdown;
+    assert!(unit.contains("`V` volt"), "{unit}");
+    // the variable defined, the bare letter isn't a missing `#`
+    assert!(diagnostics(doc, &Context::default()).is_empty());
 }
 
 #[test]
-fn completions_tell_built_in_and_defined_units() {
-    let doc = "#show: worksheet.with(units: (bar: $100 kPa$))\n```solveng\np := 3 |\n```";
-    let items = complete_at(doc, &Context::default()).unwrap().items;
+fn completions_tell_module_and_document_units() {
+    let doc = format!("{SOLVENG}#import units: kPa\n#let bar = unit($100 kPa$)\n#show: worksheet\n$p := 3 |$");
+    let items = complete_at(&doc, &Context::default()).unwrap().items;
     let detail = |l: &str| items.iter().find(|i| i.label == l).map(|i| i.detail.clone()).unwrap_or_default();
-    assert_eq!(detail("bar"), "defined · = 100 kPa");
-    assert_eq!(detail("kΩ"), "kiloohm · built-in");
+    assert_eq!(detail("bar"), "unit = 100 kPa");
+    assert_eq!(detail("kPa"), "kilopascal · solveng units");
+    assert_eq!(detail("kΩ"), "kiloohm · solveng units · imports units: kΩ");
 }
 
 #[test]
 fn warns_about_definitions_made_again() {
-    let doc = "#show: worksheet\n$ I := 4 A $\n```solveng\nf(x) := x\n```\n$ I := 2 A $\n```solveng\nf(x) := 2 x\nR := 3\n```\n";
+    let doc = "#show: worksheet\n$ I := 4 $\n$f(x) := x$\n$ I := 2 $\n$f(x) := 2 x$\n$R := 3$\n";
     let found: Vec<String> = diagnostics(doc, &Context::default()).into_iter().map(|p| format!("{}|{}", slice(doc, p.start, p.end - p.start), p.message)).collect();
     assert_eq!(found.len(), 2, "{found:?}");
-    assert!(found[0].starts_with("I|the variable 'I' is assigned again on line 6"), "{found:?}");
-    assert!(found[1].starts_with("f|the function 'f' is assigned again on line 8"), "{found:?}");
+    assert!(found[0].starts_with("I|the variable 'I' is assigned again on line 4"), "{found:?}");
+    assert!(found[1].starts_with("f|the function 'f' is assigned again on line 5"), "{found:?}");
 }
 
 #[test]
 fn chains_define_with_their_last_step() {
-    let doc = "#show: worksheet.with(units: (über: auto))\n$V := 4 unit(\"über\") = 2 unit(\"A\")$\n$W := V$\n";
+    let doc = "#import units: A\n#let lux = base-unit(\"illuminance\")\n#show: worksheet\n$V := 4 lux = 2 #A$\n$W := V$\n";
     let h = hover(doc, &Context::default(), u16len(&doc[..doc.find("W := ").unwrap() + 5])).unwrap().markdown;
-    assert_eq!(h, "```solveng units=über\nV: A = 2 A\n```");
+    assert_eq!(h, "```text\nV: A = 2 A\n```");
 }
 
 #[test]
-fn completes_quoted_units_with_the_whole_import() {
-    let insert = |doc: &str, label: &str| complete_at(doc, &Context::default()).and_then(|c| c.items.into_iter().find(|i| i.label == label)).map(|i| i.insert);
-    let all = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet.with(units: (über: auto))\n";
-    let some = "#import \"@preview/solveng:1.0.0\": worksheet\n#show: worksheet\n";
-    // built-in units go by their shorthand, imported along
-    assert_eq!(insert(&format!("{all}$I := 30 |$"), "mA").as_deref(), Some("mA"));
-    assert_eq!(insert(&format!("{all}$I := 30 |$"), "über").as_deref(), Some("unit(\"über\")"));
-    assert_eq!(insert(&format!("{all}$f(x: |) := x$"), "kΩ").as_deref(), Some("kΩ"));
-    assert_eq!(insert(&format!("{some}$I := 30 |$"), "mA").as_deref(), Some("mA"));
-    assert_eq!(insert(&format!("{all}$I := 30 |$"), "A").as_deref(), Some("#A"));
-    // after a trailing =, a unit of the document's own is "…"
-    assert_eq!(insert(&format!("{all}$I := 30 mA$ $I = |$"), "über").as_deref(), Some("unit(\"über\")"));
+fn completes_module_units_with_their_import() {
+    let item = |doc: &str, label: &str| complete_at(doc, &Context::default()).and_then(|c| c.items.into_iter().find(|i| i.label == label));
+    let all = format!("{SOLVENG}#show: worksheet\n");
+    // imported along: after solveng's import, or into the module's import in scope
+    let ma = item(&format!("{all}$I := 30 |$"), "mA").unwrap();
+    assert_eq!(ma.insert, "mA");
+    assert_eq!(ma.edits.iter().map(|e| e.text.as_str()).collect::<Vec<_>>(), ["\n#import units: mA"]);
+    let ma = item(&format!("{SOLVENG}#import units: s\n#show: worksheet\n$I := 30 |$"), "mA").unwrap();
+    assert_eq!(ma.edits.iter().map(|e| e.text.as_str()).collect::<Vec<_>>(), [", mA"]);
+    // a package import listing names gets the module too
+    let some = "#import \"@preview/solveng:1.0.0\": worksheet\n#show: worksheet\n$I := 30 |$";
+    let texts: Vec<String> = item(some, "mA").unwrap().edits.into_iter().map(|e| e.text).collect();
+    assert_eq!(texts, [", units", "\n#import units: mA"]);
+    // single letters with a #
+    assert_eq!(item(&format!("{all}$I := 30 |$"), "A").unwrap().insert, "#A");
+    // without solveng's import nothing to add them to: only the bindings in scope
+    assert!(item("#show: worksheet\n$I := 30 |$", "mA").is_none());
+    assert!(item("#import units: mA\n#show: worksheet\n$I := 30 |$", "mA").is_some_and(|i| i.edits.is_empty()));
 }
 
 #[test]
 fn assignments_statements_and_results() {
-    let doc = "#show: worksheet\n$I := 30 unit(\"mA\")$\n$I = 0.03 A$\n```solveng\nR := 2 Ω\nR := 3 Ω\n```\n$U(x: V) := 2 x$\n$y := I R = unit(\"mW\")$\n$x^2 = 4 -> solve(x)$\n";
-    // := highlights as one operator, in code and math; the = and -> showing a result bold
+    let doc = "#import units: mA, mW, kΩ, V\n#show: worksheet\n$I := 30 mA$\n$I = 0.03 mA$\n$R := 2 kΩ$\n$R := 3 kΩ$\n$U(x: #V) := 2 x$\n$y := I R = mW$\n$x^2 = 4 -> solve(x)$\n";
+    // := highlights as one operator; the = and -> showing a result bold
     let toks = found(doc);
     assert_eq!(toks.iter().filter(|t| t.starts_with(":=:")).count(), 5, "{toks:?}");
     assert!(toks.contains(&format!("=:{}", TokenKind::EVALUATE)) && toks.contains(&format!("->:{}", TokenKind::EVALUATE)), "{toks:?}");
@@ -416,15 +432,13 @@ fn assignments_statements_and_results() {
     assert_eq!(warn.len(), 1, "{warn:?}");
     assert!(warn[0].starts_with("the variable 'R' is assigned again"), "{warn:?}");
     let at = u16len(&doc[..doc.find("I R").unwrap()]);
-    assert_eq!(hover(doc, &Context::default(), at).unwrap().markdown, "```solveng\nI: mA = 30 mA\n```");
+    assert_eq!(hover(doc, &Context::default(), at).unwrap().markdown, "```text\nI: mA = 30 mA\n```");
     // the name solved for is defined there
     let at = u16len(&doc[..doc.rfind("x)").unwrap()]);
     assert_eq!(definition(doc, &Context::default(), at).map(|l| l.start), Some(at));
     let names = labels(&format!("{doc}$z := |$"));
     assert!(names.contains(&"x".into()) && names.contains(&"y".into()));
 }
-
-
 
 /// Whether an editor filtering by substring, as Typewright and VS Code do, keeps a unit for what's typed.
 fn offers_unit(doc: &str, typed: &str, label: &str) -> bool {
@@ -436,17 +450,17 @@ fn offers_unit(doc: &str, typed: &str, label: &str) -> bool {
 fn finds_units_by_their_names() {
     // typing a unit's name finds it, also where its symbol shares no letter with it: ohm is Ω
     for (doc, typed, label) in [
-        ("#show: worksheet\n$R := 5 ohm|$", "ohm", "Ω"),
-        ("#show: worksheet\n$R := 5 o|$", "o", "Ω"),
-        ("#show: worksheet\n$R := 5 kiloohm|$", "kiloohm", "kΩ"),
-        ("#show: worksheet\n$R := 5 Omega|$", "Omega", "Ω"),
-        ("#show: worksheet\n$q(x: ohm|) := x$", "ohm", "Ω"),
-        ("```solveng\nR := 5 ohm|\n```", "ohm", "Ω"),
-        ("```solveng\nU := 5 volt|\n```", "volt", "V"),
-        ("#worksheet(`P := 2 watt|`)", "watt", "W"),
-        ("```solveng\nT := 20 Celsius|\n```", "Celsius", "°C"),
+        ("$R := 5 ohm|$", "ohm", "Ω"),
+        ("$R := 5 o|$", "o", "Ω"),
+        ("$R := 5 kiloohm|$", "kiloohm", "kΩ"),
+        ("$R := 5 Omega|$", "Omega", "Ω"),
+        ("$q(x: ohm|) := x$", "ohm", "Ω"),
+        ("$U := 5 volt|$", "volt", "V"),
+        ("$P := 2 watt|$", "watt", "W"),
+        ("$T := 20 Celsius|$", "Celsius", "degC"),
     ] {
-        assert!(offers_unit(doc, typed, label), "{label} for {typed} in {doc}");
+        let doc = format!("{SOLVENG}#show: worksheet\n{doc}");
+        assert!(offers_unit(&doc, typed, label), "{label} for {typed} in {doc}");
     }
 }
 
@@ -469,13 +483,14 @@ fn colours_called_subscripted_names_as_functions() {
 
 #[test]
 fn reads_no_exponent_notation() {
-    // 1.12e4 is the coefficient 1.12 and the name e4; 2.5e-10 is 2.5 · e − 10
+    // 1.12e4 is the coefficient 1.12 and the name e4; 2.5e-10 is 2.5 · e − 10, e a variable unless bound
     let doc = "#show: worksheet\n$1.12e4$";
     assert_eq!(found(doc), ["1.12:3", "e4:6"]);
-    let doc = "```solveng\n2.5e-10\n```";
-    assert_eq!(found(doc), ["2.5:3", "e:0", "10:3"]);
-    // the constant e alone keeps its documentation
-    let doc = "#value($2.5e-10$)";
+    let doc = "#show: worksheet\n$2.5e-10$";
+    assert_eq!(found(doc), ["2.5:3", "e:6", "10:3"]);
+    // the constant e is a binding, with its documentation
+    let doc = "#import constants: e\n#value($2.5 #e^(-10)$)";
     let at = u16len(&doc[..doc.rfind('e').unwrap()]);
-    assert!(hover(doc, &Context::default(), at).unwrap().markdown.contains("Euler"));
+    assert!(found(doc).contains(&"e:0".to_string()), "{:?}", found(doc));
+    assert!(hover(doc, &Context::default(), at).unwrap().markdown.contains("euler"));
 }

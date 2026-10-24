@@ -66,6 +66,8 @@ pub struct Entry {
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Env {
+    #[serde(default)]
+    pub references: IndexMap<String, crate::units::UnitDef>,
     pub vars: IndexMap<String, Var>,
     pub funs: IndexMap<String, Fun>,
     /// What was defined, in order, for defined() and editors.
@@ -92,6 +94,7 @@ impl Env {
     /// Takes over what `other` defined, in its order, over what was here. Used when a worksheet
     /// exports its final definitions to the enclosing scope; absent names do not delete outer definitions.
     pub fn merge(&mut self, other: &Env) {
+        self.references.extend(other.references.clone());
         for e in &other.order {
             if let Some(v) = other.vars.get(&e.name) {
                 self.define_var(&e.name, v.clone(), e.kind, e.listed);
@@ -173,7 +176,7 @@ impl Env {
                 local.insert(var.clone());
                 crate::calculus::integral(self.bind_(body, &local, path, units)?, var.clone(), self.bind_(lo, keep, path, units)?, self.bind_(hi, keep, path, units)?)
             }
-            Expr::Sym(_) | Expr::C(_) | Expr::Pi | Expr::E => e.clone(),
+            Expr::Sym(_) | Expr::C(_) | Expr::Pi | Expr::E | Expr::I => e.clone(),
             _ => {
                 let mut err = None;
                 let r = e.map(&mut |c| match self.bind_(c, keep, path, units) {
@@ -241,7 +244,7 @@ impl<'a> Lower<'a> {
                 path.pop();
                 return r;
             }
-            Expr::Sym(_) | Expr::C(_) | Expr::Pi | Expr::E => return Ok(e.clone()),
+            Expr::Sym(_) | Expr::C(_) | Expr::Pi | Expr::E | Expr::I => return Ok(e.clone()),
             Expr::Sum(_, var, ..) | Expr::Integral(_, var, ..) | Expr::Derivative(_, var) | Expr::Subs(_, var, _) | Expr::InverseLaplace(_, var, _) => Some(var.clone()),
             _ => None,
         };
@@ -262,6 +265,7 @@ impl<'a> Lower<'a> {
 
     fn raw(&mut self, a: &Ast) -> Result<Expr, String> {
         Ok(match a {
+            Ast::Bound(c) => c.expr.clone(),
             Ast::Num(raw, v) => Expr::C(Val { v: *v, d: Dim::ONE, u: None, raw: Some(raw.clone()) }),
             Ast::Qty(n, u) => {
                 let x = simp(&self.raw(n)?);
@@ -316,10 +320,6 @@ impl<'a> Lower<'a> {
                 }
                 Expr::Cmp(v, rs)
             }
-            Ast::Cast(x, u) => {
-                let (f, d) = self.unit(u)?;
-                Expr::Cast(Box::new(self.raw(x)?), f, d, u.clone())
-            }
             Ast::Call(n, args) => self.call(n, args)?,
             Ast::Builtin(n, args) => self.builtin(n, args)?,
             Ast::Arg(n, _) => return Err(format!("'{n}: …' is a named argument – it goes in the parentheses of a call, f(x, {n}: …)")),
@@ -364,7 +364,7 @@ impl<'a> Lower<'a> {
     }
 
     fn unit(&self, u: &UnitExpr) -> Result<(Num, Dim), String> {
-        let d = self.units.dim(u).ok_or_else(|| format!("unknown unit '{}'", u.text()))?;
+        let d = self.units.dim(u).ok_or_else(|| format!("unknown unit '{}'", self.units.text(u)))?;
         Ok((self.units.factor(u), d))
     }
 
@@ -376,8 +376,6 @@ impl<'a> Lower<'a> {
             return Err(format!("{n} is a function – call it, {n}(…)"));
         }
         Ok(match n {
-            "π" | "pi" => Expr::Pi,
-            "e" => Expr::E,
             "infinity" | "∞" => Expr::C(Val::num(Num::F(f64::INFINITY))),
             _ => Expr::Sym(n.to_string()),
         })
@@ -462,13 +460,25 @@ impl<'a> Lower<'a> {
             let end = self.known(&end, "range: the end")?;
             let start = match start {
                 Some(a) => { let a = self.raw(a)?; self.known(&a, "range: the start")? }
-                None => Val::new(Num::ZERO, end.d),
+                None => Val::new(Num::ZERO, end.d.clone()),
             };
             let step = match bound.named.get("step") {
                 Some(s) => { let s = self.raw(s)?; Some(self.known(&s, "range: the step")?) }
                 None => None,
             };
             return range(start, end, step, false);
+        }
+        if n == "number" {
+            let value = self.raw(args[0])?;
+            let u = self.raw(args[1])?;
+            let u = self.known(&u, "number: the unit")?;
+            if u.v.is_zero() || u.v.is_neg() {
+                return Err("number: the unit must be positive, like number(U, mV)".into());
+            }
+            let e = Expr::Number(Box::new(value), u.v, u.d.clone(), u.u.clone().unwrap_or_default());
+            // what can be told already: a value of another dimension
+            crate::eval::dim_of(&e, &|n| self.param_dim(n))?;
+            return Ok(e);
         }
         if n == "sqrt" || Func::of(n).is_some() {
             let a = self.raw(args[0])?;
@@ -578,19 +588,19 @@ impl<'a> Lower<'a> {
             if v.d == d {
                 return Ok(x);
             }
-            return Err(format!("{f} takes {p} in {}, got {}", u.text(), if v.d.is_one() { "1 (no unit)".into() } else { self.units.auto(&v.d).text() }));
+            return Err(format!("{f} takes {p} in {}, got {}", self.units.text(u), if v.d.is_one() { "1 (no unit)".into() } else { self.units.text(&self.units.auto(&v.d)) }));
         }
         // a dimension that can be told without values: a parameter of the caller with a unit
         if let Expr::Sym(n) = &s {
             if let Some(ParamType::Unit(w)) = self.inferred.get(n) {
-                if self.units.dim(w) != Some(d) {
-                    return Err(format!("{f} takes {p} in {}, got {}", u.text(), w.text()));
+                if self.units.dim(w) != Some(d.clone()) {
+                    return Err(format!("{f} takes {p} in {}, got {}", self.units.text(u), self.units.text(w)));
                 }
             }
         }
         if let Ok(Some(dx)) = crate::eval::dim_of(&s, &|n| self.param_dim(n)) {
             if dx != d {
-                return Err(format!("{f} takes {p} in {}, got {}", u.text(), if dx.is_one() { "1 (no unit)".into() } else { self.units.auto(&dx).text() }));
+                return Err(format!("{f} takes {p} in {}, got {}", self.units.text(u), if dx.is_one() { "1 (no unit)".into() } else { self.units.text(&self.units.auto(&dx)) }));
             }
         }
         Ok(x)
@@ -639,7 +649,7 @@ pub fn range(start: Val, end: Val, step: Option<Val>, inclusive: bool) -> Result
         return Err(format!("a range of {} values is too long – at most 100000", last + 1.0));
     }
     let count = if last < 0.0 { 0 } else { last as i128 + 1 };
-    Ok(Expr::Vector((0..count).map(|k| Expr::C(Val::new(start.v.add(step.v.mul(Num::int(k))), start.d))).collect()))
+    Ok(Expr::Vector((0..count).map(|k| Expr::C(Val::new(start.v.add(step.v.mul(Num::int(k))), start.d.clone()))).collect()))
 }
 
 /// e^(p/q) for a value's dims with a rational exponent.

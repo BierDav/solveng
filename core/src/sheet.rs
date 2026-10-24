@@ -12,29 +12,26 @@ use serde::{Deserialize, Serialize};
 
 use crate::dim::Dim;
 use crate::env::{Env, Fun, Kind, Lower, Var};
-use crate::eval::{NoValue, dim_of, value};
+use crate::eval::{NoValue, complex_value, dim_of, value};
+use crate::complex::CVal;
 use crate::expr::{self, Expr, Val, simp};
-use crate::format::{self, Cfg, Shown, name, pick, shown};
+use crate::format::{self, Cfg, name, pick, shown};
 use crate::linalg::{self, Array};
 use crate::num::{Num, close};
-use crate::parse::{self, Ast, Clause, Ctx, Head, Line, Mode, Param, ParamType, Rel, Stmt, Trail};
+use crate::parse::{self, Ast, Clause, Ctx, Head, Line, Param, ParamType, Rel, Stmt, Trail};
 use crate::poly::simplify;
-use crate::render::{self, P_ATOM, P_PROD, R};
+use crate::render::{self, R};
 use crate::solve::{self, Fail};
 use crate::units::{UnitExpr, Units};
 
 /// What a line gives the Typst side.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Out {
-    /// Math: "=" or "->" when a result follows the equation as written.
+    /// "=" or "->" when a result follows the equation as written.
     pub mark: Option<String>,
-    /// Math: the result after the mark.
+    /// The result after the mark.
     pub result: Option<String>,
-    /// Code: the line with its steps.
-    pub show: Option<String>,
     pub errors: Vec<String>,
-    /// Single letters read as units (set upright in the equation as written).
-    pub letters: Vec<String>,
     /// Math that isn't a calculation: left alone.
     pub prose: bool,
     /// What the line defined.
@@ -44,79 +41,46 @@ pub struct Out {
     pub solutions: Vec<Vec<f64>>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum PartKind {
-    Formula,
-    Sub,
-    Res,
-}
-
-#[derive(Clone, Debug)]
-struct Part {
-    rel: String,
-    rhs: String,
-    kind: PartKind,
-}
-
-#[derive(Clone, Debug)]
-struct Seg {
-    lhs: String,
-    parts: Vec<Part>,
-}
-
-#[derive(Clone, Debug)]
-struct Stage {
-    segs: Vec<Seg>,
-    join: String,
-}
-
-fn stage(lhs: String, parts: Vec<Part>) -> Stage {
-    Stage { segs: vec![Seg { lhs, parts }], join: String::new() }
-}
-
-fn part(rel: &str, rhs: String, kind: PartKind) -> Part {
-    Part { rel: rel.into(), rhs, kind }
-}
-
 /// What a solved unknown came out as.
 #[derive(Clone, Debug)]
 enum Sol {
-    Value(Val),
+    Value(CVal),
     Symbolic(Expr),
 }
 
 pub struct Sheet<'a> {
     pub env: &'a mut Env,
     pub units: Units,
-    pub functions: crate::builtins::Functions,
     pub cfg: Cfg,
-    pub mode: Mode,
     pub listed: bool,
     out: Out,
 }
 
 impl<'a> Sheet<'a> {
-    pub fn new(env: &'a mut Env, cfg: &Cfg, mode: Mode, listed: bool) -> Result<Sheet<'a>, String> {
-        let units = Units::configured(&cfg)?;
-        let functions = crate::builtins::Functions::configured(cfg)?;
-        Ok(Sheet { env, units, functions, cfg: cfg.clone(), mode, listed, out: Out::default() })
+    pub fn new(env: &'a mut Env, cfg: &Cfg, listed: bool) -> Result<Sheet<'a>, String> {
+        let units = Units::lexical(cfg, env, "")?;
+        Ok(Sheet { env, units, cfg: cfg.clone(), listed, out: Out::default() })
     }
 
     /// Calculates a line.
     pub fn run(mut self, src: &str) -> Out {
-        // solveng's own markup (keywords, unit references, unit words) is meant for it: problems aren't prose
-        let calc = src.contains(":=") || src.contains('≔') || src.contains(['⦅', '⦃', '⦗']);
+        match crate::bindings::references(src) {
+            Ok(references) => { self.units.map.extend(references.clone()); self.env.references.extend(references); }
+            Err(e) => { self.out.errors.push(e); return self.out; }
+        }
+        // solveng's own markup (definitions, keywords) is meant for it: problems aren't prose
+        let calc = src.contains(":=") || src.contains('≔') || src.contains('⦅');
         let line = {
             let env = &*self.env;
             let is_fn = |n: &str| env.funs.contains_key(n);
             let is_var = |n: &str| env.vars.contains_key(n);
-            let ctx = Ctx { units: &self.units, functions: &self.functions, mode: self.mode, is_fn: &is_fn, is_var: &is_var, strict: self.cfg.strict };
+            let ctx = Ctx { units: &self.units, is_fn: &is_fn, is_var: &is_var };
             parse::parse_line(src, &ctx).map_err(|e| (e, calc || parse::meant(src, &ctx)))
         };
         let line = match line {
             Ok(l) => l,
             Err((e, calc)) => {
-                if self.mode == Mode::Math && !calc {
+                if !calc {
                     self.out.prose = true;
                 } else {
                     self.out.errors.push(e);
@@ -124,7 +88,6 @@ impl<'a> Sheet<'a> {
                 return self.out;
             }
         };
-        self.out.letters = line.unit_letters.clone();
         if let Err(e) = self.line(&line) {
             self.out.errors.push(e);
         }
@@ -145,19 +108,12 @@ impl<'a> Sheet<'a> {
                 return Err("put a solved definition on its own line".into());
             }
         }
-        let mut stages = vec![];
         let n = l.stmts.len();
         for (i, s) in l.stmts.iter().enumerate() {
-            let last = i == n - 1;
-            let t = if last { trail } else { None };
-            match self.stmt(s, t, &clause, &cfg) {
-                Ok(st) => stages.extend(st),
-                Err(e) => self.out.errors.push(e),
+            let t = if i == n - 1 { trail } else { None };
+            if let Err(e) = self.stmt(s, t, &clause, &cfg) {
+                self.out.errors.push(e);
             }
-        }
-        if self.mode == Mode::Code && !stages.is_empty() {
-            let shown: Vec<String> = stages.iter().map(|st| self.render_stages(std::slice::from_ref(st), &cfg)).collect();
-            self.out.show = Some(shown.join(if cfg.block { " \\ " } else { ", " }));
         }
         Ok(())
     }
@@ -184,7 +140,7 @@ impl<'a> Sheet<'a> {
     }
 
     fn r<'b>(&'b self, cfg: &'b Cfg, exact: bool) -> R<'b> {
-        R { units: &self.units, cfg, exact, sub: None }
+        R { units: &self.units, cfg, exact }
     }
 
     fn lower(&self, a: &Ast, keep: &[String], bind: bool) -> Result<Expr, String> {
@@ -194,8 +150,8 @@ impl<'a> Sheet<'a> {
         lo.expr(a)
     }
 
-    /// One statement; stages for code.
-    fn stmt(&mut self, s: &Stmt, trail: Option<Trail>, clause: &Clause, cfg: &Cfg) -> Result<Vec<Stage>, String> {
+    /// One statement.
+    fn stmt(&mut self, s: &Stmt, trail: Option<Trail>, clause: &Clause, cfg: &Cfg) -> Result<(), String> {
         if !clause.substitute.is_empty() && (trail != Some(Trail::Sym) || clause.solve.is_some()) {
             return Err("substitute shows a formula: it goes after ->, without solve".into());
         }
@@ -211,7 +167,7 @@ impl<'a> Sheet<'a> {
             Stmt::Expr(a) => match trail {
                 Some(Trail::Eval) => self.eval_expr(a, clause, cfg),
                 Some(Trail::Sym) => self.sym_expr(a, clause, cfg),
-                None => self.statement(a, cfg),
+                None => self.statement(a),
             },
         }
     }
@@ -222,7 +178,7 @@ impl<'a> Sheet<'a> {
     /// whose value is a vector, i := 0 .. 10) defines an element for each of its values, the body calculated with
     /// the name standing for that value; other indices are whole numbers. Elements not defined yet are 0; the
     /// vector or matrix grows to hold the new ones and keeps its other elements.
-    fn define_elements(&mut self, n: &str, indices: &[Ast], rhs: &Ast, trail: Option<Trail>, clause: &Clause, cfg: &Cfg) -> Result<Vec<Stage>, String> {
+    fn define_elements(&mut self, n: &str, indices: &[Ast], rhs: &Ast, trail: Option<Trail>, clause: &Clause, cfg: &Cfg) -> Result<(), String> {
         if clause.solve.is_some() || !clause.substitute.is_empty() {
             return Err(format!("{n}[…] := … defines elements – solve and substitute are for whole definitions"));
         }
@@ -231,9 +187,9 @@ impl<'a> Sheet<'a> {
         for a in indices {
             let e = simp(&self.lower(a, &[], true)?);
             let whole = |e: &Expr| -> Result<usize, String> {
-                let v = value(e).map_err(|e| self.no_value(e, &ast_text(a)))?;
+                let v = value(e).map_err(|e| self.no_value(e, &ast_text(a, &self.units)))?;
                 v.v.as_int().filter(|i| *i >= 0 && v.d.is_one() && *i < 1_000_000).map(|i| i as usize)
-                    .ok_or_else(|| format!("{n}[…]: an index is a whole number from 0, or a range variable of them (i := 0 .. 10), got '{}'", ast_text(a)))
+                    .ok_or_else(|| format!("{n}[…]: an index is a whole number from 0, or a range variable of them (i := 0 .. 10), got '{}'", ast_text(a, &self.units)))
             };
             let var = match a { Ast::Name(v) => Some(v.clone()), _ => None };
             match Array::of(&e) {
@@ -294,28 +250,21 @@ impl<'a> Sheet<'a> {
         let unit = clause.unit.clone();
         self.env.define_var(n, Var { expr: stored.clone(), ast: None, unit: unit.clone(), rel: None }, Kind::Computed, self.listed);
         self.out.defined.push(n.to_string());
-        let r = self.r(cfg, false);
-        let lhs = format!("{}[{}]", name(n), indices.iter().map(|a| r.ast(a, &|_| None).0).collect::<Vec<_>>().join(", "));
-        let f = r.ast(rhs, &|_| None).0;
         match trail {
             Some(Trail::Eval) => {
                 let (m, _) = self.eval_markup(&stored, unit.as_ref(), cfg).map_err(|e| self.no_value(e, n))?;
-                self.out.mark = Some("=".into());
-                self.out.result = Some(m.clone());
-                Ok(vec![stage(lhs, vec![part("≔", f, PartKind::Formula), part("=", format!("{} = {m}", name(n)), PartKind::Res)])])
+                self.show("=", m);
             }
             Some(Trail::Sym) => {
                 let m = self.sym_markup(&stored, unit.as_ref(), cfg)?;
-                self.out.mark = Some("->".into());
-                self.out.result = Some(m.clone());
-                Ok(vec![stage(lhs, vec![part("≔", f, PartKind::Formula), part("->", m, PartKind::Res)])])
+                self.show("->", m);
             }
-            None if self.mode == Mode::Math => Ok(vec![]),
-            None => Ok(vec![stage(lhs, vec![part("≔", f, PartKind::Formula)])]),
+            None => {}
         }
+        Ok(())
     }
 
-    fn define_var(&mut self, n: &str, rhs: &Ast, trail: Option<Trail>, clause: &Clause, cfg: &Cfg) -> Result<Vec<Stage>, String> {
+    fn define_var(&mut self, n: &str, rhs: &Ast, trail: Option<Trail>, clause: &Clause, cfg: &Cfg) -> Result<(), String> {
         let e = if let Some(xs) = &clause.solve { self.solve_body(rhs, &[], xs)? } else { self.lower(rhs, &[], true)? };
         if e.has(n) || e.contains(&|e| matches!(e, Expr::Call(name, _) if name == n)) {
             return Err(format!("'{n}' is used in its own definition but isn't defined yet – define it first, or solve for it: … -> solve({n})"));
@@ -333,33 +282,18 @@ impl<'a> Sheet<'a> {
         let var = Var { expr: stored.clone(), ast: if clause.solve.is_some() { None } else { Some(rhs.clone()) }, unit: unit.clone(), rel: None };
         self.env.define_var(n, var, if given { Kind::Given } else { Kind::Computed }, self.listed);
         self.out.defined.push(n.to_string());
-        let lhs = name(n);
         match trail {
             Some(Trail::Eval) => {
-                let (m, exact) = self.eval_markup(&stored, unit.as_ref(), cfg).map_err(|e| self.no_value(e, n))?;
-                self.out.mark = Some("=".into());
-                self.out.result = Some(m.clone());
-                let mut stages = self.eval_stages(lhs, rhs, m, exact, cfg, given);
-                if let Some(p) = stages.first_mut().and_then(|s| s.segs.first_mut()).and_then(|s| s.parts.first_mut()) {
-                    p.rel = "≔".into();
-                }
-                Ok(stages)
+                let (m, _) = self.eval_markup(&stored, unit.as_ref(), cfg).map_err(|e| self.no_value(e, n))?;
+                self.show("=", m);
             }
             Some(Trail::Sym) => {
                 let m = self.sym_markup(shown.as_ref().unwrap_or(&stored), unit.as_ref(), cfg)?;
-                self.out.mark = Some("->".into());
-                self.out.result = Some(m.clone());
-                let f = self.r(cfg, false).ast(rhs, &|_| None).0;
-                Ok(vec![stage(lhs, vec![part("≔", f, PartKind::Formula), part("->", m, PartKind::Res)])])
+                self.show("->", m);
             }
-            None => {
-                if self.mode == Mode::Math {
-                    return Ok(vec![]);
-                }
-                let f = self.r(cfg, false).ast(rhs, &|_| None).0;
-                Ok(vec![stage(lhs, vec![part("≔", f, PartKind::Formula)])])
-            }
+            None => {}
         }
+        Ok(())
     }
 
     fn solve_body(&self, rhs: &Ast, params: &[Param], xs: &[String]) -> Result<Expr, String> {
@@ -416,7 +350,7 @@ impl<'a> Sheet<'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn define_fn(&mut self, n: &str, params: &[Param], rest: bool, rhs: &Ast, src: &str, sym: bool, clause: &Clause, cfg: &Cfg) -> Result<Vec<Stage>, String> {
+    fn define_fn(&mut self, n: &str, params: &[Param], rest: bool, rhs: &Ast, src: &str, sym: bool, clause: &Clause, cfg: &Cfg) -> Result<(), String> {
         if parse::is_builtin(n) {
             return Err(format!("{n} is Typst's math syntax and can't be defined"));
         }
@@ -473,7 +407,7 @@ impl<'a> Sheet<'a> {
             })
             .collect();
         let ret = if ps.iter().all(|p| pd.contains_key(&p.name)) {
-            match dim_of(&body, &|s| pd.get(s).copied()) {
+            match dim_of(&body, &|s| pd.get(s).cloned()) {
                 Ok(d) => d,
                 Err(e) => return Err(format!("{n}: {e}")),
             }
@@ -483,20 +417,19 @@ impl<'a> Sheet<'a> {
         let f = Fun { params: ps.clone(), body: body.clone(), written, ast: if clause.solve.is_some() { None } else { Some(rhs.clone()) }, src: match &clause.solve { Some(xs) => format!("{src} -> solve({})", xs.join(", ")), None => src.to_string() }, ret, defaults };
         self.env.define_fun(n, f, self.listed);
         self.out.defined.push(n.to_string());
-        let lhs = self.fn_head(n, &ps, cfg);
         if sym {
             let m = self.r(cfg, true).expr(&shown.map_or_else(|| body.clone(), |e| simplify(&e))).0;
-            self.out.mark = Some("->".into());
-            self.out.result = Some(m.clone());
-            let f = self.r(cfg, false).ast(rhs, &|_| None).0;
-            return Ok(vec![stage(lhs, vec![part("≔", f, PartKind::Formula), part("->", m, PartKind::Res)])]);
+            self.show("->", m);
         }
-        let f = self.r(cfg, false).ast(rhs, &|_| None).0;
-        Ok(vec![stage(lhs, vec![part("≔", f, PartKind::Formula)])])
+        Ok(())
     }
 
     /// What `-> substitute(…)` shows: `a` as written, with the formulas of the listed variables put in.
     fn substituted(&self, a: &Ast, params: &[String], names: &[String]) -> Result<Expr, String> {
+        // constants (their bindings) and variables (their names)
+        let consts = constants(names)?;
+        let names: Vec<String> = names.iter().filter(|n| !n.starts_with('⟦')).cloned().collect();
+        let names = names.as_slice();
         for n in names {
             if params.contains(n) {
                 return Err(format!("substitute: '{n}' is a parameter here, it has no formula"));
@@ -511,27 +444,16 @@ impl<'a> Sheet<'a> {
         }
         let mut lo = Lower::new(self.env, &self.units);
         lo.params = params.iter().cloned().collect();
-        lo.bind = false;
+        // variables listed: only theirs put in, other names kept; only constants: the values put in, as -> does
+        lo.bind = names.is_empty();
         let e = lo.expr(a)?;
         let mut used = BTreeSet::new();
         let e = lo.substitute(&e, names, &mut used)?;
-        if let Some(n) = names.iter().find(|n| !used.contains(*n)) {
-            return Err(format!("substitute: '{n}' doesn't occur in '{}'", ast_text(a)));
+        let e = put_constants(&e, &consts, &mut used);
+        if let Some(n) = names.iter().chain(consts.iter().map(|c| &c.identity)).find(|n| !used.contains(*n)) {
+            return Err(format!("substitute: '{n}' doesn't occur in '{}'", ast_text(a, &self.units)));
         }
         Ok(e)
-    }
-
-    fn fn_head(&self, n: &str, ps: &[Param], cfg: &Cfg) -> String {
-        let r = self.r(cfg, false);
-        let args: Vec<String> = ps
-            .iter()
-            .map(|p| match &p.ty {
-                Some(ParamType::Unit(u)) => format!("{}{}", name(&p.name), r.cast_mark(u, "type")),
-                Some(ParamType::Any) => format!("{}{}", name(&p.name), r.cast_mark(&UnitExpr::one("any"), "type")),
-                None => name(&p.name),
-            })
-            .collect();
-        format!("{}({})", name(n), args.join(", "))
     }
 
     // ---------- values ----------
@@ -566,7 +488,7 @@ impl<'a> Sheet<'a> {
                 _ => None,
             });
             let Some(u) = u else { continue };
-            if self.units.dim(&u) != Some(*d) || us.contains(&u) {
+            if self.units.dim(&u) != Some(d.clone()) || us.contains(&u) {
                 continue;
             }
             us.push(u);
@@ -575,11 +497,7 @@ impl<'a> Sheet<'a> {
             return None;
         }
         let u = us.pop().unwrap();
-        let si = ["V", "A", "Ω", "Omega", "W", "J", "C", "F", "H", "S", "N", "Pa", "T", "Wb", "s", "m", "g", "K", "Hz", "mol", "cd"];
-        let base = |n: &str| -> String {
-            if self.units.map.contains_key(n) { n.to_string() } else { n.chars().skip(1).collect() }
-        };
-        if u.0.len() == 1 && u.0[0].1 == 1 && !si.contains(&base(&u.0[0].0).as_str()) {
+        if u.0.len() == 1 && u.0[0].1 == 1 && !crate::format::si_unit(&u, &self.units) {
             Some(u)
         } else {
             None
@@ -593,104 +511,6 @@ impl<'a> Sheet<'a> {
         Ok((m, exact || !cfg.approximate))
     }
 
-    fn val_markup(&self, v: &Val, unit: Option<&UnitExpr>, cfg: &Cfg) -> (String, u8) {
-        match pick(v, unit, None, &self.units, cfg) {
-            Ok(s) => {
-                let p = if s.n.is_neg() { 2 } else if s.u.is_empty() || s.bare { P_ATOM } else { P_PROD };
-                (shown(&s, &self.units, cfg).0, p)
-            }
-            Err(_) => (format!("{}", v.v.f()), P_ATOM),
-        }
-    }
-
-    /// Values of defined names, for the step with numbers.
-    fn values(&self, cfg: &Cfg) -> impl Fn(&str) -> Option<(String, u8)> + '_ {
-        let cfg = cfg.clone();
-        move |n: &str| {
-            let v = self.env.vars.get(n)?;
-            let val = value(&self.env.bind_with_units(&v.expr, &BTreeSet::new(), &self.units).ok()?).ok()?;
-            Some(self.val_markup(&val, v.unit.as_ref(), &cfg))
-        }
-    }
-
-    /// x = formula = numbers = result.
-    #[allow(clippy::too_many_arguments)]
-    fn eval_stages(&self, lhs: String, a: &Ast, res: String, exact: bool, cfg: &Cfg, given: bool) -> Vec<Stage> {
-        let rel = if exact { "=" } else { "approx" };
-        if given {
-            return vec![stage(lhs, vec![part("=", res, PartKind::Res)])];
-        }
-        let r = self.r(cfg, false);
-        let vals = self.values(cfg);
-        let formula = r.ast(a, &|_| None).0;
-        let sub = r.ast(a, &vals).0;
-        let mut parts = vec![];
-        // a name alone: its formula, if it has one
-        if let Ast::Name(n) = a {
-            if let Some(Some(f)) = self.env.vars.get(n).map(|x| x.ast.clone()) {
-                if !literal(&f) {
-                    let ff = r.ast(&f, &|_| None).0;
-                    let fs = r.ast(&f, &vals).0;
-                    parts.push(part("=", ff.clone(), PartKind::Formula));
-                    if fs != ff && fs != res {
-                        parts.push(part("=", fs, PartKind::Sub));
-                    }
-                }
-            }
-            parts.push(part(rel, res, PartKind::Res));
-            if lhs.is_empty() {
-                return vec![stage(formula, parts)];
-            }
-            return vec![stage(lhs, parts)];
-        }
-        if !lhs.is_empty() {
-            parts.push(part("=", formula.clone(), PartKind::Formula));
-        }
-        // a call of a function: its body with the arguments put in, P(5 V) = 5 V · I
-        let mut sub = sub;
-        if let Ast::Call(n, args) = a {
-            if let Some(f) = self.env.funs.get(n) {
-                // the arguments by parameter: positional ones in order, named ones by name, defaults for the rest
-                let mut m: BTreeMap<String, Ast> = BTreeMap::new();
-                let mut positional = f.params.iter().filter(|p| p.default.is_none());
-                for x in args {
-                    match x {
-                        Ast::Arg(k, v) => { m.insert(k.clone(), (**v).clone()); }
-                        x => if let Some(p) = positional.next() { m.insert(p.name.clone(), x.clone()); },
-                    }
-                }
-                for p in &f.params {
-                    if let (false, Some(d)) = (m.contains_key(&p.name), &p.default) { m.insert(p.name.clone(), d.clone()); }
-                }
-                if f.params.len() == m.len() {
-                    let (bf, bs) = if let Some(ast) = &f.ast {
-                        let body = subst_ast(ast, &m);
-                        (r.ast(&body, &|_| None).0, r.ast(&body, &vals).0)
-                    } else {
-                        match self.lower(a, &[], false) {
-                            Ok(body) => (r.expr(&body).0, self.r(cfg, false).expr(&self.env.bind_with_units(&body, &BTreeSet::new(), &self.units).unwrap_or(body.clone())).0),
-                            Err(_) => (formula.clone(), formula.clone()),
-                        }
-                    };
-                    if bf != formula && bf != res {
-                        parts.push(part("=", bf.clone(), PartKind::Formula));
-                    }
-                    sub = bs;
-                    if sub == bf {
-                        sub = formula.clone();
-                    }
-                }
-            }
-        }
-        if sub != formula && sub != res {
-            parts.push(part("=", sub, PartKind::Sub));
-        }
-        if res != formula || lhs.is_empty() {
-            parts.push(part(rel, res, PartKind::Res));
-        }
-        vec![stage(if lhs.is_empty() { formula } else { lhs }, parts)]
-    }
-
     fn eval_markup(&self, e: &Expr, unit: Option<&UnitExpr>, cfg: &Cfg) -> Result<(String, bool), NoValue> {
         let s = simp(e);
         if let Some(m) = linalg::problem(&s) {
@@ -701,9 +521,10 @@ impl<'a> Sheet<'a> {
             let exact = parts.iter().all(|p| p.1);
             return Ok((array_markup(&a, parts.into_iter().map(|p| p.0).collect()), exact));
         }
-        let v = value(&s)?;
-        let hint = self.hint_expr(e, &v.d);
-        self.show_val(&v, unit, hint.as_ref(), cfg).map_err(NoValue::Error)
+        let z = complex_value(&s)?;
+        let hint = self.hint_expr(e, z.d());
+        let (m, exact) = crate::format::complex(&z, unit, hint.as_ref(), &self.units, cfg).map_err(NoValue::Error)?;
+        Ok((m, exact || !cfg.approximate))
     }
 
     /// A symbolic result as markup: exact; a value once nothing unknown is left, in the unit asked for.
@@ -719,109 +540,92 @@ impl<'a> Sheet<'a> {
         if let (Expr::C(v), true) = (&s, unit.is_some() || cfg.form == "decimal" || cfg.scientific == Some((0, 1))) {
             return Ok(self.show_val(v, unit, None, cfg)?.0);
         }
-        if let (Some(u), Ok(v)) = (unit, value(&s)) {
-            return Ok(self.show_val(&v, Some(u), None, cfg)?.0);
-        }
-        if cfg.form == "decimal" {
-            if let Ok(v) = value(&s) {
-                return Ok(self.show_val(&v, None, None, cfg)?.0);
+        if unit.is_some() || cfg.form == "decimal" {
+            if let Ok(z) = complex_value(&s) {
+                return Ok(crate::format::complex(&z, unit, None, &self.units, cfg)?.0);
             }
         }
         Ok(self.r(cfg, cfg.form != "decimal").expr(&s).0)
     }
 
-    fn eval_expr(&mut self, a: &Ast, clause: &Clause, cfg: &Cfg) -> Result<Vec<Stage>, String> {
+    fn eval_expr(&mut self, a: &Ast, clause: &Clause, cfg: &Cfg) -> Result<(), String> {
         let e = self.lower(a, &[], true)?;
-        let src = self.r(cfg, false).ast(a, &|_| None).0;
-        // a variable shown again: in the unit it was defined with, with its relation (R ≤ 166.7 Ω)
-        let (unit, relv) = match a {
-            Ast::Name(n) => self.env.vars.get(n).map(|x| (x.unit.clone(), x.rel)).unwrap_or((None, None)),
-            _ => (None, None),
+        // a variable shown again: in the unit it was defined with
+        let unit = match a {
+            Ast::Name(n) => self.env.vars.get(n).and_then(|x| x.unit.clone()),
+            _ => None,
         };
         let want = clause.unit.clone().or(unit);
-        let (m, exact) = self.eval_markup(&e, want.as_ref(), cfg).map_err(|e| self.no_value(e, &ast_text(a)))?;
-        self.out.mark = Some("=".into());
-        self.out.result = Some(m.clone());
-        // code shows the relation of an inequality's boundary: R ≤ 166.7 Ω
-        let m = match relv {
-            Some(r) if r != Rel::Eq => format!("{} {m}", render::rel(r)),
-            _ => m,
-        };
-        let _ = src;
-        Ok(self.eval_stages(String::new(), a, m, exact, cfg, false))
+        let (m, _) = self.eval_markup(&e, want.as_ref(), cfg).map_err(|e| self.no_value(e, &ast_text(a, &self.units)))?;
+        self.show("=", m);
+        Ok(())
     }
 
-    fn sym_expr(&mut self, a: &Ast, clause: &Clause, cfg: &Cfg) -> Result<Vec<Stage>, String> {
-        let e = if clause.substitute.is_empty() { self.lower(a, &[], true)? } else { self.substituted(a, &[], &clause.substitute)? };
-        let m = self.sym_markup(&e, clause.unit.as_ref(), cfg)?;
-        self.out.mark = Some("->".into());
-        self.out.result = Some(m.clone());
-        let f = self.r(cfg, false).ast(a, &|_| None).0;
-        Ok(vec![stage(f, vec![part("->", m, PartKind::Res)])])
+    fn sym_expr(&mut self, a: &Ast, clause: &Clause, cfg: &Cfg) -> Result<(), String> {
+        // a constant alone with its expression put in: the expression as written (simplified, √−1 would be i again)
+        let alone = match a {
+            Ast::Bound(c) if constants(&clause.substitute)?.iter().any(|k| k.identity == c.identity) => Some(c.backing.clone()),
+            _ => None,
+        };
+        let m = match alone {
+            Some(backing) => self.r(cfg, true).expr(&backing).0,
+            None => {
+                let e = if clause.substitute.is_empty() { self.lower(a, &[], true)? } else { self.substituted(a, &[], &clause.substitute)? };
+                self.sym_markup(&e, clause.unit.as_ref(), cfg)?
+            }
+        };
+        self.show("->", m);
+        Ok(())
+    }
+
+    /// The result after the equation as written: = or -> and the markup.
+    fn show(&mut self, mark: &str, m: String) {
+        self.out.mark = Some(mark.into());
+        self.out.result = Some(m);
     }
 
     /// = states something: checked when everything is known; prose in math when not.
-    fn statement(&mut self, a: &Ast, cfg: &Cfg) -> Result<Vec<Stage>, String> {
+    fn statement(&mut self, a: &Ast) -> Result<(), String> {
         let Ast::Cmp(first, rest) = a else {
-            if self.mode == Mode::Math {
-                self.out.prose = true;
-                return Ok(vec![]);
-            }
-            return Err(format!("'{}' does nothing – x := … defines, a trailing = shows a value", ast_text(a)));
+            self.out.prose = true;
+            return Ok(());
         };
         let mut sides = vec![(**first).clone()];
         sides.extend(rest.iter().map(|(_, x)| x.clone()));
         let mut vals = vec![];
         for s in &sides {
-            let e = match self.lower(s, &[], true) {
-                Ok(e) => e,
-                Err(e) if self.mode == Mode::Code => return Err(e),
-                Err(_) => {
-                    self.out.prose = true;
-                    return Ok(vec![]);
-                }
+            let Ok(e) = self.lower(s, &[], true) else {
+                self.out.prose = true;
+                return Ok(());
             };
-            match value(&e) {
+            match complex_value(&e) {
                 Ok(v) => vals.push(v),
-                Err(NoValue::Unknown(ns)) => {
-                    if self.mode == Mode::Math {
-                        self.out.prose = true;
-                        return Ok(vec![]);
-                    }
-                    let one = ns.len() == 1;
-                    return Err(format!(
-                        "{} in '{}' {} defined – define {} with :=, or solve for {}: {} -> solve({})",
-                        ns.iter().map(|n| format!("'{n}'")).collect::<Vec<_>>().join(", "),
-                        ast_text(a),
-                        if one { "isn't" } else { "aren't" },
-                        if one { "it" } else { "them" },
-                        if one { "it" } else { "them" },
-                        ast_text(a),
-                        ns[0]
-                    ));
+                Err(NoValue::Unknown(_)) => {
+                    self.out.prose = true;
+                    return Ok(());
                 }
                 Err(NoValue::Error(m)) => return Err(m),
             }
         }
         // inequalities in math are prose unless solved
-        if self.mode == Mode::Math && rest.iter().any(|(r, _)| *r != Rel::Eq) {
+        if rest.iter().any(|(r, _)| *r != Rel::Eq) {
             self.out.prose = true;
-            return Ok(vec![]);
+            return Ok(());
         }
         for (i, (r, _)) in rest.iter().enumerate() {
             let (x, y) = (&vals[i], &vals[i + 1]);
-            let ok = if x.d != y.d { *r == Rel::Ne } else { r.holds(x.v.cmp(y.v), close_rel(x.v, y.v)) };
+            let same = close_rel(x.re.v, y.re.v) && close_rel(x.im.v, y.im.v);
+            let ok = if x.d() != y.d() { *r == Rel::Ne } else { same == (*r == Rel::Eq) };
             if !ok {
-                let why = if x.d != y.d { "has another unit than" } else { "has another value than" };
+                let why = if x.d() != y.d() { "has another unit than" } else { "has another value than" };
                 return Err(if *r == Rel::Eq {
-                    format!("'{}' {why} '{}' – = states what's true; := defines", ast_text(&sides[i + 1]), ast_text(&sides[i]))
+                    format!("'{}' {why} '{}' – = states what's true; := defines", ast_text(&sides[i + 1], &self.units), ast_text(&sides[i], &self.units))
                 } else {
-                    format!("'{}' doesn't hold", ast_text(a))
+                    format!("'{}' doesn't hold", ast_text(a, &self.units))
                 });
             }
         }
-        let r = self.r(cfg, false);
-        Ok(vec![stage(r.ast(a, &|_| None).0, vec![])])
+        Ok(())
     }
 
     // ---------- solving ----------
@@ -850,30 +654,22 @@ impl<'a> Sheet<'a> {
         let mut unique = BTreeSet::new();
         if xs.iter().any(|x| !unique.insert(x)) { return Err("each solve variable must be different".into()); }
         let mut eqs: Vec<(Expr, Expr, Rel)> = vec![];
-        let mut eq_m = vec![];
         let mut eq_text = vec![];
         for s in stmts {
             let Stmt::Expr(a) = s else { return Err("put a solved definition on its own line".into()); };
             let body = self.lower(a, xs, false)?;
-            let (bodies, split) = match body {
-                Expr::Vector(v) => (v, false),
-                e => match self.elementwise(&e, xs)? {
-                    Some(v) => (v, true),
-                    None => (vec![e], false),
-                },
+            let bodies = match body {
+                Expr::Vector(v) => v,
+                e => self.elementwise(&e, xs)?.unwrap_or_else(|| vec![e]),
             };
             for body in bodies {
                 let Expr::Cmp(v, rs) = body else {
-                    return Err(format!("'{}' isn't an equation – solve(…) needs one with =, like x^2 = 4", ast_text(a)));
+                    return Err(format!("'{}' isn't an equation – solve(…) needs one with =, like x^2 = 4", ast_text(a, &self.units)));
                 };
                 if rs.len() != 1 || v.len() != 2 || v.iter().any(|e| e.contains(&|e| matches!(e, Expr::Cmp(..)))) {
                     return Err("one relation per equation; a relation function already contains =".into());
                 }
-                let markup = if matches!(a, Ast::Cmp(..)) && !split { self.r(cfg, false).ast(a, &|_| None).0 } else {
-                    format!("{} {} {}", self.r(cfg, false).expr(&v[0]).0, render::rel(rs[0]), self.r(cfg, false).expr(&v[1]).0)
-                };
-                eq_m.push(markup);
-                eq_text.push(ast_text(a));
+                eq_text.push(ast_text(a, &self.units));
                 eqs.push((v[0].clone(), v[1].clone(), rs[0]));
             }
         }
@@ -962,6 +758,8 @@ impl<'a> Sheet<'a> {
             }
             done = true;
         }
+        // solved symbolically: in the complex numbers; numerically: real solutions only
+        let symbolic = done;
         if !done {
             // numerically: everything but the unknowns must be known
             let mut free = vec![];
@@ -990,7 +788,7 @@ impl<'a> Sheet<'a> {
                 .enumerate()
                 .map(|(i, d)| match (d, xs.len() == 1, &clause.unit) {
                     (None, true, Some(u)) => self.units.dim(u).unwrap_or(Dim::ONE),
-                    (d, ..) => d.unwrap_or_else(|| { let _ = i; Dim::ONE }),
+                    (d, ..) => d.clone().unwrap_or_else(|| { let _ = i; Dim::ONE }),
                 })
                 .collect();
             let scale: Vec<f64> = xs.iter().map(|_| clause.unit.as_ref().map(|u| self.units.factor(u).f()).unwrap_or(1.0)).collect();
@@ -1004,7 +802,7 @@ impl<'a> Sheet<'a> {
                 solve::NumSys::new(&bound, xs).multi(&scale)
             };
             for s in found {
-                sols.push(s.iter().zip(&dims).map(|(v, d)| (None, Sol::Value(Val::new(solve::snap(*v), *d)))).collect());
+                sols.push(s.iter().zip(&dims).map(|(v, d)| (None, Sol::Value(CVal::real(Val::new(solve::snap(*v), d.clone()))))).collect());
             }
         }
         // inequalities: the side of the boundary
@@ -1019,7 +817,7 @@ impl<'a> Sheet<'a> {
                     eq_text[0]
                 ));
             }
-            let Sol::Value(b) = &sols[0][0].1 else { return Err("the boundary of an inequality needs a value".into()) };
+            let Some(b) = (match &sols[0][0].1 { Sol::Value(z) if z.is_real() => Some(&z.re), _ => None }) else { return Err("the boundary of an inequality needs a real value".into()) };
             let (l, r) = &bound[0];
             let f = simp(&expr::sub(l.clone(), r.clone()));
             // more boundaries the isolating didn't see (y² < 4)
@@ -1035,88 +833,51 @@ impl<'a> Sheet<'a> {
             let Some(slope) = slope else { return Err(format!("can't tell on which side of its boundary {x} satisfies the inequality")) };
             rel = Some(if slope > 0.0 { r0 } else { r0.flip() });
         }
-        self.out.solutions = sols.iter().map(|s| s.iter().map(|(_, sol)| match sol { Sol::Value(v) => v.v.f(), Sol::Symbolic(_) => f64::NAN }).collect()).collect();
+        self.out.solutions = sols.iter().map(|s| s.iter().map(|(_, sol)| match sol { Sol::Value(z) if z.is_real() => z.re.v.f(), _ => f64::NAN }).collect()).collect();
         // which solution is kept: the only all-positive one, else the first
         let pick_i = {
             let pos: Vec<usize> = (0..sols.len())
-                .filter(|&i| sols[i].iter().all(|(_, s)| matches!(s, Sol::Value(v) if v.v.f() > 0.0)))
+                .filter(|&i| sols[i].iter().all(|(_, s)| matches!(s, Sol::Value(z) if z.is_real() && z.re.v.f() > 0.0)))
                 .collect();
             if pos.len() == 1 { Some(pos[0]) } else if sols.is_empty() { None } else { Some(0) }
         };
         if let Some(i) = pick_i {
             for (j, x) in xs.iter().enumerate() {
-                if let Sol::Value(v) = &sols[i][j].1 {
+                if let Sol::Value(z) = &sols[i][j].1 {
                     let unit = if xs.len() == 1 { clause.unit.clone() } else { None };
-                    let var = Var { expr: Expr::C(Val { u: None, raw: None, ..v.clone() }), ast: None, unit, rel };
+                    let plain = |v: &Val| Val { u: None, raw: None, ..v.clone() };
+                    let var = Var { expr: crate::complex::expr(CVal { re: plain(&z.re), im: plain(&z.im) }), ast: None, unit, rel };
                     self.env.define_var(x, var, Kind::Computed, self.listed);
                     self.out.defined.push(x.clone());
                 }
             }
         }
-        // what's shown
-        let (stages, results) = {
+        // what's shown: x = …, the solutions of one unknown in a row, those of several each in its own line
         let rel_m = rel.map(render::rel).unwrap_or("=");
-        let r = self.r(cfg, false);
-        let vals = self.values(cfg);
-        let rs = R { units: &self.units, cfg, exact: false, sub: Some(&vals) };
-        let mut stages = vec![];
-        stages.push(if eq_m.len() == 1 { stage(eq_m[0].clone(), vec![]) } else { stage(format!("cases({})", eq_m.join(", ")), vec![]) });
         let n = cfg.max_solutions.max(1);
         let mut results: Vec<String> = vec![];
-        let mut segs = vec![];
         if sols.is_empty() {
-            segs.push(Seg { lhs: "\"no real solution\"".into(), parts: vec![] });
-            results.push("\"no real solution\"".into());
+            results.push(if symbolic { "\"no solution\"" } else { "\"no real solution\"" }.into());
         }
         for (k, s) in sols.iter().enumerate().take(n) {
-            let mut lines = vec![];
             for (j, x) in xs.iter().enumerate() {
-                let lhs = if sols.len() > 1 && xs.len() == 1 { format!("{}_({})", name_base(x), k + 1) } else { name(x) };
+                let lhs = if sols.len() > 1 && xs.len() == 1 { solution_name(x, k + 1) } else { name(x) };
                 let (formula, sol) = &s[j];
                 let unit = if xs.len() == 1 { clause.unit.as_ref() } else { None };
-                let (res, exact) = match sol {
-                    Sol::Value(v) => {
-                        let hint = formula.as_ref().and_then(|f| self.hint_expr(f, &v.d));
-                        self.show_val(v, unit, hint.as_ref(), cfg)?
+                let res = match sol {
+                    Sol::Value(z) => {
+                        let hint = formula.as_ref().and_then(|f| self.hint_expr(f, z.d()));
+                        crate::format::complex(z, unit, hint.as_ref(), &self.units, cfg)?.0
                     }
-                    Sol::Symbolic(e) => (self.r(cfg, true).expr(e).0, true),
+                    Sol::Symbolic(e) => self.r(cfg, true).expr(e).0,
                 };
-                let mut parts = vec![];
-                if let (Some(f), Sol::Value(_)) = (formula, sol) {
-                    let fm = r.expr(f).0;
-                    let fsub = rs.expr(f).0;
-                    if !matches!(f, Expr::C(_)) {
-                        parts.push(part(rel_m, fm.clone(), PartKind::Formula));
-                        if fsub != fm && fsub != res {
-                            parts.push(part("=", fsub, PartKind::Sub));
-                        }
-                    }
-                }
-                let first = parts.is_empty();
-                parts.push(part(if first { rel_m } else if exact { "=" } else { "approx" }, res.clone(), PartKind::Res));
                 results.push(format!("{lhs} {rel_m} {res}"));
-                lines.push(Seg { lhs, parts });
-            }
-            if xs.len() == 1 {
-                segs.extend(lines);
-            } else {
-                let body: Vec<String> = lines.iter().map(|sg| format!("{} {}", sg.lhs, sg.parts.iter().map(|p| format!("{} {}", p.rel, p.rhs)).collect::<Vec<_>>().join(" "))).collect();
-                segs.push(Seg { lhs: format!("cases({})", body.join(", ")), parts: vec![] });
             }
         }
         if sols.len() > n {
-            segs.push(Seg { lhs: "dots.h".into(), parts: vec![] });
             results.push("dots.h".into());
         }
-        let join = if xs.len() == 1 { ", quad " } else { " quad or quad " };
-        stages.push(Stage { segs, join: join.into() });
-        (stages, results)
-        };
-        self.out.mark = Some("->".into());
-        self.out.result = Some(results.join(if xs.len() == 1 { ", quad " } else { ", " }));
-        if self.mode == Mode::Code {
-            self.out.show = Some(self.render_stages(&stages, cfg));
-        }
+        self.show("->", results.join(if xs.len() == 1 { ", quad " } else { ", " }));
         Ok(())
     }
 
@@ -1124,8 +885,8 @@ impl<'a> Sheet<'a> {
     fn finish(&self, f: Option<Expr>) -> Result<(Option<Expr>, Sol), String> {
         let Some(f) = f else { return Err("no solution".into()) };
         let b = simplify(&self.env.bind_with_units(&f, &BTreeSet::new(), &self.units)?);
-        Ok(match value(&b) {
-            Ok(v) => (Some(f), Sol::Value(v)),
+        Ok(match complex_value(&b) {
+            Ok(z) => (Some(f), Sol::Value(z)),
             Err(NoValue::Unknown(_)) => (Some(f), Sol::Symbolic(b)),
             Err(NoValue::Error(e)) => return Err(e),
         })
@@ -1134,67 +895,6 @@ impl<'a> Sheet<'a> {
     fn hint_expr(&self, f: &Expr, d: &Dim) -> Option<UnitExpr> {
         let a = Ast::Mul(f.syms().into_iter().map(|s| (parse::MulOp::Implicit, Ast::Name(s))).collect());
         self.hint(&a, d)
-    }
-
-    // ---------- steps ----------
-
-    fn render_stages(&self, stages: &[Stage], cfg: &Cfg) -> String {
-        let st: Vec<Stage> = match cfg.steps.as_str() {
-            "result" | "value" => {
-                let l = stages.last().cloned().unwrap();
-                vec![Stage {
-                    segs: l
-                        .segs
-                        .into_iter()
-                        .map(|s| {
-                            let parts = s.parts.iter().rev().take(1).cloned().collect();
-                            Seg { lhs: s.lhs, parts }
-                        })
-                        .collect(),
-                    join: l.join,
-                }]
-            }
-            "formula" => stages
-                .iter()
-                .map(|s| Stage { segs: s.segs.iter().map(|g| Seg { lhs: g.lhs.clone(), parts: g.parts.iter().filter(|p| p.kind != PartKind::Sub).cloned().collect() }).collect(), join: s.join.clone() })
-                .collect(),
-            _ => stages.to_vec(),
-        };
-        let value_only = cfg.steps == "value";
-        if cfg.layout == "column" {
-            let mut lines = vec![];
-            for (i, s) in st.iter().enumerate() {
-                for (j, g) in s.segs.iter().enumerate() {
-                    let pre = if i > 0 && j == 0 { "#svimp #h(0.3em) " } else { "" };
-                    if g.parts.is_empty() {
-                        lines.push(format!("{pre}{} &", g.lhs));
-                    }
-                    for (k, p) in g.parts.iter().enumerate() {
-                        lines.push(if k == 0 { format!("{pre}{} & {} {}", g.lhs, p.rel, p.rhs) } else { format!("& {} {}", p.rel, p.rhs) });
-                    }
-                }
-            }
-            return lines.join(" \\ ");
-        }
-        st.iter()
-            .map(|s| {
-                s.segs
-                    .iter()
-                    .map(|g| {
-                        if value_only && !g.parts.is_empty() {
-                            return g.parts.last().unwrap().rhs.clone();
-                        }
-                        let mut m = g.lhs.clone();
-                        for p in &g.parts {
-                            m += &format!(" {} {}", p.rel, p.rhs);
-                        }
-                        m
-                    })
-                    .collect::<Vec<_>>()
-                    .join(&s.join)
-            })
-            .collect::<Vec<_>>()
-            .join(" quad #svimp quad ")
     }
 }
 
@@ -1205,39 +905,38 @@ fn close_rel(a: Num, b: Num) -> bool {
     }
 }
 
-fn name_base(x: &str) -> String {
-    // x₁, x₂: the solution's index below the name (a name with an index of its own keeps it: x_a,1)
-    match x.find('_') {
-        Some(i) => format!("{}_(upright({}), ", name(&x[..i]), format::q(&x[i + 1..])).trim_end_matches(", ").to_string(),
-        None => name(x),
-    }
+/// The constants among substitute's names: their bindings.
+fn constants(names: &[String]) -> Result<Vec<crate::bindings::Constant>, String> {
+    names.iter().filter_map(|n| n.strip_prefix('⟦')?.strip_suffix('⟧')).map(|token| {
+        let b = crate::bindings::Binding::decode(token)?;
+        match (b.unit, b.identity, b.backing) {
+            (false, Some(identity), Some(backing)) => Ok(crate::bindings::Constant { identity, expr: b.expr, backing }),
+            _ => Err("substitute: a unit has no formula to put in".to_string()),
+        }
+    }).collect()
 }
 
-/// Names replaced by expressions as written: a function's body with its arguments.
-fn subst_ast(a: &Ast, m: &BTreeMap<String, Ast>) -> Ast {
-    let s = |x: &Ast| Box::new(subst_ast(x, m));
-    match a {
-        Ast::Name(n) => match m.get(n) {
-            // a sum put into a product keeps its parentheses through the precedence of what's shown
-            Some(x) => x.clone(),
-            None => a.clone(),
-        },
-        Ast::Qty(x, u) => Ast::Qty(s(x), u.clone()),
-        Ast::Neg(x) => Ast::Neg(s(x)),
-        Ast::Abs(x) => Ast::Abs(s(x)),
-        Ast::Cast(x, u) => Ast::Cast(s(x), u.clone()),
-        Ast::Add(ts) => Ast::Add(ts.iter().map(|(n, t)| (*n, subst_ast(t, m))).collect()),
-        Ast::Mul(fs) => Ast::Mul(fs.iter().map(|(o, f)| (*o, subst_ast(f, m))).collect()),
-        Ast::Div(x, y) => Ast::Div(s(x), s(y)),
-        Ast::Pow(x, y) => Ast::Pow(s(x), s(y)),
-        Ast::Call(n, args) => Ast::Call(n.clone(), args.iter().map(|x| subst_ast(x, m)).collect()),
-        Ast::Builtin(n, args) => Ast::Builtin(n.clone(), args.iter().map(|x| subst_ast(x, m)).collect()),
-        Ast::Arg(n, x) => Ast::Arg(n.clone(), s(x)),
-        Ast::Index(x, idx) => Ast::Index(s(x), idx.iter().map(|i| subst_ast(i, m)).collect()),
-        Ast::Range(x, y) => Ast::Range(s(x), s(y)),
-        Ast::Matrix(rs) => Ast::Matrix(rs.iter().map(|r| r.iter().map(|x| subst_ast(x, m)).collect()).collect()),
-        Ast::Cmp(f, rest) => Ast::Cmp(s(f), rest.iter().map(|(r, x)| (*r, subst_ast(x, m))).collect()),
-        _ => a.clone(),
+/// The constants' expressions put in for them, wherever they are: π for pi, √−1 for i.
+fn put_constants(e: &Expr, consts: &[crate::bindings::Constant], used: &mut BTreeSet<String>) -> Expr {
+    if consts.is_empty() {
+        return e.clone();
+    }
+    let identity = match e {
+        Expr::Const(id, _) => Some(id.as_str()),
+        e => crate::bindings::identity_of(e),
+    };
+    if let Some(c) = identity.and_then(|id| consts.iter().find(|c| c.identity == id)) {
+        used.insert(c.identity.clone());
+        return c.backing.clone();
+    }
+    e.map(&mut |x| put_constants(x, consts, used))
+}
+
+/// The k-th solution's name: x₁, and for a name with an index of its own x_(a, 1).
+fn solution_name(x: &str, k: usize) -> String {
+    match x.split_once('_') {
+        Some((base, sub)) => format!("{}_(upright({}), {k})", name(base), format::q(sub)),
+        None => format!("{}_({k})", name(x)),
     }
 }
 
@@ -1249,7 +948,7 @@ fn array_markup(a: &Array, parts: Vec<String>) -> String {
 /// A value written out: 7.2 kΩ, -3, [5 V].
 fn literal(a: &Ast) -> bool {
     match a {
-        Ast::Num(..) | Ast::Qty(..) | Ast::Unit(..) => true,
+        Ast::Bound(_) | Ast::Num(..) | Ast::Qty(..) | Ast::Unit(..) => true,
         Ast::Neg(x) => literal(x),
         // vectors and matrices of values
         Ast::Matrix(rs) => rs.iter().flatten().all(literal),
@@ -1265,7 +964,7 @@ pub(crate) fn ast_names(a: &Ast, out: &mut Vec<String>) {
                 out.push(n.clone())
             }
         }
-        Ast::Qty(x, _) | Ast::Neg(x) | Ast::Abs(x) | Ast::Cast(x, _) => ast_names(x, out),
+        Ast::Qty(x, _) | Ast::Neg(x) | Ast::Abs(x) => ast_names(x, out),
         Ast::Add(ts) => ts.iter().for_each(|t| ast_names(&t.1, out)),
         Ast::Mul(fs) => fs.iter().for_each(|f| ast_names(&f.1, out)),
         Ast::Div(x, y) | Ast::Pow(x, y) => {
@@ -1304,50 +1003,49 @@ pub(crate) fn ast_names(a: &Ast, out: &mut Vec<String>) {
     }
 }
 
-/// An expression as text, for messages.
-pub fn ast_text(a: &Ast) -> String {
-    fn p(a: &Ast, min: u8) -> String {
-        let (s, prec) = t(a);
+/// An expression as text, for messages; units by their names.
+pub fn ast_text(a: &Ast, units: &Units) -> String {
+    fn p(a: &Ast, min: u8, u: &Units) -> String {
+        let (s, prec) = t(a, u);
         if prec < min { format!("({s})") } else { s }
     }
-    fn t(a: &Ast) -> (String, u8) {
+    fn t(a: &Ast, u: &Units) -> (String, u8) {
+        let list = |xs: &[Ast]| xs.iter().map(|x| t(x, u).0).collect::<Vec<_>>().join(", ");
         match a {
+            Ast::Bound(c) => (c.identity.clone(), 9),
             Ast::Num(r, _) => (r.clone(), 9),
-            Ast::Qty(n, u) => (format!("{} {}", p(n, 9), u.text()), 3),
-            Ast::Unit(u) => (u.text(), 9),
+            Ast::Qty(n, w) => (format!("{} {}", p(n, 9, u), u.text(w)), 3),
+            Ast::Unit(w) => (u.text(w), 9),
             Ast::Name(n) => (n.clone(), 9),
-            Ast::Neg(x) => (format!("-{}", p(x, 3)), 2),
+            Ast::Neg(x) => (format!("-{}", p(x, 3, u)), 2),
             Ast::Add(ts) => (
-                ts.iter().enumerate().map(|(i, (n, x))| format!("{}{}", if *n { if i == 0 { "-" } else { " - " } } else if i > 0 { " + " } else { "" }, p(x, 2))).collect(),
+                ts.iter().enumerate().map(|(i, (n, x))| format!("{}{}", if *n { if i == 0 { "-" } else { " - " } } else if i > 0 { " + " } else { "" }, p(x, 2, u))).collect(),
                 1,
             ),
             Ast::Mul(fs) => (
-                fs.iter().enumerate().map(|(i, (o, x))| format!("{}{}", if i == 0 { "" } else if *o == parse::MulOp::Implicit { " " } else { " * " }, p(x, 3))).collect(),
+                fs.iter().enumerate().map(|(i, (o, x))| format!("{}{}", if i == 0 { "" } else if *o == parse::MulOp::Implicit { " " } else { " * " }, p(x, 3, u))).collect(),
                 3,
             ),
-            Ast::Div(x, y) => (format!("{}/{}", p(x, 3), p(y, 4)), 3),
-            Ast::Pow(x, y) => (format!("{}^{}", p(x, 9), p(y, 9)), 5),
-            Ast::Call(n, args) | Ast::Builtin(n, args) => (format!("{n}({})", args.iter().map(|x| t(x).0).collect::<Vec<_>>().join(", ")), 9),
-            Ast::Arg(n, x) => (format!("{n}: {}", t(x).0), 0),
-            Ast::Index(x, idx) => (format!("{}[{}]", p(x, 9), idx.iter().map(|i| t(i).0).collect::<Vec<_>>().join(", ")), 9),
-            Ast::Range(x, y) => (format!("{} .. {}", p(x, 1), p(y, 1)), 0),
-            Ast::Abs(x) => (format!("|{}|", t(x).0), 9),
-            Ast::Matrix(rs) => (format!("mat({})", rs.iter().map(|r| r.iter().map(|x| t(x).0).collect::<Vec<_>>().join(", ")).collect::<Vec<_>>().join("; ")), 9),
+            Ast::Div(x, y) => (format!("{}/{}", p(x, 3, u), p(y, 4, u)), 3),
+            Ast::Pow(x, y) => (format!("{}^{}", p(x, 9, u), p(y, 9, u)), 5),
+            Ast::Call(n, args) | Ast::Builtin(n, args) => (format!("{n}({})", list(args)), 9),
+            Ast::Arg(n, x) => (format!("{n}: {}", t(x, u).0), 0),
+            Ast::Index(x, idx) => (format!("{}[{}]", p(x, 9, u), list(idx)), 9),
+            Ast::Range(x, y) => (format!("{} .. {}", p(x, 1, u), p(y, 1, u)), 0),
+            Ast::Abs(x) => (format!("|{}|", t(x, u).0), 9),
+            Ast::Matrix(rs) => (format!("mat({})", rs.iter().map(|r| list(r)).collect::<Vec<_>>().join("; ")), 9),
             Ast::Cmp(f, rest) => {
-                let mut s = p(f, 1);
+                let mut s = p(f, 1, u);
                 for (r, x) in rest {
-                    s += &format!(" {} {}", r.text(), p(x, 1));
+                    s += &format!(" {} {}", r.text(), p(x, 1, u));
                 }
                 (s, 0)
             }
-            Ast::Cast(x, u) => (format!("{} as {}", p(x, 5), u.text()), 3),
         }
     }
-    t(a).0
+    t(a, units).0
 }
 
-#[allow(dead_code)]
-fn unused(_: Shown) {}
 
 #[cfg(test)]
 mod tests {
@@ -1361,11 +1059,13 @@ mod tests {
         fn new() -> T {
             T { env: Env::default(), cfg: Cfg::default() }
         }
+        /// A readable line, as Typst sends it; results and errors readable again.
         fn math(&mut self, s: &str) -> Out {
-            Sheet::new(&mut self.env, &self.cfg, Mode::Math, true).unwrap().run(s)
-        }
-        fn code(&mut self, s: &str) -> Out {
-            Sheet::new(&mut self.env, &self.cfg, Mode::Code, true).unwrap().run(s)
+            let source = crate::test_support::src(s, &self.env);
+            let mut o = Sheet::new(&mut self.env, &self.cfg, true).unwrap().run(&source);
+            o.result = o.result.map(|r| crate::test_support::readable(&r));
+            o.errors = o.errors.iter().map(|e| crate::test_support::readable(e)).collect();
+            o
         }
         fn ok(&mut self, s: &str) -> Out {
             let o = self.math(s);
@@ -1385,11 +1085,11 @@ mod tests {
         assert_eq!(o.result.as_deref(), Some("x + y^(\"2\") + \"1\""));
         let o = t.ok("0 = 1 + frac(3, x) + y^(2) → ⦅solve(x)⦆");
         assert_eq!(o.result.as_deref(), Some("x = -frac(\"3\", y^(\"2\") + \"1\")"));
-        let o = t.math("f(y_2: A, ..) = q(x_2, y_2)");
-        assert!(o.errors.is_empty(), "{:?}", o.errors);
+        let o = t.math("f(y_2) = q(x_2, y_2)");
+        assert!(o.errors.iter().any(|e| e.contains("f isn't defined")));
         let o = t.ok("M ≔ 1 = 2 =");
         assert_eq!(o.result.as_deref(), Some("\"0\""));
-        let o = t.ok("M ≔ 1 ⦃A⦄ = 2 ⦃V⦄ →");
+        let o = t.ok("M ≔ 1 #A = 2 #V →");
         assert_eq!(o.result.as_deref(), Some("\"0\""));
         let o = t.ok("M =");
         assert_eq!(o.result.as_deref(), Some("\"0\""));
@@ -1399,12 +1099,12 @@ mod tests {
     fn substitution() {
         let mut t = T::new();
         t.ok("h ≔ 5 z");
-        t.ok("z ≔ 20 ⦃cm⦄");
+        t.ok("z ≔ 20 #cm");
         let o = t.ok("U(x: m) ≔ h x a →");
         assert_eq!(o.result.as_deref(), Some("\"1\" thin upright(\"m\") dot a x"));
         let o = t.ok("h(x: m) ≔ frac(U(x), a) →");
         assert_eq!(o.result.as_deref(), Some("\"1\" thin upright(\"m\") dot x"));
-        let o = t.ok("y ≔ h(2 ⦃m⦄) =");
+        let o = t.ok("y ≔ h(2 #m) =");
         assert_eq!(o.result.as_deref(), Some("\"2\" thin upright(\"m\")^(2)"));
     }
 
@@ -1422,9 +1122,9 @@ mod tests {
     #[test]
     fn worksheet() {
         let mut t = T::new();
-        t.ok("Q_0 ≔ 3450 ⦃mAh⦄");
-        t.ok("I ≔ 30 ⦃mA⦄");
-        let o = t.ok("t ≔ frac(Q_0, I) = 1 ⦃h⦄");
+        t.ok("Q_0 ≔ 3450 #mAh");
+        t.ok("I ≔ 30 #mA");
+        let o = t.ok("t ≔ frac(Q_0, I) = 1 #h");
         assert_eq!(o.result.as_deref(), Some("\"115\" thin upright(\"h\")"));
         let o = t.ok("frac(Q_0, 2) = I t → ⦅solve(t)⦆");
         assert_eq!(o.result.as_deref(), Some("t = \"57.5\" thin upright(\"h\")"));
@@ -1432,7 +1132,7 @@ mod tests {
         let o = t.ok("x^(2) + 2x - 3 = 0 → ⦅solve(x)⦆");
         assert!(o.result.unwrap().contains("x_(1) = \"−3\""));
         assert_eq!(t.val("x"), 1.0);
-        t.ok("U ≔ 5 ⦃V⦄");
+        t.ok("U ≔ 5 #V");
         let o = t.ok("R ≤ frac(U, I) → ⦅solve(R)⦆");
         assert!(o.result.unwrap().starts_with("R <= \"166.7\""));
         let o = t.ok("c ≔ frac(1, 3) → ⦅frac⦆");
@@ -1441,7 +1141,7 @@ mod tests {
         assert!(o.errors.is_empty());
         assert_eq!(t.val("a"), 2.0);
         // a check that fails
-        let o = t.math("U = 6 ⦃V⦄");
+        let o = t.math("U = 6 #V");
         assert!(o.errors[0].contains("another value"));
         // prose
         assert!(t.math("E = m c^(2)").prose);
@@ -1450,22 +1150,12 @@ mod tests {
     }
 
     #[test]
-    fn code_steps() {
+    fn typed_parameters() {
         let mut t = T::new();
-        t.code("Q0 := 3450 mAh; I := 30 mA");
-        let o = t.code("t := Q0/I = [h], digits(3)");
-        assert!(o.errors.is_empty(), "{:?}", o.errors);
-        let s = o.show.unwrap();
-        assert!(s.contains("frac(upright(\"Q0\"), I)"), "{s}");
-        assert!(s.contains("\"115\" thin upright(\"h\")"), "{s}");
-        let o = t.code("y := 3 h");
-        assert!(o.errors.is_empty());
-        let o = t.code("U(x: A) := x [2 Ω]");
-        assert!(o.errors.is_empty(), "{:?}", o.errors);
-        let o = t.code("z := U([3 A]) =");
-        assert!(o.errors.is_empty(), "{:?}", o.errors);
+        t.ok("U(x: A) := x · 2 Ω");
+        t.ok("z := U(3 A) =");
         assert_eq!(t.val("z"), 6.0);
-        let o = t.code("w := U([2 V])");
-        assert!(o.errors[0].contains("takes x in A"), "{:?}", o.errors);
+        let o = t.math("w := U(2 V)");
+        assert!(o.errors[0].contains("takes x in A, got V"), "{:?}", o.errors);
     }
 }

@@ -1,5 +1,5 @@
-// Shorthands from solveng's `units` and `functions` modules: colours at the import, navigation, renaming to an
-// alias, hovers, and the nudges toward them.
+// Names imported from solveng's `units`, `constants` and `functions` modules: colours at the import, navigation,
+// renaming to an alias, hovers, import fixes, and the nudge from `op("…")` toward them.
 
 use solveng_ide::*;
 
@@ -13,23 +13,33 @@ fn apply(doc: &str, mut edits: Vec<(u32, u32, String)>) -> String {
     String::from_utf16(&text).unwrap()
 }
 
+fn applied_fix(doc: &str, fix: &Conversion) -> String {
+    let mut edits = vec![(fix.start, fix.end, fix.text.clone())];
+    edits.extend(fix.edits.iter().map(|e| (e.start, e.end, e.text.clone())));
+    apply(doc, edits)
+}
+
 const SOLVENG: &str = "#import \"@preview/solveng:1.0.0\": *\n";
 
 #[test]
 fn imported_names_are_coloured_and_renamed_module_names_are_not() {
-    let doc = format!("{SOLVENG}#import units: km, s as test\n#import functions: tri\n#show: worksheet\n$1unit(\"min\") -> #test$");
+    let doc = format!("{SOLVENG}#import units: km, s as test\n#import constants: pi\n#import functions: tri\n#show: worksheet\n$x := 2 km = #test$ $y := pi tri(x)$");
     let tokens = document_tokens(&doc, &Context::default());
     let kind = |offset: u32| tokens.iter().find(|t| t.start == offset).map(|t| t.kind);
     assert_eq!(kind(at(&doc, "km,")), Some(TokenKind::UNIT));
     assert_eq!(kind(at(&doc, "test\n")), Some(TokenKind::UNIT));
     assert_eq!(kind(at(&doc, "s as")), Some(TokenKind::FUNCTION_CALL));
+    assert_eq!(kind(at(&doc, "pi\n")), Some(TokenKind::KEYWORD));
     assert_eq!(kind(at(&doc, "tri\n")), Some(TokenKind::BUILTIN_FUNCTION));
+    assert_eq!(kind(at(&doc, "km =")), Some(TokenKind::UNIT));
     assert_eq!(kind(at(&doc, "test$")), Some(TokenKind::UNIT));
+    assert_eq!(kind(at(&doc, "pi tri")), Some(TokenKind::KEYWORD));
+    assert_eq!(kind(at(&doc, "tri(x)")), Some(TokenKind::BUILTIN_FUNCTION));
 }
 
 #[test]
 fn uses_go_to_their_import() {
-    let doc = format!("{SOLVENG}#import units: km, s as test\n#show: worksheet\n$x := 2 km$ $1unit(\"min\") -> #test$");
+    let doc = format!("{SOLVENG}#import units: km, s as test\n#show: worksheet\n$x := 2 km$ $y := 3 #test$");
     let ctx = Context::default();
     assert_eq!(definition(&doc, &ctx, at(&doc, "km$")).unwrap().start, at(&doc, "km,"));
     assert_eq!(definition(&doc, &ctx, at(&doc, "test$")).unwrap().start, at(&doc, "test\n"));
@@ -40,12 +50,12 @@ fn uses_go_to_their_import() {
 fn renaming_makes_or_drops_an_alias() {
     let ctx = Context::default();
     let rename_at = |doc: &str, offset: u32, name: &str| apply(doc, rename(doc, &ctx, offset, name).into_iter().map(|e| (e.start, e.end, e.text)).collect());
-    let doc = format!("{SOLVENG}#import units: km, s\n#show: worksheet\n$1unit(\"min\") -> #s$ $2unit(\"h\") -> #s$");
+    let doc = format!("{SOLVENG}#import units: km, s\n#show: worksheet\n$a := 1 #s$ $b := 2 #s$");
     let renamed = rename_at(&doc, nth(&doc, "s$", 0), "test");
-    assert!(renamed.contains("#import units: km, s as test\n") && renamed.contains("-> #test$ $2unit(\"h\") -> #test$"), "{renamed}");
+    assert!(renamed.contains("#import units: km, s as test\n") && renamed.contains("$a := 1 #test$ $b := 2 #test$"), "{renamed}");
     // another alias replaces the alias; the module's own name drops it
     let again = rename_at(&renamed, at(&renamed, "test\n"), "sec");
-    assert!(again.contains("s as sec\n") && again.contains("-> #sec$"), "{again}");
+    assert!(again.contains("s as sec\n") && again.contains("1 #sec$"), "{again}");
     let back = rename_at(&again, at(&again, "sec$"), "s");
     assert_eq!(back, doc);
     assert_eq!(rename_target(&doc, &ctx, nth(&doc, "s$", 1)).unwrap().name, "s");
@@ -53,53 +63,80 @@ fn renaming_makes_or_drops_an_alias() {
 }
 
 #[test]
-fn modules_and_shorthands_hover_with_their_docs() {
-    let doc = format!("{SOLVENG}#import units: km, s as test\n#import functions: tri\n#show: worksheet\n$1unit(\"min\") -> #test$ $y := tri(2) km$");
+fn modules_and_imported_names_hover_with_their_docs() {
+    let doc = format!("{SOLVENG}#import units: km, s as test\n#import constants: pi\n#import functions: tri\n#show: worksheet\n$x := 1 #test$ $y := tri(2) km$ $z := 2 pi$");
     let ctx = Context::default();
     let md = |offset: u32| hover(&doc, &ctx, offset).unwrap().markdown;
-    let units = md(at(&doc, "units:") + 1);
-    assert!(units.contains("`units` module") && units.contains("lexical"), "{units}");
-    let functions = md(at(&doc, "functions:") + 1);
-    assert!(functions.contains("`functions` module") && functions.contains("op(\"tri\")"), "{functions}");
+    for module in ["units", "constants", "functions"] {
+        let text = md(at(&doc, &format!("{module}:")) + 1);
+        assert!(text.starts_with(&format!("`{module}` module of solveng")), "{text}");
+    }
     let test = md(at(&doc, "test$"));
     assert!(test.contains("shorthand for `s`") && test.contains("second") && test.contains("See `units`"), "{test}");
     let km = md(at(&doc, "km$"));
-    assert!(km.contains("kilometre") && km.contains("shorthand from solveng's `units`"), "{km}");
+    assert!(km.contains("kilometre") && km.contains("shorthand from solveng's `units`") && km.contains("`km = 10³ m`"), "{km}");
     let tri = md(at(&doc, "tri(2)"));
     assert!(tri.contains("shorthand from solveng's `functions`") && tri.contains("### Parameters"), "{tri}");
+    let pi = md(at(&doc, "pi$"));
+    assert!(pi.contains("shorthand from solveng's `constants`") && pi.contains("identity `pi`"), "{pi}");
 }
 
 #[test]
-fn strings_with_a_shorthand_get_a_nudge_and_a_fix() {
-    let doc = format!("{SOLVENG}#show: worksheet\n$x := 2 unit(\"km\") + 3 unit(\"km\")$ $y := op(\"tri\")(1)$ $z := 1 unit(\"s\")$");
+fn the_documents_own_bindings_hover_where_math_uses_them() {
+    let doc = "#import units: s\n#let minute = unit($60 #s$)\n#let time = base-unit(\"time\")\n#let i = constant(\"imaginary\", $sqrt(-1)$)\n#show: worksheet\n$t := 2 minute + 3 time$ $z := 2 #i$";
+    let md = |needle: &str| hover(doc, &Context::default(), at(doc, needle)).map(|h| h.markdown).unwrap_or_default();
+    assert_eq!(md("minute +"), "`minute`: unit: `60 #s`");
+    assert!(md("time$").contains("base unit of the dimension `time`"), "{}", md("time$"));
+    assert_eq!(md("i$"), "`i`: constant: `sqrt(-1)`, identity `imaginary`");
+    // where they're made, Typst's language server answers
+    assert!(hover(doc, &Context::default(), at(doc, "minute =")).is_none());
+}
+
+#[test]
+fn local_bindings_shadow_imports() {
+    let doc = "#import units: km, m\n#show: worksheet\n$a := 2 km$\n#[\n#let km = unit($1000 #m$)\n$b := 3 km$\n]";
+    let md = |needle: &str| hover(doc, &Context::default(), at(doc, needle)).unwrap().markdown;
+    assert!(md("km$\n#[").contains("kilometre"));
+    assert_eq!(md("km$\n]"), "`km`: unit: `1000 #m`");
+}
+
+#[test]
+fn unbound_module_names_get_an_import_fix() {
+    let doc = format!("{SOLVENG}#show: worksheet\n$x := 2 km$ $y := 2 pi$ $z := tri(1)$");
+    let ctx = Context::default();
+    for (needle, title, import) in [("km$", "Import km from solveng's units", "#import units: km\n"), ("pi$", "Import pi from solveng's constants", "#import constants: pi\n"), ("tri(", "Import tri from solveng's functions", "#import functions: tri\n")] {
+        let fixes = unit_fixes(&doc, &ctx, at(&doc, needle) + 1);
+        let fix = fixes.iter().find(|f| f.title == title).unwrap_or_else(|| panic!("{title}: {fixes:?}"));
+        let fixed = applied_fix(&doc, fix);
+        assert!(fixed.contains(import) && fixed.ends_with("$z := tri(1)$"), "{fixed}");
+    }
+    // added to the module's import in scope
+    let some = format!("{SOLVENG}#import units: m\n#show: worksheet\n$x := 2 km$");
+    let fix = unit_fixes(&some, &ctx, at(&some, "km$")).remove(0);
+    assert!(applied_fix(&some, &fix).contains("#import units: m, km\n"));
+    // nothing to fix where the name is bound, outside calculated math or without solveng's import
+    let bound = format!("{SOLVENG}#import units: km\n#show: worksheet\n$x := 2 km$");
+    assert!(unit_fixes(&bound, &ctx, at(&bound, "km$")).is_empty());
+    let plain = format!("{SOLVENG}$x := 2 km$");
+    assert!(unit_fixes(&plain, &ctx, at(&plain, "km$")).is_empty());
+    let bare = "#show: worksheet\n$x := 2 km$";
+    assert!(unit_fixes(bare, &ctx, at(bare, "km$")).is_empty());
+}
+
+#[test]
+fn explicit_operations_get_a_nudge_and_a_fix() {
+    let doc = format!("{SOLVENG}#show: worksheet\n$y := op(\"tri\")(1) + op(\"sin\")(2)$ $z := op(\"tri\")(3)$");
     let ctx = Context::default();
     let warned: Vec<String> = diagnostics(&doc, &ctx).into_iter().filter(|p| p.message.contains("shorthand"))
         .map(|p| String::from_utf16(&doc.encode_utf16().collect::<Vec<_>>()[p.start as usize..p.end as usize]).unwrap()).collect();
-    // single letters stay quoted
-    assert_eq!(warned, ["unit(\"km\")", "unit(\"km\")", "op(\"tri\")", "unit(\"s\")"]);
-    let fix = unit_fixes(&doc, &ctx, at(&doc, "unit(\"km\")") + 6).into_iter().find(|f| f.title.contains("shorthand")).unwrap();
-    let mut edits = vec![(fix.start, fix.end, fix.text.clone())];
-    edits.extend(fix.edits.iter().map(|e| (e.start, e.end, e.text.clone())));
-    let fixed = apply(&doc, edits);
-    assert!(fixed.contains("#import units: km\n") && fixed.contains("$x := 2 km +"), "{fixed}");
-    // no nudge where the name means something else or the unit is redefined
-    let taken = doc.replace("#show: worksheet", "#let km = 3\n#show: worksheet");
-    assert!(!diagnostics(&taken, &ctx).iter().any(|p| p.message.contains("shorthand km")));
-    let redefined = doc.replace("#show: worksheet", "#show: worksheet.with(units: (km: $s$))");
-    assert!(!diagnostics(&redefined, &ctx).iter().any(|p| p.message.contains("shorthand km")));
-    // nor without solveng's import to add it to
+    // Typst's own operators have no shorthand in solveng's functions
+    assert_eq!(warned, ["op(\"tri\")", "op(\"tri\")"]);
+    let fix = unit_fixes(&doc, &ctx, at(&doc, "op(\"tri\")") + 4).into_iter().find(|f| f.title.contains("shorthand")).unwrap();
+    let fixed = applied_fix(&doc, &fix);
+    assert!(fixed.contains("#import functions: tri\n") && fixed.contains("$y := tri(1) +"), "{fixed}");
+    // no nudge where the name means something else, nor without solveng's import to add it to
+    let taken = doc.replace("#show: worksheet", "#let tri = 3\n#show: worksheet");
+    assert!(!diagnostics(&taken, &ctx).iter().any(|p| p.message.contains("shorthand")));
     let bare = doc.replace(SOLVENG, "");
     assert!(!diagnostics(&bare, &ctx).iter().any(|p| p.message.contains("shorthand")));
-}
-
-#[test]
-fn prefixed_uses_follow_the_units_in_effect() {
-    // the shorthand is outside the worksheet defining m: its km is kilometre, no use of that m
-    let doc = "#let km = unit(\"km\")\n#show: worksheet.with(builtin-units: false, units: (\n  m: $1$,\n  km_old: $10^3m$,\n))\n$x := 2 unit(\"km_old\") + 3 unit(\"km\")$";
-    let ctx = Context::default();
-    let mut found: Vec<u32> = usages(doc, &ctx, at(doc, "m: $1$")).iter().map(|l| l.start).collect();
-    found.sort();
-    // its key, the m of 10^3m and the m of "km" inside the worksheet; never inside km_old or the outer km
-    assert_eq!(found, [at(doc, "m: $1$"), at(doc, "m$,\n))"), nth(doc, "m\")$", 0)], "{found:?}");
-    assert!(usages(doc, &ctx, at(doc, "km_old")).iter().all(|l| l.end - l.start == 6));
 }

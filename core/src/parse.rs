@@ -1,32 +1,21 @@
-//! Reading equations: code lines (`t := Q0/I = [h]`) and math as the Typst side writes it out (`t ≔ Q_0/I = 1 h`,
-//! unit names as `⦃mA⦄`, keywords as `⦅solve(x)⦆`).
+//! Reading equations as the Typst side writes math out: operators, numbers and names; what Typst bindings stand
+//! for as explicit references – units and constants as `⟦…⟧`, operations as `⦇tri⦈`, keywords as `⦅solve(x)⦆`.
 
 use serde::{Deserialize, Serialize};
 
-use crate::builtins::Functions;
 use crate::num::{Num, Rat};
 use crate::units::{UnitExpr, Units};
 
-/// Where a line comes from: math decides units by how they are written, code by brackets.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Mode {
-    Math,
-    Code,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum Tok {
+    /// A constant's binding.
+    Bound(Box<crate::bindings::Constant>),
     Num(String),
     Name(String),
-    /// "text" in math: a name of several letters, a unit, or `as`.
+    /// "text" in math: a name, of several letters.
     Quoted(String),
-    /// A unit name explicitly marked as a unit.
+    /// A unit's binding, by its id.
     UnitWord(String),
-    /// A unit word of the `units` module (⦗km⦘) or a unit symbol (°, %, ‰).
-    ImplicitUnit(String),
-    /// [5 V] in code.
-    Bracket(String),
     /// A keyword of a clause, ⦅digits(3)⦆ in math.
     Kw(String),
     /// An explicit reference to an operation, ⦇tri⦈: what Typst's math.op writes.
@@ -50,7 +39,7 @@ fn indexable(t: &Tok) -> bool {
 
 pub fn greek(name: &str) -> String { solveng_names::normalize(name) }
 
-pub fn lex(s: &str, mode: Mode) -> Result<Vec<Tok>, String> {
+pub fn lex(s: &str) -> Result<Vec<Tok>, String> {
     let cs: Vec<char> = s.chars().collect();
     let mut out: Vec<Tok> = vec![];
     // open square brackets: whether each indexes
@@ -61,6 +50,11 @@ pub fn lex(s: &str, mode: Mode) -> Result<Vec<Tok>, String> {
         if c.is_whitespace() {
             i += 1;
             continue;
+        }
+        // units are bindings, symbols are no units of their own
+        if matches!(c, '°' | '%' | '‰') {
+            let name = match (c, cs.get(i + 1)) { ('°', Some('C')) => "degC", ('°', _) => "deg", ('%', _) => "percent", _ => "permille" };
+            return Err(format!("'{c}' isn't a unit by itself – write #{name} with #import units: {name}"));
         }
         if solveng_names::numeric_start(&cs, i) {
             let name = solveng_names::scan(&cs, i)?.ok_or("expected a joined variable name")?;
@@ -94,9 +88,23 @@ pub fn lex(s: &str, mode: Mode) -> Result<Vec<Tok>, String> {
             let n = name.value;
             if let Some(index) = n.strip_prefix("integral_").or_else(|| n.strip_prefix("sum_")).filter(|s| !s.is_empty()) {
                 out.push(Tok::Name(if n.starts_with("sum_") { "sum_" } else { "integral_" }.into()));
-                out.extend(lex(index, mode)?);
-            } else if quoted || n == "as" { out.push(Tok::Quoted(n)); }
+                out.extend(lex(index)?);
+            } else if quoted { out.push(Tok::Quoted(n)); }
             else { out.push(Tok::Name(n)); }
+            continue;
+        }
+        if c == '⟦' {
+            let start = i + 1;
+            i = start;
+            while i < cs.len() && cs[i] != '⟧' { i += 1; }
+            if i == cs.len() { return Err("unclosed lexical value".into()); }
+            let binding = crate::bindings::Binding::decode(&cs[start..i].iter().collect::<String>())?;
+            out.push(match (binding.unit, binding.identity, binding.backing) {
+                (false, Some(identity), Some(backing)) => Tok::Bound(Box::new(crate::bindings::Constant { identity, expr: binding.expr, backing })),
+                (true, ..) => Tok::UnitWord(binding.id),
+                _ => return Err("invalid constant value".into()),
+            });
+            i += 1;
             continue;
         }
         match c {
@@ -111,22 +119,6 @@ pub fn lex(s: &str, mode: Mode) -> Result<Vec<Tok>, String> {
                 i += 1;
                 continue;
             }
-            '⦗' => {
-                let start = i + 1;
-                while i < cs.len() && cs[i] != '⦘' { i += 1; }
-                out.push(Tok::ImplicitUnit(cs[start..i.min(cs.len())].iter().collect()));
-                i += 1;
-                continue;
-            }
-            '⦃' => {
-                let st = i + 1;
-                while i < cs.len() && cs[i] != '⦄' {
-                    i += 1;
-                }
-                out.push(Tok::UnitWord(cs[st..i.min(cs.len())].iter().collect()));
-                i += 1;
-                continue;
-            }
             '⦇' => {
                 let st = i + 1;
                 while i < cs.len() && cs[i] != '⦈' {
@@ -136,15 +128,14 @@ pub fn lex(s: &str, mode: Mode) -> Result<Vec<Tok>, String> {
                 i += 1;
                 continue;
             }
-            // x[i]: an index right after what it indexes, without a space; [ … ] elsewhere groups (math) or is a
-            // value with a unit (code)
+            // x[i]: an index right after what it indexes, without a space; [ … ] elsewhere groups
             '[' if i > 0 && !cs[i - 1].is_whitespace() && out.last().is_some_and(indexable) => {
                 brackets.push(true);
                 out.push(Tok::Op("["));
                 i += 1;
                 continue;
             }
-            '[' if mode == Mode::Math => {
+            '[' => {
                 brackets.push(false);
                 out.push(Tok::Op("("));
                 i += 1;
@@ -164,27 +155,6 @@ pub fn lex(s: &str, mode: Mode) -> Result<Vec<Tok>, String> {
                 i += 1;
                 continue;
             }
-            '[' if mode == Mode::Code => {
-                let st = i + 1;
-                let mut d = 0;
-                while i < cs.len() {
-                    if cs[i] == '[' {
-                        d += 1;
-                    } else if cs[i] == ']' {
-                        d -= 1;
-                        if d == 0 {
-                            break;
-                        }
-                    }
-                    i += 1;
-                }
-                if i >= cs.len() {
-                    return Err("missing ']'".into());
-                }
-                out.push(Tok::Bracket(cs[st..i].iter().collect::<String>().trim().to_string()));
-                i += 1;
-                continue;
-            }
             // Typst math writes the symbol at as @: at(v, 0) without the import of solveng's at
             '@' if cs[i + 1..].iter().find(|c| !c.is_whitespace()) == Some(&'(') => {
                 return Err("'@(' – at(vector, index) needs solveng's at: #import functions: at (in math, at alone is the symbol @)".into());
@@ -192,21 +162,6 @@ pub fn lex(s: &str, mode: Mode) -> Result<Vec<Tok>, String> {
             '@' => {
                 let name = solveng_names::scan(&cs, i + 1).ok().flatten().map_or_else(|| "x".to_string(), |n| n.value);
                 return Err(format!("'@' isn't solveng syntax – to put {name}'s formula into a result, end the line with -> substitute({name})"));
-            }
-            '°' => {
-                i += 1;
-                if i < cs.len() && cs[i] == 'C' {
-                    i += 1;
-                    out.push(Tok::ImplicitUnit("°C".into()));
-                } else {
-                    out.push(Tok::ImplicitUnit("°".into()));
-                }
-                continue;
-            }
-            '%' | '‰' => {
-                i += 1;
-                out.push(Tok::ImplicitUnit(c.to_string()));
-                continue;
             }
             '²' | '³' => {
                 i += 1;
@@ -308,6 +263,8 @@ pub enum MulOp {
 /// An expression as written.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Ast {
+    /// A constant, from its binding.
+    Bound(Box<crate::bindings::Constant>),
     /// A number as written, with its value.
     Num(String, Num),
     /// A number (or a numeric expression) with a unit: 30 mA, frac(3450, 2) mAh.
@@ -337,8 +294,6 @@ pub enum Ast {
     Abs(Box<Ast>),
     /// a = b < c: a chain of comparisons, 1 where all hold.
     Cmp(Box<Ast>, Vec<(Rel, Ast)>),
-    /// e as u: e's SI number as a value in u.
-    Cast(Box<Ast>, UnitExpr),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -395,8 +350,6 @@ pub struct Clause {
 pub struct Line {
     pub stmts: Vec<Stmt>,
     pub trail: Option<(Trail, Clause)>,
-    /// Unit names written as single letters after numbers, which math sets upright.
-    pub unit_letters: Vec<String>,
 }
 
 /// Names that can't be defined: Typst's math syntax.
@@ -407,57 +360,33 @@ pub fn is_builtin(n: &str) -> bool {
 fn applies_bare(op: &str) -> bool {
     matches!(op, "sqrt" | "exp" | "ln" | "log" | "sin" | "cos" | "tan" | "arcsin" | "arccos" | "arctan" | "sinh" | "cosh" | "tanh" | "abs" | "rect" | "tri" | "sgn" | "floor" | "factorial" | "det" | "tr")
 }
+/// The keywords of a clause, as their bindings name them (frac is Typst's fraction).
 const KEYWORDS: &[&str] = &["solve", "substitute", "simplify", "digits", "sci", "eng", "frac"];
-/// Keywords that were removed, read only to say what replaced them.
-const REMOVED: &[&str] = &["laplace", "invlaplace"];
-fn removed(n: &str) -> String {
-    let (what, from, to) = if n == "laplace" { ("f", "t", "s") } else { ("F", "s", "t") };
-    format!("-> {n} was removed: write {n}({what}, {from}, {to}) (in math with #import functions: {n})")
-}
 
 /// What the parser needs to know about the document so far.
 pub struct Ctx<'a> {
     pub units: &'a Units,
-    /// How names reach built-in operations here.
-    pub functions: &'a Functions,
-    pub mode: Mode,
     /// Names of user functions (and the one being defined).
     pub is_fn: &'a dyn Fn(&str) -> bool,
     /// Names of defined variables.
     pub is_var: &'a dyn Fn(&str) -> bool,
-    /// strict: unit names can't be variables, units in math must be quoted or unit words.
-    pub strict: bool,
-}
-
-impl Ctx<'_> {
-    fn expression_unit(&self, name: &str) -> bool {
-        self.named_unit(name) && (self.mode != Mode::Math || name.chars().count() > 1)
-    }
-
-    fn named_unit(&self, name: &str) -> bool {
-        self.units.visible(name)
-    }
 }
 
 struct P<'a, 'b> {
     t: Vec<Tok>,
     i: usize,
     c: &'b Ctx<'a>,
-    letters: Vec<String>,
     /// Functions being defined in this line (their own name in a recursive call is refused later).
     defining: Vec<String>,
     abs_depth: usize,
-    /// Inside an exponent: numbers take no units, casts belong to the power.
+    /// Inside an exponent: numbers take no units.
     in_exp: usize,
 }
 
-fn visible_tokens(source: &str, context: &Ctx) -> Result<Vec<Tok>, String> {
-    lex(source, context.mode)?.into_iter().map(|token| match token {
-        // a unit word set to none (T: none) is a name; one the worksheet doesn't have is an unknown unit
-        Tok::ImplicitUnit(name) if context.units.known(&name) && !context.units.visible(&name) => solveng_names::resolve(&name).map(Tok::Name),
-        Tok::ImplicitUnit(name) => Ok(Tok::UnitWord(name)),
+fn visible_tokens(source: &str) -> Result<Vec<Tok>, String> {
+    lex(source)?.into_iter().map(|token| match token {
         // math.op of a name that is no operation (min, lim): a name like any other
-        Tok::Builtin(name) if context.functions.explicit(&name).is_none() => Ok(Tok::Name(name)),
+        Tok::Builtin(name) if crate::builtins::explicit(&name).is_none() => Ok(Tok::Name(name)),
         token => Ok(token),
     }).collect()
 }
@@ -470,16 +399,9 @@ fn s_op(t: Option<&Tok>) -> Option<&'static str> {
 }
 
 impl<'a, 'b> P<'a, 'b> {
-    /// The operation a name calls here: an explicit underlying operation; a plain name unless the
-    /// worksheet defines a function (or variable) of that name, or the function being defined has it.
+    /// The operation a name calls: only an explicit reference (⦇tri⦈) reaches one; a plain name is a name.
     fn operation(&self, n: &str, explicit: bool) -> Option<&'static crate::builtins::Builtin> {
-        if explicit {
-            return self.c.functions.explicit(n);
-        }
-        if (self.c.is_fn)(n) || (self.c.is_var)(n) || self.defining.iter().any(|d| d == n) {
-            return None;
-        }
-        self.c.functions.plain(n)
+        if explicit { crate::builtins::explicit(n) } else { None }
     }
     fn peek(&self) -> Option<&Tok> {
         self.t.get(self.i)
@@ -506,11 +428,6 @@ impl<'a, 'b> P<'a, 'b> {
         }
         match self.t.get(k)? {
             Tok::UnitWord(u) => Some(u.clone()),
-            Tok::Quoted(q) if self.c.mode == Mode::Code && q != "as" && self.c.units.visible(q) && !(self.c.is_var)(q) => Some(q.clone()),
-            // as after a number is attoseconds
-            Tok::Quoted(q) if self.c.mode == Mode::Code && q == "as" && self.c.units.visible(q) && !(self.c.is_var)(q) => Some(q.clone()),
-            Tok::Name(n) if self.c.expression_unit(n) && !(self.c.strict && self.c.mode == Mode::Math) => Some(n.clone()),
-            Tok::Name(n) if n == "as" && self.c.named_unit(n) => Some(n.clone()),
             _ => None,
         }
     }
@@ -521,16 +438,12 @@ impl<'a, 'b> P<'a, 'b> {
         let mut below = false;
         loop {
             let k = self.i;
-            if !terms.is_empty() && self.op() == Some("/") && self.unit_at(k + 1).is_some() && !self.cast_at(k + 1) {
+            if !terms.is_empty() && self.op() == Some("/") && self.unit_at(k + 1).is_some() {
                 below = true;
                 self.i += 1;
                 continue;
             }
-            // as after a unit casts: 2 A as mA
-            if !terms.is_empty() && self.cast_at(k) {
-                break;
-            }
-            // math writes mm^2/m as a fraction: frac(⦃mm⦄^(2), m)
+            // math writes mm^2/m as a fraction: frac(mm^(2), m)
             if let Some((num, den, end)) = self.unit_frac(k) {
                 terms.extend(num.into_iter().map(|(n, e)| (n, if below { -e } else { e })));
                 terms.extend(den.into_iter().map(|(n, e)| (n, if below { e } else { -e })));
@@ -540,20 +453,6 @@ impl<'a, 'b> P<'a, 'b> {
             let Some(u) = self.unit_at(k) else { break };
             if matches!(&self.t[k], Tok::UnitWord(_)) && !self.c.units.known(&u) {
                 return Err(self.c.units.unknown(&u));
-            }
-            if self.c.mode == Mode::Code {
-                if let Tok::Name(n) = &self.t[k] {
-                    if (self.c.is_var)(n) {
-                        return Err(format!(
-                            "'{n}' is both a defined variable and a unit – write [… {n}] for the unit, or use * or parentheses for the variable (3*{n}, 1/({n}))"
-                        ));
-                    }
-                }
-            }
-            if let Tok::Name(n) = &self.t[k] {
-                if n.chars().count() == 1 {
-                    self.letters.push(n.clone());
-                }
             }
             self.i += 1;
             let mut p = 1;
@@ -591,17 +490,14 @@ impl<'a, 'b> P<'a, 'b> {
         let side = |a: usize, b: usize| -> Option<Vec<(String, i32)>> {
             let toks = &self.t[a..b];
             if toks.is_empty() || !toks.iter().all(|t| match t {
-                Tok::UnitWord(_) => true,
-                Tok::Name(n) => self.c.expression_unit(n),
-                Tok::Quoted(n) => self.c.mode == Mode::Code && self.c.units.visible(n) && !(self.c.is_var)(n),
-                Tok::Num(_) => true,
+                Tok::UnitWord(_) | Tok::Num(_) => true,
                 Tok::Op(o) => matches!(*o, "^" | "(" | ")" | "-" | "*" | "·"),
                 _ => false,
             }) || !toks.iter().any(|t| !matches!(t, Tok::Num(_) | Tok::Op(_))) {
                 return None;
             }
             let s: String = toks.iter().map(|t| match t {
-                Tok::UnitWord(u) | Tok::Name(u) | Tok::Quoted(u) => format!(" {u}"),
+                Tok::UnitWord(u) => format!(" {u}"),
                 t => tok_text(t),
             }).collect();
             self.c.units.parse(s.trim(), false).ok().map(|p| p.u.0)
@@ -625,28 +521,16 @@ impl<'a, 'b> P<'a, 'b> {
         }
         Some((if neg { -v } else { v }, j))
     }
-    fn cast_at(&self, k: usize) -> bool {
-        matches!(self.t.get(k), Some(Tok::Quoted(q)) if q == "as") || matches!(self.t.get(k), Some(Tok::Name(n)) if n == "as")
-    }
-
-    /// The unit of a cast or a parameter type: A, mA, (A*as)/V, m^2, [mA], "A" "as".
+    /// The unit of a parameter type: A, mA, A·s/V, m^2; any; 1.
     fn unit_spec(&mut self) -> Result<UnitExpr, String> {
         let st = self.i;
         let mut s = String::new();
         let mut depth = 0;
         loop {
             match self.peek() {
-                Some(Tok::Bracket(b)) if s.is_empty() => {
-                    s = b.clone();
-                    self.i += 1;
-                    break;
-                }
                 Some(Tok::UnitWord(u)) => s += &format!(" {u}"),
-                Some(Tok::Quoted(q)) if self.c.mode == Mode::Code && self.c.units.visible(q) || q == "any" => s += &format!(" {q}"),
-                Some(Tok::Quoted(q)) => return Err(format!("unknown unit '{q}'")),
-                Some(Tok::Name(n)) if self.c.named_unit(n) || n == "any" => s += &format!(" {n}"),
+                Some(Tok::Kw(k)) if s.is_empty() && k == "any" => s += " any",
                 Some(Tok::Num(n)) if s.is_empty() && n == "1" => s += "1",
-                Some(Tok::Name(n)) if s.is_empty() && n != "as" => return Err(format!("unknown unit '{n}'")),
                 Some(Tok::Num(n)) if s.ends_with('^') || s.ends_with("^-") || s.ends_with("^(") || s.ends_with("^(-") => s += n,
                 Some(Tok::Op(o @ ("*" | "·" | "/" | "^"))) if !s.is_empty() => s += o,
                 Some(Tok::Op("-")) if s.ends_with('^') || s.ends_with("^(") => s += "-",
@@ -664,7 +548,7 @@ impl<'a, 'b> P<'a, 'b> {
         }
         if s.trim().is_empty() {
             self.i = st;
-            return Err("a unit after 'as' to cast to, like U as A".into());
+            return Err("a unit after the colon, like f(I: mA)".into());
         }
         if s.trim() == "any" {
             return Ok(UnitExpr::one("any"));
@@ -706,10 +590,10 @@ impl<'a, 'b> P<'a, 'b> {
         match self.peek() {
             None => false,
             Some(Tok::Op(o)) => matches!(*o, "(" | "|" | "‖"),
-            Some(Tok::Quoted(q)) => q != "as",
+            Some(Tok::Quoted(_)) => true,
             Some(Tok::Kw(_)) => false,
-            Some(Tok::Name(n)) => n != "as" && n != "dif",
-            Some(Tok::Builtin(_)) => true,
+            Some(Tok::Name(n)) => n != "dif",
+            Some(Tok::Builtin(_) | Tok::Bound(_)) => true,
             _ => true,
         }
     }
@@ -778,12 +662,6 @@ impl<'a, 'b> P<'a, 'b> {
                 e = Ast::Qty(Box::new(e), u);
             }
         }
-        // U^2 as V: the cast is on the term with its power
-        while self.cast_at(self.i) {
-            self.i += 1;
-            let u = self.unit_spec()?;
-            e = Ast::Cast(Box::new(e), u);
-        }
         Ok(e)
     }
     fn args(&mut self, name: &str) -> Result<Vec<Ast>, String> {
@@ -838,6 +716,7 @@ impl<'a, 'b> P<'a, 'b> {
         let t = self.peek().cloned().ok_or("unexpected end of the expression")?;
         self.i += 1;
         match t {
+            Tok::Bound(e) => Ok(Ast::Bound(e)),
             Tok::Num(raw) => {
                 let v = Rat::parse_decimal(&raw).map(Num::R).or_else(|| raw.parse::<f64>().ok().map(Num::F)).ok_or_else(|| format!("cannot read the number '{raw}'"))?;
                 let n = Ast::Num(raw, v);
@@ -859,15 +738,7 @@ impl<'a, 'b> P<'a, 'b> {
                 Ok(Ast::Unit(u))
             }
             Tok::Quoted(q) => {
-                if q == "as" {
-                    return Err("a value before 'as' to cast".into());
-                }
-                // a quoted unit on its own is one of it; else a name of several letters
-                if self.c.mode == Mode::Code && self.c.units.visible(&q) && !(self.c.is_var)(&q) {
-                    self.i -= 1;
-                    let u = self.unit_run()?.unwrap();
-                    return Ok(Ast::Unit(u));
-                }
+                // a name of several letters
                 let n = greek(&q);
                 if self.op() == Some("(") {
                     self.i += 1;
@@ -878,9 +749,8 @@ impl<'a, 'b> P<'a, 'b> {
                 }
                 Ok(Ast::Name(n))
             }
-            Tok::Name(n) | Tok::ImplicitUnit(n) => self.name(n),
+            Tok::Name(n) => self.name(n),
             Tok::Builtin(n) => self.call_or_name(n, true),
-            Tok::Bracket(b) => self.bracket(&b),
             Tok::Op("(") => {
                 let x = std::mem::take(&mut self.in_exp);
                 let e = self.cmp();
@@ -999,31 +869,6 @@ impl<'a, 'b> P<'a, 'b> {
         }
         Ok(a)
     }
-    /// [5 V], [A], [3450/2 mAh] in code: the unit is meant even if there is a variable with its name.
-    fn bracket(&mut self, b: &str) -> Result<Ast, String> {
-        // the numeric part: digits, operators and parentheses before the first letter
-        let idx = b
-            .char_indices()
-            .find(|&(_, c)| c.is_alphabetic() || "°%‰µΩ".contains(c))
-            .map(|(i, _)| i)
-            .unwrap_or(b.len());
-        let (np, up) = (b[..idx].trim(), b[idx..].trim());
-        if up.is_empty() {
-            return Err(format!("[{b}]: a unit in the brackets, like [5 V] or [A]"));
-        }
-        let u = self.c.units.parse(up, false)?;
-        if np.is_empty() {
-            return Ok(Ast::Unit(u.u));
-        }
-        let sub = Ctx { units: self.c.units, functions: self.c.functions, mode: Mode::Code, is_fn: &|_| false, is_var: &|_| false, strict: false };
-        let toks = lex(np, Mode::Code)?;
-        let mut p = P { t: toks, i: 0, c: &sub, letters: vec![], defining: vec![], abs_depth: 0, in_exp: 0 };
-        let n = p.sum()?;
-        if p.i < p.t.len() || !numeric(&n) {
-            return Err(format!("cannot read the number '{np}' in [{b}]"));
-        }
-        Ok(Ast::Qty(Box::new(n), u.u))
-    }
 }
 
 /// An expression of numbers only (a quantity's numeric part).
@@ -1057,25 +902,13 @@ fn split_trail(t: &[Tok], c: &Ctx) -> Result<(usize, Option<(Trail, Clause)>), S
     }
     if let Some(i) = arrow {
         let Some(cl) = clause(&t[i + 1..], c)? else {
-            // a single letter is a name, also where only a unit can follow
-            let letter = t[i + 1..].iter().find_map(|k| match k {
-                Tok::Name(n) if n.chars().count() == 1 && c.units.visible(n) => Some(n),
+            // a name is no unit: units are bindings
+            let name = t[i + 1..].iter().find_map(|k| match k {
+                Tok::Name(n) | Tok::Quoted(n) => Some(n),
                 _ => None,
             });
-            if let Some(n) = letter {
-                return Err(if c.mode == Mode::Math {
-                    format!("'{n}' after -> is a name, not a unit – write unit(\"{n}\"), or #{n} with #import units: {n}")
-                } else {
-                    format!("'{n}' after -> is a name, not a unit – write [{n}]")
-                });
-            }
-            // a name that is no unit here: say which
-            let unknown = t[i + 1..].iter().find_map(|k| match k {
-                Tok::Name(n) | Tok::Quoted(n) | Tok::UnitWord(n) if !KEYWORDS.contains(&n.as_str()) && !c.units.visible(n) => Some(n),
-                _ => None,
-            });
-            return Err(match unknown {
-                Some(n) => format!("-> takes keywords and a unit: {}", c.units.unknown(n)),
+            return Err(match name {
+                Some(n) => format!("'{n}' after -> is a name, not a unit – a unit is a binding: #{n} with #import units: {n}, or one of your own"),
                 None => "-> takes keywords and a unit: -> solve(x), -> simplify, -> digits(3)".into(),
             });
         };
@@ -1120,52 +953,28 @@ fn clause(t: &[Tok], c: &Ctx) -> Result<Option<Clause>, String> {
         if g.is_empty() {
             return Ok(None);
         }
-        // a keyword: ⦅solve(x)⦆ from math, solve(x) in code
+        // a keyword: ⦅solve(x)⦆
         if let [Tok::Kw(k)] = g.as_slice() {
             kws.push(k.clone());
             continue;
         }
-        if let Some(Tok::Name(n)) = g.first() {
-            if REMOVED.contains(&n.as_str()) && (g.len() == 1 || s_op(g.get(1)) == Some("(")) {
-                return Err(removed(n));
-            }
-            if KEYWORDS.contains(&n.as_str()) && (g.len() == 1 || s_op(g.get(1)) == Some("(")) {
-                let mut s = n.clone();
-                for k in &g[1..] {
-                    s += &tok_text(k);
-                }
-                kws.push(s);
-                continue;
-            }
-        }
-        // a unit: names (units only), powers, /, brackets; no numbers but exponents. A single letter is a unit only
-        // after a 1 (t = 1 h) or with a unit of more letters (km/h): alone it's a variable, t = h compares
+        // a unit: unit bindings, powers, products and quotients; no numbers but exponents and a leading 1 (1 #h)
         let mut s = String::new();
         let mut prev_pow = false;
-        let mut named = matches!(g.first(), Some(Tok::Num(n)) if n == "1");
+        let mut named = false;
         for k in &g {
             match k {
                 Tok::Num(n) if prev_pow || n == "1" => s += n,
-                Tok::Num(_) => return Ok(None),
-                Tok::Name(n) | Tok::Quoted(n) | Tok::UnitWord(n) => {
-                    let unit = match k {
-                        Tok::UnitWord(_) => true,
-                        Tok::Name(_) => c.expression_unit(n),
-                        _ => c.units.visible(n),
-                    };
-                    if !c.units.known(n) || !unit {
+                Tok::UnitWord(n) => {
+                    if !c.units.known(n) {
                         return Ok(None);
                     }
-                    named |= !matches!(k, Tok::Name(_)) || n.chars().count() > 1;
+                    named = true;
                     s += &format!(" {n}");
                 }
-                Tok::Bracket(_) => named = true,
                 Tok::Op(o @ ("*" | "·" | "/" | "^" | "(" | ")")) => s += o,
                 Tok::Op("-") if prev_pow => s += "-",
                 _ => return Ok(None),
-            }
-            if let Tok::Bracket(b) = k {
-                s += &format!(" {b}");
             }
             prev_pow = matches!(k, Tok::Op("^")) || (prev_pow && matches!(k, Tok::Op("(") | Tok::Op("-")));
         }
@@ -1188,8 +997,10 @@ fn clause(t: &[Tok], c: &Ctx) -> Result<Option<Clause>, String> {
                 cl.solve = Some(args);
             }
             "substitute" => {
-                if args.is_empty() || args.iter().any(|n| solveng_names::scan(&n.chars().collect::<Vec<_>>(), 0).ok().flatten().is_none_or(|v| v.end != n.chars().count())) {
-                    return Err("substitute: the variables whose formulas to put in, substitute(x) or substitute(x, y)".into());
+                // variables by name, constants by their bindings
+                let name = |n: &String| n.starts_with('⟦') || solveng_names::scan(&n.chars().collect::<Vec<_>>(), 0).ok().flatten().is_some_and(|v| v.end == n.chars().count());
+                if args.is_empty() || !args.iter().all(name) {
+                    return Err("substitute: the variables and constants whose expressions to put in, substitute(x) or substitute(#c, y)".into());
                 }
                 for n in args {
                     if !cl.substitute.contains(&n) { cl.substitute.push(n); }
@@ -1210,7 +1021,6 @@ fn clause(t: &[Tok], c: &Ctx) -> Result<Option<Clause>, String> {
                     _ => cl.frac = true,
                 }
             }
-            n if REMOVED.contains(&n) => return Err(removed(n)),
             _ => return Err(format!("unknown keyword '{name}' (keywords: {})", KEYWORDS.join(", "))),
         }
     }
@@ -1218,8 +1028,7 @@ fn clause(t: &[Tok], c: &Ctx) -> Result<Option<Clause>, String> {
         return Err(format!("one unit per result, got {} and {}", units[0], units[1]));
     }
     if let Some(u) = units.pop() {
-        let u = u.trim_start_matches('[').trim_end_matches(']');
-        cl.unit = Some(c.units.parse(u, false)?.u);
+        cl.unit = Some(c.units.parse(&u, false)?.u);
     }
     Ok(Some(cl))
 }
@@ -1261,10 +1070,10 @@ fn unfrac(t: &[Tok]) -> Vec<Tok> {
 
 fn tok_text(t: &Tok) -> String {
     match t {
+        Tok::Bound(_) => "constant".into(),
         Tok::Num(s) | Tok::Name(s) => s.clone(),
         Tok::Quoted(s) => format!("\"{s}\""),
-        Tok::UnitWord(s) | Tok::ImplicitUnit(s) => s.clone(),
-        Tok::Bracket(s) => format!("[{s}]"),
+        Tok::UnitWord(s) => s.clone(),
         Tok::Kw(s) | Tok::Builtin(s) => s.clone(),
         Tok::Op(o) => o.to_string(),
     }
@@ -1310,16 +1119,14 @@ fn params(t: &[Tok], c: &Ctx) -> Result<(Vec<Param>, bool), String> {
                 return Err(format!("the parameters are names, optionally with a unit (I: mA) or a default value (n: 2), got '{}'", g.iter().map(tok_text).collect::<Vec<_>>().join(" ")));
             }
             let sub: Vec<Tok> = g[2..].to_vec();
-            // a unit is a type (I: mA), a value a default (n: 2, t: 1 s), as in Typst a named parameter
-            // (a default value starts with a number, a sign or a defined variable, or is in parentheses that hold no unit: n: (N0))
-            let unit_only = {
-                let mut p = P { t: sub.clone(), i: 0, c, letters: vec![], defining: vec![], abs_depth: 0, in_exp: 0 };
-                p.unit_spec().is_ok() && p.i == p.t.len()
+            // an expression of unit bindings only (and any, 1) is a type (I: mA); anything else a default value
+            // (n: 2, t: 1 s), as in Typst a named parameter
+            let value = {
+                let mut p = P { t: sub.clone(), i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0 };
+                !(p.unit_spec().is_ok() && p.i == p.t.len())
             };
-            let variable = matches!(sub.first(), Some(Tok::Name(n) | Tok::Quoted(n)) if (c.is_var)(n));
-            let value = matches!(sub.first(), Some(Tok::Num(_))) || matches!(sub.first(), Some(Tok::Bracket(b)) if b.starts_with(|c: char| c.is_ascii_digit() || c == '-' || c == '.')) || s_op(sub.first()) == Some("-") || ((s_op(sub.first()) == Some("(") || variable) && !unit_only);
             if value {
-                let mut q = P { t: sub, i: 0, c, letters: vec![], defining: vec![], abs_depth: 0, in_exp: 0 };
+                let mut q = P { t: sub, i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0 };
                 let d = q.cmp().map_err(|e| format!("the default value of {name}: {e}"))?;
                 if q.i < q.t.len() {
                     return Err(format!("the default value of {name}: can't read '{}'", q.t[q.i..].iter().map(tok_text).collect::<Vec<_>>().join(" ")));
@@ -1327,7 +1134,7 @@ fn params(t: &[Tok], c: &Ctx) -> Result<(Vec<Param>, bool), String> {
                 default = Some(d);
                 None
             } else {
-                let mut p = P { t: sub, i: 0, c, letters: vec![], defining: vec![], abs_depth: 0, in_exp: 0 };
+                let mut p = P { t: sub, i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0 };
                 let u = p.unit_spec().map_err(|e| format!("the unit of {name}: {}", e.trim_start_matches("the unit: ")))?;
                 if p.i < p.t.len() {
                     return Err(format!("the unit of {name}: can't read '{}'", p.t[p.i..].iter().map(tok_text).collect::<Vec<_>>().join(" ")));
@@ -1364,7 +1171,7 @@ fn src_text(t: &[Tok]) -> String {
 /// Whether a line with a trailing -> is meant for solveng though it can't be read: what comes before the arrow
 /// uses a unit or a defined name (`1 "min" -> s`), or a keyword follows it, unlike prose such as `f: X -> Y`.
 pub fn meant(src: &str, c: &Ctx) -> bool {
-    let Ok(t) = visible_tokens(src, c) else { return false };
+    let Ok(t) = visible_tokens(src) else { return false };
     let mut depth = 0i32;
     let mut arrow = None;
     for (i, k) in t.iter().enumerate() {
@@ -1376,21 +1183,18 @@ pub fn meant(src: &str, c: &Ctx) -> bool {
         }
     }
     let Some(arrow) = arrow else { return false };
-    // solveng's keywords (also removed ones) after the arrow
-    let keyword = |n: &str| KEYWORDS.contains(&n) || REMOVED.contains(&n);
-    if t[arrow + 1..].iter().any(|k| matches!(k, Tok::Kw(_)) || matches!(k, Tok::Name(n) | Tok::Builtin(n) if keyword(n))) { return true; }
+    // solveng's keywords after the arrow
+    if t[arrow + 1..].iter().any(|k| matches!(k, Tok::Kw(_))) { return true; }
     t[..arrow].iter().any(|k| match k {
-        Tok::UnitWord(_) | Tok::Bracket(_) => true,
-        Tok::Quoted(n) => c.mode == Mode::Code && c.units.visible(n) || (c.is_var)(n) || (c.is_fn)(n),
-        Tok::Name(n) => (c.is_var)(n) || (c.is_fn)(n),
+        Tok::UnitWord(_) => true,
+        Tok::Quoted(n) | Tok::Name(n) => (c.is_var)(n) || (c.is_fn)(n),
         _ => false,
     })
 }
 
 /// Reads a line: statements separated by ; (or , in math), an optional trailing = or -> with its clause.
 pub fn parse_line(src: &str, c: &Ctx) -> Result<Line, String> {
-    let src = if c.mode == Mode::Code { src.split("//").next().unwrap_or("") } else { src };
-    let t = visible_tokens(src, c)?;
+    let t = visible_tokens(src)?;
     if t.is_empty() {
         return Err("nothing to calculate".into());
     }
@@ -1415,21 +1219,18 @@ pub fn parse_line(src: &str, c: &Ctx) -> Result<Line, String> {
     }
     parts.push(&head[st..]);
     let mut stmts = vec![];
-    let mut letters = vec![];
     for p in parts {
         if p.is_empty() {
             continue;
         }
-        let (s, l) = stmt(p, c)?;
-        stmts.push(s);
-        letters.extend(l);
+        stmts.push(stmt(p, c)?);
     }
-    Ok(Line { stmts, trail, unit_letters: letters })
+    Ok(Line { stmts, trail })
 }
 
-fn stmt(t: &[Tok], c: &Ctx) -> Result<(Stmt, Vec<String>), String> {
+fn stmt(t: &[Tok], c: &Ctx) -> Result<Stmt, String> {
     let def = t.iter().position(|k| *k == Tok::Op(":="));
-    let mut p = P { t: vec![], i: 0, c, letters: vec![], defining: vec![], abs_depth: 0, in_exp: 0 };
+    let mut p = P { t: vec![], i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0 };
     if let Some(d) = def {
         let lhs = &t[..d];
         let rhs = &t[d + 1..];
@@ -1440,7 +1241,7 @@ fn stmt(t: &[Tok], c: &Ctx) -> Result<(Stmt, Vec<String>), String> {
             [Tok::Name(n)] => Head::Var(n.clone()),
             [Tok::Quoted(n)] => Head::Var(greek(n)),
             [Tok::Name(n) | Tok::Quoted(n), Tok::Op("["), inner @ .., Tok::Op("]")] => {
-                let mut q = P { t: inner.to_vec(), i: 0, c, letters: vec![], defining: vec![], abs_depth: 0, in_exp: 0 };
+                let mut q = P { t: inner.to_vec(), i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0 };
                 let mut indices = vec![];
                 loop {
                     indices.push(q.cmp()?);
@@ -1468,7 +1269,7 @@ fn stmt(t: &[Tok], c: &Ctx) -> Result<(Stmt, Vec<String>), String> {
             [Tok::Name(n), Tok::Op("("), ..]
                 if lhs.iter().rposition(|k| *k == Tok::Op(":")).is_some_and(|i| i > 2 && lhs[i - 1] == Tok::Op(")")) =>
             {
-                return Err(format!("{n}(…): … – a function returns what its body gives, so it takes no type: cast the body to give it that unit, {n}(…) := (…) as …"));
+                return Err(format!("{n}(…): … – a function returns what its body gives, so it takes no type: give the body that unit, by dividing or multiplying by units"));
             }
             _ => return Err(format!("'{}' can't be defined – := defines a name (x := …) or a function (f(x) := …)", src_text(lhs))),
         };
@@ -1477,16 +1278,7 @@ fn stmt(t: &[Tok], c: &Ctx) -> Result<(Stmt, Vec<String>), String> {
         if p.i < p.t.len() {
             return Err(format!("unexpected '{}'", tok_text(&p.t[p.i])));
         }
-        if c.strict {
-            let names: Vec<&str> = match &head {
-                Head::Var(n) | Head::Index { name: n, .. } => vec![n],
-                Head::Fn { name, params, .. } => std::iter::once(name.as_str()).chain(params.iter().map(|x| x.name.as_str())).collect(),
-            };
-            if let Some(n) = names.into_iter().find(|n| c.units.known(n)) {
-                return Err(format!("'{n}' is a unit and can't be a variable name (option strict) – pick another name like {n}_1, or remove the unit with worksheet(units: ({n}: none))"));
-            }
-        }
-        return Ok((Stmt::Def { head, rhs: e, src: src_text(rhs) }, p.letters));
+        return Ok(Stmt::Def { head, rhs: e, src: src_text(rhs) });
     }
     p.t = t.to_vec();
     let e = p.ranged()?;
@@ -1497,128 +1289,74 @@ fn stmt(t: &[Tok], c: &Ctx) -> Result<(Stmt, Vec<String>), String> {
         }
         return Err(format!("unexpected '{}'", tok_text(k)));
     }
-    Ok((Stmt::Expr(e), p.letters))
+    Ok(Stmt::Expr(e))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support as t;
 
-    fn line(s: &str, mode: Mode) -> Line {
-        let u = Units::default();
-        let fs = Functions::standard();
-        let c = Ctx { units: &u, functions: &fs, mode, is_fn: &|n| n == "f" || n == "q", is_var: &|n| n == "h", strict: false };
-        parse_line(s, &c).unwrap()
+    /// A readable line read as Typst sends it, with the units it uses.
+    fn read(s: &str) -> Result<(Line, Units), String> {
+        let src = t::src(s, &crate::env::Env::default());
+        let u = Units::lexical(&crate::format::Cfg::default(), &crate::env::Env::default(), &src)?;
+        let c = Ctx { units: &u, is_fn: &|n| n == "f" || n == "q", is_var: &|n| n == "h" };
+        Ok((parse_line(&src, &c)?, u))
     }
-    fn err(s: &str, mode: Mode) -> String {
-        let u = Units::default();
-        let fs = Functions::standard();
-        let c = Ctx { units: &u, functions: &fs, mode, is_fn: &|_| false, is_var: &|n| n == "h", strict: false };
-        parse_line(s, &c).unwrap_err()
+    fn line(s: &str) -> Line {
+        read(s).unwrap().0
+    }
+    /// The unit of the trailing clause, by name.
+    fn clause_unit(s: &str) -> Option<String> {
+        let (l, u) = read(s).unwrap();
+        l.trail.unwrap().1.unit.map(|x| u.text(&x))
     }
 
     #[test]
     fn math() {
-        let l = line("t ≔ Q_0/I = 1 ⦃h⦄", Mode::Math);
-        assert_eq!(l.trail.as_ref().unwrap().0, Trail::Eval);
-        assert_eq!(l.trail.unwrap().1.unit, Some(UnitExpr::one("h")));
-        // a letter alone is a variable: t = V compares; units of more letters are units alone
-        let l = line("t = V", Mode::Math);
-        assert!(l.trail.is_none());
-        let l = line("v = ⦃km⦄/⦃h⦄", Mode::Math);
-        assert!(l.trail.unwrap().1.unit.is_some());
-        let l = line("t := Q0/I = [h]", Mode::Code);
-        assert!(l.trail.unwrap().1.unit.is_some());
-        let l = line("M ≔ 1 = 2 =", Mode::Math);
-        assert!(matches!(&l.stmts[0], Stmt::Def { rhs: Ast::Cmp(..), .. }));
-        let l = line("x ≔ 5 ⦃V⦄ + 3 ⦃mA⦄", Mode::Math);
-        assert!(matches!(&l.stmts[0], Stmt::Def { rhs: Ast::Add(..), .. }));
-        let l = line("0 = 1 + frac(3, x) + y^(2) → ⦅solve(x)⦆", Mode::Math);
-        assert_eq!(l.trail.unwrap().1.solve, Some(vec!["x".to_string()]));
-        let l = line("q(x: A, ..) ≔ 1 + frac(3, 3)x + y^(2) → ⦅simplify⦆", Mode::Math);
+        assert_eq!(line("t ≔ Q_0/I = 1 #h").trail.as_ref().unwrap().0, Trail::Eval);
+        assert_eq!(clause_unit("t ≔ Q_0/I = 1 #h").as_deref(), Some("h"));
+        assert_eq!(clause_unit("v = km/#h").as_deref(), Some("km/h"));
+        // a name alone is a variable: t = V compares
+        assert!(line("t = V").trail.is_none());
+        assert!(matches!(&line("M ≔ 1 = 2 =").stmts[0], Stmt::Def { rhs: Ast::Cmp(..), .. }));
+        assert!(matches!(&line("x ≔ 5 V + 3 mA").stmts[0], Stmt::Def { rhs: Ast::Add(..), .. }));
+        assert_eq!(line("0 = 1 + frac(3, x) + y^(2) → solve(x)").trail.unwrap().1.solve, Some(vec!["x".to_string()]));
+        let (l, u) = read("q(x: A, ..) ≔ 1 + frac(3, 3)x + y^(2) → simplify").unwrap();
         match &l.stmts[0] {
             Stmt::Def { head: Head::Fn { name, params, rest }, .. } => {
                 assert_eq!(name, "q");
                 assert_eq!(params.len(), 1);
                 assert!(rest);
-                assert_eq!(params[0].ty, Some(ParamType::Unit(UnitExpr::one("A"))));
+                assert!(matches!(&params[0].ty, Some(ParamType::Unit(x)) if u.text(x) == "A"));
             }
             s => panic!("{s:?}"),
         }
-        // Explicit unit references remain units; bare single letters are variables
-        let l = line("t ≔ 3 ⦃h⦄", Mode::Math);
-        assert!(matches!(&l.stmts[0], Stmt::Def { rhs: Ast::Qty(..), .. }));
-        let l = line("t ≔ 3 h", Mode::Math);
-        assert!(matches!(&l.stmts[0], Stmt::Def { rhs: Ast::Mul(..), .. }));
-        let l = line("t ≔ 3 ⋅ h", Mode::Math);
-        assert!(matches!(&l.stmts[0], Stmt::Def { rhs: Ast::Mul(..), .. }));
-        let l = line("ρ ≔ 0.0178 ⦃Ω⦄ frac(⦃mm⦄^(2), ⦃m⦄)", Mode::Math);
-        match &l.stmts[0] {
-            Stmt::Def { rhs: Ast::Qty(_, u), .. } => assert_eq!(u.text(), "Ω·mm^2/m"),
+        // a type is made of unit bindings only, anything else is a default value
+        match &line("q(x, n: 2) ≔ x^n").stmts[0] {
+            Stmt::Def { head: Head::Fn { params, .. }, .. } => assert!(params[1].default.is_some() && params[1].ty.is_none()),
             s => panic!("{s:?}"),
         }
-        let l = line("Q_0 ≔ frac(3450, 2) ⦃mAh⦄", Mode::Math);
-        assert!(matches!(&l.stmts[0], Stmt::Def { rhs: Ast::Qty(..), .. }));
-        let l = line("U ≔ 1,5 ⦃V⦄", Mode::Math);
+        // unit bindings are units; plain letters are variables
+        assert!(matches!(&line("t ≔ 3 #h").stmts[0], Stmt::Def { rhs: Ast::Qty(..), .. }));
+        assert!(matches!(&line("t ≔ 3 ⋅ h").stmts[0], Stmt::Def { rhs: Ast::Mul(..), .. }));
+        let (l, u) = read("ρ ≔ 0.0178 Ω frac(#mm^(2), #m)").unwrap();
         match &l.stmts[0] {
+            Stmt::Def { rhs: Ast::Qty(_, x), .. } => assert_eq!(u.text(x), "Ω·mm^2/m"),
+            s => panic!("{s:?}"),
+        }
+        assert!(matches!(&line("Q_0 ≔ frac(3450, 2) #mAh").stmts[0], Stmt::Def { rhs: Ast::Qty(..), .. }));
+        match &line("U ≔ 1,5 V").stmts[0] {
             Stmt::Def { rhs: Ast::Qty(n, _), .. } => assert_eq!(**n, Ast::Num("1.5".into(), Num::R(Rat::new(3, 2).unwrap()))),
             s => panic!("{s:?}"),
         }
-        let l = line("t = ⦃min⦄, ⦅digits(2)⦆", Mode::Math);
-        assert_eq!(l.trail.unwrap().1.digits, Some(2));
-        let l = line("x + y = 3, x - y = 1 → ⦅solve(x, y)⦆", Mode::Math);
-        assert_eq!(l.stmts.len(), 2);
-        let l = line("V ≔ 2 ⦃A⦄ = 2000 ⦃mA⦄", Mode::Math);
-        assert!(l.trail.is_none());
-        let l = line("Δr_R ≔ 2", Mode::Math);
-        assert!(matches!(&l.stmts[0], Stmt::Def { head: Head::Var(n), .. } if n == "Δr_R"));
-    }
-
-    #[test]
-    fn no_scientific_notation() {
-        // `1.12e4` is the coefficient 1.12 times the (undefined) variable e4, not a number
-        let l = line("x ≔ 1.12e4", Mode::Math);
-        match &l.stmts[0] {
-            Stmt::Def { rhs: Ast::Mul(ts), .. } => {
-                assert_eq!(ts[0].1, Ast::Num("1.12".into(), Num::R(Rat::new(28, 25).unwrap())));
-                assert_eq!(ts[1].1, Ast::Name("e4".into()));
-            }
-            s => panic!("{s:?}"),
-        }
-        let l = line("x ≔ 1e10", Mode::Code);
-        assert!(matches!(&l.stmts[0], Stmt::Def { rhs: Ast::Mul(ts), .. } if ts.len() == 2 && ts[1].1 == Ast::Name("e10".into())));
-        // other names keep their digits
-        let l = line("x ≔ 2 t2", Mode::Math);
-        assert!(matches!(&l.stmts[0], Stmt::Def { rhs: Ast::Mul(ts), .. } if ts[1].1 == Ast::Name("t2".into())));
-        let l = line("x ≔ 2 e^2", Mode::Math);
-        assert!(matches!(&l.stmts[0], Stmt::Def { rhs: Ast::Mul(..), .. }));
-        // a quantity in brackets splits at the letter too: no number there either
-        assert!(err("x := [1e5 V]", Mode::Code).contains("unknown unit"));
-    }
-
-    #[test]
-    fn code() {
-        let l = line("t := Q0/I = [h], digits(3)", Mode::Code);
-        let cl = l.trail.unwrap().1;
-        assert_eq!(cl.digits, Some(3));
-        assert_eq!(cl.unit, Some(UnitExpr::one("h")));
-        let l = line("P := [5 V] I =", Mode::Code);
-        assert!(l.trail.is_some());
-        let l = line("a + b = 3; a - b = 1 -> solve(a, b)", Mode::Code);
-        assert_eq!(l.stmts.len(), 2);
-        assert!(err("y := 3 h", Mode::Code).contains("both a defined variable and a unit"));
-        let l = line("J := U as mA", Mode::Code);
-        assert!(matches!(&l.stmts[0], Stmt::Def { rhs: Ast::Cast(..), .. }));
-        let l = line("a := 3 as", Mode::Code);
-        assert!(matches!(&l.stmts[0], Stmt::Def { rhs: Ast::Qty(..), .. }));
-        let l = line("L := U^2 as V", Mode::Code);
-        assert!(matches!(&l.stmts[0], Stmt::Def { rhs: Ast::Cast(..), .. }));
-        let l = line("y := f(3) // comment", Mode::Code);
-        assert!(matches!(&l.stmts[0], Stmt::Def { rhs: Ast::Call(..), .. }));
-        let l = line("b := Delta\"\"r_R * 2", Mode::Code);
-        assert!(matches!(&l.stmts[0], Stmt::Def { rhs: Ast::Mul(f), .. } if f[0].1 == Ast::Name("Δr_R".into())));
-        let l = line("x := Delta_T + DeltaT + alpha2", Mode::Code);
-        match &l.stmts[0] {
+        assert_eq!(line("t = min, digits(2)").trail.unwrap().1.digits, Some(2));
+        assert_eq!(line("x + y = 3, x - y = 1 → solve(x, y)").stmts.len(), 2);
+        assert!(line("V ≔ 2 A = 2000 mA").trail.is_none());
+        assert!(matches!(&line("Δr_R ≔ 2").stmts[0], Stmt::Def { head: Head::Var(n), .. } if n == "Δr_R"));
+        assert!(matches!(&line("b ≔ Delta\"\"r_R · 2").stmts[0], Stmt::Def { rhs: Ast::Mul(f), .. } if f[0].1 == Ast::Name("Δr_R".into())));
+        match &line("x ≔ Delta_T + DeltaT + alpha2").stmts[0] {
             Stmt::Def { rhs: Ast::Add(ts), .. } => {
                 assert_eq!(ts[0].1, Ast::Name("Δ_T".into()));
                 assert_eq!(ts[1].1, Ast::Name("DeltaT".into()));
@@ -1626,6 +1364,34 @@ mod tests {
             }
             s => panic!("{s:?}"),
         }
+    }
+
+    #[test]
+    fn names_are_never_units_or_operations() {
+        // after ->, a name is no unit: units are bindings
+        assert!(read("x -> m").unwrap_err().contains("a unit is a binding"));
+        // symbols are no units of their own
+        let plain = |s: &str| parse_line(s, &Ctx { units: &Units::default(), is_fn: &|_| false, is_var: &|_| false }).unwrap_err();
+        assert!(plain("x ≔ 5 %").contains("#percent"));
+        assert!(plain("x ≔ 90 °").contains("#deg"));
+        // an operation's name is a name unless it's referenced: tri(t) calls a worksheet function
+        assert!(matches!(&parse_line("y ≔ tri(t)", &Ctx { units: &Units::default(), is_fn: &|_| false, is_var: &|_| false }).unwrap().stmts[0], Stmt::Def { rhs: Ast::Call(..), .. }));
+        assert!(matches!(&line("y ≔ tri(t)").stmts[0], Stmt::Def { rhs: Ast::Builtin(..), .. }));
+    }
+
+    #[test]
+    fn no_scientific_notation() {
+        // `1.12e4` is the coefficient 1.12 times the (undefined) variable e4, not a number
+        match &line("x ≔ 1.12e4").stmts[0] {
+            Stmt::Def { rhs: Ast::Mul(ts), .. } => {
+                assert_eq!(ts[0].1, Ast::Num("1.12".into(), Num::R(Rat::new(28, 25).unwrap())));
+                assert_eq!(ts[1].1, Ast::Name("e4".into()));
+            }
+            s => panic!("{s:?}"),
+        }
+        // other names keep their digits
+        assert!(matches!(&line("x ≔ 2 t2").stmts[0], Stmt::Def { rhs: Ast::Mul(ts), .. } if ts[1].1 == Ast::Name("t2".into())));
+        assert!(matches!(&line("x ≔ 2 e^2").stmts[0], Stmt::Def { rhs: Ast::Mul(..), .. }));
     }
 }
 
@@ -1641,7 +1407,7 @@ pub struct Curve {
 }
 
 pub fn parse_curve(src: &str, c: &Ctx) -> Result<Curve, String> {
-    let t = visible_tokens(src, c)?;
+    let t = visible_tokens(src)?;
     let mut depth = 0i32;
     let mut at = None;
     for (i, k) in t.iter().enumerate() {
@@ -1658,7 +1424,7 @@ pub fn parse_curve(src: &str, c: &Ctx) -> Result<Curve, String> {
         }
     }
     let body = |toks: &[Tok], defining: Option<String>| -> Result<Ast, String> {
-        let mut p = P { t: toks.to_vec(), i: 0, c, letters: vec![], defining: defining.into_iter().collect(), abs_depth: 0, in_exp: 0 };
+        let mut p = P { t: toks.to_vec(), i: 0, c, defining: defining.into_iter().collect(), abs_depth: 0, in_exp: 0 };
         let e = p.sum()?;
         if p.i < p.t.len() {
             return Err(format!("unexpected '{}' in '{src}'", tok_text(&p.t[p.i])));
@@ -1670,7 +1436,7 @@ pub fn parse_curve(src: &str, c: &Ctx) -> Result<Curve, String> {
     // := (re)defines, so a function of that name already is no call: y(y) := X(y) after y(x) := …
     let defines = t[i] == Tok::Op(":=");
     match lhs {
-        [Tok::Name(n), Tok::Op("("), inner @ .., Tok::Op(")")] if !is_builtin(n) && (defines || !(c.is_fn)(n) && c.functions.plain(n).is_none()) => {
+        [Tok::Name(n), Tok::Op("("), inner @ .., Tok::Op(")")] if !is_builtin(n) && (defines || !(c.is_fn)(n)) => {
             let (ps, rest) = params(inner, c)?;
             Ok(Curve { head: Some((n.clone(), ps, rest)), body: body(rhs, None)?, defines })
         }
@@ -1681,33 +1447,17 @@ pub fn parse_curve(src: &str, c: &Ctx) -> Result<Curve, String> {
     }
 }
 
-/// Equation separators outside grouping; unfinished code lines continue on the next line.
-pub fn statements(src: &str, mode: Mode) -> Vec<String> {
+/// The equations of a line, separated by `\` (a line break in math) outside quotes.
+pub fn statements(src: &str) -> Vec<String> {
     let mut out = vec![];
     let mut buf = String::new();
-    let (mut depth, mut quoted, mut comment) = (0i32, false, false);
-    let mut chars = src.chars().peekable();
-    while let Some(c) = chars.next() {
-        if comment {
-            if c != '\n' { continue; }
-            comment = false;
-        }
-        if !quoted && c == '/' && chars.peek() == Some(&'/') {
-            chars.next();
-            comment = true;
-            continue;
-        }
+    let mut quoted = false;
+    for c in src.chars() {
         if c == '"' { quoted = !quoted; }
-        if !quoted {
-            if c == '(' || c == '[' { depth += 1; }
-            if c == ')' || c == ']' { depth -= 1; }
-            let newline = c == '\n' && mode == Mode::Code && depth == 0;
-            let unfinished = buf.trim_end().ends_with(['+', '-', '*', '/', '^', ':', ',', '(']) || buf.trim_end().ends_with(":=");
-            if c == '\\' || (newline && !unfinished) {
-                if !buf.trim().is_empty() { out.push(buf.trim().to_string()); }
-                buf.clear();
-                continue;
-            }
+        if c == '\\' && !quoted {
+            if !buf.trim().is_empty() { out.push(buf.trim().to_string()); }
+            buf.clear();
+            continue;
         }
         buf.push(c);
     }

@@ -1,5 +1,4 @@
-// What a hover over a defined name lists under "Depends on": the names its formula uses, transitively, as lines of
-// solveng code an editor highlights.
+// What a hover over a defined name lists under "Depends on": the names its formula uses, transitively, a line each.
 
 use solveng_ide::*;
 
@@ -17,24 +16,24 @@ fn dependencies(doc: &str, context: &Context, at: &str) -> Option<String> {
 }
 
 fn code(lines: &[&str]) -> String {
-    format!("```solveng\n{}\n```", lines.join("\n"))
+    format!("```text\n{}\n```", lines.join("\n"))
 }
 
 #[test]
-fn lists_what_a_definition_depends_on_as_code() {
-    let doc = "#show: worksheet\n$a := 2 unit(\"A\")$\n$b := a + 3 unit(\"A\")$\n$f(x: A) := b + x$\n$f(1unit(\"A\")) =$";
+fn lists_what_a_definition_depends_on() {
+    let doc = "#import units: A\n#show: worksheet\n$a := 2 #A$\n$b := a + 3 #A$\n$f(x: #A) := b + x$\n$f(1 #A) =$";
     assert_eq!(dependencies(doc, &Context::default(), "f(").unwrap(), code(&["b = a + 3 A", "a: A = 2 A"]));
     // undefined names are marked, solveng's functions left out
     let doc = "#show: worksheet\n$ Sigma\"\"r := sin(x) + y^2 $\n$ Σ\"\"r -> $";
     assert_eq!(dependencies(doc, &Context::default(), "Σ").unwrap(), code(&["x // undefined", "y // undefined"]));
     // a given value depends on nothing and says nothing about it
-    assert_eq!(dependencies("#show: worksheet\n$a := 2 unit(\"A\")$\n$a =$", &Context::default(), "a ="), None);
+    assert_eq!(dependencies("#import units: A\n#show: worksheet\n$a := 2 #A$\n$a =$", &Context::default(), "a ="), None);
 }
 
 #[test]
 fn shows_functions_with_their_signature_once() {
     // a function's line is its signature and body, without a second =: o(x: Ω) = x, not o = (x: Ω) = x
-    let doc = "#show: worksheet\n$o(x: Omega) := x$\n$y := o(2unit(\"Omega\"))$\n$y =$";
+    let doc = "#import units: Omega\n#show: worksheet\n$o(x: Omega) := x$\n$y := o(2 Omega)$\n$y =$";
     assert_eq!(dependencies(doc, &Context::default(), "y =").unwrap(), code(&["o(x: Omega) = x"]));
     // with the compiler's values, what it returns too, and the value of what's computed
     let report = Report {
@@ -46,14 +45,15 @@ fn shows_functions_with_their_signature_once() {
     };
     let context = Context::default().with_report(&report, "", true);
     assert_eq!(dependencies(doc, &context, "y =").unwrap(), code(&["o(x: Ω): Ω = x"]));
-    assert!(markdown(doc, &context, "o(2").starts_with("```solveng\no(x: Ω): Ω = x\n```"));
+    assert!(markdown(doc, &context, "o(2").starts_with("```text\no(x: Ω): Ω = x\n```"));
 }
 
 #[test]
-fn follows_code_strings_and_the_visible_definition() {
+fn follows_equations_passed_to_worksheets_and_the_visible_definition() {
     for doc in [
-        "#show: worksheet\n```solveng\na := 2\nb := a + a\nf(x) := b + x\nf(1) =\n```",
-        "#worksheet(`a := 2`, `b := a + a`, `f(x) := b + x`, `f(1) =`)",
+        "#show: worksheet\n$a := 2$\n$b := a + a$\n$f(x) := b + x$\n$f(1) =$",
+        "#worksheet($a := 2$, $b := a + a$, $f(x) := b + x$, $f(1) =$)",
+        "#show: worksheet\n$\n  a := 2 \\\n  b := a + a \\\n  f(x) := b + x \\\n  f(1) =\n$",
     ] {
         assert_eq!(dependencies(doc, &Context::default(), "f(").unwrap(), code(&["b = a + a", "a = 2"]), "{doc}");
     }
@@ -66,7 +66,7 @@ fn follows_code_strings_and_the_visible_definition() {
 
 #[test]
 fn parameters_and_indices_have_no_dependencies() {
-    let doc = "#show: worksheet\n$U := 5 V$\n$f(x: V) := x + U$\n$s := sum_(k=0)^3 k U$";
+    let doc = "#import units: V\n#show: worksheet\n$U := 5 V$\n$f(x: V) := x + U$\n$s := sum_(k=0)^3 k U$";
     let h = markdown(doc, &Context::default(), "x +");
     assert!(!h.contains("Depends on"), "{h}");
     let h = markdown(doc, &Context::default(), "k U");

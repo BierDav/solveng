@@ -31,26 +31,28 @@ fn n() -> usize {
 const PIECES: &[&str] = &[
     "#show: worksheet\n",
     "#import \"@preview/solveng:1.0.0\": *\n",
-    "#show: worksheet.with(units: (bar: $100 kPa$, ü: auto), evaluate: false)\n",
+    "#import units: mA, kΩ, s as sec, V\n#import constants: pi, e\n#import functions: tri\n",
+    "#let minute = unit($60 #s$, display: () => $\"min\"$)\n#let time = base-unit(\"time\")\n",
+    "#let i = constant(\"imaginary\", $sqrt(-1)$)\n#let triangle = operation(\"tri\")\n",
+    "#show: worksheet.with(preferred-units: ($#m / #s$,), evaluate: false)\n",
     "$U := 5 V$ ",
-    "$I := U / (2 Omega) = mA$ ",
-    "$R_\"load\"(x: Ω) := 2 x$ ",
+    "$I := U / (2 kΩ) = mA$ ",
+    "$R_\"load\"(x: kΩ) := 2 x$ ",
     "$m_2() := 3$ $m() := 2$ $a := m() + m_2()$\n",
     "$x^2 - 4 = 0 -> solve(x)$\n",
-    "$s_1(t) := rect((t-1)/2)$ $@s_1$\n",
+    "$s_1(t) := tri((t-1)/2) + op(\"rect\")(t)$ $p := 2 pi #e^x$\n",
     "$f := sum_(k=0)^10 k^2$ ",
     "$g(t) := cases(0 & t < 0, 1 & \"otherwise\")$\n",
     "$A := mat(1, 2; 3, 4)$ $d := det(A) =$\n",
-    "$J := U \"as\" A$ $q(x: unit(\"mA\")) := x$\n",
-    "```solveng\nR := 2 Ω\nx := R + U = [mA], digits(3) // comment\ny := @x [2 s]; z := 3\n```\n",
-    "#worksheet(`z := q + 1 =`, steps: \"value\")\n",
+    "$J := number(U, #A)$ $q(x: mA) := x$ $t := 2 s + 3 #sec = minute$\n",
+    "#worksheet($z := q + 1 =$, form: \"fraction\")\n",
     "#graph($P(..) = U^2/R$, mark: \"extrema\", xrange: (\"0 Ω\", \"10 Ω\"))\n",
-    "#lambdify($U^2/R$, \"U\", unit: \"mW\")\n",
+    "#lambdify($U^2/R$, \"U\", unit: $#W$, units: (U: $V$))\n",
     "#worksheet(evaluate: false)[$E = m c^2$]\n",
-    "#worksheet(inherit: true, export: true)[$T := 2 s$ $f := 1/T = Hz$]\n",
+    "#worksheet(scope: \"shared\")[$T := 2 #sec$ $f := 1/T = Hz$]\n",
     "#include \"part.typ\"\n",
-    "Text with `code` and a $ stray dollar.\n",
-    "$Delta\"\"r := 1$ $Δr = $ $t_\"half\" := 3 h$\n",
+    "Text with `code` and a $ stray dollar.\n```solveng\nx := 1\n```\n",
+    "$Delta\"\"r := 1$ $Δr = $ $t_\"half\" := 3 h$ #clear(\"t_half\")\n",
 ];
 
 /// Characters edits insert: what opens and closes things, and text outside the BMP.
@@ -105,7 +107,7 @@ fn report(r: &mut Rng, doc: &str) -> Report {
     }
     errors.push(ReportError { source: "z := q + 1 =".into(), message: "unplaced".into(), ..ReportError::default() });
     let defined = vec![ReportValue { name: "o".into(), kind: "function".into(), value: "(x: Ω): Ω = x".into() }, ReportValue { name: "U".into(), kind: "given".into(), value: "5 V".into() }];
-    Report { blocks: 1, elements, errors, defined, ..Report::default() }
+    Report { blocks: 1, elements, errors, defined }
 }
 
 fn check(doc: &str, context: &Context, offsets: &[u32]) {
@@ -146,8 +148,11 @@ fn check(doc: &str, context: &Context, offsets: &[u32]) {
                 in_doc(len, e.start, e.end, "rename", doc);
             }
         }
-        for c in conversions(doc, context, at) {
-            in_doc(len, c.start, c.end, "conversion", doc);
+        for c in unit_fixes(doc, context, at) {
+            in_doc(len, c.start, c.end, "fix", doc);
+            for e in c.edits.iter().filter(|e| e.path.is_none()) {
+                in_doc(len, e.start, e.end, "fix edit", doc);
+            }
         }
     }
 }
@@ -155,7 +160,7 @@ fn check(doc: &str, context: &Context, offsets: &[u32]) {
 #[test]
 fn random_documents_never_panic() {
     let mut r = Rng::new(1);
-    let part = ContextFile { path: "part.typ".into(), text: "$P := U I$\n```solveng\nI := 2 A\n```".into() };
+    let part = ContextFile { path: "part.typ".into(), text: "#import units: A\n$P := U I$\n$I := 2 #A$".into() };
     for _ in 0..n() {
         let doc = document(&mut r);
         let len = len16(&doc);
@@ -169,19 +174,15 @@ fn random_documents_never_panic() {
 }
 
 #[test]
-fn snippets_of_code_never_panic() {
-    // what editors call on code alone: fenced code in hovers, conversions between math and code
+fn snippets_never_panic() {
+    // what editors call on pieces alone: an equation's body, the files a document references
     let mut r = Rng::new(2);
     for _ in 0..n() {
         let doc = document(&mut r);
         let len = len16(&doc);
-        for t in tokens(&doc).into_iter().chain(math_tokens_of(&doc)) {
+        for t in math_tokens_of(&doc) {
             in_doc(len, t.start, t.start + t.length, "token", &doc);
         }
-        let (text, toks) = pretty(&doc, &["bar".to_string()]);
-        for t in toks {
-            in_doc(len16(&text), t.start, t.start + t.length, "pretty token", &text);
-        }
-        let _ = (to_math(&doc), from_math(&doc), conceals_of(&doc), references(&doc), body(&doc));
+        let _ = references(&doc);
     }
 }

@@ -97,13 +97,13 @@ fn clear_key(arg: &LinkedNode) -> Option<String> {
     (!name.is_empty()).then(|| crate::conceal::resolved_name(name))
 }
 
-/// A content block whose only emitted content is one expression collapses to
-/// that expression in Typst. Spaces are meaningful content; comments are not.
+/// A content block whose only emitted content is one equation collapses to
+/// that equation in Typst. Spaces are meaningful content; comments are not.
 pub(crate) fn expression_block(body: &LinkedNode) -> bool {
     if !body.children().any(|c| c.kind() == SyntaxKind::RightBracket) { return false; }
     let Some(markup) = body.children().find(|c| c.kind() == SyntaxKind::Markup) else { return false; };
     let mut children = markup.children().filter(|c| !matches!(c.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment));
-    matches!(children.next().map(|c| c.kind()), Some(SyntaxKind::Equation | SyntaxKind::Raw)) && children.next().is_none()
+    matches!(children.next().map(|c| c.kind()), Some(SyntaxKind::Equation)) && children.next().is_none()
 }
 
 struct Reader<'a> {
@@ -544,7 +544,8 @@ fn parameters(files: &[File], out: &mut [Occurrence], implicit: &str, locals: &[
                 || (implicit == "empty" && list.trim().is_empty())
                 || list.split(',').any(|p| p.trim() == ".." || p.trim() == "…");
             let mut written: Vec<String> = list.split(',').map(str::trim).filter(|p| !p.is_empty() && *p != ".." && *p != "…").map(|p| match p.split_once(':') {
-                Some((name, unit)) => format!("{}: {}", crate::resolved_name(name.trim()), unit.trim()),
+                // a unit binding's `#` is math's, not the unit's: `x: #A` takes A
+                Some((name, unit)) => format!("{}: {}", crate::resolved_name(name.trim()), unit.trim().replace('#', "")),
                 None => crate::resolved_name(p),
             }).collect();
             let in_body = |o: &Occurrence| o.file == index && o.start > close && o.end <= statement_end;

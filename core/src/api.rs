@@ -6,10 +6,10 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::env::{Env, Kind, Lower};
-use crate::eval::{dim_of, eval_f, value};
+use crate::eval::{complex_value, dim_of, eval_f, value};
 use crate::expr::{Expr, simp};
 use crate::format::{self, Cfg, pick, shown};
-use crate::parse::{self, Ctx, Mode, ParamType};
+use crate::parse::{self, Ctx, ParamType};
 use crate::render::R;
 use crate::sheet::{Out, Sheet};
 use crate::units::{UnitExpr, Units};
@@ -17,7 +17,6 @@ use crate::units::{UnitExpr, Units};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LineReq {
     pub src: String,
-    pub mode: Mode,
     pub cfg: Cfg,
     #[serde(default = "yes")]
     pub listed: bool,
@@ -29,7 +28,7 @@ fn yes() -> bool {
 
 /// Calculates a line against the worksheet so far.
 pub fn line(env: &mut Env, req: &LineReq) -> Out {
-    match Sheet::new(env, &req.cfg, req.mode, req.listed) {
+    match Sheet::new(env, &req.cfg, req.listed) {
         Ok(s) => s.run(&req.src),
         Err(e) => Out { errors: vec![e], ..Out::default() },
     }
@@ -45,17 +44,16 @@ pub fn show_value(env: &Env, req: &LineReq) -> Result<String, String> {
         && n.end == chars.len()
         && let Some(f) = env.funs.get(&n.value)
     {
-        let units = Units::configured(&req.cfg)?;
-        return Ok(R { units: &units, cfg: &req.cfg, exact: true, sub: None }.expr(&f.body).0);
+        let units = Units::lexical(&req.cfg, env, "")?;
+        return Ok(R { units: &units, cfg: &req.cfg, exact: true }.expr(&f.body).0);
     }
     let run = |src: &str| line(&mut env.clone(), &LineReq { src: src.into(), listed: false, ..req.clone() });
     // as written when it shows a result (t = min, x ->), else its value
     let written = run(src);
     // with a trailing = or -> of its own, its problems are its own: "U = mV" with U unknown is about U, not a
     // comparison with a variable mV
-    let units = Units::configured(&req.cfg)?;
-    let functions = crate::builtins::Functions::configured(&req.cfg)?;
-    let ctx = Ctx { units: &units, functions: &functions, mode: req.mode, is_fn: &|n| env.funs.contains_key(n), is_var: &|n| env.vars.contains_key(n), strict: req.cfg.strict };
+    let units = Units::lexical(&req.cfg, env, src)?;
+    let ctx = Ctx { units: &units, is_fn: &|n| env.funs.contains_key(n), is_var: &|n| env.vars.contains_key(n) };
     let trailing = parse::parse_line(src, &ctx).is_ok_and(|l| l.trail.is_some());
     let out = if written.mark.is_some() || !written.defined.is_empty() || trailing { written } else { run(&format!("{src} =")) };
     if !out.defined.is_empty() {
@@ -94,9 +92,9 @@ pub struct Row {
 }
 
 pub fn defined(env: &Env, req: &DefinedReq) -> Result<Vec<Row>, String> {
-    let units = Units::configured(&req.cfg)?;
+    let units = Units::lexical(&req.cfg, env, "")?;
     let cfg = &req.cfg;
-    let r = R { units: &units, cfg, exact: true, sub: None };
+    let r = R { units: &units, cfg, exact: true };
     let mut rows = vec![];
     for e in &env.order {
         if let Some(f) = env.funs.get(&e.name) {
@@ -105,7 +103,7 @@ pub fn defined(env: &Env, req: &DefinedReq) -> Result<Vec<Row>, String> {
                 .params
                 .iter()
                 .map(|p| match &p.ty {
-                    Some(ParamType::Unit(u)) => format!("{}: {}", p.name, u.text()),
+                    Some(ParamType::Unit(u)) => format!("{}: {}", p.name, units.text(u)),
                     Some(ParamType::Any) => format!("{}: any", p.name),
                     None => p.name.clone(),
                 })
@@ -118,8 +116,8 @@ pub fn defined(env: &Env, req: &DefinedReq) -> Result<Vec<Row>, String> {
                 values: vec![r.expr(&f.body).0],
                 rel: "=".into(),
                 // what it returns, when every parameter has a unit: (x: Ω): A = x/R
-                plain: match f.ret {
-                    Some(d) => format!("({}): {} = {}", ptext.join(", "), if d.is_one() { "1".into() } else { units.auto(&d).text() }, f.src),
+                plain: match f.ret.clone() {
+                    Some(d) => format!("({}): {} = {}", ptext.join(", "), if d.is_one() { "1".into() } else { units.text(&units.auto(&d)) }, f.src),
                     None => format!("({}) = {}", ptext.join(", "), f.src),
                 },
                 si: None,
@@ -131,11 +129,15 @@ pub fn defined(env: &Env, req: &DefinedReq) -> Result<Vec<Row>, String> {
         let bound = env.bind_with_units(&v.expr, &BTreeSet::new(), &units).unwrap_or(v.expr.clone());
         let mut si = None;
         let mut shown_unit = None;
-        let (values, plain) = match value(&bound) {
-            Ok(val) => {
+        let complex = complex_value(&bound).ok().filter(|z| !z.is_real());
+        let (values, plain) = match (complex, value(&bound)) {
+            (Some(z), _) => {
+                (vec![format::complex(&z, v.unit.as_ref(), None, &units, cfg)?.0], format::complex_plain(&z, v.unit.as_ref(), &units, cfg))
+            }
+            (None, Ok(val)) => {
                 si = Some(val.v.f());
                 let s = pick(&val, v.unit.as_ref(), None, &units, cfg)?;
-                shown_unit = Some(s.u.text());
+                shown_unit = Some(units.text(&s.u));
                 let mut vs = vec![shown(&s, &units, cfg).0];
                 if cfg.show_si && !val.d.is_one() {
                     let si = units.auto(&val.d);
@@ -146,7 +148,7 @@ pub fn defined(env: &Env, req: &DefinedReq) -> Result<Vec<Row>, String> {
                 }
                 (vs, format::plain(&val, v.unit.as_ref(), &units, cfg))
             }
-            Err(_) => {
+            (None, Err(_)) => {
                 fn vector_plain(e: &Expr, want: Option<&UnitExpr>, units: &Units, cfg: &Cfg) -> String {
                     if let Expr::Vector(v) = e {
                         return format!("[{}]", v.iter().map(|e| vector_plain(e, want, units, cfg)).collect::<Vec<_>>().join(", "));
@@ -180,18 +182,14 @@ pub struct UnitReq {
 
 /// Whether text reads as a unit (for restyling casts and types in an equation as written): its markup.
 pub fn unit_markup(req: &UnitReq) -> Option<String> {
-    let units = Units::configured(&req.cfg).ok()?;
+    // the unit bindings written in it, with their names
+    let units = Units::lexical(&req.cfg, &Env::default(), &req.src).ok()?;
     let s = req.src.trim();
-    if s == "any" || s == "\"any\"" {
+    if s == "⦅any⦆" {
         return Some(format::unit(&UnitExpr::one("any"), &units, &req.cfg));
     }
     let p = units.parse_simplified(&s.replace('"', " ")).ok()?;
     Some(format::unit(&p.u, &units, &req.cfg))
-}
-
-/// Problems with the option units: none or the message.
-pub fn check_units(cfg: &Cfg) -> Option<String> {
-    Units::configured(&cfg).err()
 }
 
 // ---------- lambdify ----------
@@ -200,7 +198,6 @@ pub fn check_units(cfg: &Cfg) -> Option<String> {
 pub struct LamReq {
     pub cfg: Cfg,
     pub src: String,
-    pub mode: Mode,
     pub params: Vec<String>,
     pub unit: Option<String>,
     #[serde(default)]
@@ -221,11 +218,11 @@ pub struct Lam {
 }
 
 pub fn lambdify(env: &Env, req: &LamReq) -> Result<Lam, String> {
-    let units = Units::configured(&req.cfg)?;
+    let unit_sources = req.units.values().cloned().chain(req.unit.iter().cloned()).collect::<Vec<_>>().join(" ");
+    let units = Units::lexical(&req.cfg, env, &format!("{} {unit_sources}", req.src))?;
     let is_fn = |n: &str| env.funs.contains_key(n);
     let is_var = |n: &str| env.vars.contains_key(n);
-    let functions = crate::builtins::Functions::configured(&req.cfg)?;
-    let ctx = Ctx { units: &units, functions: &functions, mode: req.mode, is_fn: &is_fn, is_var: &is_var, strict: req.cfg.strict };
+    let ctx = Ctx { units: &units, is_fn: &is_fn, is_var: &is_var };
     let line = parse::parse_line(&req.src, &ctx)?;
     let [parse::Stmt::Expr(a)] = line.stmts.as_slice() else { return Err("an expression, like \"U^2/R\"".into()) };
     let ps: Vec<String> = req.params.iter().map(|p| parse::greek(p)).collect();
@@ -263,7 +260,7 @@ pub fn lambdify(env: &Env, req: &LamReq) -> Result<Lam, String> {
         out = pu.f.f();
         // with the units of all parameters known, the unit of the result can be checked now
         if dims.iter().all(|d| d.is_some()) {
-            let pd = |n: &str| ps.iter().position(|p| p == n).and_then(|i| dims[i]);
+            let pd = |n: &str| ps.iter().position(|p| p == n).and_then(|i| dims[i].clone());
             if let Some(d) = dim_of(&e, &pd)? {
                 if d != pu.d {
                     return Err(format!("the result has unit {}, not {u}", format::dim_text(&d, &units)));
@@ -293,8 +290,8 @@ pub fn lam_eval(l: &Lam, args: &[Arg]) -> Result<Option<f64>, String> {
             Arg::Num(x) => x * l.factors[i],
             Arg::Text(s) => {
                 let p = units.parse(s, true).map_err(|e| format!("{}: {e}", l.params[i]))?;
-                if let Some(d) = l.dims[i] {
-                    if d != p.d {
+                if let Some(d) = &l.dims[i] {
+                    if *d != p.d {
                         return Err(format!("{} = {s} doesn't have the unit of {}", l.params[i], l.params[i]));
                     }
                 }
@@ -307,12 +304,11 @@ pub fn lam_eval(l: &Lam, args: &[Arg]) -> Result<Option<f64>, String> {
 }
 
 /// A value of an expression of defined names (for graph ranges): (SI value, dims) or a message.
-pub fn quantity(env: &Env, cfg: &Cfg, src: &str, mode: Mode) -> Result<(f64, crate::dim::Dim), String> {
-    let units = Units::configured(&cfg)?;
+pub fn quantity(env: &Env, cfg: &Cfg, src: &str) -> Result<(f64, crate::dim::Dim), String> {
+    let units = Units::lexical(cfg, env, src)?;
     let is_fn = |n: &str| env.funs.contains_key(n);
     let is_var = |n: &str| env.vars.contains_key(n);
-    let functions = crate::builtins::Functions::configured(cfg)?;
-    let ctx = Ctx { units: &units, functions: &functions, mode, is_fn: &is_fn, is_var: &is_var, strict: cfg.strict };
+    let ctx = Ctx { units: &units, is_fn: &is_fn, is_var: &is_var };
     let line = parse::parse_line(src, &ctx)?;
     let [parse::Stmt::Expr(a)] = line.stmts.as_slice() else { return Err(format!("'{src}' isn't a value")) };
     let e = Lower::new(env, &units).expr(a)?;
@@ -322,15 +318,15 @@ pub fn quantity(env: &Env, cfg: &Cfg, src: &str, mode: Mode) -> Result<(f64, cra
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClearReq {
-    /// The names as written, in code or math: `x`, `f`, `f(x)` (a function's parameters are ignored).
-    pub names: Vec<(String, Mode)>,
+    /// The names as written: `x`, `f`, `f(x)` (a function's parameters are ignored).
+    pub names: Vec<String>,
 }
 
 /// Forgets the names; problems for what isn't a name or isn't defined.
 pub fn clear(env: &mut Env, req: &ClearReq) -> Vec<String> {
     let mut errors = vec![];
-    for (src, mode) in &req.names {
-        let name = match parse::lex(src, *mode).as_deref() {
+    for src in &req.names {
+        let name = match parse::lex(src).as_deref() {
             Ok([parse::Tok::Name(n) | parse::Tok::Quoted(n), rest @ ..])
                 if rest.is_empty() || (rest.first() == Some(&parse::Tok::Op("(")) && rest.last() == Some(&parse::Tok::Op(")"))) =>
             {
@@ -351,9 +347,11 @@ pub fn clear(env: &mut Env, req: &ClearReq) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support as t;
 
     fn run(env: &mut Env, s: &str) {
-        let o = line(env, &LineReq { src: s.into(), mode: Mode::Code, cfg: Cfg::default(), listed: true });
+        let src = t::src(s, env);
+        let o = line(env, &LineReq { src, cfg: Cfg::default(), listed: true });
         assert!(o.errors.is_empty(), "{s}: {:?}", o.errors);
     }
 
@@ -363,7 +361,7 @@ mod tests {
         run(&mut env, "x := 2");
         run(&mut env, "f(t) := t^2");
         run(&mut env, "tau := 3");
-        let req = |names: &[&str]| ClearReq { names: names.iter().map(|n| (n.to_string(), Mode::Code)).collect() };
+        let req = |names: &[&str]| ClearReq { names: names.iter().map(|n| n.to_string()).collect() };
         assert!(clear(&mut env, &req(&["x", "f(t)", "tau"])).is_empty());
         assert!(env.vars.is_empty() && env.funs.is_empty() && env.order.is_empty());
         assert_eq!(clear(&mut env, &req(&["x", "1 + y"])), ["clear: 'x' isn't defined", "clear: '1 + y' isn't a name – clear(\"x\", \"f\") or clear(all: true)"]);
@@ -380,11 +378,12 @@ mod tests {
         let mut env = Env::default();
         run(&mut env, "R := 50 Ω");
         let mut units = IndexMap::new();
-        units.insert("U".to_string(), "V".to_string());
-        let l = lambdify(&env, &LamReq { cfg: Cfg::default(), src: "U^2/R".into(), mode: Mode::Code, params: vec!["U".into()], unit: Some("W".into()), units }).unwrap();
+        units.insert("U".to_string(), t::unit("V"));
+        let l = lambdify(&env, &LamReq { cfg: Cfg::default(), src: "U^2/R".into(), params: vec!["U".into()], unit: Some(t::unit("W")), units }).unwrap();
         assert_eq!(lam_eval(&l, &[Arg::Num(10.0)]).unwrap(), Some(2.0));
-        assert_eq!(lam_eval(&l, &[Arg::Text("20000 mV".into())]).unwrap(), Some(8.0));
-        let l = lambdify(&env, &LamReq { cfg: Cfg::default(), src: "sqrt(x)".into(), mode: Mode::Code, params: vec![], unit: None, units: IndexMap::new() }).unwrap();
+        assert_eq!(lam_eval(&l, &[Arg::Text(format!("20000 {}", t::unit("mV")))]).unwrap(), Some(8.0));
+        // real values only: √−1 has none
+        let l = lambdify(&env, &LamReq { cfg: Cfg::default(), src: "⦇sqrt⦈(x)".into(), params: vec![], unit: None, units: IndexMap::new() }).unwrap();
         assert_eq!(lam_eval(&l, &[Arg::Num(-1.0)]).unwrap(), None);
     }
 
@@ -407,7 +406,7 @@ mod tests {
         run(&mut env, "i(u: V) := u/R");
         run(&mut env, "p(u: V, t: s) := u^2/R t");
         run(&mut env, "q(x: m, y: m) := x/y");
-        run(&mut env, "a(x: any) := 2 x");
+        run(&mut env, "a(x: ⦅any⦆) := 2 x");
         run(&mut env, "n(x) := x");
         let rs = defined(&env, &DefinedReq { cfg: Cfg::default() }).unwrap();
         let plain = |name: &str| rs.iter().find(|r| r.name == name).unwrap().plain.clone();

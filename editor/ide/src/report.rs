@@ -82,19 +82,17 @@ mod tests {
 pub struct Report {
     /// How many `worksheet`s (and each `clear-at` match in them) reported; none means solveng didn't run or predates reports.
     pub blocks: usize,
-    /// Equations and raw elements a `worksheet` saw.
+    /// Equations a `worksheet` saw.
     pub elements: Vec<ReportElement>,
     /// Everything the blocks defined, with the values the compiler computed.
     pub defined: Vec<ReportValue>,
-    /// The units the `worksheet(units: …)` option set.
-    pub units: Vec<ReportValue>,
     /// What went wrong calculating, where: the problems a `worksheet` shows in the document as red notes.
     pub errors: Vec<ReportError>,
 }
 
 /// A problem solveng showed in the document, from its `kind: "error"` metadata: the message and where it is.
 /// Bridges fill `path`, `start`, `end` and `text` from the metadata's `element` as for [`ReportElement`]; equations
-/// and code passed to `worksheet` have none, so those stay empty and `source` alone finds the statement.
+/// passed to `worksheet` have none, so those stay empty and `source` alone finds the statement.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ReportError {
@@ -104,8 +102,7 @@ pub struct ReportError {
     pub start: usize,
     pub end: usize,
     pub text: String,
-    /// The statement solveng read: a line of code (`x := R + U =`), empty for math, where the element is the
-    /// statement.
+    /// The statement solveng read, empty where the element is the statement.
     pub source: String,
     /// `adding different units: Ω and V`, without the `solveng:` the document shows before it.
     pub message: String,
@@ -120,7 +117,7 @@ pub struct ReportElement {
     pub start: usize,
     pub end: usize,
     pub text: String,
-    /// `math` or `code`.
+    /// `math`.
     pub kind: String,
     /// Whether it was calculated.
     pub active: bool,

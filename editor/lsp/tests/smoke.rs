@@ -49,17 +49,18 @@ fn answers_over_stdio() {
     assert!(init["result"]["capabilities"]["semanticTokensProvider"]["full"].as_bool().unwrap());
     assert_eq!(init["result"]["capabilities"]["documentFormattingProvider"], true);
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}));
-    let text = "#import \"@preview/solveng:1.0.0\": *\n#worksheet(`I := 30 m`)\n#lambdify($x$, \"x\", unit: \"furlong\")\n";
+    let text = "#import \"@preview/solveng:1.0.0\": *\n#import units: s\n#worksheet($I := 30 m$)\n#worksheet($t := 2 s$)\n";
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file:///tmp/solveng-smoke.typ", "languageId": "typst", "version": 1, "text": text}}}));
+    // the bare `s` that has a unit binding
     let diagnostics = wait(&mut stdout, |m| m["method"] == "textDocument/publishDiagnostics");
-    assert_eq!(diagnostics["params"]["diagnostics"][0]["range"]["start"], json!({"line": 2, "character": 27}));
+    assert_eq!(diagnostics["params"]["diagnostics"][0]["range"]["start"], json!({"line": 3, "character": 19}));
 
-    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file:///tmp/solveng-smoke.typ"}, "position": {"line": 1, "character": 21}}}));
+    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file:///tmp/solveng-smoke.typ"}, "position": {"line": 2, "character": 21}}}));
     let completion = wait(&mut stdout, |m| m["id"] == 2);
     assert_eq!(completion["result"]["isIncomplete"], true);
     let items = completion["result"]["items"].as_array().unwrap();
     let ma = items.iter().find(|i| i["label"] == "mA").unwrap();
-    assert_eq!(ma["textEdit"]["range"]["start"], json!({"line": 1, "character": 20}));
+    assert_eq!(ma["textEdit"]["range"]["start"], json!({"line": 2, "character": 20}));
 
     // Outside solveng tinymist answers.
     send(&mut stdin, json!({"jsonrpc": "2.0", "id": 3, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file:///tmp/solveng-smoke.typ"}, "position": {"line": 0, "character": 3}}}));
@@ -67,8 +68,8 @@ fn answers_over_stdio() {
 
     send(&mut stdin, json!({"jsonrpc": "2.0", "id": 4, "method": "textDocument/semanticTokens/full", "params": {"textDocument": {"uri": "file:///tmp/solveng-smoke.typ"}}}));
     let tokens = wait(&mut stdout, |m| m["id"] == 4);
-    // `I` on line 1, column 12.
-    assert_eq!(tokens["result"]["data"].as_array().unwrap()[..3], [json!(1), json!(12), json!(1)]);
+    // `s` imported on line 1, column 15, a unit (enumMember).
+    assert_eq!(tokens["result"]["data"].as_array().unwrap()[..4], [json!(1), json!(15), json!(1), json!(9)]);
 
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file:///tmp/solveng-format.typ", "languageId": "typst", "version": 1, "text": "#show: worksheet\n$ x:=f( a :V,b )$"}}}));
     send(&mut stdin, json!({"jsonrpc": "2.0", "id": 50, "method": "textDocument/formatting", "params": {"textDocument": {"uri": "file:///tmp/solveng-format.typ"}, "options": {"tabSize": 2, "insertSpaces": true}}}));
@@ -76,7 +77,18 @@ fn answers_over_stdio() {
     assert_eq!(formatted["result"][0]["newText"], "x := f(a: V, b)");
     assert_eq!(formatted["result"][0]["range"]["start"], json!({"line": 1, "character": 1}));
 
-    let changed = "#worksheet(`result := inte`)";
+    // A quick fix comes with the edits it needs elsewhere: the import.
+    let fixable = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet\n$x := 2 km$";
+    send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file:///tmp/solveng-fix.typ", "languageId": "typst", "version": 1, "text": fixable}}}));
+    let km = json!({"line": 2, "character": 8});
+    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 51, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file:///tmp/solveng-fix.typ"}, "range": {"start": km, "end": km}, "context": {"diagnostics": []}}}));
+    let actions = wait(&mut stdout, |m| m["id"] == 51);
+    let action = actions["result"].as_array().unwrap().iter().find(|a| a["title"] == "Import km from solveng's units").unwrap();
+    assert_eq!(action["kind"], "quickfix");
+    let edits = action["edit"]["changes"]["file:///tmp/solveng-fix.typ"].as_array().unwrap();
+    assert!(edits.iter().any(|e| e["newText"] == "\n#import units: km" && e["range"]["start"] == json!({"line": 0, "character": 35})), "{edits:?}");
+
+    let changed = "#worksheet($result := inte$)";
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file:///tmp/solveng-smoke.typ", "version": 2}, "contentChanges": [{"text": changed}]}}));
     let at = changed.find("inte").unwrap() + 4;
     send(&mut stdin, json!({"jsonrpc": "2.0", "id": 6, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file:///tmp/solveng-smoke.typ"}, "position": {"line": 0, "character": at}}}));
@@ -97,7 +109,7 @@ fn answers_over_stdio() {
 fn finds_definitions_and_references_across_files() {
     let dir = std::env::temp_dir().join(format!("solveng lsp {}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("main.typ"), "#show: worksheet\n#worksheet(`U := 5 V`)\n#include \"chapter.typ\"\n").unwrap();
+    std::fs::write(dir.join("main.typ"), "#show: worksheet\n#worksheet($U := 5 V$)\n#include \"chapter.typ\"\n").unwrap();
     let root = format!("file://{}", dir.display()).replace(' ', "%20");
     let uri = format!("{root}/chapter.typ");
     let mut child = Command::new(env!("CARGO_BIN_EXE_solveng-lsp")).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
@@ -107,7 +119,7 @@ fn finds_definitions_and_references_across_files() {
     let init = wait(&mut stdout, |m| m["id"] == 1);
     assert!(init["result"]["capabilities"]["definitionProvider"].as_bool().unwrap());
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}));
-    let text = "Chapter\n#worksheet(`P := U^2 / R`)\n#worksheet(`I := U / 2`)\n";
+    let text = "Chapter\n#worksheet($P := U^2 / R$)\n#worksheet($I := U / 2$)\n";
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri, "languageId": "typst", "version": 1, "text": text}}}));
 
     send(&mut stdin, json!({"jsonrpc": "2.0", "id": 2, "method": "textDocument/definition", "params": {"textDocument": {"uri": uri}, "position": {"line": 1, "character": 17}}}));
@@ -201,47 +213,40 @@ fn leaves_math_outside_a_worksheet_as_written() {
 }
 
 #[test]
-fn unit_shortcut_tokens_cover_only_the_unit_string_and_evaluated_use() {
+fn bindings_and_operation_references_have_their_tokens_and_hovers() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_solveng-lsp")).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
     let mut stdin = child.stdin.take().unwrap();
     let mut stdout = BufReader::new(child.stdout.take().unwrap());
     send(&mut stdin, json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"capabilities": {}, "rootUri": null}}));
     wait(&mut stdout, |m| m["id"] == 1);
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}));
-    let uri = "file:///tmp/solveng-unit-shortcut.typ";
-    let text = "#show: worksheet.with(units: (iwef: $unit(\"km\")$))\n#let cusom = unit(\"iwef\")\n$t := 1cusom$\n$y := op(\"tri\")(x)$\n$y := 1unit(\"km\")$\n$y := 1 unit(\"ms\")$\n";
+    let uri = "file:///tmp/solveng-bindings.typ";
+    let text = "#import units: km, ms\n#let cusom = unit($1000 km$)\n#show: worksheet\n$t := 1 cusom$\n$y := op(\"tri\")(x)$\n$y := 1 km$\n$y := 1 ms$\n";
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri, "languageId": "typst", "version": 1, "text": text}}}));
     wait(&mut stdout, |m| m["method"] == "textDocument/publishDiagnostics");
     send(&mut stdin, json!({"jsonrpc": "2.0", "id": 2, "method": "textDocument/semanticTokens/full", "params": {"textDocument": {"uri": uri}}}));
     let result = wait(&mut stdout, |m| m["id"] == 2);
     let data = result["result"]["data"].as_array().unwrap();
     let (mut line, mut col) = (0, 0);
-    let mut declaration = Vec::new();
-    let mut uses = Vec::new();
-    let mut inline = Vec::new();
-    for token in data.chunks_exact(5) {
+    let mut found = Vec::new();
+    for token in data.as_chunks::<5>().0 {
         let delta = token[0].as_u64().unwrap();
         line += delta;
         col = if delta == 0 { col + token[1].as_u64().unwrap() } else { token[1].as_u64().unwrap() };
-        let record = (col, token[2].as_u64().unwrap(), token[3].as_u64().unwrap());
-        if line == 1 { declaration.push(record); }
-        if line == 2 && record.2 == 9 { uses.push(record); }
-        if line >= 3 { inline.push((line, record)); }
+        found.push((line, col, token[2].as_u64().unwrap(), token[3].as_u64().unwrap()));
     }
-    assert_eq!(declaration, vec![(19, 4, 9)]);
-    assert_eq!(uses, vec![(7, 5, 9)]);
-    for (line, start, length, kind) in [(3, 10, 3, 4), (4, 13, 2, 9), (5, 14, 2, 9)] {
-        let hits: Vec<_> = inline.iter().filter(|(l, (s, n, _))| *l == line && *s < start + length + 1 && start - 1 < *s + *n).copied().collect();
-        assert_eq!(hits, vec![(line, (start, length, kind))]);
+    // the unit's expression is math solveng reads: its number and unit
+    assert!(found.contains(&(1, 19, 4, 3)) && found.contains(&(1, 24, 2, 9)), "{found:?}");
+    // the binding's use, the operation's name only, the imported units
+    for token in [(3, 8, 5, 9), (4, 10, 3, 4), (5, 8, 2, 9), (6, 8, 2, 9)] {
+        let hits: Vec<_> = found.iter().filter(|t| t.0 == token.0 && t.1 < token.1 + token.2 + 1 && token.1 - 1 < t.1 + t.2).copied().collect();
+        assert_eq!(hits, vec![token], "{found:?}");
     }
 
-    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": uri}, "position": {"line": 1, "character": 20}}}));
+    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": uri}, "position": {"line": 3, "character": 9}}}));
     let hover = wait(&mut stdout, |m| m["id"] == 3);
-    assert!(hover["result"]["contents"]["value"].as_str().unwrap().contains("`cusom` unit shortcut for `iwef`"));
-    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 4, "method": "textDocument/completion", "params": {"textDocument": {"uri": uri}, "position": {"line": 1, "character": 21}}}));
-    let completion = wait(&mut stdout, |m| m["id"] == 4);
-    assert!(completion["result"]["items"].as_array().unwrap().iter().any(|item| item["label"] == "iwef"));
-    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 6, "method": "textDocument/completion", "params": {"textDocument": {"uri": uri}, "position": {"line": 3, "character": 12}}}));
+    assert_eq!(hover["result"]["contents"]["value"], "`cusom`: unit: `1000 km`");
+    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 6, "method": "textDocument/completion", "params": {"textDocument": {"uri": uri}, "position": {"line": 4, "character": 12}}}));
     let completion = wait(&mut stdout, |m| m["id"] == 6);
     assert!(completion["result"]["items"].as_array().unwrap().iter().any(|item| item["label"] == "tri" && item["textEdit"]["newText"] == "tri"));
     send(&mut stdin, json!({"jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null}));

@@ -1,5 +1,5 @@
 //! Results from SymPy and mpmath (tests/oracle/generate.py), checked through the worksheet as they would be
-//! written: every case is a line of code in a fresh worksheet. Values are compared as numbers (within the
+//! written: every case is a line of math in a fresh worksheet, with its operations and constants as references. Values are compared as numbers (within the
 //! case's tolerance), symbolic results at sample points, solutions as sets.
 //!
 //! What the engine can't do yet, or gets wrong, is listed in oracle/known.txt: the test fails for a case that
@@ -9,13 +9,11 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-use solveng_core::api::{LineReq, line};
+mod support;
+
 use solveng_core::env::Env;
-use solveng_core::eval::value;
 use solveng_core::expr::{Expr, simp};
-use solveng_core::format::Cfg;
 use solveng_core::linalg::Array;
-use solveng_core::parse::Mode;
 use solveng_core::poly::{coeffs, together};
 use solveng_core::sheet::Out;
 
@@ -100,13 +98,14 @@ fn same(got: &Value, want: &Value, tol: f64) -> bool {
 // ---------- the worksheet ----------
 
 fn run(env: &mut Env, src: &str) -> Out {
-    line(env, &LineReq { src: src.into(), mode: Mode::Code, cfg: Cfg::default(), listed: true })
+    support::line(env, src)
 }
 
 /// The value of a defined name, with what's defined now put in.
 fn got(env: &Env, name: &str) -> Result<Value, String> {
-    let e = simp(&env.bind(&env.vars[name].expr, &Default::default())?);
-    let num = |e: &Expr| value(e).map(|v| v.v.f()).map_err(|e| e.message());
+    let e = simp(&env.bind_with_units(&env.vars[name].expr, &Default::default(), &support::units(env))?);
+    // a complex value is NaN: only real ones are compared
+    let num = |e: &Expr| solveng_core::eval::complex_value(e).map(|z| if z.is_real() { z.re.v.f() } else { f64::NAN }).map_err(|e| e.message());
     Ok(match Array::of(&e) {
         Some(a) => Value { shape: Some((a.rows, a.cols)), v: a.a.iter().map(num).collect::<Result<_, _>>()? },
         None => Value { shape: None, v: vec![num(&e)?] },
@@ -183,7 +182,9 @@ fn identity_case(f: &[&str]) -> Outcome {
 }
 
 /// Solutions as sets of tuples: each wanted one matched by a different one found.
+/// The real solutions are compared (SymPy's are real; the engine's complex ones are NaN in `solutions`).
 fn same_solutions(got: &[Vec<f64>], want: &[Vec<f64>]) -> bool {
+    let got: Vec<Vec<f64>> = got.iter().filter(|s| s.iter().all(|x| !x.is_nan())).cloned().collect();
     if got.len() != want.len() {
         return false;
     }

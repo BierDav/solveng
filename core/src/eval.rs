@@ -1,5 +1,6 @@
 //! Values: numbers with units out of expressions, exactly where the arithmetic allows.
 
+use crate::complex::{self, CVal, Z};
 use crate::dim::Dim;
 use crate::env::rat_of;
 use crate::expr::{Expr, Func, Val, simp};
@@ -30,11 +31,21 @@ impl NoValue {
     }
 }
 
-/// The value of a bound expression (defined names put in): exact if it can be.
+/// The value of a bound expression (defined names put in): exact if it can be. A complex value is an error here:
+/// see [`complex_value`].
 pub fn value(e: &Expr) -> Result<Val, NoValue> {
+    let z = complex_value(e)?;
+    if z.is_real() {
+        return Ok(z.re);
+    }
+    Err(NoValue::Error("the value is complex, and only a real value works here – Re(…), Im(…), abs(…) or arg(…) give real ones".into()))
+}
+
+/// The value of a bound expression, complex if it has `i` in it: exact if it can be.
+pub fn complex_value(e: &Expr) -> Result<CVal, NoValue> {
     let s = simp(e);
-    if let Expr::C(v) = s {
-        return Ok(v);
+    if let Some(z) = complex::parts(&s) {
+        return Ok(z);
     }
     let mut pending = vec![&s];
     while let Some(e) = pending.pop() {
@@ -52,148 +63,232 @@ pub fn value(e: &Expr) -> Result<Val, NoValue> {
     if let Some(m) = crate::linalg::problem(&s) {
         return Err(NoValue::Error(m));
     }
-    let (x, d) = eval_d(&s).map_err(NoValue::Error)?;
-    Ok(Val::new(Num::F(x), d))
+    let (z, d) = eval_z(&s, Domain::Complex).map_err(NoValue::Error)?;
+    let z = z.cleaned();
+    Ok(CVal { re: Val::new(Num::F(z.re), d.clone()), im: Val::new(Num::F(z.im), d) })
 }
 
 fn units_text(d: &Dim) -> String {
     if d.is_one() { "1".into() } else { crate::units::Units::default().auto(d).text() }
 }
 
-/// Numeric value with dimension; problems as messages.
+/// Where an expression is calculated: in the complex numbers (values), or the real ones (graphs, numeric solving).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Domain {
+    Real,
+    Complex,
+}
+
+/// Numeric value with dimension, in the real numbers; problems as messages.
 pub fn eval_d(e: &Expr) -> Result<(f64, Dim), String> {
+    eval_z(e, Domain::Real).map(|(z, d)| (z.re, d))
+}
+
+/// Numeric value with dimension, in the complex numbers.
+pub fn eval_c(e: &Expr) -> Result<(Z, Dim), String> {
+    eval_z(e, Domain::Complex)
+}
+
+/// A real power: odd roots of negative numbers are real, (−8)^(1/3) = −2.
+fn real_pow(bv: f64, xv: f64) -> Result<f64, String> {
+    if bv == 0.0 && xv < 0.0 {
+        return Err("division by zero".into());
+    }
+    if bv < 0.0 && xv.fract() != 0.0 {
+        let r = rat_of(xv).filter(|r| r.denom() % 2 == 1);
+        let Some(r) = r else {
+            return Err(if (xv - 0.5).abs() < 1e-12 { "square root of a negative number".into() } else { "a negative number to a fractional power is not real".into() });
+        };
+        let m = (-bv).powf(xv);
+        return Ok(if r.numer() % 2 == 0 { m } else { -m });
+    }
+    Ok(if xv.fract() == 0.0 && xv.abs() < 1e9 { bv.powi(xv as i32) } else { bv.powf(xv) })
+}
+
+/// The dimension of a power: a unit takes rational exponents only.
+fn pow_dim(bd: &Dim, xv: Z) -> Result<Dim, String> {
+    if bd.is_one() {
+        return Ok(Dim::ONE);
+    }
+    let r = Some(xv).filter(|x| x.is_real()).and_then(|x| rat_of(x.re)).ok_or("a unit to a power that isn't a simple fraction")?;
+    bd.pow(r).ok_or_else(|| "a unit to a power that isn't a simple fraction".into())
+}
+
+/// A function of a complex argument; None for the ones only defined for real arguments.
+fn complex_f(f: Func, z: Z) -> Option<Z> {
+    Some(match f {
+        Func::Exp => z.exp(),
+        Func::Ln => z.ln(),
+        Func::Log => z.ln().scale(1.0 / std::f64::consts::LN_10),
+        Func::Sin => z.sin(),
+        Func::Cos => z.cos(),
+        Func::Tan => z.sin().div(z.cos()),
+        Func::Sinh => z.sinh(),
+        Func::Cosh => z.cosh(),
+        Func::Tanh => z.sinh().div(z.cosh()),
+        Func::Asin => z.asin(),
+        Func::Acos => z.acos(),
+        Func::Atan => z.atan(),
+        _ => return None,
+    })
+}
+
+fn eval_z(e: &Expr, dom: Domain) -> Result<(Z, Dim), String> {
+    let real = |e: &Expr, what: &str| -> Result<(f64, Dim), String> {
+        let (z, d) = eval_z(e, dom)?;
+        if !z.is_real() { return Err(format!("{what} must be real, not complex")); }
+        Ok((z.re, d))
+    };
     let r = match e {
         Expr::Cases(v) => {
             for (value, condition) in v {
-                let (test, dim) = eval_d(condition)?;
+                let (test, dim) = real(condition, "a cases condition")?;
                 if !dim.is_one() { return Err("a cases condition must be unitless".into()); }
-                if test != 0.0 { return eval_d(value); }
+                if test != 0.0 { return eval_z(value, dom); }
             }
             return Err("no cases condition matches here".into());
         }
         Expr::Vector(_) => return Err("a vector has several components – select one with at(vector, index), starting at 0".into()),
         Expr::Matrix(_) => return Err("a matrix has several elements – select one with at(matrix, row, column), starting at 0".into()),
         Expr::Op(..) => return Err(crate::linalg::problem(e).unwrap_or_else(|| "this matrix operation has no value here".into())),
-        Expr::C(v) => (v.v.f(), v.d),
-        Expr::Pi => (std::f64::consts::PI, Dim::ONE),
-        Expr::E => (std::f64::consts::E, Dim::ONE),
+        Expr::C(v) => (Z::real(v.v.f()), v.d.clone()),
+        Expr::Pi => (Z::real(std::f64::consts::PI), Dim::ONE),
+        Expr::E => (Z::real(std::f64::consts::E), Dim::ONE),
+        Expr::I if dom == Domain::Complex => (Z::I, Dim::ONE),
+        Expr::Const(_, backing) => return eval_z(backing, dom),
+        Expr::I => return Err("i is imaginary, and only real values work here".into()),
         Expr::Call(n, _) => return Err(format!("{n} isn't defined – define it first with :=")),
         Expr::Sym(n) => return Err(format!("'{n}' isn't defined")),
         Expr::Add(ts) => {
-            let mut acc: Option<(f64, Dim)> = None;
+            let mut acc: Option<(Z, Dim)> = None;
             for t in ts {
-                let (v, d) = eval_d(t)?;
+                let (v, d) = eval_z(t, dom)?;
                 acc = Some(match acc {
                     None => (v, d),
                     Some((a, ad)) => {
                         if ad != d {
                             return Err(format!("adding different units: {} and {}", units_text(&ad), units_text(&d)));
                         }
-                        (a + v, d)
+                        (a.add(v), d)
                     }
                 });
             }
-            acc.unwrap_or((0.0, Dim::ONE))
+            acc.unwrap_or((Z::real(0.0), Dim::ONE))
         }
         Expr::Mul(fs) => {
-            let mut acc = (1.0, Dim::ONE);
+            let mut acc = (Z::real(1.0), Dim::ONE);
             for f in fs {
-                let (v, d) = eval_d(f)?;
-                acc = (acc.0 * v, acc.1.mul(&d));
+                let (v, d) = eval_z(f, dom)?;
+                acc = (acc.0.mul(v), acc.1.mul(&d));
             }
             acc
         }
         Expr::Pow(b, x) => {
-            let (bv, bd) = eval_d(b)?;
-            let (xv, xd) = eval_d(x)?;
+            let (bv, bd) = eval_z(b, dom)?;
+            let (xv, xd) = eval_z(x, dom)?;
             if !xd.is_one() {
                 return Err("an exponent must be unitless".into());
             }
-            if bv == 0.0 && xv < 0.0 {
-                return Err("division by zero".into());
-            }
-            if bv < 0.0 && xv.fract() != 0.0 {
-                // odd roots of negative numbers are real: (−8)^(1/3)
-                let odd = rat_of(xv).is_some_and(|r| r.denom() % 2 == 1);
-                if !odd {
-                    return Err(if (xv - 0.5).abs() < 1e-12 { "square root of a negative number".into() } else { "a negative number to a fractional power is not real".into() });
+            let d = pow_dim(&bd, xv)?;
+            if bv.is_real() && xv.is_real() {
+                match real_pow(bv.re, xv.re) {
+                    Ok(v) => (Z::real(v), d),
+                    // a real power without a real value has its principal complex one: √−4 = 2i
+                    Err(_) if dom == Domain::Complex && bv.re < 0.0 => (bv.pow(xv), d),
+                    Err(m) => return Err(m),
                 }
+            } else {
+                if bv == Z::real(0.0) && xv.re < 0.0 {
+                    return Err("division by zero".into());
+                }
+                (bv.pow(xv), d)
             }
-            let d = if bd.is_one() {
-                Dim::ONE
-            } else {
-                let r = rat_of(xv).ok_or("a unit to a power that isn't a simple fraction")?;
-                bd.pow(r).ok_or("a unit to a power that isn't a simple fraction")?
-            };
-            let v = if bv < 0.0 && xv.fract() != 0.0 {
-                let r = rat_of(xv).unwrap();
-                let m = (-bv).powf(xv);
-                if r.numer() % 2 == 0 { m } else { -m }
-            } else if xv.fract() == 0.0 && xv.abs() < 1e9 {
-                bv.powi(xv as i32)
-            } else {
-                bv.powf(xv)
-            };
-            (v, d)
         }
         Expr::F(f, a) => {
-            let (v, d) = eval_d(a)?;
-            if *f == Func::Abs {
-                return Ok((v.abs(), d));
+            let (v, d) = eval_z(a, dom)?;
+            match f {
+                Func::Abs => return Ok((Z::real(v.abs()), d)),
+                Func::Re => return Ok((Z::real(v.re), d)),
+                Func::Im => return Ok((Z::real(v.im), d)),
+                Func::Conj => return Ok((v.conj(), d)),
+                Func::Arg if v == Z::real(0.0) => return Err("arg of 0 isn't defined".into()),
+                Func::Arg => return Ok((Z::real(v.arg()), Dim::ONE)),
+                _ => {}
             }
             if !d.is_one() {
                 return Err(format!("the argument of {} must be unitless, it is in {}", f.name(), units_text(&d)));
             }
-            let r = f.eval(v).ok_or_else(|| match f {
-                Func::Ln | Func::Log => format!("{} of a number ≤ 0", f.name()),
-                Func::Asin | Func::Acos => format!("{} of a number outside −1…1", f.name()),
-                _ => format!("{} is out of range here", f.name()),
-            })?;
-            (r, Dim::ONE)
+            let real_value = if v.is_real() { f.eval(v.re) } else { None };
+            match (real_value, dom) {
+                (Some(r), _) => (Z::real(r), Dim::ONE),
+                (None, Domain::Complex) if complex_f(*f, v).is_some_and(|z| z.is_finite()) => (complex_f(*f, v).unwrap(), Dim::ONE),
+                (None, Domain::Complex) if !v.is_real() => return Err(format!("{} takes a real argument, not a complex one", f.name())),
+                (None, _) => return Err(match f {
+                    Func::Ln | Func::Log => format!("{} of a number ≤ 0", f.name()),
+                    Func::Asin | Func::Acos => format!("{} of a number outside −1…1", f.name()),
+                    _ => format!("{} is out of range here", f.name()),
+                }),
+            }
         }
         Expr::Cmp(v, rs) => {
-            let vals: Vec<(f64, Dim)> = v.iter().map(eval_d).collect::<Result<_, _>>()?;
-            let ok = rs.iter().enumerate().all(|(i, r)| {
-                let (a, b) = (vals[i], vals[i + 1]);
+            let vals: Vec<(Z, Dim)> = v.iter().map(|x| eval_z(x, dom)).collect::<Result<_, _>>()?;
+            let mut ok = true;
+            for (i, r) in rs.iter().enumerate() {
+                let (a, b) = (&vals[i], &vals[i + 1]);
                 if a.1 != b.1 {
-                    return *r == Rel::Ne;
+                    ok &= *r == Rel::Ne;
+                    continue;
                 }
-                r.holds(a.0.total_cmp(&b.0), close(a.0, b.0))
-            });
-            (if ok { 1.0 } else { 0.0 }, Dim::ONE)
+                let same = close(a.0.re, b.0.re) && close(a.0.im, b.0.im);
+                if matches!(r, Rel::Eq | Rel::Ne) {
+                    ok &= same == (*r == Rel::Eq);
+                } else if !a.0.is_real() || !b.0.is_real() {
+                    return Err("complex numbers have no order: compare their parts, Re(…), Im(…), or abs(…)".into());
+                } else {
+                    ok &= r.holds(a.0.re.total_cmp(&b.0.re), same);
+                }
+            }
+            (Z::real(if ok { 1.0 } else { 0.0 }), Dim::ONE)
         }
         Expr::Subs(..) | Expr::Derivative(..) => return Err("this derivative needs piecewise or distributional calculus; it is kept symbolic".into()),
         Expr::InverseLaplace(body, var, by) => {
-            let (t, dimension) = eval_d(by)?;
+            let (t, dimension) = real(by, "the inverse Laplace evaluation time")?;
             if !dimension.is_one() { return Err("inverse Laplace evaluation time must be unitless".into()); }
             dim_of(e, &|_| None)?;
-            (crate::inverse_laplace::evaluate(body, var, t, &|_| None)?, Dim::ONE)
+            (Z::real(crate::inverse_laplace::evaluate(body, var, t, &|_| None)?), Dim::ONE)
         }
         Expr::Sum(body, var, lo, hi) => {
             let bound = |e: &Expr| -> Result<f64, String> {
-                let (v, d) = if let Expr::C(v) = e { (v.v.f(), v.d) } else { eval_d(e)? };
+                let (v, d) = if let Expr::C(v) = e { (v.v.f(), v.d.clone()) } else { real(e, "a sum bound")? };
                 if !d.is_one() { return Err("sum bounds must be unitless".into()); }
                 Ok(v)
             };
             let d = dim_of(body, &|n| if n == var { Some(Dim::ONE) } else { None })?.ok_or("unknown summand dimension")?;
             let points = crate::calculus::signal_points(body, var, &|_| None);
-            let v = crate::calculus::series(&|k| eval_d(&body.subst(var, &crate::expr::c(Num::F(k)))).ok().filter(|(_, sd)| *sd == d).map(|(v, _)| v), bound(lo)?, bound(hi)?, &points, crate::calculus::piecewise_affine(body, var))?;
-            (v, d)
+            let (lo, hi) = (bound(lo)?, bound(hi)?);
+            // a complex summand: its real and imaginary parts summed on their own
+            let part = |im: bool| crate::calculus::series(&|k| eval_z(&body.subst(var, &crate::expr::c(Num::F(k))), dom).ok().filter(|(_, sd)| *sd == d).map(|(v, _)| if im { v.im } else { v.re }), lo, hi, &points, crate::calculus::piecewise_affine(body, var));
+            let im = if dom == Domain::Complex { part(true)? } else { 0.0 };
+            (Z::new(part(false)?, im), d)
         }
         Expr::Integral(body, var, lo, hi) => {
-            let bound = |e: &Expr| if let Expr::C(v) = e { Ok((v.v.f(), v.d)) } else { eval_d(e) };
+            let bound = |e: &Expr| if let Expr::C(v) = e { Ok((v.v.f(), v.d.clone())) } else { real(e, "an integral bound") };
             let (l, ld) = bound(lo)?;
             let (h, hd) = bound(hi)?;
             if ld != hd { return Err("integral bounds have different units".into()); }
-            let sample = |x| body.subst(var, &Expr::C(Val::new(Num::F(x), ld)));
-            let d = dim_of(body, &|n| if n == var { Some(ld) } else { None })?.ok_or("unknown integrand dimension")?;
+            let sample = |x| body.subst(var, &Expr::C(Val::new(Num::F(x), ld.clone())));
+            let d = dim_of(body, &|n| if n == var { Some(ld.clone()) } else { None })?.ok_or("unknown integrand dimension")?;
             let points = crate::calculus::signal_points(body, var, &|_| None);
-            let v = crate::calculus::piecewise_quadrature(&|x| eval_d(&sample(x)).ok().filter(|(_, sd)| *sd == d).map(|(v, _)| v), l, h, &points)?;
-            (v, d.mul(&ld))
+            let part = |im: bool| crate::calculus::piecewise_quadrature(&|x| eval_z(&sample(x), dom).ok().filter(|(_, sd)| *sd == d).map(|(v, _)| if im { v.im } else { v.re }), l, h, &points);
+            let im = if dom == Domain::Complex { part(true)? } else { 0.0 };
+            (Z::new(part(false)?, im), d.mul(&ld))
         }
-        Expr::Cast(a, k, d, _) => {
-            let (v, _) = eval_d(a)?;
-            (v * k.f(), *d)
+        Expr::Number(a, k, d, _) => {
+            let (v, da) = eval_z(a, dom)?;
+            if da != *d {
+                return Err(format!("number: the value is in {}, not in {}", units_text(&da), units_text(d)));
+            }
+            (v.scale(1.0 / k.f()), Dim::ONE)
         }
     };
     if !r.0.is_finite() {
@@ -216,6 +311,8 @@ pub fn eval_f(e: &Expr, vars: &dyn Fn(&str) -> Option<f64>) -> Option<f64> {
         Expr::C(v) => v.v.f(),
         Expr::Pi => std::f64::consts::PI,
         Expr::E => std::f64::consts::E,
+        Expr::I => return None,
+        Expr::Const(_, backing) => eval_f(backing, vars)?,
         Expr::Sym(n) => vars(n)?,
         Expr::Add(ts) => {
             let mut s = 0.0;
@@ -264,7 +361,7 @@ pub fn eval_f(e: &Expr, vars: &dyn Fn(&str) -> Option<f64>) -> Option<f64> {
             let points = crate::calculus::signal_points(body, var, vars);
             crate::calculus::piecewise_quadrature(&|x| eval_f(body, &|n| if n == var { Some(x) } else { vars(n) }), bound(lo)?, bound(hi)?, &points).ok()?
         }
-        Expr::Cast(a, k, ..) => eval_f(a, vars)? * k.f(),
+        Expr::Number(a, k, ..) => eval_f(a, vars)? / k.f(),
     };
     r.is_finite().then_some(r)
 }
@@ -289,8 +386,9 @@ pub fn dim_of(e: &Expr, sd: &dyn Fn(&str) -> Option<Dim>) -> Result<Option<Dim>,
             for e in e.children() { dim_of(e, sd)?; }
             None
         }
-        Expr::C(v) => Some(v.d),
-        Expr::Pi | Expr::E => Some(Dim::ONE),
+        Expr::C(v) => Some(v.d.clone()),
+        Expr::Pi | Expr::E | Expr::I => Some(Dim::ONE),
+        Expr::Const(_, backing) => dim_of(backing, sd)?,
         Expr::Sym(n) => sd(n),
         Expr::Call(_, args) => {
             for a in args { dim_of(a, sd)?; }
@@ -346,8 +444,10 @@ pub fn dim_of(e: &Expr, sd: &dyn Fn(&str) -> Option<Dim>) -> Result<Option<Dim>,
         }
         Expr::F(f, a) => {
             let d = dim_of(a, sd)?;
-            if *f == Func::Abs {
+            if matches!(f, Func::Abs | Func::Re | Func::Im | Func::Conj) {
                 d
+            } else if *f == Func::Arg {
+                Some(Dim::ONE)
             } else {
                 if let Some(d) = d {
                     if !d.is_one() {
@@ -365,7 +465,7 @@ pub fn dim_of(e: &Expr, sd: &dyn Fn(&str) -> Option<Dim>) -> Result<Option<Dim>,
         }
         Expr::Subs(body, var, by) => {
             let d = dim_of(by, sd)?;
-            dim_of(body, &|n| if n == var { d } else { sd(n) })?
+            dim_of(body, &|n| if n == var { d.clone() } else { sd(n) })?
         }
         Expr::Derivative(body, var) => match (dim_of(body, sd)?, sd(var)) {
             (Some(a), Some(b)) => Some(a.mul(&b.powi(-1))),
@@ -388,15 +488,17 @@ pub fn dim_of(e: &Expr, sd: &dyn Fn(&str) -> Option<Dim>) -> Result<Option<Dim>,
         Expr::Integral(body, var, lo, hi) => {
             let ld = dim_of(lo, sd)?;
             let hd = dim_of(hi, sd)?;
-            if let (Some(l), Some(h)) = (ld, hd) { if l != h { return Err("integral bounds have different units".into()); } }
-            match (ld.or(hd), dim_of(body, &|n| if n == var { ld.or(hd) } else { sd(n) })?) {
+            if let (Some(l), Some(h)) = (&ld, &hd) { if l != h { return Err("integral bounds have different units".into()); } }
+            match (ld.clone().or(hd.clone()), dim_of(body, &|n| if n == var { ld.clone().or(hd.clone()) } else { sd(n) })?) {
                 (Some(x), Some(y)) => Some(y.mul(&x)),
                 _ => None,
             }
         }
-        Expr::Cast(a, _, d, _) => {
-            dim_of(a, sd)?;
-            Some(*d)
+        Expr::Number(a, _, d, _) => {
+            if let Some(da) = dim_of(a, sd)?.filter(|da| da != d) {
+                return Err(format!("number: the value is in {}, not in {}", units_text(&da), units_text(d)));
+            }
+            Some(Dim::ONE)
         }
     })
 }

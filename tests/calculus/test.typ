@@ -1,6 +1,6 @@
 #import "/lib.typ": *
-#import "/tests/util.typ": expect, passes, result
-#import functions: *
+#import "/tests/util.typ": expect, passes, result, undefined
+#import constants: e
 #set page(width: 18cm, height: auto)
 #show: worksheet
 #worksheet($
@@ -9,38 +9,33 @@ g := 2
 $)
 #expect("t", 1)
 #expect("g", 2)
-#worksheet(raw("t := 1 \\ g := 23"))
+#worksheet($t := 1 \ g := 23$)
 #expect("g", 23)
-#worksheet(raw("t := 1 \ g := 24"))
-#expect("g", 24)
-#worksheet(raw("u := 23 + 3
-v := u +
-  2"))
-#expect("v", 28)
+// code passed to worksheet is text, not calculated
+#worksheet(raw("k := 24"))
+#undefined("k")
 #clear("t")
-```solveng
-q := 23 + 3
-q =
-f(x) := e^x
-dif / (dif t) f(t) ->
-integral_(0)^(1) x^2 dif x ->
-integral_(0)^(1) exp(-x^2) dif x =
-```
+$q := 23 + 3$
+$q =$
+$f(x) := #e^x$
+$dif / (dif t) f(t) ->$
+$integral_(0)^(1) x^2 dif x ->$
+$integral_(0)^(1) exp(-x^2) dif x =$
 #passes()
-$f(x) := e^x$
+$f(x) := #e^x$
 $ dif / (dif t) f(t) -> $
 #passes()
 #result("e^(t)")
 $ a := integral_0^1 x^2 dif x = $
 #passes()
 #expect("a", 1 / 3)
-$ b := integral_0^1 e^(-x^2) dif x = $
+$ b := integral_0^1 #e^(-x^2) dif x = $
 #passes()
 #expect("b", 0.746824132812427)
-$ c := integral_(-infinity)^0 e^x dif x = $
+$ c := integral_(-infinity)^0 #e^x dif x = $
 #passes()
 #expect("c", 1)
-$ sigma(tau) := e^tau $
+$ sigma(tau) := #e^tau $
 $ F(t) := integral_(-infinity)^t sigma(tau) dif tau $
 $ dif / (dif t) F(t) -> $
 #passes()
@@ -60,7 +55,7 @@ $dif / (dif t) f(t) ->$
 #result("σ(t)")
 $f(t) ->$
 #passes()
-$sigma(u) := e^u$
+$sigma(u) := #e^u$
 $"late" := f(0) =$
 #passes()
 #expect("late", 1)

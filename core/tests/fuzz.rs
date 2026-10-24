@@ -2,12 +2,12 @@
 
 use std::collections::BTreeMap;
 
-use solveng_core::api::{LineReq, line};
+mod support;
+
 use solveng_core::env::Env;
 use solveng_core::eval::{eval_f, value};
 use solveng_core::expr::{self, Expr, Func, int, simp, sym};
 use solveng_core::format::{Cfg, fmt};
-use solveng_core::parse::Mode;
 use solveng_core::solve::solve1;
 
 struct Rng(u64);
@@ -38,19 +38,19 @@ fn n() -> usize {
 }
 
 fn run(env: &mut Env, src: &str) -> solveng_core::sheet::Out {
-    line(env, &LineReq { src: src.into(), mode: Mode::Code, cfg: Cfg::default(), listed: true })
+    support::line(env, src)
 }
 
 fn val(env: &Env, name: &str) -> Option<f64> {
     let v = env.vars.get(name)?;
-    value(&env.bind(&v.expr, &Default::default()).ok()?).ok().map(|v| v.v.f())
+    value(&env.bind_with_units(&v.expr, &Default::default(), &support::units(env)).ok()?).ok().map(|v| v.v.f())
 }
 
 fn close(a: f64, b: f64, rel: f64) -> bool {
     (a - b).abs() <= rel * a.abs().max(b.abs()).max(1e-12)
 }
 
-/// A random expression in x as (code text, its value at a point).
+/// A random expression in x as (readable text, its value at a point).
 fn random_expr(r: &mut Rng, depth: usize, x: Option<f64>) -> (String, Option<f64>) {
     if depth == 0 || r.f() < 0.25 {
         if x.is_some() && r.f() < 0.5 {
@@ -230,7 +230,7 @@ fn fuzz_format() {
     for i in 0..n() {
         let x = (r.f() - 0.5) * 10f64.powi(r.int(-20, 20) as i32);
         let digits = r.int(1, 15) as u32;
-        let cfg = Cfg { digits, ..Cfg::default() };
+        let cfg = Cfg { digits, ..support::cfg() };
         let (m, e) = fmt(x, &cfg);
         let back: f64 = m.parse::<f64>().unwrap() * 10f64.powi(e.unwrap_or(0));
         assert!(close(back, x, 10f64.powi(1 - digits as i32)), "#{i} {x} at {digits}: {m} e{e:?}");
@@ -248,10 +248,11 @@ fn fuzz_hostile() {
         let len = r.int(1, 12);
         let src: Vec<&str> = (0..len).map(|_| *r.pick(&toks)).collect();
         let src = src.join(" ");
-        for mode in [Mode::Code, Mode::Math] {
+        // as written, and with units, operations and keywords made explicit
+        for explicit in [false, true] {
             let mut env = Env::default();
-            let _ = line(&mut env, &LineReq { src: "f(x) := x^2".into(), mode: Mode::Code, cfg: Cfg::default(), listed: true });
-            let _ = line(&mut env, &LineReq { src: src.clone(), mode, cfg: Cfg::default(), listed: true });
+            run(&mut env, "f(x) := x^2");
+            let _ = if explicit { run(&mut env, &src) } else { support::line_raw(&mut env, &src) };
         }
     }
     // symbolic algebra on random expressions: simplifying keeps the value
@@ -297,13 +298,13 @@ fn return_units_match_the_calls() {
         let src = format!("f(x: {u}, y: {w}) := {body}");
         let out = run(&mut env, &src);
         assert!(out.errors.is_empty(), "{src}: {:?}", out.errors);
-        let ret = env.funs["f"].ret.unwrap_or_else(|| panic!("{src}: no return unit"));
+        let ret = env.funs["f"].ret.clone().unwrap_or_else(|| panic!("{src}: no return unit"));
         let call = format!("v := f([2 {u}], [3 {w}])");
         let out = run(&mut env, &call);
         assert!(out.errors.is_empty(), "{call}: {:?}", out.errors);
-        let v = value(&env.bind(&env.vars["v"].expr, &Default::default()).unwrap()).unwrap();
+        let v = value(&support::bind(&env, &env.vars["v"].expr)).unwrap();
         assert_eq!(ret, v.d, "{src}; {call}");
-        let rows = defined(&env, &DefinedReq { cfg: Cfg::default() }).unwrap();
+        let rows = defined(&env, &DefinedReq { cfg: support::cfg() }).unwrap();
         let plain = &rows.iter().find(|row| row.name == "f").unwrap().plain;
         assert!(plain.starts_with(&format!("(x: {u}, y: {w}): ")), "{src}: {plain}");
     }

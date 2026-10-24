@@ -1,6 +1,7 @@
 //! Built-in operations: what they are called, which arguments they take, and how a name reaches one.
 //!
-//! Automatic names obey builtin-functions; explicit math.op references always reach the operation.
+//! An operation is only ever reached by an explicit reference: a binding of solveng's `functions`, `math.op` or
+//! `operation`; a plain name is a name.
 //!
 //! Arguments bind as in Typst: positional arguments to the positional parameters in order, named ones
 //! (`step: 10 ms`) to the named parameters, which have defaults.
@@ -56,7 +57,8 @@ const fn sig(name: &'static str, positional: &'static [Param], named: &'static [
 pub const BUILTINS: &[Builtin] = &[
     one("sqrt"), one("exp"), one("ln"), one("log"), one("sin"), one("cos"), one("tan"), one("arcsin"), one("arccos"),
     one("arctan"), one("sinh"), one("cosh"), one("tanh"), one("abs"), one("rect"), one("tri"), one("sgn"), one("floor"),
-    one("factorial"),
+    one("factorial"), one("Re"), one("Im"), one("conj"), one("arg"),
+    sig("number", &[req("value"), req("unit")], &[]),
     matrix("det"), matrix("tr"), matrix("rank"), one("norm"), sig("identity", &[req("n")], &[]), matrix("rows"), matrix("cols"),
     sig("at", &[req("v"), req("i"), opt("j")], &[]),
     sig("diff", &[req("expression"), req("variable")], &[]),
@@ -71,7 +73,7 @@ pub const BUILTINS: &[Builtin] = &[
 ];
 
 /// Other spellings of operations.
-const ALIASES: &[(&str, &str)] = &[("asin", "arcsin"), ("acos", "arccos"), ("atan", "arctan")];
+const ALIASES: &[(&str, &str)] = &[("asin", "arcsin"), ("acos", "arccos"), ("atan", "arctan"), ("re", "Re"), ("im", "Im")];
 
 /// The operation of a name, without overlays.
 pub fn builtin(name: &str) -> Option<&'static Builtin> {
@@ -147,26 +149,9 @@ pub fn usage(b: &Builtin) -> String {
     format!(" – {}({})", b.name, ps.join(", "))
 }
 
-/// Built-in name lookup. Explicit math.op references always name the underlying operation.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Functions { builtin: bool }
-
-impl Functions {
-    pub fn standard() -> Self { Self { builtin: true } }
-    pub fn configured(cfg: &crate::format::Cfg) -> Result<Self, String> {
-        Ok(Self { builtin: cfg.builtin_functions })
-    }
-    pub fn explicit(&self, name: &str) -> Option<&'static Builtin> {
-        builtin(&solveng_names::normalize(name))
-    }
-    pub fn plain(&self, name: &str) -> Option<&'static Builtin> {
-        self.builtin.then(|| self.explicit(name)).flatten()
-    }
-    pub fn names(&self) -> Vec<(String, &'static str)> {
-        if !self.builtin { return vec![]; }
-        BUILTINS.iter().map(|b| (b.name.to_string(), b.name))
-            .chain(ALIASES.iter().map(|(a, n)| (a.to_string(), *n))).collect()
-    }
+/// The operation an explicit reference names (math.op("tri"), what Typst writes as ⦇tri⦈), under any spelling.
+pub fn explicit(name: &str) -> Option<&'static Builtin> {
+    builtin(&solveng_names::normalize(name))
 }
 
 #[cfg(test)]

@@ -209,6 +209,10 @@ pub(crate) fn partial_fractions(num: &Expr, den: &Expr, s: &str) -> Option<Vec<(
     let d = coeffs(den, s)?;
     if n.len() >= d.len() || d.len() > 13 { return None; }
     let roots = crate::solve::solve1(&den, s, &|_| false).ok()?;
+    // real poles only: a real function with complex poles is inverted in real form, by its state space
+    if roots.iter().any(crate::complex::has_i) {
+        return None;
+    }
     let mut terms = vec![];
     let mut accounted = 0;
     for root in roots {

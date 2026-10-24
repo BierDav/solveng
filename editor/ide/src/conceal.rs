@@ -1,9 +1,7 @@
-//! Solveng code shown as it renders while the caret is elsewhere, like math: `Delta_T` as `Δ_T`, `Q0` on the baseline,
-//! `k""Omega` as `kΩ`, `->` as `→`, `m^2` as `m²`.
+//! What solveng adds to math shown as it renders while the caret is elsewhere: names in the strings of its calls
+//! (`Delta_R` as `Δ_R`), explicit operation references as their name (`op("tri")` as `tri`), and the `#` before a
+//! binding (`#s`). Typst's math itself editors conceal on their own.
 
-use crate::TokenKind as K;
-use crate::text::{Doc, chars, sub};
-use crate::tokens::code_tokens;
 use crate::calls::Role;
 use crate::{Analysis, Conceal, Context};
 
@@ -47,8 +45,6 @@ pub fn resolved_name(name: &str) -> String {
     solveng_names::resolve(name).unwrap_or_else(|_| solveng_names::normalize(name))
 }
 
-const SUPERSCRIPTS: [char; 10] = ['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'];
-
 /// Only explicit underscores make subscripts; digits inside names stay on the baseline.
 fn piece_conceals(piece: &str, at: usize, out: &mut Vec<(usize, usize, char)>) {
     let c: Vec<char> = piece.chars().collect();
@@ -62,83 +58,22 @@ fn piece_conceals(piece: &str, at: usize, out: &mut Vec<(usize, usize, char)>) {
     }
 }
 
-/// Conceals of one piece of code in characters: start, length, the character shown instead.
-fn conceals_in(code: &[char], unit: &dyn Fn(&str) -> bool) -> Vec<(usize, usize, char)> {
+/// Conceals of a name in a string, in characters: spelled Greek letters as the letter, the quotes gluing names
+/// (`Delta\"\"tau`, escaped in the string) hidden.
+fn name_conceals(name: &[char]) -> Vec<(usize, usize, char)> {
     let mut out = Vec::new();
-    for (start, len, kind) in code_tokens(code, unit) {
-        let word = sub(code, start, start + len);
-        let digit = |w: &str| w.chars().next().and_then(|c| c.to_digit(10)).map(|d| d as usize);
-        match kind {
-            K::VARIABLE | K::FUNCTION | K::KEYWORD => {
-                if word == "sqrt" {
-                    out.push((start, 4, '√'));
-                    continue;
-                }
-                let c: Vec<char> = word.chars().collect();
-                for (i, &ch) in c.iter().enumerate() {
-                    if ch == '"' || (ch == '\\' && c.get(i + 1) == Some(&'"')) { out.push((start + i, 1, '\0')); }
-                }
-                piece_conceals(&word, start, &mut out);
-            }
-            K::UNIT => {
-                let exponent = start > 0 && code[start - 1] == '^';
-                if exponent {
-                    if word.chars().count() == 1
-                        && let Some(d) = digit(&word) {
-                            out.push((start - 1, 2, SUPERSCRIPTS[d]));
-                        }
-                    continue;
-                }
-                let n = word.chars().count();
-                let characters = chars(&word);
-                let mut i = 0;
-                while i + 1 < characters.len() {
-                    if characters[i..i + 2] == ['"', '"'] {
-                        out.push((start + i, 1, '\0'));
-                        out.push((start + i + 1, 1, '\0'));
-                        i += 2;
-                    } else { i += 1; }
-                }
-                piece_conceals(&word, start, &mut out);
-                if n > 1 && word.starts_with('u') && crate::is_unit(&word[1..]) {
-                    out.push((start, 1, 'µ'));
-                }
-                if word.starts_with("deg") {
-                    out.push((start, 3, '°'));
-                }
-            }
-            K::NUMBER => {
-                if start > 0 && code[start - 1] == '^' && word.chars().count() == 1 {
-                    out.push((start - 1, 2, SUPERSCRIPTS[digit(&word).unwrap()]));
-                }
-            }
-            K::OPERATOR | K::EVALUATE => match word.as_str() {
-                "->" => out.push((start, 2, '→')),
-                "<=" => out.push((start, 2, '≤')),
-                ">=" => out.push((start, 2, '≥')),
-                _ => {}
-            },
-            _ => {}
-        }
+    for (i, &ch) in name.iter().enumerate() {
+        if ch == '"' || (ch == '\\' && name.get(i + 1) == Some(&'"')) { out.push((i, 1, '\0')); }
     }
+    piece_conceals(&name.iter().collect::<String>(), 0, &mut out);
     out.sort_by_key(|t| t.0);
     out
 }
 
-/// Conceals of one piece of code; `element_start` and `element_end` are 0.
-pub fn conceals_of(code: &str) -> Vec<Conceal> {
-    let doc = Doc::new(code);
-    conceals_in(&chars(code), &|_| false)
-        .into_iter()
-        .map(|(s, l, c)| Conceal { start: doc.to16(s), length: doc.to16(s + l) - doc.to16(s), character: c as u32, element_start: 0, element_end: 0 })
-        .collect()
-}
-
-/// Conceals of the calculated solveng code of a document, with the raw element each belongs to, like Typewright's
-/// math conceals: shown while the caret is outside that element.
+/// Conceals of the calculated math of a document and the strings of solveng's calls, each with the element it
+/// belongs to, like Typewright's math conceals: shown while the caret is outside that element.
 pub fn conceals(document: &str, context: &Context) -> Vec<Conceal> {
     let a = Analysis::new(document, context);
-    let unit = |w: &str| a.is_custom_unit(w);
     let mut out = Vec::new();
     let mut push = |base: usize, found: Vec<(usize, usize, char)>, element: (usize, usize)| {
         for (s, l, c) in found {
@@ -152,50 +87,23 @@ pub fn conceals(document: &str, context: &Context) -> Vec<Conceal> {
             });
         }
     };
-    for e in a.elements.iter().filter(|e| !e.math && a.shown(e)) {
-        push(e.body_start, conceals_in(&a.doc.c[e.body_start..e.body_end], &unit), (e.start, e.end));
+    // The names in the strings of solveng's calls, each shown as typed while the caret is in it (quotes included).
+    for t in a.calls.iter().flat_map(|c| &c.texts).filter(|t| t.role == Role::Name) {
+        push(t.start, name_conceals(&a.doc.c[t.start..t.end]), (t.start.saturating_sub(1), (t.end + 1).min(a.doc.c.len())));
     }
-    let tokens = crate::document_tokens(document, context);
-    for e in a.elements.iter().filter(|e| e.math && a.shown(e)) {
-        for token in tokens.iter().filter(|t| t.kind == K::UNIT && a.doc.to16(e.body_start) <= t.start && t.start + t.length <= a.doc.to16(e.body_end)) {
-            let start = a.doc.from16(token.start as usize);
-            let end = a.doc.from16((token.start + token.length) as usize);
-            let mut found = Vec::new();
-            piece_conceals(&a.doc.sub(start, end), 0, &mut found);
-            push(start, found, (e.start, e.end));
-        }
-    }
-    // The strings of solveng's calls, each shown as typed while the caret is in it (quotes included).
-    for t in a.calls.iter().flat_map(|c| &c.texts) {
-        let code = &a.doc.c[t.start..t.end];
-        let found = match t.role {
-            Role::Name => conceals_in(code, &unit),
-            // Every word of a unit is a unit, as after `->`.
-            Role::Unit => {
-                let mut with: Vec<char> = "-> ".chars().collect();
-                with.extend_from_slice(code);
-                conceals_in(&with, &unit).into_iter().filter(|x| x.0 >= 3).map(|(s, l, c)| (s - 3, l, c)).collect()
-            }
-            Role::Choice | Role::Mark => Vec::new(),
-        };
-        push(t.start, found, (t.start.saturating_sub(1), (t.end + 1).min(a.doc.c.len())));
-    }
-    // Explicit constructor display follows syntax, so stale compile reports cannot expand it while typing.
+    // Explicit operation references show their name; their display follows syntax, so stale compile reports
+    // cannot expand it while typing.
     for reference in a.bindings.inline_references() {
-        if !a.elements.iter().any(|e| e.math && e.body_start <= reference.start && reference.end <= e.body_end) { continue; }
+        if !a.elements.iter().any(|e| e.body_start <= reference.start && reference.end <= e.body_end) { continue; }
         let start = a.doc.to16(reference.start);
         let end = a.doc.to16(reference.end);
-        for conceal in out.iter_mut().filter(|c| start <= c.start && c.start + c.length <= end) {
-            conceal.element_start = start;
-            conceal.element_end = end;
-        }
         for (from, to) in [(reference.start, reference.text_start), (reference.text_end, reference.end)] {
             out.push(Conceal { start: a.doc.to16(from), length: a.doc.to16(to) - a.doc.to16(from), character: 0, element_start: start, element_end: end });
         }
     }
-    for (start, end) in a.bindings.unit_uses().map(|(s, e, _, _)| (s, e))
-        .chain(a.bindings.operation_uses().map(|(s, e, _, _)| (s, e))) {
-        if start == 0 || a.doc.c[start - 1] != '#' || !a.elements.iter().any(|e| e.math && e.body_start < start && end <= e.body_end) { continue; }
+    // The `#` before a unit, constant or operation binding in math.
+    for (start, end, _) in a.bindings.solveng_uses() {
+        if start == 0 || a.doc.c[start - 1] != '#' || !a.elements.iter().any(|e| e.body_start < start && end <= e.body_end) { continue; }
         out.push(Conceal { start: a.doc.to16(start - 1), length: 1, character: 0, element_start: a.doc.to16(start - 1), element_end: a.doc.to16(end) });
     }
     out.sort_by_key(|c| (c.start, c.length, c.character, c.element_start, c.element_end));

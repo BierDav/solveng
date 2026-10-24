@@ -1,3 +1,6 @@
+#import "/src/unit-words.typ" as units
+#import "/src/constants.typ" as constants
+#import "/src/builtins.typ": *
 #import "/lib.typ": *
 #import "/tests/util.typ": expect, passes, fails
 #import functions: *
@@ -18,10 +21,8 @@ $invlaplace(1/(s^2+4)) ->$
 $G(p) := laplace(t^2, t, p)$
 $"called" := G(2) =$
 #passes() #expect("called", 0.25)
-```solveng
-H(p) := laplace(t^2, t, p)
-code_value := H(2) =
-```
+$H(p) := laplace(t^2, t, p)$
+$"code"_"value" := H(2) =$
 #passes() #expect("code_value", 0.25)
 
 $Lambda(t) := tri(t)$
@@ -67,9 +68,7 @@ $"rzero" := r(0) =$
 #graph($r(t)$, xrange: (0, 3))
 #passes()
 
-// the keyword forms were removed: they say what to write instead
+// a transform is an operation, never a keyword after ->
 #worksheet(errors: "document")[
-  $x := t^2 -> laplace$ #fails("-> laplace was removed: write laplace(f, t, s) (in math with #import functions: laplace)")
-  $y := 1/(s+1) -> invlaplace(s, u)$ #fails("-> invlaplace was removed: write invlaplace(F, s, t)")
-  #worksheet(raw("z := t -> laplace(t, p)")) #fails("-> laplace was removed")
+  $x := t^2 -> laplace$ #fails("-> takes keywords and a unit")
 ]

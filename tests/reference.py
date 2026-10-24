@@ -12,7 +12,7 @@ import os, re, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "docs", "reference.md")
 # public functions in the order they are documented; worksheet comes with the option tables
-FUNCTIONS = ["worksheet", "unit", "operation", "solve", "substitute", "simplify", "digits", "sci", "eng", "defined", "graph", "lambdify", "value", "clear", "rect", "tri", "sgn", "floor", "factorial", "diff", "integrate", "laplace", "invlaplace", "convolve", "range", "at", "rank", "identity", "rows", "cols", "asin", "acos", "atan"]
+FUNCTIONS = ["worksheet", "base-unit", "unit", "constant", "operation", "solve", "substitute", "simplify", "digits", "sci", "eng", "defined", "graph", "lambdify", "value", "clear", "rect", "tri", "sgn", "Re", "Im", "conj", "number", "floor", "factorial", "diff", "integrate", "laplace", "invlaplace", "convolve", "range", "at", "rank", "identity", "rows", "cols", "asin", "acos", "atan"]
 CHAPTERS = ["src/builtins.typ", "src/engine.typ", "src/display.typ", "tests/util.typ"]
 PARAM = re.compile(r"^- ((?:\.\.)?[a-z][\w-]*(?:, [a-z][\w-]*)*(?:, …)?) \(([^)]*)\): (.*)$")
 
@@ -66,7 +66,7 @@ def functions():
         text = read("src/" + f)
         lines = text.split("\n")
         for n, line in enumerate(lines):
-            m = re.match(r"#let ([a-z][\w-]*)\b", line)
+            m = re.match(r"#let ([A-Za-z][\w-]*)\b", line)
             if m and m.group(1) in FUNCTIONS:
                 start = sum(len(l) + 1 for l in lines[:n])
                 found[m.group(1)] = (doc_before(lines, n), signature(text, start))
@@ -203,7 +203,7 @@ def generate():
                 out += ["", f"Returns {ret}."]
             out.append("")
     # The options are documented with worksheet; defined and graph take the same ones (except units).
-    out += ["## Options", "", "Options of `worksheet`, and of `defined` and `graph` (except `units`). Each one defaults to `auto`, which keeps the current setting.", ""]
+    out += ["## Options", "", "Options of `worksheet`, and of `defined` and `graph`. Each one defaults to `auto`, which keeps the current setting.", ""]
     texts = {n: (t, d) for n, t, d in split(fns["worksheet"][0])[1]}
     for group, kv in opt_groups:
         out += [f"### {group}", "", "| option | type | default | |", "|---|---|---|---|"]

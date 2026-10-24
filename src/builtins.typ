@@ -1,13 +1,14 @@
-/// Shorthands for solveng's operations in math: `tri`, `rect`, `sgn`, `floor`, `convolve`, `range`, `at`, `laplace`, ….
+#let _operation-displays = state("solveng-binding-displays", (:))
+#let _operation-display(name, shown) = _operation-displays.update(d => { d.insert("operation:" + name, shown); d })
+/// Shorthands for solveng's operations in math: `tri`, `rect`, `sgn`, `floor`, `convolve`, `range`, `at`, `Re`, `Im`, `conj`, `laplace`, ….
 ///
 /// Import only the ones you use, where you use them: `#import functions: tri, sgn`. Typst imports are lexical, so
 /// they apply to that file or block and the ones nested in it; nothing comes along with
 /// `#import "@preview/solveng:1.0.0": *`. Without the import, math reads the name as Typst's own (`at` is the
-/// symbol @) or as an unknown variable. Code blocks need no import.
+/// symbol @) or as an unknown variable.
 ///
-/// Imported names follow `builtin-functions`, and a worksheet's own function of that name wins. `op("tri")` and
-/// `operation("convolve")` are the explicit references, independent of both. Typst's own math operators (`sin`,
-/// `exp`, `sqrt`, …) need no import.
+/// A worksheet's own function of that name wins. `op("tri")` and `operation("convolve")` are the explicit
+/// references. Typst's own math operators (`sin`, `exp`, `sqrt`, `abs`, `arg`, …) need no import.
 ///
 /// ```typ
 /// #import functions: tri, sgn
@@ -17,31 +18,28 @@
 
 /// ## Built-in operations
 ///
-/// Built-in operations work in worksheet math, code blocks and graphs. In code blocks their names work as they are. In math, Typst needs a binding for every name it doesn't
-/// know, and `#import "@preview/solveng:1.0.0": *` brings none: import the ones you use from solveng's
+/// Built-in operations work in worksheet math and graphs. Typst needs a binding for every name it doesn't
+/// know in math, and `#import "@preview/solveng:1.0.0": *` brings none: import the ones you use from solveng's
 /// `functions` module, `#import functions: tri, sgn` (or `#import functions: *`), then `$tri(t)$`. Like any
 /// import, it holds only where it's written, so no name appears in a document unasked. `at` needs it most:
-/// without the import, `$at(v, 0)$` is Typst's symbol @. Typst's own math names (`sin`, `sqrt`, `vec`, …)
-/// need no import.
-/// `builtin-functions: false` disables automatic operation names, including the names imported from `functions`.
-/// A worksheet's own functions take precedence over automatic names.
+/// without the import, `$at(v, 0)$` is Typst's symbol @. Typst's own math names (`sin`, `sqrt`, `abs`, `arg`,
+/// `vec`, …) need no import. A worksheet's own functions take precedence over imported names.
 ///
-/// Explicit references always select the underlying operation: `#let triangle = math.op("tri")`,
-/// then `$triangle(x)$`, also with automatic names disabled. The editor completes the operation's name
-/// inside `math.op` and highlights the string and its binding's uses in evaluated worksheets.
-/// Quoted names such as `$"tri"(x)$` call worksheet functions only; they never select built-in operations.
-/// Typst's native operation content, such as `math.sin`, is also an explicit reference.
-/// In math, use the native constructor directly: `$y := op("tri")(x)$`. Completion inside its string offers
-/// the underlying operations even with automatic names disabled. The operation string gets built-in styling;
-/// the constructor collapses to its contents in the editor.
+/// Explicit references select the underlying operation under a name of your choice: `#let triangle = math.op("tri")`,
+/// then `$triangle(x)$`, or directly `$op("tri")(x)$`. Typst's native operation content, such as `math.sin`, is
+/// also an explicit reference. The editor completes the operation's name inside `math.op` and highlights the
+/// string and its binding's uses in evaluated worksheets. Quoted names such as `$"tri"(x)$` call worksheet
+/// functions only; they never select built-in operations.
 ///
 /// For named arguments, use `operation("convolve")`: Typst only parses named math arguments for functions.
+/// `operation(name, display: …)` also says how the operation is shown, `display` being a function returning its
+/// content.
 ///
 /// ```typ
 /// #import "@preview/solveng:1.0.0": *
-/// #show: worksheet.with(builtin-functions: false)
+/// #show: worksheet
 /// #let triangle = math.op("tri")
-/// #let conv = operation("convolve")
+/// #let conv = operation("convolve", display: () => math.op("conv"))
 /// $a := triangle(1/2) =$
 /// $y := conv(vec(1, 2), vec(1, 1), step: 2) =$
 /// ```
@@ -50,9 +48,10 @@
 ///
 /// | operation | behavior |
 /// |---|---|
-/// | `sqrt(x)` | Real square root; x must be nonnegative. Units are square-rooted too: `sqrt([9 m^2])` is 3 m. |
-/// | `abs(x)` | Absolute value, preserving x's unit. |
-/// | `exp(x)`, `ln(x)`, `log(x)` | Exponential, natural logarithm and base-10 logarithm. Arguments are unitless; logarithms require x > 0. |
+/// | `sqrt(x)` | Square root; units are square-rooted too: `sqrt(9 #m^2)` is 3 m. Of a negative number it's imaginary: `sqrt(-4)` is 2i. |
+/// | `abs(x)` | Absolute value, the magnitude of a complex number; preserves x's unit. |
+/// | `arg(z)` | Angle of a complex number in radians, −π…π. |
+/// | `exp(x)`, `ln(x)`, `log(x)` | Exponential, natural logarithm and base-10 logarithm. Arguments are unitless; logarithms of negative numbers are complex, `ln(-1)` is iπ, and of 0 undefined. |
 /// | `sin(x)`, `cos(x)`, `tan(x)` | Trigonometric functions of a unitless angle in radians. |
 /// | `arcsin(x)`, `arccos(x)`, `arctan(x)` | Inverse trigonometric functions; also spelled `asin`, `acos`, `atan`, documented below. |
 /// | `sinh(x)`, `cosh(x)`, `tanh(x)` | Hyperbolic functions of a unitless argument. |
@@ -69,18 +68,21 @@
 ///
 /// ```typ
 /// #import "@preview/solveng:1.0.0": *
+/// #import units: m
 /// #show: worksheet
-/// $a := sqrt(9 "m"^2) =$
+/// $a := sqrt(9 #m^2) =$
 /// $b := sum_(k=0)^3 k^2 =$
 /// $c := cases(0 & b < 0, b & "otherwise") =$
 /// ```
 
 // math.op(name) followed by its arguments, as Typst writes a call: what the worksheet reads as an explicit
 // reference ⦇name⦈(…), selecting an underlying operation
-#let _op-call(name, args, implicit: false) = {
+#let _op-call(name, args, implicit: false, display: auto) = {
   // the colon of a named argument as a class of its own: no parameter type to show as a chip
   let parts = args.pos() + args.named().pairs().map(((k, v)) => [#k] + math.class("normal", [:]) + h(0.25em) + v)
-  let o = if implicit { [#math.op(name)<solveng-function>] } else { math.op(name) }
+  let shown = if display == auto { math.op(name) } else { display() }
+  let body = [#(if display != auto { _operation-display(name, shown) })#metadata(name)#shown]
+  let o = [#body<solveng-operation>]
   // a comma and a space between arguments: 1, 10 (without the space, 1,10 reads as a decimal comma)
   let body = parts.join(math.class("punctuation", [,]) + h(0.17em))
   $#o (#body)$.body
@@ -133,6 +135,41 @@
 /// -> unitless value
 #let sgn = [#math.op("sgn")<solveng-function>]
 
+/// Real part of a complex number: `Re(3 + 4 #i)` is 3. Keeps the unit: `Re(Z)` of an impedance is its
+/// resistance. Real numbers are their own real part.
+///
+/// - z (expression): A complex or real value.
+/// -> value
+#let Re = [#math.op("Re")<solveng-function>]
+
+/// Imaginary part of a complex number: `Im(3 + 4 #i)` is 4, a real number. Keeps the unit: `Im(Z)` of an
+/// impedance is its reactance. Real numbers have the imaginary part 0.
+///
+/// - z (expression): A complex or real value.
+/// -> value
+#let Im = [#math.op("Im")<solveng-function>]
+
+/// Complex conjugate: `conj(3 + 4 #i)` is 3 − 4i, shown with a bar. Keeps the unit.
+///
+/// The magnitude is `abs(z)` and the angle is Typst's own `arg(z)`, in radians from −π to π; both need no
+/// import.
+///
+/// - z (expression): A complex or real value.
+/// -> value
+#let conj = [#math.op("conj")<solveng-function>]
+
+/// A value as a plain number in a unit: `number(U, mV)` is U in millivolts, without a unit.
+///
+/// The value must have the unit's dimension – `number(U, #A)` of a voltage is an error – so the number always
+/// means what it says. Dividing by the unit, `U / mV`, gives the same number but lets any unit through; use
+/// `number` where a formula needs a value in a given unit, like an empirical one:
+/// `$F(d) := 3.2 number(d, mm)^0.6 #N$`.
+///
+/// - value (expression): The value, with a unit.
+/// - unit (expression): The unit to express it in: a unit binding or an expression of them (`#m / #s`).
+/// -> number
+#let number = [#math.op("number")<solveng-function>]
+
 /// Symbolically differentiates an expression with respect to a name: `diff(expression, variable)`.
 ///
 /// `$diff(x^3, x) ->$` gives 3x². The variable is local to the operation, so an existing
@@ -183,7 +220,7 @@
 /// Values from start to end, as Typst's range: `range(end)`, `range(start, end, step: 1)`, the end left out.
 ///
 /// `$range(0, 1, step: 1/4)$` is `vec(0, 1/4, 1/2, 3/4)`. Values may have a unit, then the step needs it too:
-/// `$range(0 unit("s"), 1 unit("s"), step: 250 ms)$`. The bounds and the step need values when the range is defined. A
+/// `$range(0 #s, 1 #s, step: 250 ms)$`. The bounds and the step need values when the range is defined. A
 /// range variable, as Mathcad writes it, includes the end: `$i := 0 .. N$` (or `0...N`) counts from 0 to N in
 /// steps of 1. Used as an index, `$x[i] := tri(t[i])$` defines an element for each value. In Typst code
 /// (`#for i in range(5)`), `range` stays Typst's own.
@@ -209,19 +246,19 @@
 
 /// Inverse sine, also spelled `arcsin`: `asin(x)` returns an angle in radians from −π/2 to π/2.
 ///
-/// The argument is unitless and must lie in [−1, 1]; the result is unitless.
-/// `$asin(1) =$` gives π/2.
+/// The argument is unitless; outside [−1, 1] the result is the principal complex value (`asin(2)` is
+/// 1.571 − 1.317i). `$asin(1) =$` gives π/2.
 ///
-/// - x (expression): Unitless sine value in [−1, 1].
+/// - x (expression): Unitless sine value.
 /// -> unitless angle in radians
 #let asin = [#math.op("asin")<solveng-function>]
 
 /// Inverse cosine, also spelled `arccos`: `acos(x)` returns an angle in radians from 0 to π.
 ///
-/// The argument is unitless and must lie in [−1, 1]; the result is unitless.
+/// The argument is unitless; outside [−1, 1] the result is the principal complex value.
 /// `$acos(1) =$` gives 0.
 ///
-/// - x (expression): Unitless cosine value in [−1, 1].
+/// - x (expression): Unitless cosine value.
 /// -> unitless angle in radians
 #let acos = [#math.op("acos")<solveng-function>]
 
@@ -236,17 +273,25 @@
 // Native operation documentation is also read by the IDE. Each @builtin marker
 // names the operation documented by the preceding /// comment.
 
-/// Real square root: `sqrt(x)` returns the nonnegative square root of x.
+/// Square root: `sqrt(x)` returns the principal square root of x.
 ///
-/// x must be nonnegative. Units are square-rooted too: `sqrt([9 m^2])` is 3 m.
-/// - x (expression): Nonnegative value, optionally with units.
+/// Units are square-rooted too: `sqrt(9 #m^2)` is 3 m. The root of a negative number is imaginary: `sqrt(-4)`
+/// is 2i.
+/// - x (expression): Value, optionally with units.
 // @builtin sqrt
 
-/// Absolute value: `abs(x)` removes the sign and preserves x's unit.
+/// Absolute value: `abs(x)` removes the sign and preserves x's unit; of a complex number, its magnitude.
 ///
-/// `abs([-3 V])` is 3 V.
+/// `abs(-3 #V)` is 3 V, `abs(3 + 4 #i)` is 5.
 /// - x (expression): Value whose magnitude to take.
 // @builtin abs
+
+/// Angle of a complex number: `arg(z)` in radians, from −π to π.
+///
+/// `arg(#i)` is π/2, `arg(-2)` is π. The argument may carry a unit (the angle of an impedance); the result is
+/// unitless. `arg(0)` has no value.
+/// - z (expression): Complex or real value whose angle to take.
+// @builtin arg
 
 /// Exponential: `exp(x)` is e raised to the power x.
 ///
@@ -256,14 +301,14 @@
 
 /// Natural logarithm: `ln(x)` is the inverse of `exp(x)`.
 ///
-/// The argument must be positive and unitless. `ln(e)` is 1.
-/// - x (expression): Positive unitless value.
+/// The argument must be unitless and not 0. `ln(e)` is 1; of a negative number it's complex, `ln(-1)` is iπ.
+/// - x (expression): Unitless value.
 // @builtin ln
 
 /// Base-10 logarithm: `log(x)` is the exponent giving x as a power of 10.
 ///
-/// The argument must be positive and unitless. `log(100)` is 2.
-/// - x (expression): Positive unitless value.
+/// The argument must be unitless and not 0; of a negative number it's complex. `log(100)` is 2.
+/// - x (expression): Unitless value.
 // @builtin log
 
 /// Sine of a unitless angle in radians: `sin(x)`.

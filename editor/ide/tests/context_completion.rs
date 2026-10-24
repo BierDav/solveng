@@ -1,4 +1,4 @@
-// Completions follow what the compile sees at the caret: scopes, clearing, units in effect and shorthands.
+// Completions follow what the compile sees at the caret: scopes, clearing, the bindings in scope and imports.
 
 use solveng_ide::*;
 
@@ -67,62 +67,75 @@ fn substitute_offers_what_the_expression_names() {
     // math spells names as math needs them
     let items = complete_marked(&format!("{EXERCISES}$\"yt\" -> substitute(|)$"));
     assert_eq!(items[0].insert, "\"yt\"");
-    // in code
-    assert_eq!(names("```solveng\nU := R I\nP := U^2 -> substitute(|)\n```"), ["U"]);
 }
 
 #[test]
-fn units_follow_the_scope_at_the_caret() {
-    let doc = "#show: worksheet.with(units: (km: $s$, kmold: $10^3m$))\n$x := 1 |$\n#worksheet(builtin-units: false)[Text $y := 1 $]";
+fn units_follow_the_bindings_in_scope_at_the_caret() {
+    let doc = "#let minute = unit($60 #s$)\n#show: worksheet\n$x := 1 |$\n#[#let hour = unit($60 minute$)\n$y := 1 $]";
     let outer = units(doc);
-    assert!(outer.iter().any(|(l, _)| l == "kmold") && outer.iter().any(|(l, _)| l == "min"));
+    assert!(outer.iter().any(|(l, i)| l == "minute" && i == "minute") && !outer.iter().any(|(l, _)| l == "hour"), "{outer:?}");
+    // a binding counts in its block, after it's made
     let inner = units(&doc.replace("$x := 1 |$", "$x := 1$").replace("$y := 1 $", "$y := 1 |$"));
-    assert!(inner.is_empty(), "{inner:?}");
-    // an isolated worksheet starts over with the built-in units, without the outer ones
-    let fresh = units(&doc.replace("$x := 1 |$", "$x := 1$").replace("builtin-units: false", "digits: 3").replace("$y := 1 $", "$y := 1 |$"));
-    assert!(fresh.iter().any(|(l, _)| l == "min") && !fresh.iter().any(|(l, _)| l == "kmold"), "{fresh:?}");
-    let isolated = "#show: worksheet.with(units: (km: $s$, kmold: $10^3m$))\n#worksheet(units: (ü: auto))[Text $y := 1 |$]";
-    let found = units(isolated);
-    assert!(found.iter().any(|(l, _)| l == "ü") && !found.iter().any(|(l, _)| l == "kmold"), "{found:?}");
+    assert!(inner.iter().any(|(l, _)| l == "hour") && inner.iter().any(|(l, _)| l == "minute"), "{inner:?}");
+    assert!(!units("#show: worksheet\n$x := 1 |$\n#let minute = unit($60 #s$)").iter().any(|(l, _)| l == "minute"));
+    // a later binding of the same name that isn't a unit hides it
+    let hidden = units("#let minute = unit($60 #s$)\n#let minute = 3\n#show: worksheet\n$x := 1 |$");
+    assert!(!hidden.iter().any(|(l, _)| l == "minute"), "{hidden:?}");
 }
 
 #[test]
-fn shorthands_are_preferred_over_quoted_units() {
-    let found = units("#import units: km\n#let sec = unit(\"s\")\n#let s = unit(\"s\")\n#show: worksheet\n$x := 1 |$");
+fn bindings_come_first_and_module_units_are_imported_along() {
+    let found = units("#import units: km\n#let sec = unit($1 #s$)\n#let s = base-unit(\"time\")\n#show: worksheet\n$x := 1 |$");
     assert_eq!(found[0].1, "km");
-    // a shorthand stands for its unit: no quoted copy; single letters stay quoted
-    assert!(!found.iter().any(|(_, i)| i == "unit(\"km\")"), "{found:?}");
-    assert!(found.iter().any(|(l, i)| l == "s" && i == "#s") && found.iter().any(|(l, i)| l == "sec" && i == "sec"));
+    // single letters need their hash in math
+    assert!(found.iter().any(|(l, i)| l == "s" && i == "#s") && found.iter().any(|(l, i)| l == "sec" && i == "sec"), "{found:?}");
+    // a bound name isn't offered again from the module
+    assert_eq!(found.iter().filter(|(l, _)| l == "km" || l == "s").count(), 2, "{found:?}");
     // others are added to the import in scope
     let items = complete_marked("#import units: km\n#show: worksheet\n$x := 1 |$");
     let ma = items.iter().find(|i| i.label == "mA").unwrap();
     assert_eq!((ma.insert.as_str(), ma.edits.iter().map(|e| e.text.as_str()).collect::<Vec<_>>()), ("mA", vec![", mA"]));
-    // without solveng's import nothing can be imported along
-    assert!(units("#show: worksheet\n$x := 1 |$").iter().any(|(l, i)| l == "mA" && i == "unit(\"mA\")"));
+    // without solveng's import nothing can be imported along, so the module's units aren't offered
+    assert!(!units("#show: worksheet\n$x := 1 |$").iter().any(|(l, _)| l == "mA"));
     // with it, a new import follows it
     let items = complete_marked("#import \"@preview/solveng:1.0.0\": worksheet\n#show: worksheet\n$x := 1 |$");
     let ma = items.iter().find(|i| i.label == "mA").unwrap();
     assert_eq!(ma.edits.iter().map(|e| e.text.as_str()).collect::<Vec<_>>(), [", units", "\n#import units: mA"]);
     // a renamed import
     assert!(units("#import units: km as kilo\n#show: worksheet\n$x := 1 |$").iter().any(|(l, i)| l == "kilo" && i == "kilo"));
-    // shorthands are lexical: not outside the block importing them
+    // imports are lexical: not outside the block importing them
     let found = units("#show: worksheet\n#[#import units: km\n]\n$x := 1 |$");
-    assert!(found.iter().any(|(_, i)| i == "unit(\"km\")"), "{found:?}");
+    assert!(!found.iter().any(|(l, _)| l == "km"), "{found:?}");
 }
 
 #[test]
-fn operations_need_their_shorthand_in_math() {
+fn operations_need_their_binding_in_math() {
     let insert = |doc: &str| complete_marked(doc).into_iter().find(|i| i.label == "tri").map(|i| i.insert);
     assert_eq!(insert("#show: worksheet\n$y := tr|$").as_deref(), Some("op(\"tri\")($0)"));
     assert_eq!(insert("#import functions: tri\n#show: worksheet\n$y := tr|$").as_deref(), Some("tri($0)"));
-    // Typst's own math operators need nothing; code needs no shorthands at all
+    // imported along where solveng is imported
+    let items = complete_marked("#import \"@preview/solveng:1.0.0\": *\n#show: worksheet\n$y := tr|$");
+    let tri = items.iter().find(|i| i.label == "tri").unwrap();
+    assert_eq!((tri.insert.as_str(), tri.edits.iter().map(|e| e.text.as_str()).collect::<Vec<_>>()), ("tri($0)", vec!["\n#import functions: tri"]));
+    // Typst's own math operators need nothing
     assert!(complete_marked("#show: worksheet\n$y := si|$").iter().any(|i| i.label == "sin" && i.insert.starts_with("sin(")));
-    assert_eq!(insert("```solveng\ny := tr|\n```").as_deref(), Some("tri($0)"));
 }
 
 #[test]
-fn reported_documents_highlight_their_units() {
-    let doc = "#import \"@solveng/solveng:1.0.0\": *\n#import units: km, m\n#show: worksheet.with(units: (km: $s$, kmold: $10^3m$))\n$1#km -> min$\n$1unit(\"km\") -> min$\n$1unit(\"kmold\") -> unit(\"m\")$\n$2unit(\"kmold\") -> m$\n#worksheet(builtin-units: false)[\n  $2#km -> min$\n  $2unit(\"km\") -> min$\n]";
+fn constants_complete_from_their_bindings_and_module() {
+    let items = complete_marked("#import \"@preview/solveng:1.0.0\": *\n#import constants: pi\n#let g = constant(\"gravity\", $9.81 #m / #s^2$)\n#show: worksheet\n$y := |$");
+    let constant = |label: &str| items.iter().find(|i| i.label == label && i.kind == ItemKind::CONSTANT).unwrap_or_else(|| panic!("{label}: {items:?}"));
+    assert_eq!(constant("pi").insert, "pi");
+    assert_eq!(constant("g").insert, "#g");
+    assert!(constant("g").detail.contains("gravity"));
+    // the module's others are imported along
+    let e = constant("e");
+    assert_eq!((e.insert.as_str(), e.edits.iter().map(|e| e.text.as_str()).collect::<Vec<_>>()), ("#e", vec![", e"]));
+}
+
+#[test]
+fn documents_highlight_their_unit_bindings() {
+    let doc = "#import units: km, m, min\n#show: worksheet\n$1#km -> min$\n$2 km -> #m$\n$3 m$\n#[#import units: mA\n]\n$4 mA$";
     let tokens = document_tokens(doc, &Context::default());
     let kind = |needle: &str, nth: usize| {
         let at = doc[..doc.match_indices(needle).nth(nth).unwrap().0].encode_utf16().count() as u32;
@@ -130,14 +143,11 @@ fn reported_documents_highlight_their_units() {
     };
     assert_eq!(kind("#km ->", 0), Some(TokenKind::UNIT_REFERENCE));
     assert_eq!(kind("km ->", 0), Some(TokenKind::UNIT));
-    assert_eq!(kind("km\")", 0), Some(TokenKind::UNIT));
-    assert_eq!(kind("kmold\")", 0), Some(TokenKind::UNIT));
-    assert_eq!(kind("m\")$", 0), Some(TokenKind::UNIT));
-    // a bare letter is a variable, even imported: `#m` reaches the shorthand
-    assert_eq!(kind("m$", 0), Some(TokenKind::VARIABLE));
-    assert_eq!(kind("min", 0), Some(TokenKind::UNIT));
-    // nothing is a unit without the built-in ones
-    assert_ne!(kind("km ->", 1), Some(TokenKind::UNIT));
-    assert_ne!(kind("km\")", 1), Some(TokenKind::UNIT));
-    assert_ne!(kind("min", 2), Some(TokenKind::UNIT));
+    assert_eq!(kind("min$", 0), Some(TokenKind::UNIT));
+    assert_eq!(kind("km ->", 1), Some(TokenKind::UNIT));
+    assert_eq!(kind("m$\n$3", 0), Some(TokenKind::UNIT));
+    // a bare letter is a variable, even imported: `#m` reaches the binding
+    assert_eq!(kind("m$\n#[", 0), Some(TokenKind::VARIABLE));
+    // an import ends with its block
+    assert_ne!(kind("mA$", 0), Some(TokenKind::UNIT));
 }

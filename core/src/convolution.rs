@@ -47,7 +47,7 @@ fn fallback(f: &Expr, g: &Expr, var: &str, at: &Expr) -> Expr {
     let v = if at.has(var) { fresh(var, var, &[f, g, at]) } else { var.to_string() };
     let body = mul(vec![f.subst(var, &sym(&v)), g.subst(var, &sub(at.clone(), sym(&v)))]);
     let d = var_dim(&[f, g], var, at).unwrap_or(Dim::ONE);
-    let infinity = |sign: f64| Expr::C(Val::new(Num::F(sign * f64::INFINITY), d));
+    let infinity = |sign: f64| Expr::C(Val::new(Num::F(sign * f64::INFINITY), d.clone()));
     crate::calculus::integral(simp(&body), v, infinity(-1.0), infinity(1.0))
 }
 
@@ -65,13 +65,13 @@ fn exact(f: &Expr, g: &Expr, var: &str, t: &str, at: &Expr) -> Option<Expr> {
     // var's dimension: the one of its (nonzero) breakpoints and of a numeric `at`; a unitless 0 fits any.
     let mut d: Option<Dim> = None;
     let at_dim = if at.syms().is_empty() { dim_of(at, &|_| None).ok().flatten() } else { None };
-    for candidate in bf.iter().chain(&bg).filter(|b| !(b.is_zero() && b.d.is_one())).map(|b| b.d).chain(at_dim) {
+    for candidate in bf.iter().chain(&bg).filter(|b| !(b.is_zero() && b.d.is_one())).map(|b| b.d.clone()).chain(at_dim) {
         if d.is_some_and(|known| known != candidate) { return None; }
         d = Some(candidate);
     }
     let d = d.unwrap_or(Dim::ONE);
-    let pf = pieces(f, var, bf, d)?;
-    let pg = pieces(g, var, bg, d)?;
+    let pf = pieces(f, var, bf, d.clone())?;
+    let pg = pieces(g, var, bg, d.clone())?;
     if pf.iter().all(|p| p.p.is_empty()) || pg.iter().all(|p| p.p.is_empty()) {
         return Some(int(0));
     }
@@ -84,7 +84,7 @@ fn exact(f: &Expr, g: &Expr, var: &str, t: &str, at: &Expr) -> Option<Expr> {
     let tau = fresh("tau", var, &[f, g, at, &sym(t)]);
     let mut intervals: Vec<Piece> = vec![];
     for (lo, hi) in spans(&candidates) {
-        let sample = inside(lo.as_ref(), hi.as_ref(), d)?;
+        let sample = inside(lo.as_ref(), hi.as_ref(), d.clone())?;
         let p = integrate_pairs(&pf, &pg, t, &tau, &sample)?;
         match intervals.last_mut() {
             Some(last) if last.p == p => last.hi = hi,
@@ -154,7 +154,7 @@ fn assemble(intervals: Vec<Piece>, t: &str, d: Dim) -> Expr {
         return poly_at(&intervals[0].p, &sym(t));
     }
     let zero = intervals.iter().find(|i| !i.p.is_empty()).and_then(|i| {
-        let sample = inside(i.lo.as_ref(), i.hi.as_ref(), d)?;
+        let sample = inside(i.lo.as_ref(), i.hi.as_ref(), d.clone())?;
         dim_of(&simp(&poly_at(&i.p, &Expr::C(sample))), &|_| None).ok().flatten()
     }).map(|rd| Expr::C(Val::new(Num::ZERO, rd))).unwrap_or(int(0));
     let any_zero = intervals.iter().any(|i| i.p.is_empty());
@@ -203,7 +203,7 @@ fn spans(points: &[Val]) -> Vec<(Option<Val>, Option<Val>)> {
 
 /// A point strictly inside an interval, in dimension d.
 fn inside(lo: Option<&Val>, hi: Option<&Val>, d: Dim) -> Option<Val> {
-    let unit = Val::new(Num::ONE, d);
+    let unit = Val::new(Num::ONE, d.clone());
     match (lo, hi) {
         (Some(l), Some(h)) => Some(l.add(h)?.mul(&Val::num(Num::R(Rat::new(1, 2)?)))),
         (Some(l), None) => l.add(&unit),
@@ -214,10 +214,10 @@ fn inside(lo: Option<&Val>, hi: Option<&Val>, d: Dim) -> Option<Val> {
 
 /// The operand as polynomials between its breakpoints, adjacent equal pieces merged.
 fn pieces(e: &Expr, var: &str, points: Vec<Val>, d: Dim) -> Option<Vec<Piece>> {
-    let points: Vec<Val> = points.into_iter().map(|b| if b.is_zero() && b.d.is_one() { Val::new(Num::ZERO, d) } else { b }).collect();
+    let points: Vec<Val> = points.into_iter().map(|b| if b.is_zero() && b.d.is_one() { Val::new(Num::ZERO, d.clone()) } else { b }).collect();
     let mut out: Vec<Piece> = vec![];
     for (lo, hi) in spans(&sorted(points)) {
-        let sample = inside(lo.as_ref(), hi.as_ref(), d)?;
+        let sample = inside(lo.as_ref(), hi.as_ref(), d.clone())?;
         let p = trim(coeffs(&simp(&resolve(e, var, &sample)?), var)?);
         match out.last_mut() {
             Some(last) if last.p == p => last.hi = hi,

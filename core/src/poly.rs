@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::dim::{self, Dim};
+use crate::dim::Dim;
 use crate::expr::{self, Expr, Val, base_exp, int, simp};
 use crate::num::{Num, Rat};
 
@@ -282,15 +282,15 @@ fn ratfn(e: &Expr, at: &mut Atoms) -> Option<(Poly, Poly)> {
             let r = v.v.rat()?;
             let (mut n, mut d) = (Poly::constant(MAXV, r), one(MAXV));
             // the unit as powers of base-unit atoms
-            for i in 0..dim::N {
-                let k = v.d.exp(i);
+            for (identity, power) in &v.d.0 {
+                let k = Rat::new(*power as i128, 60)?;
                 if k.is_zero() {
                     continue;
                 }
                 if !k.is_int() {
                     return None;
                 }
-                let ai = at.index(&Expr::C(Val::new(Num::ONE, Dim::base(i))));
+                let ai = at.index(&Expr::C(Val::new(Num::ONE, Dim::named(identity))));
                 if ai >= MAXV {
                     return None;
                 }

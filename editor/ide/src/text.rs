@@ -87,15 +87,6 @@ pub(crate) fn index_of_char(c: &[char], ch: char, from: usize) -> Option<usize> 
     (from..c.len()).find(|&i| c[i] == ch)
 }
 
-pub(crate) fn last_index_of_char(c: &[char], ch: char, before: usize) -> Option<usize> {
-    (0..before.min(c.len())).rev().find(|&i| c[i] == ch)
-}
-
-/// Character offset of a byte offset in `s`.
-pub(crate) fn char_index(s: &str, byte: usize) -> usize {
-    s[..byte].chars().count()
-}
-
 /// The text before `sep`, or all of it.
 pub(crate) fn before<'a>(s: &'a str, sep: &str) -> &'a str {
     s.find(sep).map_or(s, |i| &s[..i])
@@ -106,9 +97,9 @@ pub(crate) fn after<'a>(s: &'a str, sep: &str, missing: &'a str) -> &'a str {
     s.find(sep).map_or(missing, |i| &s[i + sep.len()..])
 }
 
-/// Equation spans keep source offsets intact for navigation and highlighting.
-pub(crate) fn equation_ranges(text: &[char], code: bool) -> Vec<(usize, usize)> {
-    let (mut start, mut depth, mut quoted, mut comment) = (0, 0i32, false, false);
+/// The equations of an equation's body, split at math line breaks (`\\`), with their offsets in it.
+pub(crate) fn equation_ranges(text: &[char]) -> Vec<(usize, usize)> {
+    let (mut start, mut quoted, mut comment) = (0, false, false);
     let mut out = Vec::new();
     for (i, &c) in text.iter().enumerate() {
         if !quoted && c == '/' && text.get(i + 1) == Some(&'/') { comment = true; }
@@ -116,13 +107,7 @@ pub(crate) fn equation_ranges(text: &[char], code: bool) -> Vec<(usize, usize)> 
         if c == '\n' { comment = false; }
         if c == '"' { quoted = !quoted; }
         if quoted { continue; }
-        if "([{".contains(c) { depth += 1; }
-        if ")]}".contains(c) { depth -= 1; }
-        let unfinished = code && c == '\n' && {
-            let before: String = text[start..i].iter().collect();
-            before.trim_end().ends_with(['+', '-', '*', '/', '^', ':', ',', '(']) || before.trim_end().ends_with(":=")
-        };
-        if c == '\\' || (code && c == '\n' && depth == 0 && !unfinished) {
+        if c == '\\' {
             if start < i { out.push((start, i)); }
             start = i + 1;
         }

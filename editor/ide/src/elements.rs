@@ -1,28 +1,18 @@
-//! Raw elements and equations of Typst markup.
+//! Equations of Typst markup.
 
-use crate::text::{index_of, index_of_char, is_letter_or_digit, starts_with, sub};
+use crate::text::{index_of, index_of_char, starts_with};
 
-/// A raw element (with its language `tag`, empty without one) or an equation (`math`), in characters:
-/// the whole element and its body. A raw `block` has three backticks or more and a line break, as Typst says.
+/// An equation, in characters: the whole element (with its dollars) and its body.
 #[derive(Clone, Debug)]
 pub(crate) struct Element {
     pub start: usize,
     pub end: usize,
     pub body_start: usize,
     pub body_end: usize,
-    pub tag: String,
-    pub math: bool,
-    pub block: bool,
 }
 
-impl Element {
-    pub fn ticks(&self) -> usize {
-        if self.math { 0 } else { self.body_start - self.start - self.tag.chars().count() }
-    }
-}
-
-/// Raw elements and equations, skipping comments; good enough for an editor, not a parser. Unlike typst's parser
-/// it keeps going through unclosed ones, which is what's being typed.
+/// Equations, skipping comments and raw text (where a `$` is just text); good enough for an editor, not a parser.
+/// Unlike typst's parser it keeps going through unclosed ones, which is what's being typed.
 pub(crate) fn elements(text: &[char]) -> Vec<Element> {
     let mut out = Vec::new();
     let n = text.len();
@@ -47,9 +37,10 @@ pub(crate) fn elements(text: &[char]) -> Vec<Element> {
                 j += 1;
             }
             let close = j.min(n);
-            out.push(Element { start: i, end: (close + 1).min(n), body_start: i + 1, body_end: close, tag: String::new(), math: true, block: false });
+            out.push(Element { start: i, end: (close + 1).min(n), body_start: i + 1, body_end: close });
             i = close + 1;
         } else if c == '`' {
+            // Raw text: skipped up to the run of backticks closing it.
             let mut ticks = 0;
             while i + ticks < n && text[i + ticks] == '`' {
                 ticks += 1;
@@ -72,21 +63,7 @@ pub(crate) fn elements(text: &[char]) -> Vec<Element> {
                     break;
                 }
             }
-            let end = close.map_or(n, |cl| cl + ticks);
-            let body_end = close.unwrap_or(n);
-            let mut body_start = i + ticks;
-            let mut tag = String::new();
-            if ticks >= 3 {
-                let mut t = body_start;
-                while t < body_end && (is_letter_or_digit(text[t]) || "_-+#.".contains(text[t])) {
-                    t += 1;
-                }
-                tag = sub(text, body_start, t);
-                body_start = t;
-            }
-            let block = ticks >= 3 && text[body_start..body_end].contains(&'\n');
-            out.push(Element { start: i, end, body_start, body_end, tag, math: false, block });
-            i = end;
+            i = close.map_or(n, |cl| cl + ticks);
         } else {
             i += 1;
         }

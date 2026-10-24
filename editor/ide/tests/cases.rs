@@ -17,11 +17,10 @@ fn case_functions_and_their_parameters_resolve_from_guards_and_graphs() {
 }
 
 #[test]
-fn cases_complete_with_the_syntax_for_the_current_mode() {
-    for (doc, math) in [("#show: worksheet\n$x := cas", true), ("```solveng\nx := cas", false)] {
+fn cases_complete_with_math_syntax() {
+    for doc in ["#show: worksheet\n$x := cas", "#graph($cas"] {
         let found = complete(doc, &Context::new(""), doc.encode_utf16().count() as u32).unwrap();
         let item = found.items.iter().find(|item| item.label == "cases").unwrap();
-        assert!(item.insert.starts_with("cases("), "{}", item.insert);
-        assert_eq!(item.insert.contains('&'), math, "{}", item.insert);
+        assert!(item.insert.starts_with("cases(") && item.insert.contains('&'), "{}", item.insert);
     }
 }

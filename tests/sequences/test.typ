@@ -1,6 +1,6 @@
 #import "/tests/util.typ": *
-#import units: *
-#import functions: *
+#import units: ms, s, km
+#import functions: tri, rect, convolve, range
 #set page(width: 18cm, height: auto)
 #show: worksheet
 
@@ -8,9 +8,9 @@
 $N := 200$, $Delta""t := 10 ms$
 $i := 0..N$
 #passes()
-$t[i] := -1 unit("s") + i Delta""t$
+$t[i] := -1 #s + i Delta""t$
 #passes()
-$x[i] := tri(t[i] / (1 unit("s")))$
+$x[i] := tri(t[i] / (1 #s))$
 #passes()
 $x_a := x[100] =$
 #expect("x_a", 1)
@@ -23,7 +23,7 @@ $y := convolve(x, x, step: Delta""t)$
 $y_m := y[200] =$
 #expect("y_m", 0.6667, u: none)
 $k := 0 .. 2 N$
-$tau[k] := -2 unit("s") + k Delta""t$
+$tau[k] := -2 #s + k Delta""t$
 #passes()
 
 // the continuous one, exact
@@ -35,7 +35,7 @@ $r(t) := convolve(rect(t), rect(t), t) ->$
 #passes()
 
 // the sampled result over the exact one (the data's unit: s, as the step's)
-$c_(s) (t) := c(t / (1 unit("s"))) dot 1 unit("s")$
+$c_(s) (t) := c(t / (1 #s)) dot 1 #s$
 #graph($y(tau) \ c_s(tau)$, errors: "panic")
 
 // Typst's range: the end left out; in code it stays Typst's
@@ -46,13 +46,11 @@ $q_1 := q[1] =$
 #assert.eq(range(3), (0, 1, 2))
 #assert.eq(range(1, 7, step: 2), (1, 3, 5))
 
-// Explicit operator bindings work independently of automatic names.
-#worksheet(builtin-functions: false)[
+// Explicit operator bindings work whatever their name; a quoted name is a worksheet function.
+#worksheet[
   #let triangle = math.op("tri")
   $a := triangle(1/2) =$
   #expect("a", 0.5)
-  $b := tri(0) =$
-  #fails("tri")
   $c := "tri"(0) =$
   #fails("tri")
   #let conv = operation("convolve")
@@ -60,11 +58,11 @@ $q_1 := q[1] =$
   #passes()
 ]
 
-// Inline explicit references work with automatic names disabled, in both unit spacings.
-#worksheet(builtin-functions: false, builtin-units: false, units: (m: auto, km: $1000 unit("m")$))[
+// Inline explicit references, and units in both spacings.
+#worksheet[
   $x := 1/2$
   $a := op("tri")(x) =$ #expect("a", 0.5)
-  $b := 1unit("km") =$ #expect("b", 1000)
-  $c := 1 unit("km") =$ #expect("c", 1000)
+  $b := 1#km =$ #expect("b", 1000)
+  $c := 1 km =$ #expect("c", 1000)
   $d := op("rect")(0) =$ #expect("d", 1)
 ]

@@ -4,9 +4,9 @@ use crate::text::index_of;
 use crate::{Analysis, Problem, ReportError};
 
 /// Each reported error of the document where it still applies: in the element it was reported for (the one
-/// with the same source, nearest to where it was), at its statement when that's a line of code. An element
-/// edited since has no error until the next compile tells. Errors of equations and code passed to `worksheet`
-/// have no element; their statement is looked up in the document's solveng code instead.
+/// with the same source, nearest to where it was), at its statement when the report names one. An element
+/// edited since has no error until the next compile tells. Errors of equations passed to `worksheet` have no
+/// element; their statement is looked up in the equations passed to calls instead.
 pub(crate) fn reported(a: &Analysis) -> Vec<Problem> {
     let mut out: Vec<Problem> = Vec::new();
     for err in &a.context.errors {
@@ -38,16 +38,14 @@ fn placed(a: &Analysis, err: &ReportError) -> Option<(usize, usize)> {
     Some(found.unwrap_or_else(|| trimmed(a, e.body_start, e.body_end)))
 }
 
-/// A statement passed to a calculation call: in its strings, raw blocks and math arguments.
+/// A statement passed to a calculation call: in its math arguments.
 fn unplaced(a: &Analysis, source: &str) -> Option<(usize, usize)> {
     if source.is_empty() {
         return None;
     }
-    let raws = a.elements.iter().filter(|e| !e.math && a.active(e)).map(|e| (e.body_start, e.body_end));
-    let maths = a.elements.iter()
-        .filter(|e| e.math && a.calls.iter().any(|c| c.maths.contains(&(e.start, e.end))))
-        .map(|e| (e.body_start, e.body_end));
-    raws.chain(maths).find_map(|(start, end)| statement(a, start, end, source))
+    a.elements.iter()
+        .filter(|e| a.calls.iter().any(|c| c.maths.contains(&(e.start, e.end))))
+        .find_map(|e| statement(a, e.body_start, e.body_end, source))
 }
 
 /// Where `source` is in `start..end`, also as a Typst string writes it (`\"`, `\\`).

@@ -1,79 +1,55 @@
-//! Dimensions: powers of the SI base units and of base units of your own.
+//! Dimensions: powers of base dimensions, by identity: the SI ones and those of `base-unit` bindings.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 use crate::num::Rat;
 
-/// SI base units, then slots for base units of your own (`units: (ü: auto)`).
+/// Canonical identities of the SI dimensions.
 pub const BASE: [&str; 7] = ["m", "kg", "s", "A", "K", "mol", "cd"];
-pub const OWN: usize = 8;
-pub const N: usize = BASE.len() + OWN;
-/// Exponents are kept as multiples of 1/60, so square, cube, … sixth roots stay exact.
+pub const IDENTITIES: [&str; 7] = ["length", "mass", "time", "electric-current", "temperature", "amount-of-substance", "luminous-intensity"];
 const S: i32 = 60;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug, Serialize, Deserialize)]
-pub struct Dim(pub [i32; N]);
+#[derive(Clone, PartialEq, Eq, Hash, Default, Debug, Serialize, Deserialize)]
+pub struct Dim(pub BTreeMap<String, i32>);
 
 impl Dim {
-    pub const ONE: Dim = Dim([0; N]);
+    pub const ONE: Dim = Dim(BTreeMap::new());
 
+    pub fn named(identity: &str) -> Dim {
+        Dim(BTreeMap::from([(identity.to_owned(), S)]))
+    }
+    /// The i-th SI base dimension, in the order of [`BASE`].
     pub fn base(i: usize) -> Dim {
-        let mut d = [0; N];
-        d[i] = S;
-        Dim(d)
+        Self::named(IDENTITIES[i])
     }
-    /// From whole exponents of m, kg, s, A, K, mol, cd.
     pub fn si(e: [i32; 7]) -> Dim {
-        let mut d = [0; N];
-        for (i, x) in e.iter().enumerate() {
-            d[i] = x * S;
-        }
-        Dim(d)
+        Dim(IDENTITIES.into_iter().zip(e).filter(|(_, e)| *e != 0).map(|(k, e)| (k.into(), e * S)).collect())
     }
-    pub fn is_one(&self) -> bool {
-        self.0.iter().all(|&x| x == 0)
-    }
+    pub fn is_one(&self) -> bool { self.0.is_empty() }
     pub fn mul(&self, o: &Dim) -> Dim {
-        let mut d = self.0;
-        for i in 0..N {
-            d[i] += o.0[i];
-        }
+        let mut d = self.0.clone();
+        for (k, e) in &o.0 { *d.entry(k.clone()).or_default() += e; }
+        d.retain(|_, e| *e != 0);
         Dim(d)
     }
-    pub fn div(&self, o: &Dim) -> Dim {
-        let mut d = self.0;
-        for i in 0..N {
-            d[i] -= o.0[i];
-        }
-        Dim(d)
-    }
-    /// self^p, or None if an exponent would leave the 1/60 grid (m^(1/7)).
+    pub fn div(&self, o: &Dim) -> Dim { self.mul(&o.powi(-1)) }
     pub fn pow(&self, p: Rat) -> Option<Dim> {
-        let mut d = [0; N];
-        for i in 0..N {
-            let x = Rat::int(self.0[i] as i128).mul(p)?;
-            if !x.is_int() || x.numer().abs() > 1 << 30 {
-                return None;
-            }
-            d[i] = x.numer() as i32;
+        let mut d = BTreeMap::new();
+        for (k, e) in &self.0 {
+            let x = Rat::int(*e as i128).mul(p)?;
+            if !x.is_int() || x.numer().abs() > 1 << 30 { return None; }
+            if !x.is_zero() { d.insert(k.clone(), x.numer() as i32); }
         }
         Some(Dim(d))
     }
     pub fn powi(&self, k: i32) -> Dim {
-        let mut d = self.0;
-        for x in d.iter_mut() {
-            *x *= k;
-        }
-        Dim(d)
+        if k == 0 { return Dim::ONE; }
+        Dim(self.0.iter().map(|(n, e)| (n.clone(), e * k)).collect())
     }
-    /// The exponent of base unit i.
-    pub fn exp(&self, i: usize) -> Rat {
-        Rat::new(self.0[i] as i128, S as i128).unwrap()
-    }
-    /// Whether self is a whole multiple k of o: m^2 of m is 2.
     pub fn ratio(&self, o: &Dim) -> Option<Rat> {
-        let i = (0..N).find(|&i| o.0[i] != 0)?;
-        let k = Rat::new(self.0[i] as i128, o.0[i] as i128)?;
+        let (n, e) = o.0.first_key_value()?;
+        let k = Rat::new(*self.0.get(n).unwrap_or(&0) as i128, *e as i128)?;
         (o.pow(k)? == *self).then_some(k)
     }
 }

@@ -1,48 +1,88 @@
 // The examples of the README, compared with reference images.
 #import "/lib.typ": *
-#import units: *
 #set page(width: 16cm, height: auto, margin: 1cm)
-#set text(lang: "de")
 
-// A worksheet: math and a code block
-#worksheet[
-  The battery holds $Q_0 := 3450 mAh$ and the load draws $I := 30 mA$, so it lasts $t := Q_0 / I = 1 h$.
-  ```solveng
-  t_half := Q_0 / (2 I) = [h]     // half the charge
-  P(U) := U I
-  P_1 := P([5 V]) =
-  ```
-  #defined(included: "given")
+// Engineering calculations in Typst math
+#[
+  #import units: mA, mAh, h
+  #worksheet[
+    $Q_0 := 3450 mAh$, $I := 30 mA$
+
+    $t := Q_0 / I = #h$
+
+    $Q_0/2 = I t -> solve(t)$
+  ]
 ]
 
-// Solving
-#worksheet[
-  $Q_0 := 3450 mAh$, $I := 30 mA$, $U := 5 V$
-  #defined()
-  $Q_0/2 = I t -> solve(t)$ and $t = 1 h$
-  $R <= U/I -> solve(R)$
-  $x^2 + 2x - 3 = 0 -> solve(x)$
-  Runtime: $Q_0/I = 1 h$
+// Imported values
+#[
+  #import units: m, s
+  #import constants: pi, e, c
+  #import functions: tri
+  #worksheet[
+    $P := 2 pi =$
+
+    $"velocity" := #c =$
+
+    $f(x) := #e^x$
+
+    $tri(1/4) =$
+  ]
 ]
 
-// Units and variables
-#worksheet[
-  $A := 12$, $x := A dot 2 A =$
-  $T := 2 s$, $f := 1/T = Hz$
+// Base units and derived units
+#[
+  #let second = base-unit("time", display: () => math.upright("s"))
+  #let minute = unit($60 second$, display: () => math.upright("min"))
+  #worksheet[
+    $t := 2 minute = second$
+  ]
 ]
 
-// Plots
-#worksheet[
-  #worksheet(raw("R := 50 Ω"), raw("P0 := 2 W"), raw("U0 := 10 V"), hidden: true)
-  #graph($P(U: unit("V")) = U^2/R$, ymark: $"P0"$)
-  #graph($P(..) = "U0"^2/R_L$, xrange: ($10 unit("Ω")$, $1 unit("kΩ")$), width: 10cm)
+// Constants and operations of your own
+#[
+  #import units: m, s, kg
+  #let g0 = constant("standard-gravity", $9.80665 #m / #s^2$)
+  #let triangle = operation("tri", display: () => math.op("triangle"))
+  #worksheet(constants: ("standard-gravity": $g_0$))[
+    $F := 2 kg #g0 =$
+
+    $triangle(1/2) =$
+  ]
 ]
 
-// Options
-#worksheet(digits: 3, layout: "column")[
-  $U := 5 V$, $I := 30 mA$
-  #worksheet($I/3 =$, form: "fraction")
-  #worksheet(evaluate: false)[Equations like $E = m c^2$ stay as written.]
-  #worksheet($R := U/I =$, digits: 2, separator: ",")
-  #defined(show-si: true, style: "inline")
+// Complex numbers
+#[
+  #import units: Ω, Hz, mH
+  #import constants: pi, i
+  #import functions: Re, Im
+  #worksheet(constants: (imaginary: $j$))[
+    $Z := 100 #Ω + #i 2 pi 50 Hz dot 300 mH =$
+
+    $abs(Z) =$, $arg(Z) =$, $Im(Z) =$
+
+    $#i -> substitute(#i)$
+  ]
+]
+
+// Worksheets and results
+#[
+  #import units: V, mA, Ω, m, s
+  #worksheet(digits: 3)[
+    $U := 12 #V$, $R := 100 #Ω$
+
+    #worksheet(scope: "shared")[$I := U/R = mA$]
+
+    #worksheet($I/3 =$, form: "fraction")
+
+    #worksheet(evaluate: false)[Equations like $E = m c^2$ stay as written.]
+
+    The current is #value($I = mA$).
+
+    #worksheet(preferred-units: ($#m / #s$,), scope: "inherit")[$v := 36 #m / (2 #s) =$]
+
+    #clear("R")
+
+    #defined(style: "inline")
+  ]
 ]

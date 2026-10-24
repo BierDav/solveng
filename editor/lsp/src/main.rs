@@ -1,5 +1,5 @@
-//! solveng's language server: completions, highlighting, hovers, conversions and unit checks for solveng code in
-//! Typst files. It runs next to tinymist and answers only where solveng reads the document.
+//! solveng's language server: completions, highlighting, hovers, navigation, renaming and quick fixes for solveng's
+//! calculations in Typst math. It runs next to tinymist and answers only where solveng reads the document.
 //!
 //! It doesn't compile. A client that does can send what the compile reported (`query(<solveng>)`, gathered into a
 //! `solveng_ide::Report`) with the notification `solveng/report`, `{ "report": … }` as an object or JSON string:
@@ -69,13 +69,13 @@ fn capabilities() -> Value {
     json!({
         "positionEncoding": "utf-16",
         "textDocumentSync": 1,
-        "completionProvider": { "triggerCharacters": ["\"", "(", ",", "[", "`", "/", "_"] },
+        "completionProvider": { "triggerCharacters": ["\"", "(", ",", "#", "/", "_"] },
         "hoverProvider": true,
         "documentFormattingProvider": true,
         "definitionProvider": true,
         "referencesProvider": true,
         "renameProvider": { "prepareProvider": true },
-        "codeActionProvider": { "codeActionKinds": ["quickfix", "refactor.rewrite"] },
+        "codeActionProvider": { "codeActionKinds": ["quickfix"] },
         "semanticTokensProvider": { "legend": { "tokenTypes": TOKEN_TYPES, "tokenModifiers": TOKEN_MODIFIERS }, "full": true },
     })
 }
@@ -181,7 +181,7 @@ impl Server {
     }
 
     /// The files around a document: the main file and what it and the document import or include, so a
-    /// `worksheet`, units and definitions set up elsewhere count here too.
+    /// `worksheet` and definitions set up elsewhere count here too.
     fn context(&self, uri: &str, text: &str) -> Context {
         let Some(file) = path_of(uri) else { return Context::default() };
         let root = self.root_for(&file);
@@ -304,14 +304,14 @@ impl Server {
             }
             "textDocument/codeAction" => {
                 let at = offset(&text, &p["range"]["start"]);
-                let actions: Vec<Value> = ide::unit_fixes(&text, &context, at).into_iter().map(|c| (c, "quickfix"))
-                    .chain(ide::conversions(&text, &context, at).into_iter().map(|c| (c, "refactor.rewrite")))
-                    .map(|(c, kind)| {
-                        json!({
-                            "title": c.title,
-                            "kind": kind,
-                            "edit": { "changes": { uri.clone(): [{ "range": range(&starts, c.start, c.end), "newText": c.text }] } },
-                        })
+                let actions: Vec<Value> = ide::unit_fixes(&text, &context, at).into_iter()
+                    .map(|c| {
+                        // The fix and the edits that go with it, like an import; all in the document.
+                        let edits: Vec<Value> = std::iter::once((c.start, c.end, c.text.clone()))
+                            .chain(c.edits.iter().filter(|e| e.path.is_none()).map(|e| (e.start, e.end, e.text.clone())))
+                            .map(|(start, end, text)| json!({ "range": range(&starts, start, end), "newText": text }))
+                            .collect();
+                        json!({ "title": c.title, "kind": "quickfix", "edit": { "changes": { uri.clone(): edits } } })
                     })
                     .collect();
                 json!(actions)
