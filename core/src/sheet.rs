@@ -978,7 +978,7 @@ pub(crate) fn ast_names(a: &Ast, out: &mut Vec<String>) {
             ast_names(y, out);
         }
         // a local variable (of an integral, a sum, a derivative, a convolution) is no name of the worksheet
-        Ast::Builtin(n, args) if matches!((n.as_str(), args.len()), ("integrate" | "sum", 4) | ("diff", 2) | ("convolve", 3 | 4)) => {
+        Ast::Builtin(n, args) if matches!((n.as_str(), args.len()), ("integrate" | "sum", 4) | ("integrate" | "diff", 2) | ("convolve", 3 | 4)) => {
             let (bodies, var) = if n == "convolve" { (&args[..2], &args[2]) } else { (&args[..1], &args[1]) };
             let mut body = vec![];
             for b in bodies { ast_names(b, &mut body); }
@@ -1005,6 +1005,7 @@ pub(crate) fn ast_names(a: &Ast, out: &mut Vec<String>) {
             ast_names(f, out);
             rest.iter().for_each(|r| ast_names(&r.1, out));
         }
+        Ast::And(v) | Ast::Or(v) => v.iter().for_each(|x| ast_names(x, out)),
         _ => {}
     }
 }
@@ -1038,6 +1039,7 @@ pub fn ast_text(a: &Ast, units: &Units) -> String {
             Ast::Arg(n, x) => (format!("{n}: {}", t(x, u).0), 0),
             Ast::Index(x, idx) => (format!("{}[{}]", p(x, 9, u), list(idx)), 9),
             Ast::Range(x, y) => (format!("{} .. {}", p(x, 1, u), p(y, 1, u)), 0),
+            Ast::All => (":".into(), 9),
             Ast::Abs(x) => (format!("|{}|", t(x, u).0), 9),
             Ast::Matrix(rs) => (format!("mat({})", rs.iter().map(|r| list(r)).collect::<Vec<_>>().join("; ")), 9),
             Ast::Cmp(f, rest) => {
@@ -1047,6 +1049,8 @@ pub fn ast_text(a: &Ast, units: &Units) -> String {
                 }
                 (s, 0)
             }
+            Ast::And(v) => (v.iter().map(|x| if matches!(x, Ast::Or(_)) { format!("({})", t(x, u).0) } else { t(x, u).0 }).collect::<Vec<_>>().join(" ∧ "), 0),
+            Ast::Or(v) => (v.iter().map(|x| t(x, u).0).collect::<Vec<_>>().join(" ∨ "), 0),
         }
     }
     t(a, units).0

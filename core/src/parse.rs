@@ -28,6 +28,8 @@ const OPS: &[(&str, &str)] = &[
     ("≠", "≠"), ("=", "="), ("<", "<"), (">", ">"), ("+", "+"), ("-", "-"), ("−", "-"), ("*", "*"), ("∗", "*"),
     ("·", "·"), ("⋅", "·"), ("×", "×"), ("/", "/"), ("^", "^"), ("(", "("), (")", ")"), ("[", "("), ("]", ")"),
     (",", ","), (";", ";"), (":", ":"), ("..", ".."), ("…", ".."), ("|", "|"), ("‖", "‖"), ("±", "±"),
+    // Typst's math writes `and` and `or` as these symbols
+    ("∧", "∧"), ("∨", "∨"),
 ];
 
 pub use solveng_names::GREEK;
@@ -67,8 +69,8 @@ pub fn lex(s: &str) -> Result<Vec<Tok>, String> {
             while i < cs.len() && cs[i].is_ascii_digit() {
                 i += 1;
             }
-            // a decimal point, or a decimal comma between digits (0,95)
-            if i + 1 < cs.len() && (cs[i] == '.' || cs[i] == ',') && cs[i + 1].is_ascii_digit() {
+            // a decimal point; a comma always separates (0,1 is 0 and 1), the separator option only changes the output
+            if i + 1 < cs.len() && cs[i] == '.' && cs[i + 1].is_ascii_digit() {
                 i += 1;
                 while i < cs.len() && cs[i].is_ascii_digit() {
                     i += 1;
@@ -77,7 +79,7 @@ pub fn lex(s: &str) -> Result<Vec<Tok>, String> {
                 i += 1;
             }
             // no e-notation: `1.12e4` is the coefficient 1.12 and the name e4
-            out.push(Tok::Num(cs[st..i].iter().collect::<String>().replace(',', ".").replace('−', "-")));
+            out.push(Tok::Num(cs[st..i].iter().collect::<String>().replace('−', "-")));
             continue;
         }
         if solveng_names::is_start(c) || c == '"' {
@@ -115,7 +117,16 @@ pub fn lex(s: &str) -> Result<Vec<Tok>, String> {
                 continue;
             }
             // what Typst writes for ∫ and ∑ without both bounds, and products
-            '∫' | '∬' | '∭' | '∮' => return Err("an integral needs both bounds: integral_a^b f dif x – indefinite integrals aren't supported".into()),
+            // ∫ without bounds: an indefinite integral (with both, Typst's attachment reads as integral_a^b)
+            '∫' => {
+                if matches!(cs.get(i + 1), Some('_' | '^')) {
+                    return Err("a definite integral has both bounds, integral_a^b f dif x; an indefinite one none, integral f dif x".into());
+                }
+                out.push(Tok::Name("∫".into()));
+                i += 1;
+                continue;
+            }
+            '∬' | '∭' | '∮' => return Err("multiple and contour integrals aren't supported – nest integrals: integral_a^b integral_c^d f dif y dif x".into()),
             '∑' => return Err("a sum needs its index and both bounds: sum_(k=1)^n f".into()),
             '∏' => return Err("products (∏) aren't supported – write the factors out".into()),
             '∞' => {
@@ -297,6 +308,8 @@ pub enum Ast {
     Arg(String, Box<Ast>),
     /// x[i], A[i, j]: elements, counted from 0; a vector of indices selects several.
     Index(Box<Ast>, Vec<Ast>),
+    /// `:` as an index, all of a dimension: A[i, :] is row i, A[:, j] column j.
+    All,
     /// a .. b: the values from a to b in steps of 1, both included (a range variable).
     Range(Box<Ast>, Box<Ast>),
     /// mat(a, b; c, d): the rows of a matrix.
@@ -304,6 +317,10 @@ pub enum Ast {
     Abs(Box<Ast>),
     /// a = b < c: a chain of comparisons, 1 where all hold.
     Cmp(Box<Ast>, Vec<(Rel, Ast)>),
+    /// a and b (∧): 1 where all hold; binds tighter than or.
+    And(Vec<Ast>),
+    /// a or b (∨): 1 where any holds.
+    Or(Vec<Ast>),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -607,7 +624,22 @@ impl<'a, 'b> P<'a, 'b> {
         Ok(p.u)
     }
 
+    /// Conditions joined with or (∨) and and (∧), and binding tighter; comparisons bind tighter than both.
     fn cmp(&mut self) -> Result<Ast, String> {
+        let mut any = vec![self.all()?];
+        while !self.ended() && self.eat("∨") {
+            any.push(self.all()?);
+        }
+        Ok(if any.len() == 1 { any.pop().unwrap() } else { Ast::Or(any) })
+    }
+    fn all(&mut self) -> Result<Ast, String> {
+        let mut all = vec![self.chain()?];
+        while !self.ended() && self.eat("∧") {
+            all.push(self.chain()?);
+        }
+        Ok(if all.len() == 1 { all.pop().unwrap() } else { Ast::And(all) })
+    }
+    fn chain(&mut self) -> Result<Ast, String> {
         let a = self.sum()?;
         let mut rest = vec![];
         while let Some(r) = self.op().and_then(Rel::of).filter(|_| !self.ended()) {
@@ -688,6 +720,12 @@ impl<'a, 'b> P<'a, 'b> {
             let x = std::mem::take(&mut self.in_exp);
             let mut idx = vec![];
             loop {
+                if s_op(self.peek()) == Some(":") && matches!(s_op(self.t.get(self.i + 1)), Some("," | "]")) {
+                    self.i += 1;
+                    idx.push(Ast::All);
+                    if self.eat(",") { continue; }
+                    break;
+                }
                 let i = self.cmp();
                 if i.is_err() { self.in_exp = x; }
                 idx.push(i?);
@@ -845,6 +883,9 @@ impl<'a, 'b> P<'a, 'b> {
             return self.differential();
         }
         if n == "∂" {
+            if self.integrand.open {
+                return Err("an integral's differential is dif x (dif, not diff: diff is ∂)".into());
+            }
             return Err("∂ makes a partial derivative: (∂ f) / (∂ x), (∂^2 f) / (∂ x ∂ y)".into());
         }
         if n == "sum_" {
@@ -865,6 +906,10 @@ impl<'a, 'b> P<'a, 'b> {
         }
         if n == "integral_" {
             return self.integral();
+        }
+        if n == "∫" {
+            let (body, var) = self.integrand()?;
+            return Ok(Ast::Builtin("integrate".into(), vec![body, Ast::Name(var)]));
         }
         // Typst's frac(a, b), as math writes a fraction out: one factor
         // Typst's frac(a, b), as math writes a fraction out: one factor
@@ -907,6 +952,11 @@ impl<'a, 'b> P<'a, 'b> {
         let lo = self.closed(|p| p.atom())?;
         self.expect("^", "before the upper integral bound")?;
         let hi = self.closed(|p| p.atom())?;
+        let (body, var) = self.integrand()?;
+        Ok(Ast::Builtin("integrate".into(), vec![body, Ast::Name(var), lo, hi]))
+    }
+    /// An integral's integrand and the variable of the differential ending it.
+    fn integrand(&mut self) -> Result<(Ast, String), String> {
         let start = self.i;
         let outer = std::mem::replace(&mut self.integrand, Integrand { open: true, var: None });
         let body = self.sum();
@@ -917,7 +967,7 @@ impl<'a, 'b> P<'a, 'b> {
         if matches!(self.t.get(start), Some(Tok::Name(n)) if n == "dif") && self.starts_factor() {
             return Err(format!("the differential ends the integrand: write integral … f dif {var}, not dif {var} f"));
         }
-        Ok(Ast::Builtin("integrate".into(), vec![body, Ast::Name(var), lo, hi]))
+        Ok((body, var))
     }
     /// frac(a, b); in Leibniz's notation frac(dif f, dif x), frac(dif^2 f, dif x^2), frac(dif, dif x) f: a derivative.
     fn frac(&mut self) -> Result<Ast, String> {
@@ -1509,8 +1559,13 @@ mod tests {
             s => panic!("{s:?}"),
         }
         assert!(matches!(&line("Q_0 ≔ frac(3450, 2) #mAh").stmts[0], Stmt::Def { rhs: Ast::Qty(..), .. }));
-        match &line("U ≔ 1,5 V").stmts[0] {
+        match &line("U ≔ 1.5 V").stmts[0] {
             Stmt::Def { rhs: Ast::Qty(n, _), .. } => assert_eq!(**n, Ast::Num("1.5".into(), Num::R(Rat::new(3, 2).unwrap()))),
+            s => panic!("{s:?}"),
+        }
+        // a comma always separates: 0,1 is two numbers, not the decimal 0.1
+        match &line("M ≔ mat(2,4; 0,1)").stmts[0] {
+            Stmt::Def { rhs: Ast::Matrix(rs), .. } => assert_eq!((rs.len(), rs[1].len()), (2, 2)),
             s => panic!("{s:?}"),
         }
         assert_eq!(line("t = min, digits(2)").trail.unwrap().1.digits, Some(2));

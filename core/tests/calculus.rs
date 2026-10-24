@@ -201,7 +201,8 @@ fn differentials_end_the_integrand_where_they_stand() {
         ("integral_(0)^(1) |x dif x| ->", "dif stands for a differential"),
         ("integral_(0)^(1) x ->", "ends with dif"),
         ("x dif x ->", "dif stands for a differential"),
-        ("∫ x dif x ->", "indefinite integrals"),
+        ("∫_(0) x dif x ->", "both bounds"),
+        ("∬ x dif x ->", "nest integrals"),
         ("∑ k ->", "both bounds"),
         ("∏ k ->", "products"),
     ];
@@ -268,4 +269,55 @@ fn integral_bounds_of_zero_and_infinity_take_the_other_unit() {
     assert!(out.errors.iter().any(|e| e.contains("write it on a bound")), "{out:?}");
     let shown = run(&mut Env::default(), "integral_(0)^(infinity) e^(-t) dif t ->").result.unwrap();
     assert!(shown.contains("^(infinity)") && !shown.contains("inf\""), "{shown}");
+}
+
+/// Without bounds an integral is the antiderivative (without the constant of integration), in math and as
+/// integrate(f, x).
+#[test]
+fn indefinite_integrals_give_the_antiderivative() {
+    let cases = [
+        ("∫ e^x dif x ->", r#"#svconst("euler")^(x)"#),
+        ("∫ 3 dif x ->", r#""3" x"#),
+        ("∫ a x dif x ->", r#"frac(a x^("2"), "2")"#),
+        ("∫ 1/x dif x ->", "ln(abs(x))"),
+        ("∫ ln(x) dif x ->", "-x + x ln(x)"),
+        ("∫ tan(2 x) dif x ->", r#"-frac(ln(abs(cos("2" x))), "2")"#),
+        // products multiplied out, and a polynomial times a factor integrated by parts
+        ("∫ (x + 1)(x - 1) dif x ->", r#"frac(x^("3"), "3") - x"#),
+        ("∫ (x^2 + 1)^2 dif x ->", r#"frac(x^("5"), "5") + frac("2" dot x^("3"), "3") + x"#),
+        ("∫ x e^x dif x ->", r#"x #svconst("euler")^(x) - #svconst("euler")^(x)"#),
+        ("∫ x^2 sin(x) dif x ->", r#"-x^("2") cos(x) + "2" x sin(x) + "2" cos(x)"#),
+        ("∫ x^2 + 1 dif x ->", r#"frac(x^("3"), "3") + x"#),
+        ("integrate(x^2, x) ->", r#"frac(x^("3"), "3")"#),
+        ("∫ 3 A dif t ->", r#""3" t thin upright("A")"#),
+    ];
+    for (source, want) in cases {
+        assert_eq!(run(&mut Env::default(), source).result.as_deref(), Some(want), "{source}");
+    }
+    // an antiderivative differentiates back to the integrand
+    for integrand in ["x^3 e^(-2 x)", "(2 x + 1) cos(3 x)", "x sinh(x)", "(x - 2)^3 (x + 1)", "5^x x"] {
+        let mut env = Env::default();
+        run(&mut env, &format!("F(x) := ∫ {integrand} dif x"));
+        run(&mut env, &format!("g(x) := {integrand}"));
+        let out = run(&mut env, "dif / (dif x) F(x) - g(x) -> simplify");
+        assert_eq!(out.result.as_deref(), Some(r#""0""#), "{integrand}");
+    }
+    let mut env = Env::default();
+    run(&mut env, "F(x) := ∫ x^2 dif x");
+    assert_eq!(run(&mut env, "F(3) =").result.as_deref(), Some(r#""9""#));
+    for (source, message) in [
+        ("∫ sin(x^2) dif x ->", "no antiderivative found"),
+        ("integrate(x^2, x, 1) ->", "no bounds"),
+        ("∫ x ∂ x ->", "dif, not diff"),
+    ] {
+        let out = line(&mut Env::default(), source);
+        assert!(out.errors.iter().any(|e| e.contains(message)), "{source}: {out:?}");
+    }
+    // a definite integral uses the antiderivative only where it's continuous and defined at the bounds
+    assert_eq!(run(&mut Env::default(), "integral_1^2 ln(x) dif x ->").result.as_deref(), Some(r#""2" ln("2") - "1""#));
+    assert_eq!(run(&mut Env::default(), "integral_0^1 x e^x dif x ->").result.as_deref(), Some(r#""1""#));
+    for source in ["integral_0^1 ln(x) dif x ->", "integral_0^3 tan(x) dif x ->"] {
+        let shown = run(&mut Env::default(), source).result.unwrap();
+        assert!(shown.starts_with("integral_"), "{source}: {shown}");
+    }
 }

@@ -431,10 +431,10 @@ fn clause_items(a: &Analysis, names: bool, at: usize, line_start: usize, line: &
 }
 
 /// The bindings visible at `at` that `kind` takes, then the names `module` exports that aren't bound there, imported
-/// along (when solveng's import is in scope to add them to). A single letter needs `#` in math: inserted unless
+/// along (when solveng's import is in scope to add them to). Names math cannot read whole need `#`: inserted unless
 /// `hash` says it's typed before the word.
 fn binding_items(a: &Analysis, at: usize, hash: bool, kind: &dyn Fn(&Meaning) -> bool, module: Module) -> Vec<Item> {
-    let insert = |name: &str| if !hash && name.chars().count() == 1 { format!("#{name}") } else { name.to_string() };
+    let insert = |name: &str| if !hash && crate::bindings::needs_hash(name) { format!("#{name}") } else { name.to_string() };
     let item_kind = |m: &Meaning| match m {
         Meaning::Constant { .. } => ItemKind::CONSTANT,
         Meaning::Operation(_) => ItemKind::FUNCTION,
@@ -574,7 +574,7 @@ pub fn complete(document: &str, context: &Context, offset: u32) -> Option<Comple
             let binding = a.bindings.items(at).into_iter().find(|(name, m)| matches!(m, Meaning::Operation(_)) && crate::resolved_name(name) == canonical);
             let standard = FUNCTIONS.contains(&canonical.as_str());
             let base = if let Some((name, _)) = binding {
-                if name.chars().count() == 1 && (start == 0 || a.doc.c[start - 1] != '#') { format!("#{name}") } else { name }
+                if crate::bindings::needs_hash(&name) && (start == 0 || a.doc.c[start - 1] != '#') { format!("#{name}") } else { name }
             } else if item.kind == ItemKind::FUNCTION && standard && !crate::params::automatic_math(&canonical) { canonical.clone() }
                 // solveng's own operations need `#import functions: …` in math, imported along where solveng is;
                 // else the explicit reference
@@ -716,12 +716,30 @@ fn string_completions(a: &Analysis, call: &Call, t: &crate::calls::Text, at: usi
 
 static VALUE_AT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|[,(\s])([a-z][\w-]*)\s*:\s*([\w-]*)$").unwrap());
 static NAME_AT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|[,(])\s*([a-z][\w-]*)?$").unwrap());
+/// `dots: ` right before an array's parenthesis, and the item typed in it.
+static OPTION_BEFORE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|[,(\s])([a-z][\w-]*)\s*:\s*$").unwrap());
+static ITEM_AT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|,)\s*([\w-]*)$").unwrap());
+
+/// What an option takes: its strings, quoted, and the keywords its types allow – `auto`, `none`, `true` and `false`.
+/// In an array, per item: keywords only beside booleans or strings (`joined: (auto, true)`, `dots: ("star", none)`),
+/// not where the items are numbers (`xrange: (1, 2)`).
+fn value_items(param: &crate::params::Param, in_array: bool) -> Vec<Item> {
+    let types: Vec<&str> = param.types.split(',').map(str::trim).collect();
+    let types: Vec<&str> = if in_array && !types.contains(&"bool") && param.values.is_empty() { Vec::new() } else { types };
+    let mut items: Vec<Item> = param.values.iter().map(|v| {
+        let q = format!("\"{v}\"");
+        Item::new(&q, ItemKind::VALUE, &param.types, &q)
+    }).collect();
+    let keywords = [("auto", "auto"), ("none", "none"), ("true", "bool"), ("false", "bool")];
+    items.extend(keywords.iter().filter(|(_, t)| types.contains(t)).map(|(k, _)| Item::new(k, ItemKind::KEYWORD, &param.types, k)));
+    items
+}
 
 /// Between a call's arguments: the names of its parameters, or after `name:` the option's values.
 fn option_completions(a: &Analysis, call: &Call, at: usize) -> Option<Completions> {
     let prefix = a.doc.sub(call.args_start, at);
-    // Only at the top level of the arguments.
-    let mut depth = 0i32;
+    // At the top level of the arguments, or in an option's array: `dots: ("star", |`.
+    let mut open: Vec<usize> = Vec::new();
     let mut in_str = false;
     let pc = chars(&prefix);
     let mut i = 0;
@@ -729,28 +747,33 @@ fn option_completions(a: &Analysis, call: &Call, at: usize) -> Option<Completion
         match pc[i] {
             '\\' if in_str => i += 1,
             '"' => in_str = !in_str,
-            '(' | '[' | '{' if !in_str => depth += 1,
-            ')' | ']' | '}' if !in_str => depth -= 1,
+            '(' | '[' | '{' if !in_str => open.push(i),
+            ')' | ']' | '}' if !in_str => { open.pop(); }
             _ => {}
         }
         i += 1;
     }
-    if in_str || depth != 0 {
+    if in_str {
         return None;
     }
     let f = call.function;
+    if let [paren] = open[..] {
+        let before: String = pc[..paren].iter().collect();
+        let inside: String = pc[paren + 1..].iter().collect();
+        if pc[paren] != '(' { return None; }
+        let param = f.named.iter().find(|p| OPTION_BEFORE.captures(&before).is_some_and(|m| m[1] == p.name))?;
+        let typed = ITEM_AT.captures(&inside)?[1].chars().count();
+        let items = value_items(param, true);
+        return (!items.is_empty()).then(|| Completions { to: None, from: a.doc.to16(at - typed), items, exclusive: false });
+    }
+    if !open.is_empty() {
+        return None;
+    }
     if let Some(m) = VALUE_AT.captures(&prefix) {
         let param = f.named.iter().find(|p| p.name == m[1])?;
         let typed = m[2].chars().count();
-        let quoted = |v: &str, kind: u8, detail: &str| {
-            let q = format!("\"{v}\"");
-            Item::new(&q, kind, detail, &q)
-        };
-        if param.values.is_empty() {
-            return None;
-        }
-        let items: Vec<Item> = param.values.iter().map(|v| quoted(v, ItemKind::VALUE, &param.types)).collect();
-        return Some(Completions { to: None, from: a.doc.to16(at - typed), items, exclusive: false });
+        let items = value_items(param, false);
+        return (!items.is_empty()).then(|| Completions { to: None, from: a.doc.to16(at - typed), items, exclusive: false });
     }
     let m = NAME_AT.captures(&prefix)?;
     let typed = m.get(1).map_or(0, |t| t.as_str().chars().count());

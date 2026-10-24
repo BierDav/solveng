@@ -211,6 +211,10 @@
 /// - unit-style (auto, function): A function given every shown unit as content, `u => text(fill: blue, u)`.
 /// - unit-separator (auto, content, str, symbol): What goes between units, a thin dot by default (A·as): `sym.times`, `h(0.2em)`.
 /// - constants (auto, dictionary): How constants are shown, by identity: `(imaginary: $j$, "standard-gravity": $g_0$)`, over the built-in displays of `pi` (π), `euler` (e), `imaginary` (i) and `speed-of-light` (c) and the ones of the worksheets around. Results show them the same way. See `constant`.
+/// - graph-colors (auto, color, array): The colors of the curves in graphs, curve after curve and repeating: `(gray, blue, rgb("#f98eff"))`. Default: Petroff's ten colors, chosen to stay apart for color-blind readers. `auto` keeps the worksheet's around, also for a single curve: `(auto, red)` changes only the second (and fourth, …). A graph's `colors` goes over it, the same way.
+/// - graph-lines (auto, str, array, dictionary, none): The lines of the curves in graphs, like `graph-colors`: Typst dash patterns such as `"solid"`, `"dashed"`, `"dotted"`, `"dash-dotted"`, or lengths like `(4pt, 2pt)`; `none` draws a curve without lines. Default `("solid", "dashed", "dotted", "dash-dotted")`. A graph's `lines` goes over it.
+/// - graph-dots (auto, str, array, none): The dots of the curves in graphs, like `graph-colors`: `"circle"`, `"square"`, `"triangle"`, `"triangle-down"`, `"diamond"`, `"pentagon"`, `"hexagon"`, `"star"`, `"cross"`, `"plus"`; `none` draws a curve without dots. Default `("circle", "square", "triangle", "diamond")`. A graph's `dots` goes over it.
+/// - graph-joined (auto, bool, array): Whether everything a curve in a graph draws is joined with a line, like `graph-colors`. Default `false`. A graph's `joined` goes over it.
 /// -> content
 #let worksheet(
   ..body,
@@ -220,6 +224,7 @@
   approximate: auto, block: auto, max-solutions: auto,
   defined-style: auto, errors: auto, show-types: auto,
   words: auto, chips: auto, unit-style: auto, unit-separator: auto, constants: auto,
+  graph-colors: auto, graph-lines: auto, graph-dots: auto, graph-joined: auto,
 ) = {
   let pos = body.pos()
   if body.named().len() > 0 {
@@ -233,6 +238,7 @@
     approximate: approximate, block: block, max-solutions: max-solutions,
     defined-style: defined-style, errors: errors, show-types: show-types,
     words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator, constants: constants,
+    graph-colors: graph-colors, graph-lines: graph-lines, graph-dots: graph-dots, graph-joined: graph-joined,
   )))
   if _E(lc) { return _err-now(lc.err) }
   if type(hidden) != bool { return _err-now("hidden: true or false, got " + _tn(hidden)) }
@@ -272,7 +278,7 @@
   }
   if lc.len() == 0 and scope != "isolated" { out } else {
     // displays of constants add to the ones around
-    let up(c) = c + lc + (if "constants" in lc { (constants: c.at("constants", default: (:)) + lc.constants) } else { (:) }) + ("^": c)
+    let up(c) = _merge(c, lc) + (if "constants" in lc { (constants: c.at("constants", default: (:)) + lc.constants) } else { (:) }) + ("^": c)
     _cf.update(up)
     out
     _cf.update(c => c.at("^"))

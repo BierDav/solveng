@@ -140,3 +140,25 @@ fn units_are_found_by_their_names() {
         assert!(items.iter().any(|i| i.label == label && i.filter.as_deref().unwrap_or(&i.label).to_lowercase().contains(&typed.to_lowercase())), "{label} for {typed}");
     }
 }
+
+#[test]
+fn code_binding_names_need_hashes_in_math() {
+    for name in ["fluid_ounce", "fluid_ounce_uk", "fluid-ounce", "fl_oz2"] {
+        let prefix = format!("#show: worksheet\n#let {name} = unit($28.413 ml$, display: $\"fl oz\"$)\n");
+        let doc = format!("{prefix}$1 #units.l -> {name}$");
+        let offset = at(&doc, &format!("{name}$"));
+        let warning = diagnostics(&doc, &Context::default()).into_iter().find(|p| p.message.contains(&format!("use '#{name}'"))).unwrap_or_else(|| panic!("no warning: {doc}"));
+        assert_eq!((warning.start, warning.end), (offset, offset + name.len() as u32));
+        assert_eq!(kind_at(&doc, offset), Some(TokenKind::VARIABLE), "{doc}");
+        assert!(unit_fixes(&doc, &Context::default(), offset).iter().any(|f| f.start == offset && f.text == "#"));
+        let fixed = format!("{prefix}$1 #units.l -> #{name}$");
+        assert_eq!(kind(&fixed, &format!("{name}$")), Some(TokenKind::UNIT));
+        assert!(!diagnostics(&fixed, &Context::default()).iter().any(|p| p.message.contains("math splits")));
+        for typed in ["|", "fl|", "fluid_|", "#fl|"] {
+            let input = format!("{prefix}$1 #units.l -> {typed}$");
+            assert!(applied_completion(&input, name).ends_with(&format!("-> #{name}$")), "{input}");
+        }
+    }
+    let doc = "#show: worksheet\n#let fluid_ounce = unit($28.413 ml$)\n$fluid_ounce := 2$\n$x := fluid_ounce$";
+    assert!(!diagnostics(doc, &Context::default()).iter().any(|p| p.message.contains("math splits")));
+}

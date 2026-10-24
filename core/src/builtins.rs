@@ -62,7 +62,7 @@ pub const BUILTINS: &[Builtin] = &[
     matrix("det"), matrix("tr"), matrix("rank"), one("norm"), sig("identity", &[req("n")], &[]), matrix("rows"), matrix("cols"),
     sig("at", &[req("v"), req("i"), opt("j")], &[]),
     sig("diff", &[req("expression"), req("variable")], &[]),
-    sig("integrate", &[req("expression"), req("variable"), req("lower"), req("upper")], &[]),
+    sig("integrate", &[req("expression"), req("variable"), opt("lower"), opt("upper")], &[]),
     sig("sum", &[req("expression"), req("index"), req("lower"), req("upper")], &[]),
     sig("laplace", &[req("expression"), opt("variable"), opt("result")], &[]),
     sig("invlaplace", &[req("expression"), opt("variable"), opt("result")], &[]),

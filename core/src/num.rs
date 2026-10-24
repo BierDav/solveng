@@ -125,9 +125,9 @@ impl Rat {
         };
         Rat::new(r(self.n)?, r(self.d)?)
     }
-    /// A decimal written out: "7.20" → 36/5, "0,5" → 1/2. No e-notation.
+    /// A decimal written out: "7.20" → 36/5. No e-notation; a comma is no decimal separator.
     pub fn parse_decimal(s: &str) -> Option<Rat> {
-        let mant = s.trim().replace(',', ".");
+        let mant = s.trim().to_string();
         let (ip, fp) = match mant.find('.') {
             Some(i) => (&mant[..i], &mant[i + 1..]),
             None => (mant.as_str(), ""),
@@ -364,7 +364,7 @@ mod tests {
     fn decimals() {
         assert_eq!(Rat::parse_decimal("7.20"), Rat::new(36, 5));
         assert_eq!(Rat::parse_decimal("0.001"), Rat::new(1, 1000));
-        assert_eq!(Rat::parse_decimal("0,5"), Rat::new(1, 2));
+        assert_eq!(Rat::parse_decimal("0,5"), None);
         assert_eq!(Rat::parse_decimal(".5"), Rat::new(1, 2));
         assert_eq!(Rat::parse_decimal("1e-3"), None);
         assert_eq!(Rat::parse_decimal("x"), None);

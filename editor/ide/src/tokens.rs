@@ -150,10 +150,25 @@ const MATH_OPERATORS: &[&str] = &["dot", "times", "div", "approx", "plus", "minu
 /// `=` or `->` showing a result. `unit` says which words are units: Typst bindings of units (see `bindings`), which
 /// also colour them where they're used; a bare single letter is a math symbol, a variable. `modifier` says which words
 /// of a clause are modifiers.
+/// Comments are comments, and the rest is read as if they were spaces.
 pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool, modifier: Modifiers) -> Vec<Tok> {
+    let comments = crate::text::math_comments(math);
+    if comments.is_empty() { return code_tokens(math, unit, modifier); }
+    let mut code = math.to_vec();
+    for &(s, e) in &comments {
+        // a line comment ends before its line break, which still separates
+        for c in &mut code[s..e] { *c = ' '; }
+    }
+    let mut out = code_tokens(&code, unit, modifier);
+    out.extend(comments.into_iter().map(|(s, e)| (s, e - s, K::COMMENT)));
+    out.sort_by_key(|t| t.0);
+    out
+}
+
+fn code_tokens(math: &[char], unit: &dyn Fn(&str) -> bool, modifier: Modifiers) -> Vec<Tok> {
     let spans = crate::text::equation_ranges(math);
     if spans.len() > 1 {
-        return spans.into_iter().flat_map(|(s, e)| math_tokens(&math[s..e], unit, modifier).into_iter().map(move |(a, l, k)| (s + a, l, k))).collect();
+        return spans.into_iter().flat_map(|(s, e)| code_tokens(&math[s..e], unit, modifier).into_iter().map(move |(a, l, k)| (s + a, l, k))).collect();
     }
     let mut out = Vec::new();
     let mut emit = |start: usize, end: usize, kind: u8| {
@@ -229,7 +244,7 @@ pub(crate) fn math_tokens(math: &[char], unit: &dyn Fn(&str) -> bool, modifier: 
                     if depth == 0 { break; }
                     end += 1;
                 }
-                for (s, l, k) in math_tokens(&math[i + 2..end], unit, modifier) { emit(i + 2 + s, i + 2 + s + l, k); }
+                for (s, l, k) in code_tokens(&math[i + 2..end], unit, modifier) { emit(i + 2 + s, i + 2 + s + l, k); }
                 i = (end + 1).min(n);
                 continue;
             }

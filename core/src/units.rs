@@ -534,7 +534,7 @@ fn utok(s: &str) -> Vec<String> {
             i += 1;
         } else if c.is_ascii_digit() || c == '.' {
             let st = i;
-            while i < cs.len() && (cs[i].is_ascii_digit() || cs[i] == '.' || cs[i] == ',') {
+            while i < cs.len() && (cs[i].is_ascii_digit() || cs[i] == '.') {
                 i += 1;
             }
             if i < cs.len() && (cs[i] == 'e' || cs[i] == 'E') && cs.get(i + 1).is_some_and(|c| c.is_ascii_digit() || *c == '-') {

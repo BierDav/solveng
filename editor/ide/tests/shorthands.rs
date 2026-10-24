@@ -55,10 +55,10 @@ fn renaming_makes_or_drops_an_alias() {
     let rename_at = |doc: &str, offset: u32, name: &str| apply(doc, rename(doc, &ctx, offset, name).into_iter().map(|e| (e.start, e.end, e.text)).collect());
     let doc = format!("{SOLVENG}#import units: km, s\n#show: worksheet\n$a := 1 #s$ $b := 2 #s$");
     let renamed = rename_at(&doc, nth(&doc, "s$", 0), "test");
-    assert!(renamed.contains("#import units: km, s as test\n") && renamed.contains("$a := 1 #test$ $b := 2 #test$"), "{renamed}");
+    assert!(renamed.contains("#import units: km, s as test\n") && renamed.contains("$a := 1 test$ $b := 2 test$"), "{renamed}");
     // another alias replaces the alias; the module's own name drops it
     let again = rename_at(&renamed, at(&renamed, "test\n"), "sec");
-    assert!(again.contains("s as sec\n") && again.contains("1 #sec$"), "{again}");
+    assert!(again.contains("s as sec\n") && again.contains("1 sec$"), "{again}");
     let back = rename_at(&again, at(&again, "sec$"), "s");
     assert_eq!(back, doc);
     assert_eq!(rename_target(&doc, &ctx, nth(&doc, "s$", 1)).unwrap().name, "s");
@@ -150,6 +150,40 @@ fn unbound_module_names_get_an_import_fix() {
     assert!(unit_fixes(&plain, &ctx, at(&plain, "km$")).is_empty());
     let bare = "#show: worksheet\n$x := 2 km$";
     assert!(unit_fixes(bare, &ctx, at(bare, "km$")).is_empty());
+}
+
+#[test]
+fn names_typst_math_owns_warn_and_get_their_import() {
+    let ctx = Context::default();
+    // Without the import, Typst reads these names itself, so it reports no unknown variable: solveng says it.
+    let doc = format!("{SOLVENG}#show: worksheet\n$y := at(vec(3, 5), 0)$");
+    let problems = diagnostics(&doc, &ctx);
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    let p = &problems[0];
+    assert_eq!(p.severity, "warning");
+    assert_eq!((p.start, p.end), (at(&doc, "at("), at(&doc, "at(") + 2));
+    assert!(p.message.contains("Typst's own") && p.message.contains("#import functions: at"), "{}", p.message);
+    // the import fix is offered where the name is
+    let fix = unit_fixes(&doc, &ctx, at(&doc, "at(") + 1).into_iter().find(|f| f.title == "Import at from solveng's functions").unwrap();
+    assert!(applied_fix(&doc, &fix).contains("#import functions: at\n"));
+    // other names Typst's math owns warn too
+    let more = format!("{SOLVENG}#show: worksheet\n$f := floor(2.5) + Re(z) + rect(t)$");
+    let warned: Vec<_> = diagnostics(&more, &ctx).into_iter().filter(|p| p.message.contains("Typst's own")).collect();
+    assert_eq!(warned.len(), 3, "{warned:?}");
+    // imported, by name or through `*`: nothing to say, nothing to fix
+    for import in ["#import functions: at", "#import functions: *"] {
+        let imported = format!("{SOLVENG}{import}\n#show: worksheet\n$y := at(vec(3, 5), 0)$");
+        assert!(diagnostics(&imported, &ctx).is_empty(), "{import}");
+        assert!(unit_fixes(&imported, &ctx, at(&imported, "at(") + 1).iter().all(|f| !f.title.starts_with("Import")));
+    }
+    // Typst's symbol alone, outside calculated math, or bound by the document: no warning
+    for doc in [
+        format!("{SOLVENG}#show: worksheet\n$x := at$"),
+        format!("{SOLVENG}$y := at(vec(3, 5), 0)$"),
+        format!("{SOLVENG}#show: worksheet\n#let at = math.op(\"tri\")\n$y := at(1)$"),
+    ] {
+        assert!(diagnostics(&doc, &ctx).iter().all(|p| !p.message.contains("Typst's own")), "{doc}");
+    }
 }
 
 #[test]

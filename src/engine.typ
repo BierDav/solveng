@@ -6,7 +6,7 @@
 /// Three operators, and `=` keeps its meaning from maths:
 ///
 /// - **`:=` defines**, symbolically. Names defined by then are put in right away, names that aren't stay names until they are: `$h := 5 z$` works before `z` is defined, and after `$z := 20 cm$`, `$h =$` shows 1 m. What's put in is the value at that point – defining a name again later changes what comes after, not what came before.
-/// - **`=` inside an expression compares**, as Mathcad's bold =: `$M := 1 = 2 =$` gives 0, `$M := 2 #A = 2000 mA$` gives 1. Values of different units are never equal (`1 A = 2 V` is 0, `1 A != 2 V` is 1); `<`, `<=`, `>`, `>=` and `!=` compare too, chains like `$0 < x <= 1$` hold when every step does.
+/// - **`=` inside an expression compares**, as Mathcad's bold =: `$M := 1 = 2 =$` gives 0, `$M := 2 #A = 2000 mA$` gives 1. Values of different units are never equal (`1 A = 2 V` is 0, `1 A != 2 V` is 1); `<`, `<=`, `>`, `>=` and `!=` compare too, chains like `$0 < x <= 1$` hold when every step does. `and` and `or` (Typst shows ∧ and ∨) join them, `and` binding tighter: `$x < 0 or x > 2$`, also as a condition in `cases`.
 /// - **A trailing `=` shows the value**, numerically, with a bold =. After it come a unit and modifiers (from `modifiers`): `$t = #h, digits(3)$`. Every name in it must have a value by then.
 /// - **A trailing `->` shows the symbolic result**: defined values put in, exactly (fractions, roots and π stay), undefined names kept: `$x + 3/3 y -> simplify$` is x + y. With `solve(x)` it solves – symbolically when it can (`$0 = 1 + 3/x + y^2 -> solve(x)$` is x = −3/(y² + 1)), numerically when every other name has a value – and defines x when the solution is a value. `substitute(U, …)` shows the result with these variables' formulas put in and every other name kept: after `$U := R I$`, `$P := U^2/R -> substitute(U)$` is I² R.
 /// - **Any other `=`** states something: it's checked when everything in it has a value (`$U = R I$`), and left alone as prose when not (`$E = m c^2$`).
@@ -31,7 +31,7 @@
 /// #show: worksheet
 /// $R := 4.7 kΩ$                                 // a number and a unit
 /// $I := frac(2, 4) #A$, $Q_0 := 3450/2 mAh$     // arithmetic in the number
-/// $U := (1+2) dot 1,5 #V$, $A := 2^3 #m^2$      // A the variable, #A the ampere
+/// $U := (1+2) dot 1.5 #V$, $A := 2^3 #m^2$      // A the variable, #A the ampere
 /// $U_2 := R dot 1 mA$
 /// $Q := U_2 dot 2 #s -> substitute(U_2)$        // U_2's formula put in: Q ≔ U_2 · 2 s → 1/500 A·s·R
 /// ```
@@ -39,12 +39,12 @@
 /// - **Units** are Typst bindings, imported from solveng's `units` module where you use them: `#import units: mA, kΩ, s`. It has the SI base units (m kg s A K mol cd), V Ω W J C F H S Hz N Pa T Wb, min h Ah Wh As Ws eV l L, rad, deg (°) and degC (°C, a temperature *difference*), with the SI prefixes (`mA`, `kΩ`, `µs`). In math a binding of one letter needs a `#` (`$2 #s$`, `$100 #Ω$`), longer ones don't (`$30 mA$`). Powers as `#m^2`, quotients as `#m / #s^2`, products with spaces, `kg #m`. Your own with `base-unit` and `unit`, see [Units](#units).
 /// - **Numbers from values:** dividing by a unit gives a value's number in it, checked and prefix-aware: `U / #V` is U's number in volts, `(U / #V) #A` gives it another unit. Empirical formulas are written this way: `$F(d: mm) := 3.2 (d / mm)^0.6 #N$`. `number(U, #mV)` from `functions` is U's value in mV as a plain number, an error when U doesn't have mV's dimension.
 /// - **Typeable spellings:** `Omega` is Ω, the prefix `u` is µ (`uA`, also `µA` and `μA`), `deg` and `degC` are ° and °C. Results show the proper symbols.
-/// - **Decimal comma:** `$7,2 #V$` works; the output separator follows the document language (option `separator`).
+/// - **Decimal point:** numbers are written with a point, `$7.2 #V$`, also in German documents; results use the document language's separator (option `separator`), so they show 7,2 there. A comma always separates: `at(A, 0,1)` and `mat(2,4,6)` are lists of numbers.
 /// - **No e-notation:** numbers are written out (`$11200$`, or `$1.12 dot 10^4$`). `1.12e4` is the coefficient 1.12 times the variable `e4` (undefined unless defined; quote it, `$"e4"$`, for a name of several letters). Scientific notation is only how results are written (option `scientific`, keyword `sci`).
 /// - **Names:** the acute accent `´` and the backtick (`` ` ``) are literal name characters (`$x´ := 3$`), with no escaping needed. Digits continue a name: `t2` differs from `t_2` and keeps its digits on the baseline. Complete Latin letter runs normalize to Greek: `Delta2tau` → Δ2τ, while `Deltatau` stays unchanged. `""` joins name fragments: `Delta""tau` → Δτ and `t""2` → t2. Quotes only carry a name through Typst: `$"Delta2tau"$` names Δ2τ, and `$"Delta\"\"tau"$` names Δτ. Quoted text is always a name, also when it spells a unit or an operation: `$"mA" := 3$` is a variable. Explicit subscripts may be grouped: `$R_(a b)$` names R_ab. Operators and whitespace end a name; a leading number remains a coefficient (`2t2` is 2 times t2).
 /// - **Sums:** `sum_(k=0)^10 k^2` or `sum(k^2, k, 0, 10)` sums over inclusive integer bounds. The index is local and case-sensitive. Parenthesize a summand containing addition. Small finite sums simplify exactly; infinite sums stay symbolic after `->` and are evaluated numerically for `=` and graphs. For example, `$s_2(t) := sum_(k=0)^infinity sigma(t-k+3/4)$` defines a function usable as `#graph($s_2(t)$)` once `sigma` is defined. Piecewise linear signal sums are counted directly between their corners. Other numerical sums use at most 100000 terms and a shrinking-tail convergence estimate; slow or nonconvergent series report an error. Bounds and the index are unitless, while summands may carry units.
 /// - **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. Import the names from `functions` (`#import functions: rect, tri, sgn`); a worksheet function such as `$Lambda(t) := tri(t)$` or `#let triangle = math.op("tri")` gives another name. Linear combinations simplify and can be solved; definite integrals split affine arguments at their boundaries. Distributional derivatives stay symbolic.
-/// - **Ranges and elements:** `$i := 0..N$` (also `0 .. N`, `0...N`) is a range variable: the values from 0 to N in steps of 1, both included, counting down when N < 0; with units, use `range(start, end, step: …)`. `x[i]` and `A[i, j]` are elements, counted from 0, written right after the name without a space; a vector of indices selects several (`x[i]` with i a range is a vector). `$x[i] := …$` defines an element for each value of the range variable i, the body calculated with i standing for that value: `$t[i] := i Delta""t$`, `$x[i] := tri(t[i])$`. Elements not defined yet are 0; defining one past the end extends the vector, as in Mathcad. `A[i, j] := …` defines a matrix.
+/// - **Ranges and elements:** `$i := 0..N$` (also `0 .. N`, `0...N`) is a range variable: the values from 0 to N in steps of 1, both included, counting down when N < 0; with units, use `range(start, end, step: …)`. `x[i]` and `A[i, j]` are elements, counted from 0, written right after the name without a space; a vector of indices selects several (`x[i]` with i a range is a vector). `:` selects a whole row or column: `A[i, :]` is row i (a matrix of one row), `A[:, j]` column j (a vector), both plottable as data: `#graph($A[1, :]$)`. `$x[i] := …$` defines an element for each value of the range variable i, the body calculated with i standing for that value: `$t[i] := i Delta""t$`, `$x[i] := tri(t[i])$`. Elements not defined yet are 0; defining one past the end extends the vector, as in Mathcad. `A[i, j] := …` defines a matrix.
 /// - **Convolution:** `convolve(x, h)` of sequences and `convolve(f(τ), g(τ), τ, t)` of functions, see `convolve`. Sequences of values are convolved numerically (whole numbers exactly), so long sampled signals stay fast; functions exactly where they're piecewise polynomial.
 /// - **Operators:** `+ - * / ^ · ×`, implicit multiplication (`2 pi f C`), Typst's math operators `sqrt exp ln log sin cos tan arcsin arccos arctan sinh cosh tanh abs arg` (no import needed), the other operations from `functions` (see [Built-in operations](#built-in-operations)), your own functions.
 /// - **Constants** come from solveng's `constants` module: `#import constants: pi, e, i, c` (π, Euler's e, the imaginary unit, the speed of light), then `$2 pi$`, `$#e^x$`, `$3 + 4 #i$`. Without the import `pi` is only the symbol π, a name without a value. `constant(identity, expression)` makes your own; the option `constants` says how they are shown.
@@ -382,6 +382,46 @@
   }
   joined.join()
 }
+// the arguments of a call written in math, f(a, b): what Typst shows as the operation and the parenthesized
+// list after it; none for anything else
+#let _call-args(c) = {
+  let text-of(x) = if type(x) == content and x.has("text") and type(x.text) == str { x.text } else { none }
+  if type(c) != content or c.func() != math.lr { return none }
+  let cs = if c.body.has("children") { c.body.children } else { (c.body,) }
+  if cs.len() < 2 or text-of(cs.first()) != "(" or text-of(cs.last()) != ")" { return none }
+  let (args, part) = ((), ())
+  for x in cs.slice(1, -1) {
+    if text-of(x) == "," { args.push(part); part = () } else { part.push(x) }
+  }
+  args.push(part)
+  // without the spaces around it; a part Typst grouped into one sequence is read as its children
+  args.map(a => {
+    while a.len() > 0 and _blank(a.first()) { let _ = a.remove(0) }
+    while a.len() > 0 and _blank(a.last()) { let _ = a.pop() }
+    if a.len() == 1 and a.first().func() == [].func() { a.first().children } else { a }
+  })
+}
+// diff, integrate, laplace and invlaplace called in math, shown as mathematics writes them: d/(d x) f,
+// ∫_a^b f d x, ℒ{f}(s), ℒ⁻¹{F}(t); none for other operations and other numbers of arguments
+#let _notation(op, next, cf, restyle) = {
+  if type(op) != content or not (op.has("label") and op.label == <solveng-function>) { return none }
+  let name = _plain(op).trim()
+  if name not in ("diff", "integrate", "laplace", "invlaplace") { return none }
+  let args = _call-args(next)
+  if args == none or args.any(a => a.len() == 0) { return none }
+  let shown = args.map(a => restyle(a, cf))
+  // an operand that is a sum is put in parentheses: d/(d x) (x^2 + 1), not for a leading sign: d/(d x) −x
+  let sum(a) = a.slice(1).any(x => type(x) == content and x.has("text") and x.text in ("+", "−", "-", "±", "∓"))
+  let operand = if sum(args.first()) { math.lr[(#shown.first())] } else { shown.first() }
+  let n = args.len()
+  if name == "diff" and n == 2 { return $frac(dif, dif #shown.at(1)) #operand$.body }
+  if name == "integrate" and n == 2 { return $integral #operand dif #shown.at(1)$.body }
+  if name == "integrate" and n == 4 { return $integral_(#shown.at(2))^(#shown.at(3)) #operand dif #shown.at(1)$.body }
+  let transform = if name == "laplace" { $cal(L)$.body } else { $cal(L)^(-1)$.body }
+  if n == 1 { return $#transform lr({#shown.first()})$.body }
+  if n == 3 { return $#transform lr({#shown.first()})(#shown.at(2))$.body }
+  none
+}
 // types (f(x: #A)) as chips, plain or left out, as the options say; names as the engine
 // spells them (Delta → Δ)
 // `c` may be an array of children: joining them first would flatten the bindings' labelled sequences.
@@ -417,6 +457,12 @@
       if x == math.dif {
         out.push(x)
         i += 1
+        continue
+      }
+      let notation = _notation(x, ch.at(i + 1, default: none), cf, _restyle)
+      if notation != none {
+        out.push(notation)
+        i += 2
         continue
       }
       let mark = word(x)

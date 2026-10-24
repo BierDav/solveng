@@ -64,6 +64,10 @@ pub struct Series {
     /// Sampled data rather than a function: it can be drawn as points alone.
     #[serde(default)]
     pub data: bool,
+    /// A function's single point or piece end outside what the graph shows: not drawn, only joined to
+    /// (`draw: "joined"`), the join running out of the graph towards it.
+    #[serde(default)]
+    pub beyond: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -873,7 +877,35 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
             }
             runs.last_mut().unwrap().push(p);
         }
-        runs.retain(|r| r.len() > 1);
+        // a run that is one point, sampled twice where branches switch, has no line to draw
+        runs.retain(|r| r.len() > 1 && r.iter().any(|p| p.0 != r[0].0));
+        // single points: where a branch holds at one x alone (2 for x = 1), the value there differs from the
+        // values on both sides, or there are none; drawn as a dot
+        // (point, outside what the graph shows)
+        let mut single = vec![];
+        if piecewise && c.data.is_none() {
+            let (dx, tol) = ((x1 - x0) * xf * 1e-7, (y1 - y0) * yf * 1e-6);
+            let finite = |o: Option<f64>| o.filter(|v| v.is_finite());
+            let lone = |b: f64| finite(f(c, b)).filter(|&y| {
+                let apart = |o: Option<f64>| o.is_none_or(|o| !o.is_finite() || (o - y).abs() > tol);
+                apart(f(c, b - dx)) && apart(f(c, b + dx))
+            });
+            for &b in boundaries.iter().filter(|&&b| b >= x0 * xf && b <= x1 * xf) {
+                if let Some(y) = lone(b) {
+                    single.push(((b / xf, y / yf), y < y0 * yf || y > y1 * yf));
+                }
+            }
+            // where the function has no value at an edge of the graph, the nearest point it has beyond it – a
+            // single point, or the end of a piece – so a join can run out of the graph towards it. A piece may end
+            // right on the edge (x for x < 0 in a graph from 0): its end is where the join starts.
+            let near = |b: f64, side: f64| lone(b).or_else(|| finite(f(c, b + side * dx))).map(|y| (b / xf, y / yf));
+            if finite(f(c, x0 * xf)).is_none() {
+                if let Some(p) = boundaries.iter().rev().filter(|&&b| b <= x0 * xf).find_map(|&b| near(b, -1.0)) { single.push((p, true)); }
+            }
+            if finite(f(c, x1 * xf)).is_none() {
+                if let Some(p) = boundaries.iter().filter(|&&b| b >= x1 * xf).find_map(|&b| near(b, 1.0)) { single.push((p, true)); }
+            }
+        }
         if c.data.is_some() {
             runs = clipped[i].iter().map(|r| r.iter().map(|p| (p.0 / xf, p.1 / yf, usize::MAX)).collect()).collect();
         }
@@ -911,7 +943,10 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
                     used.push((run[b].0, run[b].1));
                 }
             }
-            series.push(Series { points: run.iter().map(|p| (p.0, p.1)).collect(), curve: i, label: lab.then(|| label.clone()), label_pos: lp, dots: c.data.as_ref().is_some_and(|d| d.xs.len() <= DOTS_MAX), data: c.data.is_some() });
+            series.push(Series { points: run.iter().map(|p| (p.0, p.1)).collect(), curve: i, label: lab.then(|| label.clone()), label_pos: lp, dots: c.data.as_ref().is_some_and(|d| d.xs.len() <= DOTS_MAX), data: c.data.is_some(), beyond: false });
+        }
+        for (p, beyond) in single {
+            series.push(Series { points: vec![p], curve: i, label: None, label_pos: 0.8, dots: true, data: false, beyond });
         }
     }
     // marks
@@ -1398,6 +1433,43 @@ mod tests {
         assert!(g.y0 < 20.0 && 20.0 < g.y1, "{} {}", g.y0, g.y1);
         // = plots without defining
         assert!(defines(&env, &req("w(t) = X(t)")).unwrap().is_empty());
+    }
+
+    #[test]
+    fn single_points_of_piecewise_functions_are_dots() {
+        let mut env = Env::default();
+        for s in ["g(x) := ⦇cases⦈(2, x = 1, x, x < 0 ∨ x > 2)", "s(x) := ⦇cases⦈(1, x ≠ 0, 3, x = 0)", "h(x) := ⦇cases⦈(x, x < 1, 1 - x, 1)"] {
+            let r = crate::test_support::req(s, &env);
+            assert!(line(&mut env, &r).errors.is_empty(), "{s}");
+        }
+        let plot = |c: &str| graph(&env, &GraphReq {
+            cfg: Cfg::default(), curves: vec![crate::test_support::curve(c, &env)],
+            xrange: vec![XV::Num(-2.0), XV::Num(4.0)], yrange: vec![], marks: vec![], ymark: vec![], samples: 100,
+        }).unwrap();
+        let dots = |c: &str| plot(c).series.into_iter().filter(|s| s.points.len() == 1 && s.dots && !s.beyond).map(|s| s.points[0]).collect::<Vec<_>>();
+        // a branch for one x alone, apart from the lines
+        assert_eq!(dots("g(x)"), vec![(1.0, 2.0)]);
+        assert!(plot("g(x)").series.iter().filter(|s| s.points.len() > 1).all(|s| s.points.iter().all(|p| p.0 <= 0.0 || p.0 >= 2.0)));
+        // a point set apart from a line through it
+        assert_eq!(dots("s(x)"), vec![(0.0, 3.0)]);
+        // a jump is no single point
+        assert!(dots("h(x)").is_empty());
+        // beyond what the graph shows, for joins out of it: g's single point above it, and the nearest piece ends
+        // past both edges, where g has no value
+        let g = graph(&env, &GraphReq {
+            cfg: Cfg::default(), curves: vec![crate::test_support::curve("g(x)", &env)],
+            xrange: vec![XV::Num(0.5), XV::Num(1.8)], yrange: vec![XV::Num(0.0), XV::Num(1.5)], marks: vec![], ymark: vec![], samples: 100,
+        }).unwrap();
+        let mut beyond: Vec<(f64, f64)> = g.series.iter().filter(|s| s.beyond).map(|s| s.points[0]).collect();
+        beyond.sort_by(|a, b| a.0.total_cmp(&b.0));
+        assert_eq!(beyond.len(), 3, "{beyond:?}");
+        assert!((beyond[0].0.abs() < 1e-6 && beyond[0].1.abs() < 1e-6) && beyond[1] == (1.0, 2.0) && (beyond[2].0 - 2.0).abs() < 1e-6 && (beyond[2].1 - 2.0).abs() < 1e-6, "{beyond:?}");
+        // a piece ending right on the edge (x < 0 in a graph from 0): its end is joined to
+        let g = graph(&env, &GraphReq {
+            cfg: Cfg::default(), curves: vec![crate::test_support::curve("g(x)", &env)],
+            xrange: vec![XV::Num(0.0), XV::Num(1.8)], yrange: vec![], marks: vec![], ymark: vec![], samples: 100,
+        }).unwrap();
+        assert!(g.series.iter().any(|s| s.beyond && s.points[0].0.abs() < 1e-6 && s.points[0].1.abs() < 1e-6), "{:?}", g.series.iter().filter(|s| s.beyond).map(|s| s.points[0]).collect::<Vec<_>>());
     }
 
     fn data_env(lines: &[&str]) -> Env {

@@ -402,7 +402,9 @@ pub(crate) fn is_solveng(e: &Element, math: Option<bool>, scopes: &[calls::Scope
 pub(crate) fn scan(doc: &Doc) -> Vec<Element> {
     use typst_syntax::{LinkedNode, SyntaxKind};
     fn mask(node: &LinkedNode, doc: &Doc, c: &mut [char]) {
-        if node.kind() == SyntaxKind::Str || node.kind() == SyntaxKind::Error && node.get().clone().full_text().starts_with('"') {
+        // a `$` in a string or comment neither opens nor closes an equation
+        let comment = matches!(node.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment);
+        if comment || node.kind() == SyntaxKind::Str || node.kind() == SyntaxKind::Error && node.get().clone().full_text().starts_with('"') {
             for ch in &mut c[doc.of_byte(node.offset())..doc.of_byte(node.offset() + node.len())] {
                 if *ch == '$' || *ch == '`' { *ch = ' '; }
             }

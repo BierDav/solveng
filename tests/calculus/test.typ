@@ -1,5 +1,5 @@
 #import "/lib.typ": *
-#import "/tests/util.typ": expect, passes, result, undefined
+#import "/tests/util.typ": expect, fails, passes, result, undefined
 #import constants: e, i, pi
 #import units: s, A
 #set page(width: 18cm, height: auto)
@@ -82,3 +82,21 @@ $ (partial^2 x^2 y^3)/(partial x partial y) -> $
 $ "charge" := integral_0^(2 #s) 3 #A dif t = $
 #passes()
 #expect("charge", 6)
+
+// indefinite integrals: the antiderivative; diff and integrate shown as mathematics writes them
+#import functions: diff, integrate
+$ integral #e^x dif x -> $
+#passes()
+$ integral x^2 sin(x) dif x -> $
+#passes()
+$ G(x) := integral x #e^x dif x $
+$ "at1" := G(1) = $
+#expect("at1", 0)
+$ integrate(x^2, x) -> $
+$ diff(x^2 + 1, x) -> $
+$ integral sin(x^2) dif x -> $
+#fails("no antiderivative")
+// comments in math are no part of it
+$ /* a comment */ k := 2 // another
+$
+#expect("k", 2)

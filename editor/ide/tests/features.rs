@@ -99,10 +99,37 @@ fn completes_options_of_calls() {
     assert!(form.documentation.as_deref().unwrap().contains("How values are written"));
     // Given ones aren't offered again.
     assert!(!labels("#worksheet($x =$, digits: 2, |)").contains(&"digits".into()));
-    assert_eq!(labels("#worksheet($x =$, form: |)"), vec!["\"auto\"", "\"decimal\"", "\"fraction\"", "\"input\""]);
+    assert_eq!(labels("#worksheet($x =$, form: |)"), vec!["\"auto\"", "\"decimal\"", "\"fraction\"", "\"input\"", "auto"]);
     assert!(labels("#worksheet(|)").contains(&"evaluate".into()));
     assert!(!labels("#worksheet(|)").contains(&"units".into()));
     assert!(labels("#defined(style: \"|\")").contains(&"grid".into()));
+}
+
+#[test]
+fn completes_every_value_an_option_takes() {
+    // keywords as the types allow: auto, none, true, false
+    assert_eq!(labels("#worksheet($x =$, approximate: |)"), vec!["auto", "true", "false"]);
+    assert_eq!(labels("#worksheet($x =$, grouping: |)"), vec!["auto", "none"]);
+    assert_eq!(labels("#graph($x^2$, joined: |)"), vec!["auto", "true", "false"]);
+    assert_eq!(labels("#graph($x^2$, joined: (true, |)"), vec!["auto", "true", "false"]);
+    assert_eq!(labels("#show: worksheet.with(graph-joined: |)"), vec!["auto", "true", "false"]);
+    // in an option's array, per item
+    let lines = labels("#graph($x^2$, lines: (\"dotted\", |)");
+    assert!(lines.contains(&"\"dashed\"".into()) && lines.contains(&"none".into()) && lines.contains(&"auto".into()), "{lines:?}");
+    assert!(labels("#graph($x^2$, xrange: (1, |)").is_empty());
+    // graph's styles, as graph's own arguments and as the worksheet's defaults, alone, in arrays and in strings
+    let dots = labels("#graph($x^2$, dots: |)");
+    assert!(dots.contains(&"\"star\"".into()) && dots.contains(&"none".into()), "{dots:?}");
+    assert!(labels("#graph($x^2$, dots: (\"circle\", |)").contains(&"\"triangle-down\"".into()));
+    assert!(labels("#graph($x^2$, dots: (\"circle\", \"|\"))").contains(&"hexagon".into()));
+    assert!(labels("#graph($x^2$, lines: \"|\")").contains(&"dash-dotted".into()));
+    assert!(labels("#show: worksheet.with(graph-dots: |)").contains(&"\"plus\"".into()));
+    assert!(labels("#show: worksheet.with(graph-lines: (\"|\"))").contains(&"loosely-dotted".into()));
+    // marks and prefixes
+    assert!(labels("#graph($x^2$, mark: |)").contains(&"\"extrema\"".into()));
+    assert!(labels("#graph($x^2$, xmark: |)").contains(&"\"roots\"".into()));
+    assert!(labels("#worksheet($x =$, prefixes: (\"|\"))").contains(&"k".into()));
+    assert!(labels("#worksheet($x =$, prefixes: |)").contains(&"\"all\"".into()));
 }
 
 #[test]
@@ -529,4 +556,23 @@ fn modifiers_are_bindings_of_their_module() {
     // inside a renamed solve(…), the names of the worksheet complete
     let doc = format!("{SOLVENG}#import modifiers: solve as löse\n#show: worksheet\n$k := a b$\n$k = 2 c -> löse(|$");
     assert!(labels(&doc).contains(&"c".to_string()), "{:?}", labels(&doc));
+}
+
+#[test]
+fn comments_in_math_are_comments() {
+    let tokens = |doc: &str| -> Vec<(String, u8)> {
+        let u: Vec<u16> = doc.encode_utf16().collect();
+        document_tokens(doc, &Context::default()).iter().map(|t| (String::from_utf16_lossy(&u[t.start as usize..(t.start + t.length) as usize]), t.kind)).collect()
+    };
+    let c = |s: &str| (s.to_string(), TokenKind::COMMENT);
+    assert_eq!(tokens("#show: worksheet\n$ /* awef */$\n"), vec![c("/* awef */")]);
+    assert_eq!(tokens("#show: worksheet\n$\n// aew\n$\n"), vec![c("// aew")]);
+    // a comment's `$` doesn't end the equation; what follows a comment is read as before
+    let ts = tokens("#show: worksheet\n$y := 3 /* a $ b /* nested */ */ + x$\n");
+    assert!(ts.contains(&c("/* a $ b /* nested */ */")) && ts.contains(&("x".into(), TokenKind::VARIABLE)), "{ts:?}");
+    // a line comment ends at the line break; the result marker before a comment still shows a result
+    let ts = tokens("#show: worksheet\n$x := 2 // x = 3\n$\n$x = /* c */$\n");
+    assert!(ts.contains(&c("// x = 3")) && ts.contains(&("=".into(), TokenKind::EVALUATE)), "{ts:?}");
+    // quoted text isn't a comment
+    assert!(tokens("#show: worksheet\n$\"a//b\" := 1$\n").iter().all(|t| t.1 != TokenKind::COMMENT));
 }

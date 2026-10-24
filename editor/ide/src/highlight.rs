@@ -62,7 +62,7 @@ pub fn math_tokens_of(math: &str) -> Vec<Token> {
 
 /// Tokens of an equation's body, its unit bindings read where it is.
 fn equation_tokens(a: &Analysis, e: &crate::elements::Element) -> Vec<Tok> {
-    math_toks(&a.doc.c[e.body_start..e.body_end], &|w| a.is_unit_at(e.body_start, w), &|w| a.bindings.modifier(e.body_start, w))
+    math_toks(&a.doc.c[e.body_start..e.body_end], &|w| !crate::bindings::needs_hash(w) && a.is_unit_at(e.body_start, w), &|w| a.bindings.modifier(e.body_start, w))
 }
 
 /// Tokens of the equations solveng reads (in a `worksheet` that evaluates them, or passed to one), over the whole

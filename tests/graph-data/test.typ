@@ -1,6 +1,7 @@
 #import "/lib.typ": *
 #import "/src/engine.typ": _p, _call, _env, _req-cfg
 #import "/src/api.typ": _st, _cf
+#import "/tests/util.typ": reported
 #import units: ms, V
 #set page(width: 18cm, height: auto)
 #show: worksheet
@@ -35,7 +36,48 @@
 #graph($n$, ymark: 0.5, errors: "panic")
 
 // data as points alone, next to joined data and a function; custom dashes
-#graph($y(τ) \ c(τ)$, lines: false, mark: "crossings", errors: "panic")
+#graph($y(τ) \ c(τ)$, lines: (none, auto), mark: "crossings", errors: "panic")
 #worksheet($z := vec(1, 2, 1.8, 0.9, 0, -0.4, 0.2) * 1 #V$, hidden: true)
-#graph($y(τ) \ z(τ) \ c(τ)$, lines: (true, false), dashes: ("dotted", (4pt, 2pt)), errors: "panic")
-#graph($y$, dashes: none, lines: (false,), errors: "panic")
+#graph($y(τ) \ z(τ) \ c(τ)$, lines: ("dotted", none, (4pt, 2pt)), errors: "panic")
+#graph($y$, lines: none, errors: "panic")
+
+// dot shapes per graph and as worksheet defaults; lines: none on a function leaves its single points
+#graph($y(τ) \ z(τ)$, lines: none, dots: ("star", "cross"), colors: (black, red), errors: "panic")
+#worksheet(scope: "inherit", graph-dots: "hexagon", graph-colors: blue, graph-lines: "dashed", graph-joined: true)[
+  #graph($y(τ) \ z(τ)$, errors: "panic")
+]
+#worksheet($p(x) := cases(2 & "for" x = 1, x & "for" x < 0 or x > 2)$, hidden: true)
+#graph($p(x)$, xrange: (-2, 4), lines: none, errors: "panic")
+// joined: a function's pieces joined through its single points, every mode, and joins to points beyond the graph
+#for l in (auto, none) { for d in (auto, none) { for j in (false, true) { if l != none or d != none { graph($p(x)$, xrange: (-2, 4), lines: l, dots: d, joined: j, errors: "panic") } } } }
+#graph($y(τ) \ p(τ)$, joined: (auto, true), errors: "panic")
+#graph($p(x)$, xrange: (0.5, 1.8), yrange: (0, 3), dots: none, joined: true, errors: "panic")
+// auto keeps the worksheet's, curve by curve, through nested worksheets
+#worksheet(scope: "inherit", graph-dots: (auto, "star"), graph-lines: ("dotted", auto))[
+  #context assert.eq(_cf.get().graph-dots, ("circle", "star", "triangle", "star"))
+  #context assert.eq(_cf.get().graph-lines, ("dotted", "dashed", "dotted", "dash-dotted"))
+  #worksheet(graph-dots: ("cross", auto, auto), graph-joined: (auto, true))[
+    #context assert.eq(_cf.get().graph-dots, ("cross", "star", "triangle", "cross"))
+    #context assert.eq(_cf.get().graph-joined, (false, true))
+  ]
+  #graph($y(τ) \ z(τ) \ p(τ)$, dots: (auto, auto, none), joined: (false, auto, true), errors: "panic")
+]
+// a dot right on a dot of another curve: both drawn, the later smaller
+#graph($y(τ) \ y(τ)$, lines: none, errors: "panic")
+#worksheet(scope: "inherit", errors: "document")[
+  #graph($x^2$, lines: none)
+  #reported("draws nothing")
+  #graph($x^2$, draw: "dots")
+  #reported("draw: is gone")
+  #graph($x^2$, dashes: "dotted")
+  #reported("dashes: is gone")
+  #graph($x^2$, dots: "auto")
+  #reported("dots: a dot shape")
+  #graph($x^2$, joined: "yes")
+  #reported("joined: true")
+  #reported("draws nothing")
+  #graph($y(τ)$, dots: "blob")
+  #reported("dots: a dot shape")
+  #worksheet(graph-colors: [red])[]
+  #reported("graph-colors: square brackets")
+]

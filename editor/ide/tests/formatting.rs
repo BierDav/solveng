@@ -67,9 +67,9 @@ fn joins_numbers_only_to_unit_bindings() {
     // a unit binding joins its number; a `#` reference, a variable and inactive math stay as written
     check("#import units: mA, s\n#show: worksheet\n$ t:=-2 #s + 3 mA + 4 x$\n#worksheet(evaluate: false)[$-2 mA$]",
           "#import units: mA, s\n#show: worksheet\n$t := -2 #s + 3mA + 4 x$\n#worksheet(evaluate: false)[$-2 mA$]");
-    // (1,2 is a number with a decimal comma)
-    check("#import units: ms\n#show: worksheet\n$x:=0,95 ms$ $f(1,2)=$",
-          "#import units: ms\n#show: worksheet\n$x := 0,95ms$ $f(1,2) =$");
+    // numbers are written with a point; a comma always separates (1,2 is 1 and 2)
+    check("#import units: ms\n#show: worksheet\n$x:=0.95 ms$ $f(1,2)=$",
+          "#import units: ms\n#show: worksheet\n$x := 0.95ms$ $f(1, 2) =$");
 }
 
 #[test]

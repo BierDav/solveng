@@ -320,9 +320,32 @@ impl<'a> Lower<'a> {
                 }
                 Expr::Cmp(v, rs)
             }
+            // as branches: a and b is b where a holds, else 0; a or b is 1 where a holds, else b
+            Ast::And(all) => {
+                let mut e = self.raw(all.last().unwrap())?;
+                for a in all[..all.len() - 1].iter().rev() {
+                    e = Expr::Cases(vec![(e, self.raw(a)?), (expr::int(0), expr::int(1))]);
+                }
+                e
+            }
+            Ast::Or(any) => {
+                let mut e = self.raw(any.last().unwrap())?;
+                for a in any[..any.len() - 1].iter().rev() {
+                    e = Expr::Cases(vec![(expr::int(1), self.raw(a)?), (e, expr::int(1))]);
+                }
+                e
+            }
             Ast::Call(n, args) => self.call(n, args)?,
             Ast::Builtin(n, args) => self.builtin(n, args)?,
             Ast::Arg(n, _) => return Err(format!("'{n}: …' is a named argument – it goes in the parentheses of a call, f(x, {n}: …)")),
+            // A[i, :], A[:, j]: a row or a column; `:` alone or for every index is all of it
+            Ast::Index(x, idx) if idx.contains(&Ast::All) => match idx.as_slice() {
+                [i, Ast::All] if *i != Ast::All => { let args = vec![self.raw(x)?, self.raw(i)?]; self.op(Op::Row, args)? }
+                [Ast::All, j] if *j != Ast::All => { let args = vec![self.raw(x)?, self.raw(j)?]; self.op(Op::Col, args)? }
+                [Ast::All] | [Ast::All, Ast::All] => self.raw(x)?,
+                _ => return Err("':' as an index selects a whole row or column: A[i, :], A[:, j]".into()),
+            },
+            Ast::All => return Err("':' as an index selects a whole row or column: A[i, :], A[:, j]".into()),
             Ast::Index(x, idx) => {
                 let mut args = vec![self.raw(x)?];
                 for i in idx {
@@ -427,6 +450,10 @@ impl<'a> Lower<'a> {
             let Ast::Name(var) = args[1] else { return Err("the calculus variable must be a name".into()); };
             let body = self.local(var, args[0])?;
             if n == "diff" { return Ok(body.diff(var)); }
+            if n == "integrate" && args.len() != 4 {
+                if args.len() == 3 { return Err("integrate: an indefinite integral has no bounds, a definite one both: integrate(f, x), integrate(f, x, a, b)".into()); }
+                return crate::calculus::antiderivative(&body, var);
+            }
             let lo = self.raw(args[2])?;
             let hi = self.raw(args[3])?;
             return Ok(if n == "sum" { crate::calculus::sum(body, var.clone(), lo, hi) } else { crate::calculus::integral(body, var.clone(), lo, hi) });

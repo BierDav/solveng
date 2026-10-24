@@ -97,6 +97,37 @@ pub(crate) fn after<'a>(s: &'a str, sep: &str, missing: &'a str) -> &'a str {
     s.find(sep).map_or(missing, |i| &s[i + sep.len()..])
 }
 
+/// The comments of math, `// …` to the line's end and `/* … */` (nested as Typst nests them), outside quoted text.
+pub(crate) fn math_comments(math: &[char]) -> Vec<(usize, usize)> {
+    let (mut out, mut i, n) = (Vec::new(), 0, math.len());
+    while i < n {
+        match math[i] {
+            '\\' => i += 2,
+            '"' => {
+                i += 1;
+                while i < n && math[i] != '"' { i += if math[i] == '\\' { 2 } else { 1 }; }
+                i += 1;
+            }
+            '/' if math.get(i + 1) == Some(&'/') => {
+                let end = index_of_char(math, '\n', i).unwrap_or(n);
+                out.push((i, end));
+                i = end;
+            }
+            '/' if math.get(i + 1) == Some(&'*') => {
+                let (start, mut depth) = (i, 0);
+                while i < n {
+                    if starts_with(math, i, "/*") { depth += 1; i += 2; }
+                    else if starts_with(math, i, "*/") { depth -= 1; i += 2; if depth == 0 { break; } }
+                    else { i += 1; }
+                }
+                out.push((start, i.min(n)));
+            }
+            _ => i += 1,
+        }
+    }
+    out
+}
+
 /// The equations of an equation's body, split at math line breaks (`\\`), with their offsets in it.
 pub(crate) fn equation_ranges(text: &[char]) -> Vec<(usize, usize)> {
     let (mut start, mut quoted, mut comment) = (0, false, false);

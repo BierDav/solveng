@@ -95,7 +95,7 @@ fn lex(c: &[char]) -> Vec<Token> {
         } else if c[i].is_ascii_digit() || (c[i] == '.' && c.get(i + 1).is_some_and(|c| c.is_ascii_digit())) {
             i += 1;
             while i < c.len() && c[i].is_ascii_digit() { i += 1; }
-            if c.get(i).is_some_and(|c| matches!(c, '.' | ',')) && c.get(i + 1).is_some_and(|c| c.is_ascii_digit()) {
+            if c.get(i) == Some(&'.') && c.get(i + 1).is_some_and(|c| c.is_ascii_digit()) {
                 i += 1;
                 while i < c.len() && c[i].is_ascii_digit() { i += 1; }
             }

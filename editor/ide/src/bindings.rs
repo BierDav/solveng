@@ -12,6 +12,14 @@ use typst_syntax::{LinkedNode, SyntaxKind, ast::{self, AstNode, LetBinding, Modu
 
 use crate::text::Doc;
 
+/// Whether Typst needs a code reference to read this entire binding name in math.
+pub(crate) fn needs_hash(name: &str) -> bool {
+    let parsed = typst_syntax::parse_math(name);
+    let mut children = parsed.children();
+    !matches!((children.next(), children.next()), (Some(node), None)
+        if node.kind() == SyntaxKind::MathIdent && node.len() == name.len())
+}
+
 /// One of solveng's modules of bindings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Module {
@@ -319,6 +327,22 @@ impl Bindings {
             && self.definitions[id].meaning != Meaning::Other {
                 self.bare.push((start, end, id));
             }
+        // Code identifiers can contain underscores and hyphens, which math splits into
+        // subscripts and operators. Match a whole visible binding at a math atom's start.
+        if matches!(node.kind(), SyntaxKind::MathText | SyntaxKind::MathIdent) && in_math(node)
+            && (start == 0 || !matches!(doc.c[start - 1], '#' | '_') && !solveng_names::is_continue(doc.c[start - 1])) {
+            for (id, binding) in self.definitions.iter().enumerate() {
+                if binding.meaning == Meaning::Other || !doc.s[node.offset()..].starts_with(&binding.name)
+                    || binding.name.chars().count() == 1 || !needs_hash(&binding.name) { continue; }
+                let name: Vec<char> = binding.name.chars().collect();
+                let end = start + name.len();
+                if doc.c.get(start..end) == Some(name.as_slice())
+                    && doc.c.get(end).is_none_or(|&c| !solveng_names::is_continue(c) && c != '-')
+                    && self.binding(start, &binding.name) == Some(id) {
+                    self.bare.push((start, end, id));
+                }
+            }
+        }
         if !matches!(node.kind(), SyntaxKind::Ident | SyntaxKind::MathIdent) { return; }
         if self.definitions.iter().any(|b| b.start == start) { return; }
         if node.parent_kind() == Some(SyntaxKind::FieldAccess) && node.prev_sibling().is_some() { return; }
@@ -409,16 +433,18 @@ impl Bindings {
         self.shorthand_at(at).filter(|&id| self.definitions[id].original.is_some())
     }
 
-    /// [`Self::shorthand_at`], when its import lists it or gives it with `*`: a name that can be renamed.
+    /// An imported or locally constructed solveng binding that can be renamed.
     fn renamable_at(&self, at: usize) -> Option<usize> {
         self.shorthand_at(at).filter(|&id| self.definitions[id].original.is_some() || self.definitions[id].wildcard.is_some())
+            .or_else(|| self.definitions.iter().position(|b| b.module.is_none() && b.meaning != Meaning::Other && b.start <= at && at <= b.end))
+            .or_else(|| self.uses.iter().find(|&&(s, e, id)| s <= at && at <= e && self.definitions[id].module.is_none() && self.definitions[id].meaning != Meaning::Other).map(|&(_, _, id)| id))
     }
 
     /// The imported name at `at` where its import lists it, and every use.
     pub(crate) fn shorthand_usages(&self, at: usize) -> Vec<(usize, usize)> {
         let Some(id) = self.renamable_at(at) else { return Vec::new() };
         let b = &self.definitions[id];
-        b.original.map(|_| (b.start, b.end)).into_iter()
+        (b.original.is_some() || b.module.is_none()).then_some((b.start, b.end)).into_iter()
             .chain(self.uses.iter().filter(|u| u.2 == id).map(|&(s, e, _)| (s, e))).collect()
     }
 
@@ -460,7 +486,27 @@ impl Bindings {
         let id = self.renamable_at(at)?;
         if !typst_syntax::is_ident(name) { return None; }
         let b = &self.definitions[id];
-        let uses = self.uses.iter().filter(|u| u.2 == id).map(|&(s, e, _)| (s, e, name.to_string()));
+        let syntax = typst_syntax::parse(&doc.s);
+        let mut math_uses = std::collections::HashSet::new();
+        visit(&LinkedNode::new(&syntax), &mut |node| {
+            if node.kind() == SyntaxKind::MathIdent || node.kind() == SyntaxKind::Ident
+                && matches!(node.parent_kind(), Some(SyntaxKind::Math | SyntaxKind::MathArgs | SyntaxKind::MathAttach | SyntaxKind::MathFrac | SyntaxKind::MathRoot | SyntaxKind::MathDelimited)) {
+                math_uses.insert((doc.of_byte(node.offset()), doc.of_byte(node.offset() + node.len())));
+            }
+        });
+        let hash_needed = needs_hash(name);
+        let uses = self.uses.iter().filter(|u| u.2 == id).map(|&(s, e, _)| {
+            if !math_uses.contains(&(s, e)) { return (s, e, name.to_string()); }
+            let hash = s > 0 && doc.c[s - 1] == '#';
+            // Keep the separator when removing it would join adjacent math identifiers.
+            let joined = hash && s > 1 && solveng_names::is_continue(doc.c[s - 2]) && !doc.c[s - 2].is_ascii_digit();
+            if hash_needed || joined {
+                (s, e, if hash { name.to_string() } else { format!("#{name}") })
+            } else { (s - usize::from(hash), e, name.to_string()) }
+        });
+        if b.module.is_none() {
+            return Some(std::iter::once((b.start, b.end, name.to_string())).chain(uses).collect());
+        }
         if let (None, Some((line_end, indent)), Some((module, original))) = (b.original, &b.wildcard, &b.module) {
             let import = (name != original).then(|| (*line_end, *line_end, format!("\n{indent}#import {}: {original} as {name}", module.name())));
             return Some(import.into_iter().chain(uses).collect());
@@ -582,7 +628,7 @@ fn in_math(node: &LinkedNode) -> bool {
     false
 }
 
-/// Bare single letters in calculated math that a solveng binding has, where no worksheet variable is defined.
+/// Binding names needing `#` in calculated math, where no worksheet variable is defined.
 fn bare_letters(a: &crate::Analysis) -> Vec<(usize, usize, String, &'static str)> {
     a.bindings.bare.iter().filter(|&&(start, end, _)| {
         a.calculated_at(start, end).is_some() && crate::definition(&a.doc.s, a.context, a.doc.to16(start)).is_none()
@@ -626,19 +672,38 @@ fn importable(a: &crate::Analysis) -> Vec<(usize, usize, String, Module)> {
         .collect()
 }
 
+/// Names of solveng's `functions` module that Typst's math reads itself, so math gets no unknown-variable error
+/// and solveng's operation needs its import: Typst's symbols `at` (@), `Re` (ℜ), `Im` (ℑ), `rect` (⊐), `laplace`
+/// (Δ) and `convolve` (∗), and its `floor`. Names a later Typst adds to its math belong here too.
+const TYPST_OWNS: &[&str] = &["at", "Re", "Im", "rect", "laplace", "convolve", "floor"];
+
+/// Solveng's operations called in calculated math without their import where Typst's math reads the name itself:
+/// Typst reports nothing then (see [`importable`] for the import fix as well).
+fn typst_owned(a: &crate::Analysis) -> Vec<(usize, usize, &'static str)> {
+    a.bindings.unbound.iter().filter(|(start, end, _)| {
+        a.calculated_at(*start, *end).is_some() && a.doc.c[*end..].iter().find(|c| !c.is_whitespace()) == Some(&'(')
+    }).filter_map(|(start, end, name)| {
+        TYPST_OWNS.iter().find(|n| **n == name.as_str()).map(|&name| (*start, *end, name))
+    }).collect()
+}
+
 pub(crate) fn problems(a: &crate::Analysis) -> Vec<crate::Problem> {
     let mut problems: Vec<_> = bare_letters(a).into_iter().map(|(start, end, name, kind)| crate::Problem {
         start: a.doc.to16(start), end: a.doc.to16(end), severity: "warning",
-        message: format!("use '#{name}' to reference the Typst {kind} binding '{name}'; bare single letters are math symbols"),
+        message: format!("use '#{name}' to reference the Typst {kind} binding '{name}'; {}", if name.chars().count() == 1 { "bare single letters are math symbols" } else { "math splits this binding name into separate expressions (underscores are subscripts; hyphens are operators)" }),
     }).collect();
     problems.extend(nudges(a).into_iter().map(|n| crate::Problem {
         start: a.doc.to16(n.start), end: a.doc.to16(n.end), severity: "warning",
         message: format!("use the shorthand {} (#import functions: {})", n.name, n.name),
     }));
+    problems.extend(typst_owned(a).into_iter().map(|(start, end, name)| crate::Problem {
+        start: a.doc.to16(start), end: a.doc.to16(end), severity: "warning",
+        message: format!("math reads '{name}' as Typst's own, not solveng's operation; add #import functions: {name}"),
+    }));
     problems
 }
 
-/// Quick fixes for the bindings in worksheet math at `offset`: a `#` for a single-letter
+/// Quick fixes for the bindings in worksheet math at `offset`: a `#` for a code-only
 /// binding, importing a name of solveng's modules, and an operation's shorthand instead of `op("…")`.
 pub fn unit_fixes(document: &str, context: &crate::Context, offset: u32) -> Vec<crate::Conversion> {
     let a = crate::Analysis::new(document, context);

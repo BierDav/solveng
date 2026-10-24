@@ -38,6 +38,10 @@ pub enum Op {
     Cols,
     /// at(v, i), at(A, i, j): an element, counted from 0.
     At,
+    /// A[i, :]: row i as a matrix of one row.
+    Row,
+    /// A[:, j]: column j as a vector.
+    Col,
     /// convolve(x, h): the discrete convolution of two sequences (vectors), of length n + m − 1.
     Convolve,
 }
@@ -72,6 +76,8 @@ impl Op {
             Op::Rows => "rows",
             Op::Cols => "cols",
             Op::At => "at",
+            Op::Row => "row",
+            Op::Col => "column",
             Op::Convolve => "convolve",
         }
     }
@@ -85,7 +91,7 @@ impl Op {
     /// How many arguments it takes.
     pub fn arity(self) -> RangeInclusive<usize> {
         match self {
-            Op::Cross | Op::Convolve => 2..=2,
+            Op::Cross | Op::Convolve | Op::Row | Op::Col => 2..=2,
             Op::At => 2..=3,
             _ => 1..=1,
         }
@@ -468,6 +474,22 @@ fn eval(op: Op, args: &[Expr]) -> Result<Option<Expr>, String> {
                 return Err(format!("index ({i}, {j}) is outside {}", a.describe()));
             }
             a.at(i, j).clone()
+        }
+        Op::Row | Op::Col => {
+            let a = arrays[0].clone().ok_or("A[i, :] and A[:, j] take a row or a column of a vector or matrix")?;
+            let (row, n) = (op == Op::Row, if op == Op::Row { a.rows } else { a.cols });
+            let k = args[1].as_num().and_then(Num::as_int).filter(|i| *i >= 0).map(|i| i as usize)
+                .ok_or("a row or column is selected by a nonnegative whole index, starting at 0 – A[i, :], A[:, j]")?;
+            if k >= n {
+                return Err(format!("{} {k} is outside {}, which has {n} {}s, counted from 0", op.name(), a.describe(), op.name()));
+            }
+            let picked = if row {
+                Array { rows: 1, cols: a.cols, a: (0..a.cols).map(|j| a.at(k, j).clone()).collect() }
+            } else {
+                Array { rows: a.rows, cols: 1, a: (0..a.rows).map(|i| a.at(i, k).clone()).collect() }
+            };
+            // a row of a vector, a column of a row: one element
+            if picked.a.len() == 1 { picked.a[0].clone() } else { picked.expr() }
         }
         Op::Cross | Op::Convolve => unreachable!("handled above"),
     }))

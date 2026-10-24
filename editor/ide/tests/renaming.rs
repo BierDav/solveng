@@ -181,16 +181,16 @@ fn quoted_functions_in_math() {
 }
 
 #[test]
-fn unit_bindings_are_typsts_to_navigate_and_rename() {
+fn local_unit_bindings_can_be_renamed() {
     let doc = format!("{FULL}#let sheep = base-unit(\"sheep\")\n#let flock = unit($12 sheep$)\n$ a := 3 sheep $\n$ b := 2 flock = sheep $\n");
     let ctx = Context::default();
     for needle in ["sheep $", "flock = sheep", "sheep $\n"] {
         let at = u16_at(&doc, needle);
         assert_eq!(kind_at(&doc, needle), Some(TokenKind::UNIT), "{needle}");
         assert!(definition(&doc, &ctx, at).is_none(), "{needle}");
-        assert!(usages(&doc, &ctx, at).is_empty(), "{needle}");
-        assert!(rename_target(&doc, &ctx, at).is_none(), "{needle}");
-        assert!(rename(&doc, &ctx, at, "goat").is_empty(), "{needle}");
+        assert!(!usages(&doc, &ctx, at).is_empty(), "{needle}");
+        assert!(rename_target(&doc, &ctx, at).is_some(), "{needle}");
+        assert!(!rename(&doc, &ctx, at, "goat").is_empty(), "{needle}");
     }
     // the variables next to them still rename
     assert_eq!(rename(&doc, &ctx, u16_at(&doc, "a :="), "c").len(), 1);
@@ -282,4 +282,32 @@ fn numeric_rename_emits_math_and_escaped_strings_across_files() {
     for invalid in ["^", "a+b", "2.5x", "a b", "x\u{200b}y", "\"unclosed"] {
         assert!(rename(chapter, &ctx, u16_at(chapter, "foo"), invalid).is_empty(), "{invalid}");
     }
+}
+
+#[test]
+fn binding_renames_adjust_math_hashes() {
+    for declaration in ["#let inch = unit($2.54 #units.cm$)", "#import units: cm as inch", "#import units: *\n#let inch = cm"] {
+        let doc = format!("{FULL}{declaration}\n$1 inch -> inch$\n$2 #inch^2$\n#let copy = inch\n");
+        for name in ["fluid_ounce", "fluid-ounce", "x"] {
+            let renamed = applied(&doc, rename(&doc, &Context::default(), u16_at(&doc, "inch ->"), name));
+            assert!(renamed.contains(&format!("$1 #{name} -> #{name}$")), "{renamed}");
+            assert!(renamed.contains(&format!("$2 #{name}^2$")), "{renamed}");
+            assert!(renamed.contains(&format!("#let copy = {name}")), "{renamed}");
+            let back = applied(&renamed, rename(&renamed, &Context::default(), u16_at(&renamed, &format!("{name} ->")), "inch"));
+            assert!(back.contains("$1 inch -> inch$"), "{back}");
+            assert!(back.contains("$2 inch^2$"), "{back}");
+            assert!(back.contains("#let copy = inch"), "{back}");
+        }
+    }
+}
+
+#[test]
+fn binding_renames_preserve_code_and_adjacent_math() {
+    let doc = format!("{FULL}#let fluid_ounce = unit($28.413 #units.ml$)\n$x#fluid_ounce$\n$1#fluid_ounce$\n$frac(#fluid_ounce, 2)$\n#let copy = fluid_ounce\n#let show-unit() = fluid_ounce\n");
+    let out = applied(&doc, rename(&doc, &Context::default(), u16_at(&doc, "fluid_ounce ="), "ounce"));
+    assert!(out.contains("$x#ounce$"), "{out}");
+    assert!(out.contains("$1ounce$"), "{out}");
+    assert!(out.contains("$frac(ounce, 2)$"), "{out}");
+    assert!(out.contains("#let copy = ounce"), "{out}");
+    assert!(out.contains("#let show-unit() = ounce"), "{out}");
 }

@@ -6,6 +6,48 @@
 #let _plot-js-done = state("solveng-plot-js", false)
 #let _plot-js() = context if not _plot-js-done.get() { html.elem("script", read("plot.js")); _plot-js-done.update(true) }
 
+// The dot shapes: corners around the point, in units of the dot's size (y down), as lilaq sizes its own marks so
+// they look alike in size; none for a circle. HTML draws the same corners.
+#let _dot-corners(shape) = {
+  let regular(n, turn: 0) = {
+    let r = 0.5 * calc.sqrt(1 + 4 / (n * n))
+    // the triangle sits low, its weight at its centre
+    let dy = (0, .13, 0, .03, 0, .02).at(n - 2, default: 0) * r * (if turn == 180 { -1 } else { 1 })
+    range(n).map(i => { let a = (i * 360 / n + turn) * 1deg; (r * calc.sin(a), -r * calc.cos(a) + dy) })
+  }
+  let bars(turn) = {
+    let (w, l) = (0.17, 0.58)
+    ((w, -l), (w, -w), (l, -w), (l, w), (w, w), (w, l), (-w, l), (-w, w), (-l, w), (-l, -w), (-w, -w), (-w, -l))
+      .map(((x, y)) => { let a = turn * 1deg; (x * calc.cos(a) - y * calc.sin(a), x * calc.sin(a) + y * calc.cos(a)) })
+  }
+  if shape == "square" { let h = 0.425; ((-h, -h), (h, -h), (h, h), (-h, h)) }
+  else if shape == "triangle" { regular(3) }
+  else if shape == "triangle-down" { regular(3, turn: 180) }
+  else if shape == "diamond" { regular(4) }
+  else if shape == "pentagon" { regular(5) }
+  else if shape == "hexagon" { regular(6) }
+  else if shape == "star" { range(10).map(i => { let r = if calc.even(i) { 0.66 } else { 0.27 }; let a = i * 36deg; (r * calc.sin(a), -r * calc.cos(a)) }) }
+  else if shape == "plus" { bars(0) }
+  else if shape == "cross" { bars(45) }
+  else { none }
+}
+// A dot for lilaq: the shape in the color, with a ring of the page's color around it, so dots stand apart from
+// lines and from each other where they touch.
+#let _dot-mark(shape, color) = m => {
+  let s = m.size
+  let ring = (paint: white, thickness: 1.1pt, join: "round")
+  let pts = _dot-corners(shape)
+  if pts == none {
+    let r = s / 2
+    place(move(dx: -r, dy: -r, std.circle(radius: r, fill: color, stroke: ring)))
+    move(dx: -r, dy: -r, std.circle(radius: r, fill: color, stroke: none))
+  } else {
+    let at = pts.map(((x, y)) => (x * s, y * s))
+    place(std.polygon(fill: color, stroke: ring, ..at))
+    std.polygon(fill: color, stroke: none, ..at)
+  }
+}
+
 // ---------- plotting ----------
 /// Plots an equation: ranges, nice ticks, axis labels and units are picked automatically.
 ///
@@ -25,7 +67,11 @@
 ///
 /// **Ranges:** values and expressions in `xrange` / `yrange` must have the axis unit (`$f(20) #Ω$` is fine) – `xrange: ($10 #Ω$, $f(20)$)` with a unitless `f(20)` is an error, since it isn't clear what was meant. Without a range: around the marks; else around what's interesting – roots, extrema, poles, edges of the domain (√, ln) and, above all, where curves cross – rounded to nice ticks, starting at 0 when everything interesting is positive. With `ymark`, the y range is around the marked values (steep curves leave the picture). **Units** follow from what's plotted: y's from the curves (shown in the SI unit with a fitting prefix; `preferred-units` picks others), x's from the curve's parameter (`U(I: mA) = …`) or a function x is passed to whose parameter has one (`$q(I: mA) := I R$`, then `#graph($U(I) = q(I)$)` is over I in mA), else from the units in `xrange` and the marks, else from the curve and the units of the y values (`P(..) = U_0^2/R_2` with `ymark: $2 #W$`: R₂ in Ω).
 ///
-/// **Data:** a vector of values is plotted as the points through its elements, joined in index order (with a dot at each when there are at most 30): `#graph($y$)` against the zero-based index k (as in `at(y, k)`), `#graph($y(τ)$)` over the vector `tau` of the same length – or over any expression without free names that is one, `y(2 tau)`. Units come from the elements (each vector needs one unit for all its elements; every element must have a value). Function curves can go alongside: `#graph($y(τ) \ c(τ)$)` with a function `c`, or an expression in `tau` (`$2 tau$`), where `tau` stands for the x axis and the function is sampled over it; the x range is from the data's first to last x value unless `xrange` says otherwise, and the units of x and y must agree. Marks work on data too, with linear interpolation between the points: x values, `"roots"` and `"crossings"` (with data and with functions) where the values change sign, `"extrema"` as the local extreme points, and `ymark`. A vector with a free name is several curves instead, one per element (`$vec(t, t^2)$`). For measurements, `lines: false` draws the data as points alone, without the line: `#graph($y(τ) \ c(τ)$, lines: (false, true))` shows measured points next to the curve `c`.
+/// **Data:** a vector of values is plotted as the points through its elements, joined in index order (with a dot at each when there are at most 30): `#graph($y$)` against the zero-based index k (as in `at(y, k)`), `#graph($y(τ)$)` over the vector `tau` of the same length – or over any expression without free names that is one, `y(2 tau)`. Units come from the elements (each vector needs one unit for all its elements; every element must have a value). Function curves can go alongside: `#graph($y(τ) \ c(τ)$)` with a function `c`, or an expression in `tau` (`$2 tau$`), where `tau` stands for the x axis and the function is sampled over it; the x range is from the data's first to last x value unless `xrange` says otherwise, and the units of x and y must agree. Marks work on data too, with linear interpolation between the points: x values, `"roots"` and `"crossings"` (with data and with functions) where the values change sign, `"extrema"` as the local extreme points, and `ymark`. A vector with a free name is several curves instead, one per element (`$vec(t, t^2)$`). For measurements, `lines: none` draws the data as points alone, without the line: `#graph($y(τ) \ c(τ)$, lines: (none, auto))` shows measured points next to the curve `c`.
+///
+/// **Piecewise functions** (`cases`) break their line where a branch changes with a jump; a value that holds at a single x – `2 & "for" x = 1`, or a point set apart from the line – is drawn as a dot. `joined: true` joins the pieces through them instead.
+///
+/// **Layers:** curves are drawn in the order written, each over the ones before and over the axes: a function written after measured points runs over them, one written before runs under them. Every dot has a thin ring of the page's color, so dots stand apart from lines and from each other; a dot right on a dot of another curve is drawn smaller, the one below showing as a ring around it.
 ///
 /// **Marks** default to none. Requested marks are always visible – the ranges grow to show them. Combine them in an array, `(auto, $R_1$)`.
 ///
@@ -41,31 +87,32 @@
 /// - samples (int): Number of sample points.
 /// - width (auto, length, ratio, relative, fraction): Width of the whole graph, labels included: `12cm`, `300pt` or a share like `100%`. `1fr` is the container's width – in a grid, the column's. `auto`: a plot area of 8 cm.
 /// - height (auto, length, ratio, relative, fraction): Like `width`; `auto`: a plot area of 5 cm. A share is of the container's height, or of the width when the page grows with its content.
-/// - colors (array, color): Colors of the curves, e.g. `(gray, blue, rgb("#f98eff"))`. The default is Petroff's ten colors, chosen to stay apart for color-blind readers (lilaq's default too).
-/// - dashes (array, str, dictionary, none): Line styles of the curves, so they can be told apart without color (color-blind readers, grayscale prints): Typst dash patterns such as `"solid"`, `"dashed"`, `"dotted"`, `"dash-dotted"`, `"densely-dashed"`, `"loosely-dotted"`, or an array of lengths like `(4pt, 2pt)`. The default is the order of scientific plotting tools (MATLAB, matplotlib, gnuplot): solid, dashed, dotted, dash-dotted. `"solid"` or `none`: every curve solid. Curve n takes color n and dash n, each list repeating on its own.
-/// - lines (bool, array): Whether data curves are joined by lines, per curve and repeating like `colors`: `false` draws the data as points alone (a scatter plot), `(false, true)` only the first curve. Points are circles, squares, triangles and diamonds, curve after curve, so they can be told apart without color too. Functions are always lines.
+/// - colors (auto, array, color): Colors of the curves, curve after curve and repeating: `(gray, blue, rgb("#f98eff"))`. `auto` keeps the worksheet's `graph-colors`, also for a single curve: `(auto, red)` changes only the second (and fourth, …). By default Petroff's ten colors, chosen to stay apart for color-blind readers (lilaq's default too). `lines`, `dots` and `joined` work the same way.
+/// - lines (auto, array, str, dictionary, none): The curves' lines, like `colors`: Typst dash patterns such as `"solid"`, `"dashed"`, `"dotted"`, `"dash-dotted"`, `"densely-dashed"`, `"loosely-dotted"`, or an array of lengths like `(4pt, 2pt)`, so curves can be told apart without color (color-blind readers, grayscale prints); `none` draws no line – data as points alone (a scatter plot), a function as its single points. `auto`: the worksheet's `graph-lines`, by default `("solid", "dashed", "dotted", "dash-dotted")`, the order of scientific plotting tools.
+/// - dots (auto, array, str, none): The curves' dots, like `colors`: `"circle"`, `"square"`, `"triangle"`, `"triangle-down"`, `"diamond"`, `"pentagon"`, `"hexagon"`, `"star"`, `"cross"`, `"plus"`; `none` draws no dots. `auto`: the worksheet's `graph-dots`, by default `("circle", "square", "triangle", "diamond")`, so curves can be told apart without color too. Dots are drawn for data's points (with at most 30 points, or without a line) and a function's single points (`2 & "for" x = 1` in `cases`).
+/// - joined (auto, bool, array): Whether everything a curve draws is joined with a line, like `colors`: a function's pieces, from the end of one to its single point and on to the start of the next, as data's points are (with `lines: none`: data's dots joined). Joins to points beyond the graph leave it; the pointer doesn't read them. `auto`: the worksheet's `graph-joined`, by default `false`. A curve with nothing to draw is an error.
 /// - digits, separator, form, … (auto): Every option of `worksheet` works here too, for this call only.
 /// -> content
 #let graph(
   equation, ..args, xrange: auto, yrange: auto, mark: none, xmark: (), ymark: (), samples: 400,
-  width: auto, height: auto, colors: (rgb("#3f90da"), rgb("#ffa90e"), rgb("#bd1f01"), rgb("#94a4a2"), rgb("#832db6"), rgb("#a96b59"), rgb("#e76300"), rgb("#b9ac70"), rgb("#717581"), rgb("#92dadd")),
-  dashes: ("solid", "dashed", "dotted", "dash-dotted"), lines: true,
+  width: auto, height: auto, colors: auto, lines: auto, dots: auto, joined: auto,
   digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto,
   max-denominator: auto, fractions: auto, prefixes: auto, show-si: auto, preferred-units: auto,
   approximate: auto, block: auto, max-solutions: auto, defined-style: auto, errors: auto, show-types: auto,
   words: auto, chips: auto, unit-style: auto, unit-separator: auto,
 ) = _mine(context {
-  let lc = _check(_given((digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions, prefixes: prefixes, show-si: show-si, preferred-units: preferred-units, approximate: approximate, block: block, max-solutions: max-solutions, defined-style: defined-style, errors: errors, show-types: show-types, words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator)))
+  let lc = _check(_given((digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions, prefixes: prefixes, show-si: show-si, preferred-units: preferred-units, approximate: approximate, block: block, max-solutions: max-solutions, defined-style: defined-style, errors: errors, show-types: show-types, words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator)) + _given((graph-colors: colors, graph-lines: lines, graph-dots: dots, graph-joined: joined)).pairs().map(((k, v)) => (k, _graph-style(k, v))).filter(((k, v)) => not _E(v)).to-dict())
   if _E(lc) { return _errc("graph: " + lc.err, _cf.get(), wide: true) }
-  let cf = _cf.get() + lc
-  let fail(m) = _errc("graph: " + m, cf, wide: true)
+  let cf = _merge(_cf.get(), lc)
+  // shown, and reported as a problem of the document, as a worksheet's are
+  let fail(m) = _errc("graph: " + m, cf, wide: true) + [#metadata((kind: "error", element: none, message: "graph: " + m, source: ""))<solveng>]
   // types
   if args.pos().len() > 0 { return fail("pass curves in one equation, separated by a backslash") }
   if type(equation) != content or equation.func() != math.equation { return fail("pass curves as math equations") }
   let eqs = (equation,)
   if args.pos().any(a => type(a) == array) { return fail("the x range is named: xrange: " + repr(args.pos().find(a => type(a) == array))) }
   // options graph had: what replaces them
-  let gone = (x: "x is the one variable of the curves that isn't defined", xunit: "x's unit comes from a function parameter with a unit (q(I: mA)), xrange or the marks", yunit: "y's unit comes from the curves; preferred-units: (\"mW\",) picks another", builtin-units: "units are Typst bindings: #import units: …", units: "units are Typst bindings: #import units: …, or unit($…$)")
+  let gone = (x: "x is the one variable of the curves that isn't defined", xunit: "x's unit comes from a function parameter with a unit (q(I: mA)), xrange or the marks", yunit: "y's unit comes from the curves; preferred-units: (\"mW\",) picks another", builtin-units: "units are Typst bindings: #import units: …", units: "units are Typst bindings: #import units: …, or unit($…$)", dashes: "lines: the line style per curve, like (\"solid\", \"dashed\"); none draws no line", draw: "lines: none (only dots), dots: none (only lines) and joined: true (everything joined with a line), per curve")
   let old = args.named().keys().find(k => k in gone)
   if old != none { return fail(old + ": is gone – " + gone.at(old)) }
   let XV = (content, int, float)
@@ -75,7 +122,7 @@
   let ymk = list(ymark)
   if ymk.any(v => type(v) not in XV) { return fail("ymark: y values like \"P0\" or 2, or an array of these") }
   // marks: x values, keywords, auto; (item, y labelled): mark writes x and y on the axes, xmark only x
-  let KW = ("crossings", "roots", "extrema")
+  let KW = _VALUES.mark
   let ms(v) = if v == none or v == false { () } else if v == true { (auto,) } else if type(v) == array { v } else { (v,) }
   let ents = ms(mark).map(m => (m, true)) + ms(xmark).map(m => (m, false))
   if ents.any(((m, _)) => m != auto and type(m) not in XV and m not in ("crossings", "roots", "extrema")) { return fail("mark / xmark: auto, x values like \"R\" or 2, \"crossings\", \"roots\", \"extrema\", or an array of these; () for none") }
@@ -88,18 +135,11 @@
     let ok = if v == auto { true } else if type(v) == length { v.to-absolute() > 0pt } else if type(v) == ratio { v > 0% } else if type(v) == relative { v.ratio >= 0% and v.length.to-absolute() >= -1e9pt } else if type(v) == fraction { v > 0fr } else { false }
     if not ok { return fail(n + ": auto, a length like 8cm or 300pt, or a share like 100% or 1fr, got " + repr(v) + if type(v) in (int, float) { " – write " + repr(v) + "cm" } else { "" }) }
   }
-  let colors = if type(colors) == color { (colors,) } else { colors }
-  if type(colors) == content { return fail("colors: square brackets make content – write an array with parentheses: (gray, blue, rgb(\"#f98eff\"))") }
-  if type(colors) != array or colors.len() == 0 or colors.any(c => type(c) not in (color, gradient)) { return fail("colors: a color or an array of colors like (gray, blue, rgb(\"#f98eff\"))") }
-  // a single pattern can be an array of lengths too: (4pt, 2pt) is one dash, ((4pt, 2pt), "dotted") two
-  let DASH = ("solid", "dotted", "densely-dotted", "loosely-dotted", "dashed", "densely-dashed", "loosely-dashed", "dash-dotted", "densely-dash-dotted", "loosely-dash-dotted")
-  let lens(a) = type(a) == array and a.len() > 0 and a.all(l => type(l) == length or l == "dot")
-  let is-dash(d) = d == none or (type(d) == str and d in DASH) or lens(d) or (type(d) == dictionary and lens(d.at("array", default: none)) and d.keys().all(k => k in ("array", "phase")) and type(d.at("phase", default: 0pt)) == length)
-  let dashes = if dashes == none or type(dashes) in (str, dictionary) or lens(dashes) { (dashes,) } else { dashes }
-  if type(dashes) == content { return fail("dashes: square brackets make content – write an array with parentheses: (\"solid\", \"dashed\")") }
-  if type(dashes) != array or dashes.len() == 0 or not dashes.all(is-dash) { return fail("dashes: a dash pattern or an array of them, like (\"solid\", \"dashed\", \"dotted\", \"dash-dotted\") or (4pt, 2pt); patterns: " + DASH.join(", ")) }
-  let lines = if type(lines) == bool { (lines,) } else { lines }
-  if type(lines) != array or lines.len() == 0 or lines.any(l => type(l) != bool) { return fail("lines: true, false (data as points alone) or an array of these per curve, like (false, true)") }
+  // the curves' styles: the graph's own over the worksheet's (graph-colors, graph-lines, graph-dots, graph-joined),
+  // auto keeping the worksheet's
+  for (k, v) in (colors: colors, lines: lines, dots: dots, joined: joined) {
+    if v != auto { let c = _graph-style(k, v); if _E(c) { return fail(c.err) } }
+  }
 
   // Serialize math with its explicit unit and operation substitutions.
   let src(q) = if type(q) == content and q.func() == math.equation { let m = _src(q.body); (src: if _E(m) { "?" } else { m }, label: _src(q.body)) } else { panic("solveng: graph: values must be numbers or math equations") }
@@ -118,9 +158,8 @@
     let g = _call(_p.graph, _env(_st.get()), req)
     if "err" in g { return fail(g.err) }
     let M(s) = _m(s, cf)
-    // a shape per curve as well as a color and a dash: curves stay apart without color
-    let shapes = ("o", "s", "^", "d")
-    let style(i) = { let at(a) = a.at(calc.rem(i, a.len())); (color: at(colors), dash: at(dashes), shape: at(shapes), line: at(lines)) }
+    // a color, a dash and a dot shape per curve: curves stay apart without color too
+    let style(i) = { let at(a) = a.at(calc.rem(i, a.len())); (color: at(cf.graph-colors), dash: at(cf.graph-lines), shape: at(cf.graph-dots), joined: at(cf.graph-joined)) }
     // the legend goes to the corner the curves leave emptiest
     let (gw, gh) = (g.x1 - g.x0, g.y1 - g.y0)
     let uv = (g.series.map(s => s.points).join() + g.points.map(p => (p.x, p.y))).map(((x, y)) => ((x - g.x0) / gw, (y - g.y0) / gh))
@@ -129,24 +168,94 @@
     // no corner is free: beside the plot, at the top
     let outside = crowd > 0.02 * uv.len()
     let legend = if outside { (position: top + left, dx: 100% + 1.2em) } else { (position: corner) }
+    // joined: everything a curve draws joined with a line, as data's points are: a function's pieces, from the end of
+    // one (a run of samples, or a single point) to the start of the next, in x order – also towards the nearest ones
+    // beyond the graph (beyond: true), the join leaving the graph. Joins are drawn, not read by the pointer.
+    let joins(c) = style(c).joined
+    let series = ()
+    for (k, s) in g.series.enumerate() {
+      series.push(s)
+      let c = s.curve
+      if not joins(c) or s.at("data", default: false) or g.series.slice(k + 1).any(t => t.curve == c) { continue }
+      let pieces = g.series.filter(t => t.curve == c and t.points.len() > 0).sorted(key: t => t.points.first().at(0))
+      for (a, b) in pieces.zip(pieces.slice(1)) {
+        series.push((points: (a.points.last(), b.points.first()), curve: c, label: none, data: false, dots: false, bridge: true))
+      }
+    }
+    // what each series draws, in the order written – lines: a function's pieces and data's joined points, and the joins;
+    // dots: data's points (where it has few, or no line) and a function's single points. A later curve covers the
+    // earlier ones, as written. A dot right on a dot of another curve is drawn smaller, the one below a ring around it.
+    let cell(x, y) = str(calc.round((x - g.x0) / gw * 250)) + "," + str(calc.round((y - g.y0) / gh * 250))
+    let taken = (:)
+    let layers = ()
+    for s in series {
+      let st = style(s.curve)
+      let (data, bridge, beyond) = (s.at("data", default: false), s.at("bridge", default: false), s.at("beyond", default: false))
+      // lines: a function's pieces, data's points joined (with lines: none only where joined), the joins; dots: a
+      // function's single points, data's points where it has few or no line
+      let line = s.points.len() > 1 and (bridge or st.dash != none or (data and st.joined))
+      let dotted = st.shape != none and not bridge and not beyond and (if data { st.dash == none or s.at("dots", default: false) } else { s.points.len() == 1 })
+      let dots = ()
+      if dotted {
+        for (x, y) in s.points {
+          let k = cell(x, y)
+          let under = taken.at(k, default: ())
+          dots.push((x, y, under.filter(c => c != s.curve).len()))
+          taken.insert(k, under + (s.curve,))
+        }
+      }
+      // dots on their own line are smaller than dots standing alone
+      layers.push((line: line, dots: dots, size: if line { 4pt } else { 5pt }))
+    }
+    // a curve's name, from the piece of it that has it (one of its runs)
+    let name-of(i) = { let s = series.find(s => s.curve == i and s.label != none); if s == none { none } else { s.label } }
+    // every curve draws something; its legend shows what: its line, its dots, or both
+    let shows(i) = series.enumerate().filter(((k, s)) => s.curve == i).map(((k, s)) => layers.at(k))
+    let legend-of(i) = { let l = shows(i); if l.any(l => l.line) { if l.any(l => l.dots.len() > 0) { "both" } else { "line" } } else { "dot" } }
+    for i in range(calc.max(0, ..series.map(s => s.curve + 1))) {
+      let l = shows(i)
+      if l.len() > 0 and l.all(l => not l.line and l.dots.len() == 0) {
+        let written = req.curves.at(i, default: (:)).at("label", default: none)
+        return fail((if name-of(i) != none { name-of(i) } else if written != none { written } else { "curve " + str(i + 1) }) + " draws nothing: " + (if style(i).shape == none { "lines: none and dots: none" } else { "lines: none leaves its dots, and a function has dots only where a branch of cases holds at a single x" }))
+      }
+    }
     let plots = ()
     let named = ()
-    for s in g.series {
+    for (k, s) in series.enumerate() {
       let st = style(s.curve)
-      let alone = s.at("data", default: false) and not st.line
-      // the legend names each curve once
-      let label = if s.label != none and s.curve not in named { named.push(s.curve); $#M(s.label)$ }
-      // round caps: the dots of a dotted pattern are zero-length dashes
-      plots.push(_lq.plot(s.points.map(p => p.at(0)), s.points.map(p => p.at(1)), color: st.color, label: label,
-        stroke: if alone { none } else { (paint: st.color, thickness: 1.2pt, dash: if st.dash == "solid" { none } else { st.dash }, cap: "round", join: "round") },
-        // data with few points: a mark at each
-        mark: if alone or s.at("dots", default: false) { st.shape } else { none }, mark-size: if alone { 5pt } else { 4pt }))
+      let lay = layers.at(k)
+      // the legend names each curve once, on what it draws first
+      let label = if name-of(s.curve) != none and s.curve not in named and (lay.line or lay.dots.len() > 0) { named.push(s.curve); $#M(name-of(s.curve))$ }
+      // above the axes, each series over the ones before it, its dots over its line; below the legend (25)
+      let z = 21 + k * 0.002
+      if lay.line {
+        // round caps: the dots of a dotted pattern are zero-length dashes. In the legend the line has its dot
+        // where its data has dots (every: (): none on the curve itself)
+        plots.push(_lq.plot(s.points.map(p => p.at(0)), s.points.map(p => p.at(1)), color: st.color, label: label, z-index: z,
+          // joins (joined: true) are faint: where the curve has values stays clear
+          stroke: (paint: if s.at("bridge", default: false) { st.color.transparentize(60%) } else { st.color }, thickness: 1.2pt, dash: if st.dash in ("solid", none) { none } else { st.dash }, cap: "round", join: "round"),
+          mark: if legend-of(s.curve) == "both" { _dot-mark(st.shape, st.color) } else { none }, mark-size: lay.size, every: ()))
+        label = none
+      }
+      // in the legend its dot at full size, whether or not one of its dots is on top of another
+      if label != none and lay.dots.len() > 0 {
+        plots.push(_lq.plot((lay.dots.first().at(0),), (lay.dots.first().at(1),), color: st.color, stroke: none, label: label,
+          mark: _dot-mark(st.shape, st.color), mark-size: lay.size, every: ()))
+        label = none
+      }
+      for level in lay.dots.map(d => d.at(2)).dedup() {
+        let ds = lay.dots.filter(d => d.at(2) == level)
+        // unclipped: a dot on the edge of the plot is whole
+        plots.push(_lq.plot(ds.map(d => d.at(0)), ds.map(d => d.at(1)), color: st.color, stroke: none, label: label, z-index: z + 0.001,
+          mark: _dot-mark(st.shape, st.color), mark-size: lay.size * calc.pow(0.6, level), clip: false))
+        label = none
+      }
     }
     let guide = (paint: luma(110), thickness: 0.6pt, dash: "dashed")
     for p in g.points {
       if p.guides != "" { plots.push(_lq.plot((p.x, p.x), (g.ax, p.y), stroke: guide, mark: none)) }
       if p.guides == "xy" { plots.push(_lq.plot((g.ay, p.x), (p.y, p.y), stroke: guide, mark: none)) }
-      plots.push(_lq.plot((p.x,), (p.y,), color: black, stroke: none, mark: "o", mark-size: 4pt))
+      plots.push(_lq.plot((p.x,), (p.y,), color: black, stroke: none, mark: _dot-mark("circle", black), mark-size: 4pt, clip: false, z-index: 24))
     }
     // the origin's 0, unless an axis writes it already
     let origin = g.x-axis-zero and g.y-axis-zero and 0 not in g.xticks and 0 not in g.yticks
@@ -197,14 +306,15 @@
       (dotted: "0 3.5", densely-dotted: "0 2.5", loosely-dotted: "0 6", dashed: "6 4", densely-dashed: "6 2.5", loosely-dashed: "6 7",
         dash-dotted: "6 3 0 3", densely-dash-dotted: "6 2 0 2", loosely-dash-dotted: "6 5 0 5").at(d)
     } else { (if type(d) == dictionary { d.array } else { d }).map(l => if l == "dot" { "0" } else { str(calc.round(l.to-absolute().pt() * 4 / 3, digits: 2)) }).join(" ") }
-    let ncurves = calc.max(0, ..g.series.map(s => s.curve + 1))
+    let ncurves = calc.max(0, ..series.map(s => s.curve + 1))
     let rc = _req-cfg(cf)
     let spec = (
       x0: g.x0, x1: g.x1, y0: g.y0, y1: g.y1, ax: g.ax, ay: g.ay, xz: g.x-axis-zero, yz: g.y-axis-zero, origin: origin,
       xt: g.xticks.zip(xm), yt: g.yticks.zip(ym),
-      series: g.series.map(s => (p: s.points, c: s.curve, data: s.at("data", default: false), dots: s.at("dots", default: false))),
-      curves: range(ncurves).map(i => { let st = style(i); (color: hex(st.color), dash: svg-dash(st.dash), shape: st.shape, line: st.line, named: i in named) }),
-      points: g.points, legend: if outside { "outside" } else { (if corner.y == top { "top-" } else { "bottom-" }) + (if corner.x == left { "left" } else { "right" }) }, sep: rc.separator, digits: rc.digits, size: { let m = measure(sized); (w: m.width.pt(), h: m.height.pt()) },
+      // what each series draws, as on paper: its line, and its dots (x, y, how many dots of other curves lie below)
+      series: series.enumerate().map(((k, s)) => (p: s.points, c: s.curve, data: s.at("data", default: false), bridge: s.at("bridge", default: false), beyond: s.at("beyond", default: false), line: layers.at(k).line, d: layers.at(k).dots, size: layers.at(k).size.pt())),
+      curves: range(ncurves).map(i => { let st = style(i); (color: hex(st.color), dash: svg-dash(st.dash), corners: _dot-corners(st.shape), legend: legend-of(i), named: i in named) }),
+      points: g.points, legend: if outside { "outside" } else { (if corner.y == top { "top-" } else { "bottom-" }) + (if corner.x == left { "left" } else { "right" }) }, sep: rc.separator, digits: rc.digits, em: text.size.to-absolute().pt(), size: { let m = measure(sized); (w: m.width.pt(), h: m.height.pt()) },
     )
     let lab(k, body) = html.elem("span", attrs: ("data-k": k), body)
     let labels = (
@@ -212,7 +322,7 @@
       ..("xu", "yu", "xn", "yn").map(k => { let v = g.at((xu: "xunit", yu: "yunit", xn: "xname", yn: "yname").at(k), default: ""); lab(k, if v != "" { $#M(v)$ }) }),
       ..g.xlabels.enumerate().map(((i, l)) => lab("xt" + str(i), $#M(l)$)),
       ..g.ylabels.enumerate().map(((i, l)) => lab("yt" + str(i), $#M(l)$)),
-      ..g.series.filter(s => s.label != none).map(s => lab("c" + str(s.curve), $#M(s.label)$)),
+      ..series.filter(s => s.label != none).map(s => lab("c" + str(s.curve), $#M(s.label)$)),
     )
     _css(); _plot-js()
     html.elem("div", attrs: (class: "solveng-plot"), {

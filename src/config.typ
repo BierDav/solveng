@@ -26,7 +26,61 @@
   words: (any: "any"), chips: auto, unit-style: auto, unit-separator: auto,
   // how constants are shown, by identity, over the built-in displays: (imaginary: $j$)
   constants: (:),
+  // graphs: per curve, repeating – Petroff's ten colors (apart for color-blind readers, lilaq's default too), the
+  // line styles of scientific plotting tools, and dot shapes that tell curves apart without color too
+  graph-colors: (rgb("#3f90da"), rgb("#ffa90e"), rgb("#bd1f01"), rgb("#94a4a2"), rgb("#832db6"), rgb("#a96b59"), rgb("#e76300"), rgb("#b9ac70"), rgb("#717581"), rgb("#92dadd")),
+  graph-lines: ("solid", "dashed", "dotted", "dash-dotted"),
+  graph-dots: ("circle", "square", "triangle", "diamond"),
+  graph-joined: (false,),
 )
+// the strings options and graph's arguments take, alone or in an array: for the checks, and for editors' completions
+// (as _CH, which also lists each option's only values)
+#let _VALUES = (
+  graph-dots: ("circle", "square", "triangle", "triangle-down", "diamond", "pentagon", "hexagon", "star", "cross", "plus"),
+  graph-lines: ("solid", "dotted", "densely-dotted", "loosely-dotted", "dashed", "densely-dashed", "loosely-dashed", "dash-dotted", "densely-dash-dotted", "loosely-dash-dotted"),
+  prefixes: ("all", "a", "f", "p", "n", "u", "µ", "m", "c", "d", "k", "M", "G", "T"),
+  mark: ("crossings", "roots", "extrema"),
+  // any string; these are the usual ones
+  separator: (".", ","),
+)
+#let _DOTS = _VALUES.graph-dots
+#let _DASHES = _VALUES.graph-lines
+// a graph style, per curve: one value or an array of them, checked and made an array; (err: …) if it isn't one
+// a graph style, per curve: one value or an array of them, checked and made an array; (err: …) if it isn't one.
+// auto, alone or for a curve, keeps what the worksheets around (or the defaults) have there, see _merge.
+#let _graph-style(name, v) = {
+  let kind = name.split("-").last()
+  if type(v) == content { return (err: name + ": square brackets make content – write an array with parentheses, like " + (colors: "(gray, blue)", lines: "(\"solid\", \"dashed\")", dots: "(\"circle\", \"square\")", joined: "(true, false)").at(kind)) }
+  let fits(d) = d == auto or if kind == "colors" { type(d) in (color, gradient) } else if kind == "lines" {
+    // a single pattern can be an array of lengths too: (4pt, 2pt) is one dash, ((4pt, 2pt), "dotted") two
+    let lens(a) = type(a) == array and a.len() > 0 and a.all(l => type(l) == length or l == "dot")
+    d == none or (type(d) == str and d in _DASHES) or lens(d) or (type(d) == dictionary and lens(d.at("array", default: none)) and d.keys().all(k => k in ("array", "phase")) and type(d.at("phase", default: 0pt)) == length)
+  } else if kind == "dots" { d == none or (type(d) == str and d in _DOTS) } else { type(d) == bool }
+  let one = type(v) != array or (kind == "lines" and v.len() > 0 and v.all(l => type(l) == length or l == "dot"))
+  let v = if one { (v,) } else { v }
+  if v.len() == 0 or not v.all(fits) {
+    return (err: name + ": " + (
+      colors: "a color or an array of colors like (gray, blue, rgb(\"#f98eff\"))",
+      lines: "a dash pattern or an array of them, like (\"solid\", \"dashed\") or (4pt, 2pt); none draws no line; patterns: " + _DASHES.join(", "),
+      dots: "a dot shape or an array of them, like (\"circle\", \"square\"); none draws no dots; shapes: " + _DOTS.join(", "),
+      joined: "true (everything the curve draws joined with a line), false, or an array of these per curve",
+    ).at(kind) + "; auto keeps the worksheet's, also for a single curve: (auto, \"dotted\")")
+  }
+  v
+}
+#let _GRAPH = ("graph-colors", "graph-lines", "graph-dots", "graph-joined")
+// options given over the ones in force: a graph style curve by curve, auto keeping the one in force for that curve
+#let _merge(c, lc) = {
+  let out = c + lc
+  for k in _GRAPH.filter(k => k in lc) {
+    let (old, new) = (c.at(k), lc.at(k))
+    out.insert(k, range(calc.max(old.len(), new.len())).map(i => {
+      let v = new.at(calc.rem(i, new.len()))
+      if v == auto { old.at(calc.rem(i, old.len())) } else { v }
+    }))
+  }
+  out
+}
 #let _CH = (
   form: ("auto", "decimal", "fraction", "input"), multiplication: ("dot", "times"), fractions: ("stacked", "slash"),
   errors: ("document", "panic"),
@@ -43,6 +97,7 @@
   max-solutions: (int,), defined-style: (str,), errors: (str,), show-types: (str,),
   words: (dictionary,), chips: (type(auto), dictionary, function), unit-style: (type(auto), function), unit-separator: (type(auto), content, str, symbol),
   constants: (dictionary,),
+  graph-colors: (array, color, gradient, content), graph-lines: (array, str, dictionary, type(none), content), graph-dots: (array, str, type(none), content), graph-joined: (array, bool, content),
 )
 #let _tyname(ts) = ts.map(t => if t == type(none) { "none" } else if t == type(auto) { "auto" } else { str(t) }).join(" or ")
 // units are checked by the engine once a worksheet sets them (see #worksheet)
@@ -63,6 +118,9 @@
   if "words" in o and o.words.keys().any(k => k != "any") { return (err: "words: the word shown for any-unit types, (any: \"beliebig\")") }
   if "chips" in o and type(o.chips) == dictionary and o.chips.pairs().any(((k, v)) => k != "type" or type(v) != dictionary or v.keys().any(c => c not in ("fill", "mark", "ink"))) { return (err: "chips: the colours of type chips, (type: (fill: …, mark: …, ink: …)), or a function (kind, mark, unit) => content") }
   if "constants" in o and o.constants.values().any(v => type(v) not in (content, symbol)) { return (err: "constants: how constants are shown, by identity: (imaginary: $j$)") }
+  for k in _GRAPH {
+    if k in o { let v = _graph-style(k, o.at(k)); if _E(v) { return v }; o.insert(k, v) }
+  }
   if "preferred-units" in o {
     if type(o.preferred-units) == content { o.preferred-units = (o.preferred-units,) }
     if o.preferred-units.any(u => type(u) != content or u.func() != math.equation) { return (err: "preferred-units: math expressions containing unit values") }

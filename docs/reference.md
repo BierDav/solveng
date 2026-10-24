@@ -87,7 +87,7 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 | [`floor`](#floor) | Greatest integer less than or equal to x: `floor(x)`. |
 | [`factorial`](#factorial) | Factorial of a nonnegative integer: `factorial(k)`. |
 | [`diff`](#diff) | Symbolically differentiates an expression with respect to a name: `diff(expression, variable)`. |
-| [`integrate`](#integrate) | Definite integral: `integrate(expression, variable, lower, upper)`. |
+| [`integrate`](#integrate) | Integral: `integrate(expression, variable)` is the antiderivative, `integrate(expression, variable, lower, upper)` the definite integral. |
 | [`laplace`](#laplace) | Unilateral Laplace transform: `laplace(expression, variable, result-variable)`. |
 | [`invlaplace`](#invlaplace) | Inverse unilateral Laplace transform: `invlaplace(expression, variable, result-variable)`. |
 | [`convolve`](#convolve) | Convolution: `convolve(x, h)` of two sequences, `convolve(f(τ), g(τ), τ, t)` of two functions. |
@@ -429,7 +429,11 @@ Drawn with `@preview/lilaq:0.6.0` in the schoolbook style: axes through the orig
 
 **Ranges:** values and expressions in `xrange` / `yrange` must have the axis unit (`$f(20) #Ω$` is fine) – `xrange: ($10 #Ω$, $f(20)$)` with a unitless `f(20)` is an error, since it isn't clear what was meant. Without a range: around the marks; else around what's interesting – roots, extrema, poles, edges of the domain (√, ln) and, above all, where curves cross – rounded to nice ticks, starting at 0 when everything interesting is positive. With `ymark`, the y range is around the marked values (steep curves leave the picture). **Units** follow from what's plotted: y's from the curves (shown in the SI unit with a fitting prefix; `preferred-units` picks others), x's from the curve's parameter (`U(I: mA) = …`) or a function x is passed to whose parameter has one (`$q(I: mA) := I R$`, then `#graph($U(I) = q(I)$)` is over I in mA), else from the units in `xrange` and the marks, else from the curve and the units of the y values (`P(..) = U_0^2/R_2` with `ymark: $2 #W$`: R₂ in Ω).
 
-**Data:** a vector of values is plotted as the points through its elements, joined in index order (with a dot at each when there are at most 30): `#graph($y$)` against the zero-based index k (as in `at(y, k)`), `#graph($y(τ)$)` over the vector `tau` of the same length – or over any expression without free names that is one, `y(2 tau)`. Units come from the elements (each vector needs one unit for all its elements; every element must have a value). Function curves can go alongside: `#graph($y(τ) \ c(τ)$)` with a function `c`, or an expression in `tau` (`$2 tau$`), where `tau` stands for the x axis and the function is sampled over it; the x range is from the data's first to last x value unless `xrange` says otherwise, and the units of x and y must agree. Marks work on data too, with linear interpolation between the points: x values, `"roots"` and `"crossings"` (with data and with functions) where the values change sign, `"extrema"` as the local extreme points, and `ymark`. A vector with a free name is several curves instead, one per element (`$vec(t, t^2)$`). For measurements, `lines: false` draws the data as points alone, without the line: `#graph($y(τ) \ c(τ)$, lines: (false, true))` shows measured points next to the curve `c`.
+**Data:** a vector of values is plotted as the points through its elements, joined in index order (with a dot at each when there are at most 30): `#graph($y$)` against the zero-based index k (as in `at(y, k)`), `#graph($y(τ)$)` over the vector `tau` of the same length – or over any expression without free names that is one, `y(2 tau)`. Units come from the elements (each vector needs one unit for all its elements; every element must have a value). Function curves can go alongside: `#graph($y(τ) \ c(τ)$)` with a function `c`, or an expression in `tau` (`$2 tau$`), where `tau` stands for the x axis and the function is sampled over it; the x range is from the data's first to last x value unless `xrange` says otherwise, and the units of x and y must agree. Marks work on data too, with linear interpolation between the points: x values, `"roots"` and `"crossings"` (with data and with functions) where the values change sign, `"extrema"` as the local extreme points, and `ymark`. A vector with a free name is several curves instead, one per element (`$vec(t, t^2)$`). For measurements, `lines: none` draws the data as points alone, without the line: `#graph($y(τ) \ c(τ)$, lines: (none, auto))` shows measured points next to the curve `c`.
+
+**Piecewise functions** (`cases`) break their line where a branch changes with a jump; a value that holds at a single x – `2 & "for" x = 1`, or a point set apart from the line – is drawn as a dot. `joined: true` joins the pieces through them instead.
+
+**Layers:** curves are drawn in the order written, each over the ones before and over the axes: a function written after measured points runs over them, one written before runs under them. Every dot has a thin ring of the page's color, so dots stand apart from lines and from each other; a dot right on a dot of another curve is drawn smaller, the one below showing as a ring around it.
 
 **Marks** default to none. Requested marks are always visible – the ranges grow to show them. Combine them in an array, `(auto, $R_1$)`.
 
@@ -447,9 +451,10 @@ Drawn with `@preview/lilaq:0.6.0` in the schoolbook style: axes through the orig
 | `samples` | int | `400` | Number of sample points. |
 | `width` | auto, length, ratio, relative, fraction | `auto` | Width of the whole graph, labels included: `12cm`, `300pt` or a share like `100%`. `1fr` is the container's width – in a grid, the column's. `auto`: a plot area of 8 cm. |
 | `height` | auto, length, ratio, relative, fraction | `auto` | Like `width`; `auto`: a plot area of 5 cm. A share is of the container's height, or of the width when the page grows with its content. |
-| `colors` | array, color | `(rgb("#3f90da"), rgb("#ffa90e"), rgb("#bd1f01"), rgb("#94a4a2"), rgb("#832db6"), rgb("#a96b59"), rgb("#e76300"), rgb("#b9ac70"), rgb("#717581"), rgb("#92dadd"))` | Colors of the curves, e.g. `(gray, blue, rgb("#f98eff"))`. The default is Petroff's ten colors, chosen to stay apart for color-blind readers (lilaq's default too). |
-| `dashes` | array, str, dictionary, none | `("solid", "dashed", "dotted", "dash-dotted")` | Line styles of the curves, so they can be told apart without color (color-blind readers, grayscale prints): Typst dash patterns such as `"solid"`, `"dashed"`, `"dotted"`, `"dash-dotted"`, `"densely-dashed"`, `"loosely-dotted"`, or an array of lengths like `(4pt, 2pt)`. The default is the order of scientific plotting tools (MATLAB, matplotlib, gnuplot): solid, dashed, dotted, dash-dotted. `"solid"` or `none`: every curve solid. Curve n takes color n and dash n, each list repeating on its own. |
-| `lines` | bool, array | `true` | Whether data curves are joined by lines, per curve and repeating like `colors`: `false` draws the data as points alone (a scatter plot), `(false, true)` only the first curve. Points are circles, squares, triangles and diamonds, curve after curve, so they can be told apart without color too. Functions are always lines. |
+| `colors` | auto, array, color | `auto` | Colors of the curves, curve after curve and repeating: `(gray, blue, rgb("#f98eff"))`. `auto` keeps the worksheet's `graph-colors`, also for a single curve: `(auto, red)` changes only the second (and fourth, …). By default Petroff's ten colors, chosen to stay apart for color-blind readers (lilaq's default too). `lines`, `dots` and `joined` work the same way. |
+| `lines` | auto, array, str, dictionary, none | `auto` | The curves' lines, like `colors`: Typst dash patterns such as `"solid"`, `"dashed"`, `"dotted"`, `"dash-dotted"`, `"densely-dashed"`, `"loosely-dotted"`, or an array of lengths like `(4pt, 2pt)`, so curves can be told apart without color (color-blind readers, grayscale prints); `none` draws no line – data as points alone (a scatter plot), a function as its single points. `auto`: the worksheet's `graph-lines`, by default `("solid", "dashed", "dotted", "dash-dotted")`, the order of scientific plotting tools. |
+| `dots` | auto, array, str, none | `auto` | The curves' dots, like `colors`: `"circle"`, `"square"`, `"triangle"`, `"triangle-down"`, `"diamond"`, `"pentagon"`, `"hexagon"`, `"star"`, `"cross"`, `"plus"`; `none` draws no dots. `auto`: the worksheet's `graph-dots`, by default `("circle", "square", "triangle", "diamond")`, so curves can be told apart without color too. Dots are drawn for data's points (with at most 30 points, or without a line) and a function's single points (`2 & "for" x = 1` in `cases`). |
+| `joined` | auto, bool, array | `auto` | Whether everything a curve draws is joined with a line, like `colors`: a function's pieces, from the end of one to its single point and on to the start of the next, as data's points are (with `lines: none`: data's dots joined). Joins to points beyond the graph leave it; the pointer doesn't read them. `auto`: the worksheet's `graph-joined`, by default `false`. A curve with nothing to draw is an error. |
 | `digits`, `separator`, `form`, … | auto | `auto` | Every option of `worksheet` works here too, for this call only. See [Options](#options). |
 
 Returns content.
@@ -660,7 +665,8 @@ or distributional derivatives stay symbolic and cannot be evaluated numerically.
 
 In math, Leibniz's notation does the same: `$(dif x^3)/(dif x) ->$`, `$dif/(dif x) x^3 ->$`,
 higher orders `$(dif^2 f(x))/(dif x^2)$` and partial derivatives `$(partial^2 f(x, y))/(partial x partial y)$`.
-`dif/(dif x)` applies to the term after it: `$dif/(dif x) x^2 + x ->$` is 2x + x.
+`dif/(dif x)` applies to the term after it: `$dif/(dif x) x^2 + x ->$` is 2x + x. A worksheet shows
+`diff(f, x)` in Leibniz's notation, d/dx f.
 
 | parameter | type | default | |
 |---|---|---|---|
@@ -671,28 +677,38 @@ Returns expression.
 
 ## `integrate`
 
-Definite integral: `integrate(expression, variable, lower, upper)`.
+Integral: `integrate(expression, variable)` is the antiderivative, `integrate(expression, variable, lower, upper)`
+the definite integral.
 
-`$integrate(x^2, x, 0, 3) =$` gives 9. The variable is local to the operation.
-Bounds must have matching units (0 and ±∞ match any); the result has the integrand's unit times the
-variable's unit. Either bound may be infinite. Recognized antiderivatives simplify
-exactly; remaining integrals stay symbolic with `->` and use adaptive quadrature for
-`=` or graphs. Affine signal arguments are split at their corners so narrow pulses
-are not skipped. Undefined integrands or failure to converge report an error.
+`$integrate(x^2, x, 0, 3) =$` gives 9, `$integrate(x^2, x) ->$` gives x³/3. The variable is local to the
+operation.
 
-In math, `$integral_0^3 x^2 dif x =$` does the same. The differential ends the integrand
-wherever it stands: `$integral_0^1 x^2 + 1 dif x$` integrates x² + 1, `$integral_0^1 (x dif x) + 1$`
-adds 1 to the integral, `$integral_0^1 (dif x)/(1 + x^2)$` and `$integral_0^1 dif x$` are
-integrals too. A bound of 0 or ±∞ takes the other bound's unit (`$integral_0^(2 #s) 3 #A dif t$`);
-when both are, write the unit on one: `$integral_(0 #s)^infinity #e^(-t/tau) dif t$`. Indefinite
-integrals aren't supported.
+Without bounds the result is an antiderivative, without a constant of integration: `$integral #e^x dif x ->$`
+gives eˣ, `$integral x^2 sin(x) dif x ->$` gives −x² cos(x) + 2x sin(x) + 2 cos(x). It is found for sums of
+constants times powers, exponentials, sin, cos, sinh, cosh, ln and tan of a linear argument; for products that
+multiply out into such terms; and by parts for a polynomial times one exponential, sin, cos, sinh or cosh of a
+linear argument. Other integrands (`sin(x^2)`, `#e^x cos(x)`, rational functions other than 1/(a x + b))
+report an error.
+
+With bounds, the bounds must have matching units (0 and ±∞ match any); the result has the integrand's unit
+times the variable's unit. Either bound may be infinite. Recognized antiderivatives simplify exactly where they
+are continuous between the bounds; remaining integrals stay symbolic with `->` and use adaptive quadrature for
+`=` or graphs. Affine signal arguments are split at their corners so narrow pulses are not skipped. Undefined
+integrands or failure to converge report an error.
+
+In math, `$integral_0^3 x^2 dif x =$` and `$integral x^2 dif x ->$` do the same. The differential (`dif`, not
+`diff`, which is ∂) ends the integrand wherever it stands: `$integral_0^1 x^2 + 1 dif x$` integrates x² + 1,
+`$integral_0^1 (x dif x) + 1$` adds 1 to the integral, `$integral_0^1 (dif x)/(1 + x^2)$` and
+`$integral_0^1 dif x$` are integrals too. A bound of 0 or ±∞ takes the other bound's unit
+(`$integral_0^(2 #s) 3 #A dif t$`); when both are, write the unit on one:
+`$integral_(0 #s)^infinity #e^(-t/tau) dif t$`. A worksheet shows `integrate(…)` as the integral sign.
 
 | parameter | type | default | |
 |---|---|---|---|
 | `expression` | expression |  | Integrand. |
 | `variable` | name |  | Integration variable, written as a name rather than a value. |
-| `lower` | expression |  | Lower bound, including `-infinity`. |
-| `upper` | expression |  | Upper bound, including `infinity`. |
+| `lower` | expression |  | Lower bound, including `-infinity`; none for an antiderivative. |
+| `upper` | expression |  | Upper bound, including `infinity`; none for an antiderivative. |
 
 Returns expression or value.
 
@@ -702,6 +718,7 @@ Unilateral Laplace transform: `laplace(expression, variable, result-variable)`.
 
 The variables default to t and s: `$laplace(t^2) ->$`, `$F(p) := laplace(exp(-x), x, p)$`.
 (The keyword form `-> laplace` was removed; it's an error pointing here.)
+A worksheet shows the call as ℒ{f}, with the result variable as ℒ{f}(p) when it's given; `invlaplace` as ℒ⁻¹{F}.
 The input variable is local, so a worksheet value for it is ignored.
 Supports constants, polynomials through degree 33, affine exponentials,
 sine, cosine, hyperbolic sine and cosine, linear combinations, exponential
@@ -980,6 +997,20 @@ Options of `worksheet`, and of `defined` and `graph`. Each one defaults to `auto
 |---|---|---|---|
 | `constants` | auto, dictionary | `(:)` | How constants are shown, by identity: `(imaginary: $j$, "standard-gravity": $g_0$)`, over the built-in displays of `pi` (π), `euler` (e), `imaginary` (i) and `speed-of-light` (c) and the ones of the worksheets around. Results show them the same way. See `constant`. |
 
+### Graphs
+
+| option | type | default | |
+|---|---|---|---|
+
+### Line styles of scientific plotting tools, and dot shapes that tell curves apart without color too
+
+| option | type | default | |
+|---|---|---|---|
+| `graph-colors` | auto, color, array | `(rgb("#3f90da"), rgb("#ffa90e"), rgb("#bd1f01"), rgb("#94a4a2"), rgb("#832db6"), rgb("#a96b59"), rgb("#e76300"), rgb("#b9ac70"), rgb("#717581"), rgb("#92dadd"))` | The colors of the curves in graphs, curve after curve and repeating: `(gray, blue, rgb("#f98eff"))`. Default: Petroff's ten colors, chosen to stay apart for color-blind readers. `auto` keeps the worksheet's around, also for a single curve: `(auto, red)` changes only the second (and fourth, …). A graph's `colors` goes over it, the same way. |
+| `graph-lines` | auto, str, array, dictionary, none | `("solid", "dashed", "dotted", "dash-dotted")` | The lines of the curves in graphs, like `graph-colors`: Typst dash patterns such as `"solid"`, `"dashed"`, `"dotted"`, `"dash-dotted"`, or lengths like `(4pt, 2pt)`; `none` draws a curve without lines. A graph's `lines` goes over it. |
+| `graph-dots` | auto, str, array, none | `("circle", "square", "triangle", "diamond")` | The dots of the curves in graphs, like `graph-colors`: `"circle"`, `"square"`, `"triangle"`, `"triangle-down"`, `"diamond"`, `"pentagon"`, `"hexagon"`, `"star"`, `"cross"`, `"plus"`; `none` draws a curve without dots. A graph's `dots` goes over it. |
+| `graph-joined` | auto, bool, array | `(false,)` | Whether everything a curve in a graph draws is joined with a line, like `graph-colors`. A graph's `joined` goes over it. |
+
 ## Modifiers
 
 The clause after a trailing `=` or `->` takes a unit and modifiers, separated by commas: `$t = #h, digits(2)$`,
@@ -1005,7 +1036,7 @@ $I = sci$
 Three operators, and `=` keeps its meaning from maths:
 
 - **`:=` defines**, symbolically. Names defined by then are put in right away, names that aren't stay names until they are: `$h := 5 z$` works before `z` is defined, and after `$z := 20 cm$`, `$h =$` shows 1 m. What's put in is the value at that point – defining a name again later changes what comes after, not what came before.
-- **`=` inside an expression compares**, as Mathcad's bold =: `$M := 1 = 2 =$` gives 0, `$M := 2 #A = 2000 mA$` gives 1. Values of different units are never equal (`1 A = 2 V` is 0, `1 A != 2 V` is 1); `<`, `<=`, `>`, `>=` and `!=` compare too, chains like `$0 < x <= 1$` hold when every step does.
+- **`=` inside an expression compares**, as Mathcad's bold =: `$M := 1 = 2 =$` gives 0, `$M := 2 #A = 2000 mA$` gives 1. Values of different units are never equal (`1 A = 2 V` is 0, `1 A != 2 V` is 1); `<`, `<=`, `>`, `>=` and `!=` compare too, chains like `$0 < x <= 1$` hold when every step does. `and` and `or` (Typst shows ∧ and ∨) join them, `and` binding tighter: `$x < 0 or x > 2$`, also as a condition in `cases`.
 - **A trailing `=` shows the value**, numerically, with a bold =. After it come a unit and modifiers (from `modifiers`): `$t = #h, digits(3)$`. Every name in it must have a value by then.
 - **A trailing `->` shows the symbolic result**: defined values put in, exactly (fractions, roots and π stay), undefined names kept: `$x + 3/3 y -> simplify$` is x + y. With `solve(x)` it solves – symbolically when it can (`$0 = 1 + 3/x + y^2 -> solve(x)$` is x = −3/(y² + 1)), numerically when every other name has a value – and defines x when the solution is a value. `substitute(U, …)` shows the result with these variables' formulas put in and every other name kept: after `$U := R I$`, `$P := U^2/R -> substitute(U)$` is I² R.
 - **Any other `=`** states something: it's checked when everything in it has a value (`$U = R I$`), and left alone as prose when not (`$E = m c^2$`).
@@ -1030,7 +1061,7 @@ $k := 2 #m = 200 cm =$                     // k = 1: the comparison holds
 #show: worksheet
 $R := 4.7 kΩ$                                 // a number and a unit
 $I := frac(2, 4) #A$, $Q_0 := 3450/2 mAh$     // arithmetic in the number
-$U := (1+2) dot 1,5 #V$, $A := 2^3 #m^2$      // A the variable, #A the ampere
+$U := (1+2) dot 1.5 #V$, $A := 2^3 #m^2$      // A the variable, #A the ampere
 $U_2 := R dot 1 mA$
 $Q := U_2 dot 2 #s -> substitute(U_2)$        // U_2's formula put in: Q ≔ U_2 · 2 s → 1/500 A·s·R
 ```
@@ -1038,12 +1069,12 @@ $Q := U_2 dot 2 #s -> substitute(U_2)$        // U_2's formula put in: Q ≔ U_2
 - **Units** are Typst bindings, imported from solveng's `units` module where you use them: `#import units: mA, kΩ, s`. It has the SI base units (m kg s A K mol cd), V Ω W J C F H S Hz N Pa T Wb, min h Ah Wh As Ws eV l L, rad, deg (°) and degC (°C, a temperature *difference*), with the SI prefixes (`mA`, `kΩ`, `µs`). In math a binding of one letter needs a `#` (`$2 #s$`, `$100 #Ω$`), longer ones don't (`$30 mA$`). Powers as `#m^2`, quotients as `#m / #s^2`, products with spaces, `kg #m`. Your own with `base-unit` and `unit`, see [Units](#units).
 - **Numbers from values:** dividing by a unit gives a value's number in it, checked and prefix-aware: `U / #V` is U's number in volts, `(U / #V) #A` gives it another unit. Empirical formulas are written this way: `$F(d: mm) := 3.2 (d / mm)^0.6 #N$`. `number(U, #mV)` from `functions` is U's value in mV as a plain number, an error when U doesn't have mV's dimension.
 - **Typeable spellings:** `Omega` is Ω, the prefix `u` is µ (`uA`, also `µA` and `μA`), `deg` and `degC` are ° and °C. Results show the proper symbols.
-- **Decimal comma:** `$7,2 #V$` works; the output separator follows the document language (option `separator`).
+- **Decimal point:** numbers are written with a point, `$7.2 #V$`, also in German documents; results use the document language's separator (option `separator`), so they show 7,2 there. A comma always separates: `at(A, 0,1)` and `mat(2,4,6)` are lists of numbers.
 - **No e-notation:** numbers are written out (`$11200$`, or `$1.12 dot 10^4$`). `1.12e4` is the coefficient 1.12 times the variable `e4` (undefined unless defined; quote it, `$"e4"$`, for a name of several letters). Scientific notation is only how results are written (option `scientific`, keyword `sci`).
 - **Names:** the acute accent `´` and the backtick (`` ` ``) are literal name characters (`$x´ := 3$`), with no escaping needed. Digits continue a name: `t2` differs from `t_2` and keeps its digits on the baseline. Complete Latin letter runs normalize to Greek: `Delta2tau` → Δ2τ, while `Deltatau` stays unchanged. `""` joins name fragments: `Delta""tau` → Δτ and `t""2` → t2. Quotes only carry a name through Typst: `$"Delta2tau"$` names Δ2τ, and `$"Delta\"\"tau"$` names Δτ. Quoted text is always a name, also when it spells a unit or an operation: `$"mA" := 3$` is a variable. Explicit subscripts may be grouped: `$R_(a b)$` names R_ab. Operators and whitespace end a name; a leading number remains a coefficient (`2t2` is 2 times t2).
 - **Sums:** `sum_(k=0)^10 k^2` or `sum(k^2, k, 0, 10)` sums over inclusive integer bounds. The index is local and case-sensitive. Parenthesize a summand containing addition. Small finite sums simplify exactly; infinite sums stay symbolic after `->` and are evaluated numerically for `=` and graphs. For example, `$s_2(t) := sum_(k=0)^infinity sigma(t-k+3/4)$` defines a function usable as `#graph($s_2(t)$)` once `sigma` is defined. Piecewise linear signal sums are counted directly between their corners. Other numerical sums use at most 100000 terms and a shrinking-tail convergence estimate; slow or nonconvergent series report an error. Bounds and the index are unitless, while summands may carry units.
 - **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. Import the names from `functions` (`#import functions: rect, tri, sgn`); a worksheet function such as `$Lambda(t) := tri(t)$` or `#let triangle = math.op("tri")` gives another name. Linear combinations simplify and can be solved; definite integrals split affine arguments at their boundaries. Distributional derivatives stay symbolic.
-- **Ranges and elements:** `$i := 0..N$` (also `0 .. N`, `0...N`) is a range variable: the values from 0 to N in steps of 1, both included, counting down when N < 0; with units, use `range(start, end, step: …)`. `x[i]` and `A[i, j]` are elements, counted from 0, written right after the name without a space; a vector of indices selects several (`x[i]` with i a range is a vector). `$x[i] := …$` defines an element for each value of the range variable i, the body calculated with i standing for that value: `$t[i] := i Delta""t$`, `$x[i] := tri(t[i])$`. Elements not defined yet are 0; defining one past the end extends the vector, as in Mathcad. `A[i, j] := …` defines a matrix.
+- **Ranges and elements:** `$i := 0..N$` (also `0 .. N`, `0...N`) is a range variable: the values from 0 to N in steps of 1, both included, counting down when N < 0; with units, use `range(start, end, step: …)`. `x[i]` and `A[i, j]` are elements, counted from 0, written right after the name without a space; a vector of indices selects several (`x[i]` with i a range is a vector). `:` selects a whole row or column: `A[i, :]` is row i (a matrix of one row), `A[:, j]` column j (a vector), both plottable as data: `#graph($A[1, :]$)`. `$x[i] := …$` defines an element for each value of the range variable i, the body calculated with i standing for that value: `$t[i] := i Delta""t$`, `$x[i] := tri(t[i])$`. Elements not defined yet are 0; defining one past the end extends the vector, as in Mathcad. `A[i, j] := …` defines a matrix.
 - **Convolution:** `convolve(x, h)` of sequences and `convolve(f(τ), g(τ), τ, t)` of functions, see `convolve`. Sequences of values are convolved numerically (whole numbers exactly), so long sampled signals stay fast; functions exactly where they're piecewise polynomial.
 - **Operators:** `+ - * / ^ · ×`, implicit multiplication (`2 pi f C`), Typst's math operators `sqrt exp ln log sin cos tan arcsin arccos arctan sinh cosh tanh abs arg` (no import needed), the other operations from `functions` (see [Built-in operations](#built-in-operations)), your own functions.
 - **Constants** come from solveng's `constants` module: `#import constants: pi, e, i, c` (π, Euler's e, the imaginary unit, the speed of light), then `$2 pi$`, `$#e^x$`, `$3 + 4 #i$`. Without the import `pi` is only the symbol π, a name without a value. `constant(identity, expression)` makes your own; the option `constants` says how they are shown.

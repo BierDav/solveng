@@ -8,14 +8,23 @@ pub fn integral(body: Expr, var: String, lo: Expr, hi: Expr) -> Expr {
         (Ok(Some(a)), Ok(Some(b))) => a == b,
         _ => true,
     };
+    // where an antiderivative jumps or is undefined between the bounds: 1/u and ln u at u = 0, tan u at cos u = 0
     let crosses_pole = body.contains(&|e| {
-        let Expr::Pow(base, power) = e else { return false; };
-        if !power.as_num().is_some_and(|n| n.is_neg()) { return false; }
-        let at = |bound: &Expr| crate::eval::eval_f(&base.subst(&var, bound), &|_| None);
-        matches!((at(&lo), at(&hi)), (Some(a), Some(b)) if a * b <= 0.0)
+        let at = |a: &Expr| (crate::eval::eval_f(&a.subst(&var, &lo), &|_| None), crate::eval::eval_f(&a.subst(&var, &hi), &|_| None));
+        match e {
+            Expr::Pow(base, power) if power.as_num().is_some_and(|n| n.is_neg()) => matches!(at(base), (Some(a), Some(b)) if a * b <= 0.0),
+            Expr::F(Func::Ln, a) => matches!(at(a), (Some(a), Some(b)) if a * b <= 0.0),
+            Expr::F(Func::Tan, a) => matches!(at(a), (Some(a), Some(b)) if {
+                let pole = |u: f64| (u / std::f64::consts::PI - 0.5).floor();
+                pole(a) != pole(b) || (a / std::f64::consts::PI - 0.5).fract() == 0.0
+            }),
+            _ => false,
+        }
     });
+    // the antiderivative at a numeric bound must have a value (ln u at u = 0 has none, the integral may converge)
+    let defined_at = |f: &Expr, bound: &Expr| !crate::eval::eval_f(&f.subst(&var, bound), &|_| None).is_some_and(|v| !v.is_finite());
     if let Some(f) = primitive(&simp(&body), &var) {
-        if bounds_match && !crosses_pole && !lo.contains(&infinite) && !hi.contains(&infinite) {
+        if bounds_match && !crosses_pole && !lo.contains(&infinite) && !hi.contains(&infinite) && defined_at(&f, &lo) && defined_at(&f, &hi) {
             return simp(&sub(f.subst(&var, &hi), f.subst(&var, &lo)));
         }
     }
@@ -41,6 +50,15 @@ fn infinite(e: &Expr) -> bool {
     matches!(e, Expr::C(v) if !v.v.f().is_finite())
 }
 
+/// An antiderivative of `body` in `var`, without the constant of integration.
+pub fn antiderivative(body: &Expr, var: &str) -> Result<Expr, String> {
+    primitive(&simp(body), var).map(|f| simp(&f)).ok_or_else(|| {
+        "integral: no antiderivative found for this integrand – with bounds, integral_a^b f dif x is evaluated numerically".into()
+    })
+}
+
+/// An antiderivative found by the rules below, or None: linearity, powers and functions of a linear argument,
+/// expanded products and integration by parts of a polynomial times a factor integrated again and again.
 fn primitive(e: &Expr, x: &str) -> Option<Expr> {
     if !e.has(x) { return Some(mul(vec![e.clone(), sym(x)])); }
     match e {
@@ -48,12 +66,15 @@ fn primitive(e: &Expr, x: &str) -> Option<Expr> {
         Expr::Add(ts) => Some(add(ts.iter().map(|t| primitive(t, x)).collect::<Option<_>>()?)),
         Expr::Mul(fs) => {
             let (constant, varying): (Vec<_>, Vec<_>) = fs.iter().cloned().partition(|f| !f.has(x));
-            if varying.len() != 1 { return None; }
-            Some(mul(vec![mul(constant), primitive(&varying[0], x)?]))
+            let found = match varying.as_slice() {
+                [one] => primitive(one, x),
+                _ => expanded(e, x).or_else(|| by_parts(&varying, x)),
+            };
+            Some(mul(vec![mul(constant), found?]))
         }
         Expr::Pow(a, b) if !b.has(x) => {
             let slope = a.diff(x);
-            if slope.has(x) || slope.is_zero() { return None; }
+            if slope.has(x) || slope.is_zero() { return expanded(e, x); }
             let f = if b.as_num().is_some_and(|n| n.same(Num::int(-1))) {
                 func(Func::Ln, func(Func::Abs, (**a).clone()))
             } else {
@@ -77,12 +98,40 @@ fn primitive(e: &Expr, x: &str) -> Option<Expr> {
                 Func::Cos => func(Func::Sin, a),
                 Func::Sinh => func(Func::Cosh, a),
                 Func::Cosh => func(Func::Sinh, a),
+                // u ln u − u and −ln|cos u|
+                Func::Ln => sub(mul(vec![a.clone(), func(Func::Ln, a.clone())]), a),
+                Func::Tan => neg(func(Func::Ln, func(Func::Abs, func(Func::Cos, a)))),
                 _ => return None,
             };
             Some(div(result, slope))
         }
         _ => None,
     }
+}
+
+/// A product or power that multiplies out into a sum: each term on its own.
+fn expanded(e: &Expr, x: &str) -> Option<Expr> {
+    let terms = crate::expr::expand(e);
+    if !matches!(terms, Expr::Add(_)) || terms == *e { return None; }
+    primitive(&terms, x)
+}
+
+/// ∫ p g = p G₁ − p′ G₂ + p″ G₃ − …, for a polynomial p and a factor g whose repeated antiderivatives Gₖ are found
+/// (an exponential, sin, cos, sinh or cosh of a linear argument). The sum ends after p's degree.
+fn by_parts(factors: &[Expr], x: &str) -> Option<Expr> {
+    let (polynomial, rest): (Vec<_>, Vec<_>) = factors.iter().cloned().partition(|f| crate::poly::coeffs(f, x).is_some());
+    let [g] = rest.as_slice() else { return None };
+    let mut p = simp(&mul(polynomial));
+    let mut integrated = primitive(g, x)?;
+    let mut terms = vec![];
+    for k in 0..=crate::poly::coeffs(&p, x)?.len() {
+        if p.is_zero() { return Some(add(terms)); }
+        let term = mul(vec![p.clone(), integrated.clone()]);
+        terms.push(if k % 2 == 0 { term } else { neg(term) });
+        p = simp(&p.diff(x));
+        integrated = primitive(&simp(&integrated), x)?;
+    }
+    None
 }
 
 /// Adaptive Gauss quadrature keeps samples away from improper endpoints.

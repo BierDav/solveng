@@ -140,8 +140,10 @@ fn docs(lines: &[&str]) -> Docs {
 
 fn read() -> Vec<Function> {
     let defaults: HashMap<String, String> = dictionary(CONFIG, "_DEF").into_iter().collect();
+    // an option's only values (_CH), and the strings options and graph's arguments take, alone or in an array (_VALUES)
     let choices: HashMap<String, Vec<String>> = dictionary(CONFIG, "_CH")
         .into_iter()
+        .chain(dictionary(CONFIG, "_VALUES"))
         .map(|(k, v)| {
             let inner = v.trim_start_matches('(').trim_end_matches(')').to_string();
             (k, split_top(&inner).into_iter().filter(|s| s.starts_with('"')).map(|s| s.trim_matches('"').to_string()).collect())
@@ -177,9 +179,12 @@ fn read() -> Vec<Function> {
                 let variadic = pname.starts_with("..");
                 let pname = pname.trim_start_matches("..").to_string();
                 let (types, doc) = d.params.get(&pname).cloned().unwrap_or_default();
-                let option = match pname.as_str() {
-                    "style" if name == "defined" => "defined-style",
-                    p => p,
+                // parameters standing for an option, or sharing another's values
+                let option = match (name.as_str(), pname.as_str()) {
+                    ("defined", "style") => "defined-style",
+                    ("graph", "colors" | "lines" | "dots" | "joined") => &*format!("graph-{pname}"),
+                    ("graph", "xmark") => "mark",
+                    (_, p) => p,
                 };
                 let default = match default {
                     Some(v) if v == "auto" => defaults.get(option).cloned().map_or(v, |o| format!("auto ({o})")),

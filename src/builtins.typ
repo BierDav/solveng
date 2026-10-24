@@ -178,33 +178,44 @@
 ///
 /// In math, Leibniz's notation does the same: `$(dif x^3)/(dif x) ->$`, `$dif/(dif x) x^3 ->$`,
 /// higher orders `$(dif^2 f(x))/(dif x^2)$` and partial derivatives `$(partial^2 f(x, y))/(partial x partial y)$`.
-/// `dif/(dif x)` applies to the term after it: `$dif/(dif x) x^2 + x ->$` is 2x + x.
+/// `dif/(dif x)` applies to the term after it: `$dif/(dif x) x^2 + x ->$` is 2x + x. A worksheet shows
+/// `diff(f, x)` in Leibniz's notation, d/dx f.
 ///
 /// - expression (expression): Expression to differentiate.
 /// - variable (name): Differentiation variable, written as a name rather than a value.
 /// -> expression
 #let diff = [#math.op("diff")<solveng-function>]
 
-/// Definite integral: `integrate(expression, variable, lower, upper)`.
+/// Integral: `integrate(expression, variable)` is the antiderivative, `integrate(expression, variable, lower, upper)`
+/// the definite integral.
 ///
-/// `$integrate(x^2, x, 0, 3) =$` gives 9. The variable is local to the operation.
-/// Bounds must have matching units (0 and ±∞ match any); the result has the integrand's unit times the
-/// variable's unit. Either bound may be infinite. Recognized antiderivatives simplify
-/// exactly; remaining integrals stay symbolic with `->` and use adaptive quadrature for
-/// `=` or graphs. Affine signal arguments are split at their corners so narrow pulses
-/// are not skipped. Undefined integrands or failure to converge report an error.
+/// `$integrate(x^2, x, 0, 3) =$` gives 9, `$integrate(x^2, x) ->$` gives x³/3. The variable is local to the
+/// operation.
 ///
-/// In math, `$integral_0^3 x^2 dif x =$` does the same. The differential ends the integrand
-/// wherever it stands: `$integral_0^1 x^2 + 1 dif x$` integrates x² + 1, `$integral_0^1 (x dif x) + 1$`
-/// adds 1 to the integral, `$integral_0^1 (dif x)/(1 + x^2)$` and `$integral_0^1 dif x$` are
-/// integrals too. A bound of 0 or ±∞ takes the other bound's unit (`$integral_0^(2 #s) 3 #A dif t$`);
-/// when both are, write the unit on one: `$integral_(0 #s)^infinity #e^(-t/tau) dif t$`. Indefinite
-/// integrals aren't supported.
+/// Without bounds the result is an antiderivative, without a constant of integration: `$integral #e^x dif x ->$`
+/// gives eˣ, `$integral x^2 sin(x) dif x ->$` gives −x² cos(x) + 2x sin(x) + 2 cos(x). It is found for sums of
+/// constants times powers, exponentials, sin, cos, sinh, cosh, ln and tan of a linear argument; for products that
+/// multiply out into such terms; and by parts for a polynomial times one exponential, sin, cos, sinh or cosh of a
+/// linear argument. Other integrands (`sin(x^2)`, `#e^x cos(x)`, rational functions other than 1/(a x + b))
+/// report an error.
+///
+/// With bounds, the bounds must have matching units (0 and ±∞ match any); the result has the integrand's unit
+/// times the variable's unit. Either bound may be infinite. Recognized antiderivatives simplify exactly where they
+/// are continuous between the bounds; remaining integrals stay symbolic with `->` and use adaptive quadrature for
+/// `=` or graphs. Affine signal arguments are split at their corners so narrow pulses are not skipped. Undefined
+/// integrands or failure to converge report an error.
+///
+/// In math, `$integral_0^3 x^2 dif x =$` and `$integral x^2 dif x ->$` do the same. The differential (`dif`, not
+/// `diff`, which is ∂) ends the integrand wherever it stands: `$integral_0^1 x^2 + 1 dif x$` integrates x² + 1,
+/// `$integral_0^1 (x dif x) + 1$` adds 1 to the integral, `$integral_0^1 (dif x)/(1 + x^2)$` and
+/// `$integral_0^1 dif x$` are integrals too. A bound of 0 or ±∞ takes the other bound's unit
+/// (`$integral_0^(2 #s) 3 #A dif t$`); when both are, write the unit on one:
+/// `$integral_(0 #s)^infinity #e^(-t/tau) dif t$`. A worksheet shows `integrate(…)` as the integral sign.
 ///
 /// - expression (expression): Integrand.
 /// - variable (name): Integration variable, written as a name rather than a value.
-/// - lower (expression): Lower bound, including `-infinity`.
-/// - upper (expression): Upper bound, including `infinity`.
+/// - lower (expression): Lower bound, including `-infinity`; none for an antiderivative.
+/// - upper (expression): Upper bound, including `infinity`; none for an antiderivative.
 /// -> expression or value
 #let integrate = [#math.op("integrate")<solveng-function>]
 
@@ -390,6 +401,7 @@
 ///
 /// The variables default to t and s: `$laplace(t^2) ->$`, `$F(p) := laplace(exp(-x), x, p)$`.
 /// (The keyword form `-> laplace` was removed; it's an error pointing here.)
+/// A worksheet shows the call as ℒ{f}, with the result variable as ℒ{f}(p) when it's given; `invlaplace` as ℒ⁻¹{F}.
 /// The input variable is local, so a worksheet value for it is ignored.
 /// Supports constants, polynomials through degree 33, affine exponentials,
 /// sine, cosine, hyperbolic sine and cosine, linear combinations, exponential

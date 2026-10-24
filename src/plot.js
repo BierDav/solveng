@@ -2,16 +2,20 @@
 // of the printed ones, with the document's own math as labels. Curves draw in when the graph comes into view; the
 // pointer shows every curve's value with its unit. Without scripts the static picture beside it stays.
 (() => {
-  if (window.solvengPlot) return;
+  // once per page; a changed copy (a live preview runs the new one in place of the old) takes over from the one there
+  const source = document.currentScript ? document.currentScript.textContent : '';
+  const before = window.solvengPlot;
+  if (before && before.source === source) return;
+  if (before && before.stop) before.stop();
   const NS = 'http://www.w3.org/2000/svg';
   const CSS = `
 .solveng-plot-live { position: relative; margin: 0 auto; max-width: 100%; text-align: left; }
 .solveng-plot .solveng-plot-live svg { display: block; overflow: visible; max-width: none; height: auto; margin: 0; }
-.solveng-plot-live .sp-lab { position: absolute; white-space: nowrap; line-height: 1.1; font-size: 0.92em; pointer-events: none; }
+.solveng-plot-live .sp-lab { position: absolute; white-space: nowrap; line-height: 1.1; pointer-events: none; }
 .solveng-plot-live .sp-legend { position: absolute; padding: 0.3em 0.55em; border: 1px solid rgba(127,127,127,.35); border-radius: 4px;
-  background: color-mix(in srgb, Canvas 88%, transparent); font-size: 0.92em; line-height: 1.5; pointer-events: none; }
+  background: color-mix(in srgb, Canvas 88%, transparent); line-height: 1.5; pointer-events: none; }
 .solveng-plot-live .sp-row { display: flex; align-items: center; gap: 0.45em; white-space: nowrap; }
-.solveng-plot-live .sp-tip { position: absolute; left: 0; top: 0; pointer-events: none; border-radius: 6px; font-size: 0.88em; overflow: hidden;
+.solveng-plot-live .sp-tip { position: absolute; left: 0; top: 0; pointer-events: none; border-radius: 6px; overflow: hidden;
   background: Canvas; color: CanvasText; border: 1px solid rgba(127,127,127,.3); box-shadow: 0 3px 12px rgba(0,0,0,.14); box-sizing: content-box;
   opacity: 0; line-height: 1.5; transition: width .18s cubic-bezier(.2,.7,.2,1), opacity .12s; }
 .solveng-plot-live .sp-tip-in { width: max-content; padding: 0.4em 0.6em; }
@@ -22,8 +26,6 @@
 @keyframes sp-snap { from { transform: translateY(40%); opacity: .25; } to { transform: none; opacity: 1; } }
 .solveng-plot-live .sp-snap { animation: sp-snap .18s ease-out; }
 .solveng-plot-live .sp-glide { transition: opacity .12s; }
-.solveng-plot-live .sp-glide.sp-anim { transition: transform .16s cubic-bezier(.2,.7,.2,1), opacity .12s; }
-.solveng-plot-live .sp-tip.sp-anim { transition: transform .2s cubic-bezier(.2,.7,.2,1), width .18s cubic-bezier(.2,.7,.2,1), opacity .12s; }
 @media (prefers-reduced-motion: reduce) { .solveng-plot-live .sp-tip, .solveng-plot-live .sp-glide, .solveng-plot-live .sp-trow { transition: opacity .12s; } .solveng-plot-live .sp-snap { animation: none; } }
 @keyframes sp-pop { from { transform: scale(0); } 60% { transform: scale(1.3); } to { transform: scale(1); } }
 @keyframes sp-fade { from { opacity: 0; } to { opacity: 1; } }
@@ -41,11 +43,20 @@
     return e;
   };
   const div = (cls, parent) => { const d = document.createElement('div'); d.className = cls; if (parent) parent.appendChild(d); return d; };
+  // ids unique to this copy too: an old copy's graphs may still be in the page
   let uid = 0;
+  const tag = Math.random().toString(36).slice(2, 7);
 
   // numbers as the document writes them: its significant digits and decimal separator, a real minus
-  const fmt = (v, spec) => {
+  // a value read at the pointer is only as exact as a pixel: given that step, it has the decimals the step has and keeps
+  // its trailing zeros, so its width stays put while the pointer moves; exact values (data points) drop them
+  const fmt = (v, spec, step) => {
     if (!isFinite(v)) return '';
+    const dec = step > 0 ? Math.ceil(-Math.log10(step) - 1e-9) : NaN;
+    if (dec >= 0 && dec <= 12 && Math.abs(v) < 1e7) {
+      const s = Math.abs(v) < Math.pow(10, -dec) / 2 ? (0).toFixed(dec) : v.toFixed(dec);
+      return s.replace('.', spec.sep || '.').replace(/^-/, '−');
+    }
     let s = Math.abs(v) < 1e-12 ? '0' : String(Number(v.toPrecision(Math.max(1, Math.min(spec.digits || 4, 15)))));
     if (s.includes('e')) {
       const [m, e] = s.split('e');
@@ -54,28 +65,36 @@
     return s.replace('.', spec.sep || '.').replace(/^-/, '−');
   };
 
-  function mark(shape, x, y, r, color, parent) {
-    const a = {fill: color};
-    if (shape === 's') return el('rect', {...a, x: x - r * 0.9, y: y - r * 0.9, width: r * 1.8, height: r * 1.8}, parent);
-    if (shape === '^') return el('path', {...a, d: `M${x},${y - r * 1.15}L${x + r * 1.05},${y + r * 0.7}L${x - r * 1.05},${y + r * 0.7}Z`}, parent);
-    if (shape === 'd') return el('path', {...a, d: `M${x},${y - r * 1.2}L${x + r * 1.05},${y}L${x},${y + r * 1.2}L${x - r * 1.05},${y}Z`}, parent);
-    return el('circle', {...a, cx: x, cy: y, r}, parent);
+  // a dot of a curve, size s across: its shape's corners as the printed graph has them (none: a circle), with a ring
+  // of the page's color drawn under it, so dots stand apart from lines and from each other where they touch
+  function dotEl(corners, x, y, s, color, parent) {
+    const a = {fill: color, stroke: 'Canvas', 'stroke-width': 2.2, 'stroke-linejoin': 'round', 'paint-order': 'stroke'};
+    if (!corners) return el('circle', {...a, cx: x, cy: y, r: s / 2}, parent);
+    return el('path', {...a, d: 'M' + corners.map(([u, v]) => (x + u * s).toFixed(2) + ',' + (y + v * s).toFixed(2)).join('L') + 'Z'}, parent);
   }
-  // a legend or tooltip swatch: the curve's line with its dash, and its mark where it has one
-  function swatch(c, withMark) {
-    const s = el('svg', {width: 26, height: 10, viewBox: '0 0 26 10'});
-    if (c.line || !withMark) el('line', {x1: 1, y1: 5, x2: 25, y2: 5, stroke: c.color, 'stroke-width': 1.8, 'stroke-dasharray': c.dash, 'stroke-linecap': 'round'}, s);
-    if (withMark) mark(c.shape, 13, 5, 3.3, c.color, s);
+  // the printed dot sizes (pt) on screen
+  const PX = 1.45;
+  // a legend or tooltip swatch: what the curve draws – its line with its dash, its dot, or both
+  function swatch(c) {
+    const s = el('svg', {width: 26, height: 12, viewBox: '0 0 26 12'});
+    if (c.legend !== 'dot') el('line', {x1: 1, y1: 6, x2: 25, y2: 6, stroke: c.color, 'stroke-width': 1.8, 'stroke-dasharray': c.dash, 'stroke-linecap': 'round'}, s);
+    if (c.legend !== 'line') dotEl(c.corners, 13, 6, (c.legend === 'dot' ? 5 : 4) * PX, c.color, s);
     return s;
   }
 
   // the y of a curve at x: interpolated along functions, the nearest point of data
   function valueAt(spec, curve, x, tol) {
     let best = null;
+    // a function's single points (2 for x = 1): its value right there, also where a line passes them
+    const own = spec.series.filter(s => s.c === curve && !s.data && !s.beyond && s.p.length === 1);
+    // (the same x up to rounding: axes in units are scaled)
+    const same = 1e-9 * (spec.x1 - spec.x0);
+    for (const s of own) if (Math.abs(s.p[0][0] - x) <= same) return {x, y: s.p[0][1]};
     for (const s of spec.series) {
-      if (s.c !== curve) continue;
+      // the lines joining a function's pieces (joined: true) are drawn, not read
+      if (s.c !== curve || s.bridge || s.beyond) continue;
       const p = s.p;
-      if (s.data) {
+      if (s.data || p.length === 1) {
         for (const q of p) { const d = Math.abs(q[0] - x); if (d <= tol && (!best || d < best.d)) best = {d, y: q[1], x: q[0]}; }
         continue;
       }
@@ -99,6 +118,8 @@
     let live = root.querySelector('.solveng-plot-live');
     if (live) live.remove();
     live = div('solveng-plot-live', root);
+    // the document's text size, which its math labels have too, not the page's larger one
+    if (spec.em) live.style.fontSize = spec.em + 'pt';
     root.querySelector('.solveng-plot-static').style.display = 'none';
 
     // labels first: the margins make room for them
@@ -112,7 +133,7 @@
     const lg = named.length ? div('sp-legend', live) : null;
     named.forEach(([c, i]) => {
       const row = div('sp-row', lg);
-      row.appendChild(swatch(c, !c.line || spec.series.some(s => s.c === i && s.dots)));
+      row.appendChild(swatch(c));
       row.appendChild(clone('c' + i));
     });
     const beside = lg && spec.legend === 'outside' ? size(lg).w + 16 : 0;
@@ -136,7 +157,7 @@
     const inner = (v, a, b) => Math.abs(v - a) > 1e-9 * (b - a) && Math.abs(v - b) > 1e-9 * (b - a);
     spec.xt.forEach(([v, marked]) => { if (!marked && inner(v, spec.x0, spec.x1)) el('line', {x1: X(v), x2: X(v), y1: top, y2: bottom}, grid); });
     spec.yt.forEach(([v, marked]) => { if (!marked && inner(v, spec.y0, spec.y1)) el('line', {y1: Y(v), y2: Y(v), x1: left, x2: right}, grid); });
-    const aid = 'sp-arrow-' + (++uid);
+    const aid = 'sp-arrow-' + tag + (++uid);
     el('path', {d: 'M0,0L10,5L0,10L3,5Z', fill: ink}, el('marker', {id: aid, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 8, markerHeight: 8, orient: 'auto'}, el('defs', {}, svg)));
     const axes = el('g', {stroke: ink, 'stroke-width': 1}, svg);
     el('line', {x1: left, y1: axY, x2: right + 10, y2: axY, 'marker-end': `url(#${aid})`}, axes);
@@ -153,23 +174,31 @@
     if (spec.origin) { const o = document.createElement('span'); o.className = 'sp-lab'; o.textContent = '0'; live.appendChild(o); put(o, axX - 4, axY + 4, 1, 0); }
 
     // curves, clipped to the data area; revealed left to right
-    const cid = 'sp-clip-' + uid;
+    const cid = 'sp-clip-' + tag + uid;
     const clipRect = el('rect', {x: left - 4, y: top - 4, width: animate ? 0 : right - left + 8, height: bottom - top + 8}, el('clipPath', {id: cid}, svg.querySelector('defs')));
-    const curves = el('g', {'clip-path': `url(#${cid})`, fill: 'none', 'stroke-linecap': 'round', 'stroke-linejoin': 'round'}, svg);
-    const marks = el('g', {'clip-path': `url(#${cid}-m)`}, svg);
+    // the series in the order written, as on paper: each one's line, then its dots, over the ones before it. Lines are
+    // clipped to the data area (and revealed left to right), dots only a little beyond it, so dots on its edge are whole.
     el('rect', {x: left - 8, y: top - 8, width: right - left + 16, height: bottom - top + 16}, el('clipPath', {id: cid + '-m'}, svg.querySelector('defs')));
+    const layers = el('g', {}, svg);
     const pops = [], drawn = [];
     const dot = (e, x, y, c, at) => { e.classList.add('sp-mk'); pops.push([e, at]); drawn.push({x, y, el: e, c}); };
     spec.series.forEach(s => {
-      const c = spec.curves[s.c], alone = s.data && !c.line;
-      if (!alone && s.p.length > 1) el('path', {d: 'M' + s.p.map(([x, y]) => X(x).toFixed(2) + ',' + Y(y).toFixed(2)).join('L'), stroke: c.color, 'stroke-width': 1.7, 'stroke-dasharray': c.dash}, curves);
-      if (alone || s.dots || s.p.length === 1) s.p.forEach(([x, y]) => dot(mark(c.shape, X(x), Y(y), alone ? 3.6 : 2.9, c.color, marks), x, y, s.c, x));
+      const c = spec.curves[s.c];
+      // joins (joined: true) are faint, as on paper: where the curve has values stays clear
+      if (s.line) el('path', {d: 'M' + s.p.map(([x, y]) => X(x).toFixed(2) + ',' + Y(y).toFixed(2)).join('L'), fill: 'none', stroke: c.color, 'stroke-width': 1.7, 'stroke-opacity': s.bridge ? 0.4 : 1,
+        'stroke-dasharray': c.dash, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'clip-path': `url(#${cid})`}, layers);
+      if (!s.d.length) return;
+      const g = el('g', {'clip-path': `url(#${cid}-m)`}, layers);
+      // a dot on a dot of another curve is smaller, the one below a ring around it
+      s.d.forEach(([x, y, below]) => dot(dotEl(c.corners, X(x), Y(y), s.size * PX * Math.pow(0.6, below), c.color, g), x, y, s.c, x));
     });
-    const guides = el('g', {stroke: '#6e6e6e', 'stroke-width': 0.8, 'stroke-dasharray': '4 3'}, svg);
+    // marked points: their guide lines under the curves, their dots over everything
+    const guides = svg.insertBefore(el('g', {stroke: '#6e6e6e', 'stroke-width': 0.8, 'stroke-dasharray': '4 3'}), layers);
+    const marked = el('g', {}, svg);
     (spec.points || []).forEach(p => {
       if (p.guides !== '') el('line', {x1: X(p.x), x2: X(p.x), y1: Y(spec.ax), y2: Y(p.y)}, guides);
       if (p.guides === 'xy') el('line', {x1: X(spec.ay), x2: X(p.x), y1: Y(p.y), y2: Y(p.y)}, guides);
-      dot(mark('o', X(p.x), Y(p.y), 2.9, ink, marks), p.x, p.y, -1, spec.x1);
+      dot(dotEl(null, X(p.x), Y(p.y), 4 * PX, ink, marked), p.x, p.y, -1, spec.x1);
     });
 
     // legend in the corner the graph picked, or beside it
@@ -194,8 +223,9 @@
     // the values under the pointer: one popup that glides along, eases to its new size and fades rows in and out
     const tip = div('sp-tip', live), tin = div('sp-tip-in', tip);
     // the line goes under the drawn points, so a point it reads sits on top of it
-    const hov = svg.insertBefore(el('g', {opacity: 0}), marks);
-    const rule = el('line', {x1: 0, x2: 0, y1: top, y2: bottom, stroke: ink, 'stroke-opacity': 0.35, class: 'sp-glide'}, hov);
+    const hovLine = svg.insertBefore(el('g', {opacity: 0}), layers), hov = svg.insertBefore(el('g', {opacity: 0}), marked);
+    const showHov = o => { hovLine.setAttribute('opacity', o); hov.setAttribute('opacity', o); };
+    const rule = el('line', {x1: 0, x2: 0, y1: top, y2: bottom, stroke: ink, 'stroke-opacity': 0.35, class: 'sp-glide'}, hovLine);
     const dots = spec.curves.map(c => el('circle', {r: 4, fill: c.color, style: 'stroke: Canvas', 'stroke-width': 1.5, class: 'sp-glide'}, hov));
     // the pointer counts a little beyond the data area, so points on its edges stay reachable all around
     const reach = 14;
@@ -209,20 +239,48 @@
     const xu = unit('xu'); if (xu) head.appendChild(xu);
     const rows = spec.curves.map((c, i) => {
       const r = div('sp-trow sp-off', tin), row = div('sp-row', r), n = num();
-      row.appendChild(swatch(c, !c.line));
-      if (labelOf('c' + i)) { row.appendChild(clone('c' + i)); row.appendChild(document.createTextNode(':')); }
-      else if (labelOf('yn')) { row.appendChild(clone('yn')); row.appendChild(document.createTextNode('=')); }
+      row.appendChild(swatch(c));
+      const key = labelOf('c' + i) ? 'c' + i : labelOf('yn') ? 'yn' : null;
+      const name = key ? clone(key) : null;
+      if (name) { row.appendChild(name); row.appendChild(document.createTextNode(key === 'yn' ? '=' : ':')); }
       row.appendChild(n);
       const yu = unit('yu'); if (yu) row.appendChild(yu);
-      return {r, n, data: spec.series.some(s => s.c === i && s.data)};
+      return {r, n, key, name, at: null, data: spec.series.some(s => s.c === i && s.data)};
     });
+    // a value read at a point near the pointer, not at its x, says where: y(1) = 4 – the x put in for the axis's
+    // variable in the curve's name, or after it, data (k = 1), where the name has none
+    const MATHML = 'http://www.w3.org/1998/Math/MathML';
+    const xname = labelOf('xn') ? labelOf('xn').textContent.trim() : '';
+    const where = (row, at) => {
+      if (!row.name || row.at === at) return;
+      row.at = at;
+      const d = clone(row.key);
+      if (at !== null) {
+        const value = fmt(at, spec);
+        let put = false;
+        if (xname) d.querySelectorAll('mi').forEach(mi => {
+          if (mi.textContent.trim() !== xname) return;
+          const mn = document.createElementNS(MATHML, 'mn'); mn.textContent = value; mi.replaceWith(mn); put = true;
+        });
+        if (!put) {
+          d.appendChild(document.createTextNode('\u2009('));
+          if (xname) { d.appendChild(clone('xn')); d.appendChild(document.createTextNode(' = ')); }
+          d.appendChild(document.createTextNode(value + ')'));
+        }
+      }
+      row.name.replaceChildren(...d.childNodes);
+    };
     // a value that jumps to the next data point rolls in; values gliding along a function just change
+    // numbers drop trailing zeros, so their width only grows while shown: the popup doesn't twitch with every digit
     const set = (n, text, snap) => {
       if (n.textContent === text) return;
       n.textContent = text;
+      n.style.minWidth = Math.max(parseFloat(n.style.minWidth) || 0, n.offsetWidth) + 'px';
       if (snap) { n.classList.remove('sp-snap'); void n.offsetWidth; n.classList.add('sp-snap'); }
     };
     const tol = 12 / (W - m.l - m.r) * (spec.x1 - spec.x0);
+    // what a pixel is worth on each axis, for the values read at the pointer
+    const xstep = (spec.x1 - spec.x0) / (W - m.l - m.r), ystep = (spec.y1 - spec.y0) / (bottom - top);
     let shown = false;
     // what the line can pin to: the data's points and the marked points, with the mark drawn for each if there is one
     const inside = ({x, y}) => x >= spec.x0 && x <= spec.x1 && y >= spec.y0 && y <= spec.y1;
@@ -231,6 +289,30 @@
     // the mark under the pointer grows
     let lit = [];
     const light = (els) => { lit.forEach(([e, k]) => e.classList.remove(k)); lit = els.filter(([e]) => e); lit.forEach(([e, k]) => e.classList.add(k)); };
+    // following the pointer is immediate; only jumps glide: pinning to a point and letting go, a data value moving to
+    // its next point, the popup changing sides. The element is drawn where it was and that offset eases away while it
+    // keeps following the pointer, so a glide runs to its end however fast the pointer moves. Entering, nothing
+    // glides in from where it was last.
+    const moving = new Set();
+    let raf = 0;
+    const offset = e => {
+      const t = e.g ? (performance.now() - e.g.t0) / 200 : 1;
+      if (t >= 1) { e.g = null; return [0, 0]; }
+      const k = Math.pow(1 - t, 3);
+      return [e.g.dx * k, e.g.dy * k];
+    };
+    const draw = e => { const [ox, oy] = offset(e); e.style.transform = `translate(${e.p[0] + ox}px, ${e.p[1] + oy}px)`; return e.g; };
+    const tick = () => { raf = 0; moving.forEach(e => { if (!draw(e)) moving.delete(e); }); if (moving.size) raf = requestAnimationFrame(tick); };
+    const place = (e, x, y, jump) => {
+      if (jump && shown && e.p && !reduced() && (x !== e.p[0] || y !== e.p[1])) {
+        const [ox, oy] = offset(e);
+        e.g = {dx: e.p[0] + ox - x, dy: e.p[1] + oy - y, t0: performance.now()};
+        moving.add(e);
+        if (!raf) raf = requestAnimationFrame(tick);
+      }
+      e.p = [x, y];
+      draw(e);
+    };
     let pinned = null;
     area.addEventListener('pointermove', ev => {
       const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) * W / r.width, py = (ev.clientY - r.top) * H / r.height;
@@ -240,10 +322,6 @@
       const near = hit ? hit.x : null, pin = near !== pinned; pinned = near;
       const glow = hit && hit.el ? [[hit.el, 'sp-hot']] : [];
       const x = near ?? Math.min(spec.x1, Math.max(spec.x0, spec.x0 + (px - m.l) / (W - m.l - m.r) * (spec.x1 - spec.x0)));
-      // following the pointer is immediate; only jumps glide: pinning to a point and letting go, a data value
-      // moving to its next point, the popup changing sides. Entering, nothing glides in from where it was last.
-      const glide = (e, on) => e.classList.toggle('sp-anim', shown && on);
-      glide(rule, pin || near !== null);
       let any = false;
       spec.curves.forEach((c, i) => {
         // data shows the value of a point the line passes close to, at the point
@@ -251,31 +329,33 @@
         if (!v || !(v.y >= spec.y0 && v.y <= spec.y1)) { dots[i].setAttribute('opacity', 0); row.r.classList.add('sp-off'); return; }
         any = true;
         // a drawn point the line reads shows itself, no dot covers it
-        if (row.data && markOf(i, v.x, v.y)) { dots[i].setAttribute('opacity', 0); row.r.classList.remove('sp-off'); set(row.n, fmt(v.y, spec), true); return; }
-        const to = `translate(${X(v.x)}px, ${Y(v.y)}px)`;
-        glide(dots[i], pin || near !== null || (row.data && dots[i].style.transform !== to && dots[i].getAttribute('opacity') === '1'));
-        dots[i].setAttribute('opacity', 1); dots[i].style.transform = to;
+        where(row, Math.abs(v.x - x) > 1e-9 * (spec.x1 - spec.x0) ? v.x : null);
+        if (markOf(i, v.x, v.y)) { dots[i].setAttribute('opacity', 0); row.r.classList.remove('sp-off'); set(row.n, fmt(v.y, spec), true); return; }
+        place(dots[i], X(v.x), Y(v.y), pin || (row.data && dots[i].getAttribute('opacity') === '1'));
+        dots[i].setAttribute('opacity', 1);
         row.r.classList.remove('sp-off');
-        set(row.n, fmt(v.y, spec), row.data);
+        set(row.n, fmt(v.y, spec, row.data || near !== null ? 0 : ystep), row.data);
       });
       light(glow);
-      set(hx, fmt(x, spec), pin && near !== null);
-      rule.style.transform = `translateX(${X(x)}px)`;
-      hov.setAttribute('opacity', 1);
+      set(hx, fmt(x, spec, near === null ? xstep : 0), pin && near !== null);
+      place(rule, X(x), 0, pin);
+      showHov(1);
       // the size follows the content, the side follows the room
-      const tw = tin.offsetWidth, tx = X(x), side = tx + 14 + tw > W;
-      glide(tip, pin || near !== null || side !== tip.side);
+      // changing sides needs a margin past the edge, or a popup right at it flips back and forth
+      const tw = tin.offsetWidth, tx = X(x), side = tip.side ? tx + 14 + tw > W - 24 : tx + 14 + tw > W;
+      place(tip, side ? tx - 14 - tw : tx + 14, top + 4, pin || side !== tip.side);
       tip.side = side;
       tip.style.width = tw + 'px';
-      tip.style.transform = `translate(${side ? tx - 14 - tw : tx + 14}px, ${top + 4}px)`;
       tip.style.opacity = any ? 1 : 0;
       shown = true;
     });
-    area.addEventListener('pointerleave', () => { hov.setAttribute('opacity', 0); tip.style.opacity = 0; shown = false; pinned = null; light([]); });
+    area.addEventListener('pointerleave', () => { [tip, rule, ...dots].forEach(e => { e.g = null; }); [hx, ...rows.map(r => r.n)].forEach(n => { n.style.minWidth = ''; }); showHov(0); tip.style.opacity = 0; shown = false; pinned = null; light([]); });
   }
 
+  const stops = [];
   function start() {
     const st = document.createElement('style'); st.textContent = CSS; document.head.appendChild(st);
+    stops.push(() => st.remove());
     const draw = (r, animate) => { try { render(r, animate); } catch (e) { console.error('solveng graph:', e); } };
     const known = new WeakSet();
     // drawn when it comes into view, so the curves draw in where the reader sees them; the static picture until then
@@ -289,14 +369,17 @@
       if (io) io.observe(r); else draw(r, false);
     });
     scan();
-    new MutationObserver(scan).observe(document.body, {childList: true, subtree: true});
+    const mo = new MutationObserver(scan);
+    mo.observe(document.body, {childList: true, subtree: true});
     let w = window.innerWidth, timer;
-    window.addEventListener('resize', () => {
+    const resize = () => {
       if (window.innerWidth === w) return;
       w = window.innerWidth; clearTimeout(timer);
       timer = setTimeout(() => document.querySelectorAll('.solveng-plot').forEach(r => { if (r.querySelector('.solveng-plot-live')) draw(r, false); }), 150);
-    });
+    };
+    window.addEventListener('resize', resize);
+    stops.push(() => { mo.disconnect(); if (io) io.disconnect(); window.removeEventListener('resize', resize); clearTimeout(timer); });
   }
-  window.solvengPlot = {render};
+  window.solvengPlot = {render, source, stop: () => stops.splice(0).forEach(f => f())};
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();

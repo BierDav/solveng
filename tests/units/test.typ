@@ -33,7 +33,7 @@ $N_c := 4 tau =$ #expect("N_c", 4, u: "count")
   $rho := 0.0178 #Ω mm^2/#m$ #expect("ρ", 1.78e-8)
   $Q_0 := frac(3450, 2) mAh$ #expect("Q_0", 6210)
   $I := 2 #A$ $P := I^2 dot 3 #Ω = #W$ #expect("P", 12, u: "W")
-  $U_2 := 1,5 #V$ #expect("U_2", 1.5)
+  $U_2 := 1.5 #V$ #expect("U_2", 1.5)
   $A_x := 12$ $x := A_x dot 2 #A =$ #expect("x", 24)
   // A·A is A², not "A A"; mol and cd
   $P_2 := I I =$ #expect("P_2", 4, u: "A^2")
@@ -73,3 +73,8 @@ $N_c := 4 tau =$ #expect("N_c", 4, u: "count")
   #expect("x", 3) #expect("y", 2) #expect("n", 24) #expect("a", 4, u: "sheep·m") #expect("w", 6, u: "ü^2") #expect("v", 5, u: "ü")
   #worksheet(errors: "document", scope: "inherit")[$z := x + 1 #m =$ #fails("different units")]
 ]
+
+// Code identifiers with underscores need # to avoid Typst's math subscripts.
+#let fluid_ounce = unit($28.413 #units.ml$, display: $"fl oz"$)
+$1 #units.l -> #fluid_ounce$ #passes()
+$"volume" := 1 #units.l = #fluid_ounce$ #expect("volume", 0.001)

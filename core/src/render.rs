@@ -44,7 +44,22 @@ fn matrix_op(op: Op, args: Vec<(String, u8)>) -> (String, u8) {
         Op::Transpose => (format!("{}^(T)", wrap(args[0].clone(), P_ATOM)), P_POW),
         Op::Cross => (format!("{} times {}", wrap(args[0].clone(), P_POW), wrap(args[1].clone(), P_POW)), P_PROD),
         Op::Det | Op::Trace | Op::Norm => (format!("{}({})", op.name(), args[0].0), P_ATOM),
+        Op::Row => (format!("{}[{}, :]", wrap(args[0].clone(), P_ATOM), args[1].0), P_ATOM),
+        Op::Col => (format!("{}[:, {}]", wrap(args[0].clone(), P_ATOM), args[1].0), P_ATOM),
         op => (format!("{}({})", function(op.name()), args.into_iter().map(|a| a.0).collect::<Vec<_>>().join(", ")), P_ATOM),
+    }
+}
+
+/// `a and b`, `a or b` as they are calculated, as branches: b where a holds, else 0; 1 where a holds, else b.
+/// (and?, a, b) when the branches are one of these with conditions on both sides.
+fn logic(e: &Expr) -> Option<(bool, &Expr, &Expr)> {
+    let Expr::Cases(v) = e else { return None };
+    let condition = |x: &Expr| matches!(x, Expr::Cmp(..)) || logic(x).is_some();
+    let (one, zero) = (expr::int(1), expr::int(0));
+    match v.as_slice() {
+        [(b, a), (z, o)] if *z == zero && *o == one && condition(a) && condition(b) => Some((true, a, b)),
+        [(o1, a), (b, o2)] if *o1 == one && *o2 == one && condition(a) && condition(b) => Some((false, a, b)),
+        _ => None,
     }
 }
 
@@ -124,6 +139,11 @@ impl R<'_> {
 
     pub fn expr(&self, e: &Expr) -> (String, u8) {
         match e {
+            Expr::Cases(_) if logic(e).is_some() => {
+                let (and, a, b) = logic(e).unwrap();
+                let part = |x: &Expr| { let s = self.expr(x).0; if and && logic(x).is_some_and(|l| !l.0) { format!("({s})") } else { s } };
+                (format!("{} {} {}", part(a), if and { "and" } else { "or" }, part(b)), P_REL)
+            }
             Expr::Cases(v) => (cases(v.iter().map(|(value, condition)| (self.expr(value).0, self.expr(condition).0)).collect()), P_ATOM),
             Expr::Vector(v) => (format!("vec({})", v.iter().map(|e| self.expr(e).0).collect::<Vec<_>>().join(", ")), P_ATOM),
             Expr::Matrix(rs) => (mat(rs.iter().map(|r| r.iter().map(|e| self.expr(e).0).collect()).collect()), P_ATOM),
@@ -169,11 +189,12 @@ impl R<'_> {
                 }
                 (s, P_REL)
             }
-            Expr::InverseLaplace(a, x, by) => (format!("op(\"invlaplace\")({}, {}, {})", self.expr(a).0, name(x), self.expr(by).0), P_ATOM),
+            // ℒ⁻¹{F}(t): the inverse transform of F in x, at by
+            Expr::InverseLaplace(a, _, by) => (format!("cal(L)^(-1) lr({{{}}})({})", self.expr(a).0, self.expr(by).0), P_ATOM),
             Expr::Subs(a, x, by) => (format!("lr(({})) limits(|)_({} = {})", self.expr(a).0, name(x), self.expr(by).0), P_PROD),
-            Expr::Derivative(a, x) => (format!("frac(dif, dif {}) lr(({}))", name(x), self.expr(a).0), P_PROD),
-            Expr::Sum(a, v, lo, hi) => (format!("sum_({} = {})^({}) ({})", name(v), self.expr(lo).0, self.expr(hi).0, self.expr(a).0), P_PROD),
-            Expr::Integral(a, v, lo, hi) => (format!("integral_({})^({}) {} dif {}", self.expr(lo).0, self.expr(hi).0, self.expr(a).0, name(v)), P_PROD),
+            Expr::Derivative(a, x) => (format!("frac(dif, dif {}) {}", name(x), wrap(self.expr(a), P_FRAC)), P_PROD),
+            Expr::Sum(a, v, lo, hi) => (format!("sum_({} = {})^({}) {}", name(v), self.expr(lo).0, self.expr(hi).0, wrap(self.expr(a), P_NEG)), P_PROD),
+            Expr::Integral(a, v, lo, hi) => (format!("integral_({})^({}) {} dif {}", self.expr(lo).0, self.expr(hi).0, wrap(self.expr(a), P_NEG), name(v)), P_PROD),
             Expr::Number(a, _, _, u) => (format!("{}({}, {})", self.operation("number"), self.expr(a).0, unit(u, self.units, self.cfg)), P_ATOM),
         }
     }
@@ -340,10 +361,13 @@ impl R<'_> {
                         pair.get(1).map(|a| self.ast(a).0).unwrap_or_else(|| "\"1\"".into()))).collect()), P_ATOM);
                 }
                 let a: Vec<String> = args.iter().map(|x| self.ast(x).0).collect();
+                // the operand of d/dx, ∫ and ∑, in parentheses where it would read as more
+                let operand = |min: u8| wrap(self.ast(&args[0]), min);
                 match n.as_str() {
-                    "diff" if a.len() == 2 => (format!("frac(dif, dif {}) lr(({}))", a[1], a[0]), P_PROD),
-                    "sum" if a.len() == 4 => (format!("sum_({} = {})^({}) ({})", a[1], a[2], a[3], a[0]), P_PROD),
-                    "integrate" if a.len() == 4 => (format!("integral_({})^({}) {} dif {}", a[2], a[3], a[0], a[1]), P_PROD),
+                    "diff" if a.len() == 2 => (format!("frac(dif, dif {}) {}", a[1], operand(P_FRAC)), P_PROD),
+                    "sum" if a.len() == 4 => (format!("sum_({} = {})^({}) {}", a[1], a[2], a[3], operand(P_NEG)), P_PROD),
+                    "integrate" if a.len() == 4 => (format!("integral_({})^({}) {} dif {}", a[2], a[3], operand(P_NEG), a[1]), P_PROD),
+                    "integrate" if a.len() == 2 => (format!("integral {} dif {}", operand(P_NEG), a[1]), P_PROD),
                     "sqrt" => (format!("sqrt({})", a.join(", ")), P_ATOM),
                     "abs" => (format!("abs({})", a.join(", ")), P_ATOM),
                     "exp" => (format!("e^({})", a.join(", ")), P_POW),
@@ -354,6 +378,7 @@ impl R<'_> {
             }
             Ast::Arg(n, x) => (format!("{} : {}", name(n), self.ast(x).0), P_ATOM),
             Ast::Index(x, idx) => (format!("{}[{}]", wrap(self.ast(x), P_ATOM), idx.iter().map(|i| self.ast(i).0).collect::<Vec<_>>().join(", ")), P_ATOM),
+            Ast::All => (":".into(), P_ATOM),
             Ast::Range(a, b) => (format!("{} .. {}", wrap(self.ast(a), P_SUM), wrap(self.ast(b), P_SUM)), P_REL),
             Ast::Abs(x) => (format!("abs({})", self.ast(x).0), P_ATOM),
             Ast::Matrix(rs) => (mat(rs.iter().map(|r| r.iter().map(|x| self.ast(x).0).collect()).collect()), P_ATOM),
@@ -363,6 +388,11 @@ impl R<'_> {
                     s += &format!(" {} {}", rel(*r), wrap(self.ast(x), P_SUM));
                 }
                 (s, P_REL)
+            }
+            Ast::And(v) | Ast::Or(v) => {
+                let and = matches!(a, Ast::And(_));
+                let part = |x: &Ast| { let s = self.ast(x).0; if and && matches!(x, Ast::Or(_)) { format!("({s})") } else { s } };
+                (v.iter().map(part).collect::<Vec<_>>().join(if and { " and " } else { " or " }), P_REL)
             }
         }
     }
