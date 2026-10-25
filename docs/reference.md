@@ -29,6 +29,7 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 - [`conj`](#conj)
 - [`number`](#number)
 - [`floor`](#floor)
+- [`ceil`](#ceil)
 - [`factorial`](#factorial)
 - [`diff`](#diff)
 - [`integrate`](#integrate)
@@ -90,6 +91,7 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 | [`conj`](#conj) | Complex conjugate: `conj(3 + 4 #i)` is 3 − 4i, shown with a bar. |
 | [`number`](#number) | A value as a plain number in a unit: `number(U, mV)` is U in millivolts, without a unit. |
 | [`floor`](#floor) | Greatest integer less than or equal to x: `floor(x)`. |
+| [`ceil`](#ceil) | Least integer greater than or equal to x: `ceil(x)`. |
 | [`factorial`](#factorial) | Factorial of a nonnegative integer: `factorial(k)`. |
 | [`diff`](#diff) | Symbolically differentiates an expression with respect to a name: `diff(expression, variable)`. |
 | [`integrate`](#integrate) | Integral: `integrate(expression, variable)` is the antiderivative, `integrate(expression, variable, lower, upper)` the definite integral. |
@@ -436,7 +438,7 @@ Drawn with `@preview/lilaq:0.6.0` in the schoolbook style: axes through the orig
 
 **Data:** a vector of values is plotted as the points through its elements, joined in index order (with a dot at each when there are at most 30): `#graph($y$)` against the zero-based index k (as in `at(y, k)`), `#graph($y(τ)$)` over the vector `tau` of the same length – or over any expression without free names that is one, `y(2 tau)`. Units come from the elements (each vector needs one unit for all its elements; every element must have a value). Function curves can go alongside: `#graph($y(τ) \ c(τ)$)` with a function `c`, or an expression in `tau` (`$2 tau$`), where `tau` stands for the x axis and the function is sampled over it; the x range is from the data's first to last x value unless `xrange` says otherwise, and the units of x and y must agree. Marks work on data too, with linear interpolation between the points: x values, `"roots"` and `"crossings"` (with data and with functions) where the values change sign, `"extrema"` as the local extreme points, and `ymark`. A vector with a free name is several curves instead, one per element (`$vec(t, t^2)$`). For measurements, `lines: none` draws the data as points alone, without the line: `#graph($y(τ) \ c(τ)$, lines: (none, auto))` shows measured points next to the curve `c`.
 
-**Piecewise functions** (`cases`) break their line where a branch changes with a jump; a value that holds at a single x – `2 & "for" x = 1`, or a point set apart from the line – is drawn as a dot. `joined: true` joins the pieces through them instead.
+**Piecewise functions** (`cases`) break their line where a branch changes with a jump; a value that holds at a single x – `2 & "for" x = 1`, or a point set apart from the line – is drawn as a dot. `joined: true` joins the pieces through them instead. The steps of `rect`, `sgn`, `floor` and `ceil` break the line the same way, without dots for the values right on their edges; with `joined: true` each step is joined by a vertical line.
 
 **Layers:** curves are drawn in the order written, each over the ones before and over the axes: a function written after measured points runs over them, one written before runs under them. Every dot has a thin ring of the page's color, so dots stand apart from lines and from each other; a dot right on a dot of another curve is drawn smaller, the one below showing as a ring around it.
 
@@ -639,6 +641,19 @@ Returns number.
 Greatest integer less than or equal to x: `floor(x)`.
 
 The argument and result are unitless. Used for finite time-delay sums.
+Its derivative stays symbolic.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | number |  | Unitless real value. |
+
+Returns integer.
+
+## `ceil`
+
+Least integer greater than or equal to x: `ceil(x)`.
+
+The argument and result are unitless. Typst's math writes it ⌈x⌉, which solveng reads as well.
 Its derivative stays symbolic.
 
 | parameter | type | default | |

@@ -505,7 +505,7 @@ impl Part {
         // Included where a worksheet of another file evaluates math.
         let math = path.as_deref().filter(|p| included_in_worksheet(context, p)).map(|_| true);
         let active = activity(&doc, &elements, &calls, &scopes, &reported, math, &|| math == Some(true));
-        let bindings = bindings::Bindings::new(&doc);
+        let bindings = bindings::Bindings::with_files(&doc, &context.files, path.as_deref().unwrap_or(""));
         Part { path, doc, calls, elements, active, bindings }
     }
 
@@ -536,7 +536,7 @@ impl<'a> Analysis<'a> {
         let math = wrapped(context, &context.path);
         let calculated = activity(&doc, &elements, &calls, &scopes, &context.reported_in(&context.path), math,
             &|| included_in_worksheet(context, &context.path));
-        let bindings = bindings::Bindings::new(&doc);
+        let bindings = bindings::Bindings::with_files(&doc, &context.files, &context.path);
         Analysis { doc, context, elements, calculated, calls, bindings, scopes, around: OnceCell::new() }
     }
 

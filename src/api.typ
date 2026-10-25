@@ -61,8 +61,9 @@
 // how many worksheets are around, kept with the configuration that every element reads anyway
 #let _blocks(cf) = cf.at("#blocks", default: 0)
 // `b` with math calculated (unless the innermost worksheet around an element says evaluate: false);
-// hidden: what is calculated isn't shown (only its problems), the rest of `b` is
-#let _rules(b, clear-at, hidden) = context {
+// hidden: what is calculated isn't shown (only its problems), the rest of `b` is.
+// Not a `context`: that would hide `b` from show rules around it that read its structure (letmeout).
+#let _rules(b, clear-at, hidden) = {
   show std.math.equation: it => context {
     if _busy.get() > 0 or _reshown(it) or _own(it) { return it }
     let cf = _cf.get()

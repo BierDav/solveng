@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use typst_syntax::{LinkedNode, SyntaxKind, SyntaxNode};
+use typst_syntax::{LinkedNode, SyntaxKind, SyntaxNode, ast};
 
 use crate::params::{self, Function};
 use crate::text::Doc;
@@ -71,7 +71,9 @@ impl Wrapper {
     fn with(&self, args: Option<&LinkedNode>) -> Wrapper {
         let mut wrapper = self.clone();
         if let Some(args) = args {
-            wrapper.evaluate = evaluate(args);
+            if args.children().any(|n| n.kind() == SyntaxKind::Named && n.children().next().is_some_and(|c| c.get().leaf_text() == "evaluate")) {
+                wrapper.evaluate = evaluate(args);
+            }
             for named in args.children().filter(|n| n.kind() == SyntaxKind::Named) {
                 let source = named.get().clone().full_text();
                 if let Some((name, value)) = source.split_once(':')
@@ -104,14 +106,11 @@ fn collect_aliases(doc: &Doc, files: &[ContextFile], path: &str, out: &mut Alias
     for node in LinkedNode::new(&root).children() {
         match node.kind() {
             SyntaxKind::LetBinding => {
-                let mut parts = node.children().filter(|c| !c.kind().is_trivia());
-                let (Some(kw), Some(name)) = (parts.next(), parts.next()) else { continue };
-                let Some(value) = node.children().rev().find(|c| matches!(c.kind(), SyntaxKind::Ident | SyntaxKind::FuncCall)) else { continue };
-                if kw.kind() != SyntaxKind::Let || name.kind() != SyntaxKind::Ident {
-                    continue;
-                }
+                let Some(binding) = node.get().cast::<ast::LetBinding>() else { continue };
+                let Some(name) = binding.kind().bindings().into_iter().next() else { continue };
+                let Some(value) = node.children().rev().find(|c| matches!(c.kind(), SyntaxKind::Ident | SyntaxKind::FuncCall | SyntaxKind::Closure)) else { continue };
                 if let Some(wrapper) = wrapper_of(&value, out) {
-                    out.insert(name.get().leaf_text().to_string(), wrapper);
+                    out.insert(name.as_str().to_string(), wrapper);
                 }
             }
             SyntaxKind::ModuleImport => {
@@ -140,6 +139,7 @@ fn collect_aliases(doc: &Doc, files: &[ContextFile], path: &str, out: &mut Alias
             _ => {}
         }
     }
+    seen.pop();
 }
 
 /// The wrapper an expression names: `worksheet`, an alias, or either with `.with(…)`.
@@ -157,25 +157,59 @@ fn wrapper_of(node: &LinkedNode, aliases: &Aliases) -> Option<Wrapper> {
             };
             Some(base.with(node.children().find(|c| c.kind() == SyntaxKind::Args).as_ref()))
         }
+        SyntaxKind::Closure => {
+            let closure = node.get().cast::<ast::Closure>()?;
+            let body_name = closure.params().children().filter_map(|param| match param {
+                ast::Param::Pos(pattern) => pattern.bindings().into_iter().next().map(|i| i.as_str().to_string()),
+                _ => None,
+            }).last()?;
+            let body = node.children().last()?;
+            forwarded(&body, &body_name, aliases, None)
+        }
+        _ => None,
+    }
+}
+
+/// Follow a template's content parameter through worksheet calls and show rules. A worksheet elsewhere in
+/// the closure does not make it a worksheet template: its body must actually reach the calculating wrapper.
+fn forwarded(node: &LinkedNode, body: &str, aliases: &Aliases, ambient: Option<Wrapper>) -> Option<Wrapper> {
+    match node.kind() {
+        SyntaxKind::Ident if node.get().leaf_text() == body => ambient,
+        SyntaxKind::CodeBlock | SyntaxKind::Code | SyntaxKind::ContentBlock | SyntaxKind::Markup => {
+            let mut current = ambient;
+            let mut result = None;
+            for child in node.children() {
+                if child.kind() == SyntaxKind::ShowRule {
+                    // Only selectorless rules wrap the remaining content.
+                    let parts: Vec<_> = child.children().filter(|c| !c.kind().is_trivia()).collect();
+                    if parts.get(1).is_some_and(|c| c.kind() == SyntaxKind::Colon)
+                        && let Some(wrapper) = parts.last().and_then(|n| wrapper_of(n, aliases)) {
+                            current = Some(wrapper);
+                        }
+                } else if let Some(wrapper) = forwarded(&child, body, aliases, current.clone()) {
+                    result = Some(wrapper);
+                }
+            }
+            result
+        }
+        SyntaxKind::FuncCall => {
+            let wrapper = wrapper_of(node, aliases).or(ambient);
+            let args = node.children().find(|c| c.kind() == SyntaxKind::Args)?;
+            args.children().filter(|c| !matches!(c.kind(), SyntaxKind::Named))
+                .find_map(|arg| forwarded(&arg, body, aliases, wrapper.clone()))
+        }
+        SyntaxKind::Parenthesized => node.children().find_map(|child| forwarded(&child, body, aliases, ambient.clone())),
+        // Let bindings, nested closures and conditional control flow need runtime information.
         _ => None,
     }
 }
 
 /// The names an import takes: `None` for `*`, else (as written there, as here).
 fn imported(items: &LinkedNode) -> Option<Vec<(String, String)>> {
-    let mut out = Vec::new();
-    if items.children().any(|c| c.kind() == SyntaxKind::Star) {
-        return None;
-    }
-    for item in items.children() {
-        let names: Vec<String> = item.children().filter(|c| c.kind() == SyntaxKind::Ident).map(|c| c.get().leaf_text().to_string()).collect();
-        match (item.kind(), names.as_slice()) {
-            (SyntaxKind::ImportItemPath, [name]) => out.push((name.clone(), name.clone())),
-            (SyntaxKind::RenamedImportItem, [original, name]) => out.push((original.clone(), name.clone())),
-            _ => {}
-        }
-    }
-    Some(out)
+    if items.children().any(|c| c.kind() == SyntaxKind::Star) { return None; }
+    Some(items.get().cast::<ast::ImportItems>()?.iter().map(|item| {
+        (item.original_name().as_str().to_string(), item.bound_name().as_str().to_string())
+    }).collect())
 }
 
 #[derive(Clone, Debug)]

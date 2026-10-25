@@ -3,8 +3,8 @@
 //! made with `base-unit`, `unit`, `constant`, `operation` and `math.op`. Typst resolves them lexically, so a binding means the same in every
 //! worksheet; solveng sees their values. Quoted text in math is a worksheet variable and never one of them.
 //!
-//! Limits: bindings are read from the document itself; names imported from other local files (`#import
-//! "defaults.typ": minute`) and closure parameters aren't followed.
+//! Local imports follow their exported bindings recursively, with a bounded cycle guard. Dynamic module
+//! expressions and closure parameter values require the compiler.
 
 use std::sync::LazyLock;
 
@@ -147,6 +147,7 @@ impl Meaning {
 }
 
 struct Binding {
+    exported: bool,
     name: String,
     start: usize,
     end: usize,
@@ -176,6 +177,7 @@ pub(crate) struct InlineReference {
 /// modules (`#import units: km`).
 #[derive(Clone, Debug)]
 struct Import {
+    exported: bool,
     /// None for the package.
     module: Option<Module>,
     /// The names it lists; None for `*`.
@@ -186,6 +188,10 @@ struct Import {
     line_end: usize,
     visible: usize,
     scope_end: usize,
+    /// Modules exported by a package or local template, under their exported names.
+    available: Vec<(Module, String)>,
+    /// Exported name to local name, including renamed imports.
+    selected: Vec<(String, String)>,
 }
 
 #[derive(Default)]
@@ -242,12 +248,22 @@ fn equation(node: &LinkedNode) -> Option<String> {
 
 impl Bindings {
     pub fn new(doc: &Doc) -> Self {
+        Self::with_files(doc, &[], "")
+    }
+
+    pub fn with_files(doc: &Doc, files: &[crate::ContextFile], path: &str) -> Self {
+        Self::read(doc, files, path, &mut Vec::new())
+    }
+
+    fn read(doc: &Doc, files: &[crate::ContextFile], path: &str, seen: &mut Vec<String>) -> Self {
+        if seen.len() >= 32 || seen.iter().any(|p| p == path) { return Self::default(); }
+        seen.push(path.into());
         let syntax = typst_syntax::parse(&doc.s);
         let root = LinkedNode::new(&syntax);
         let mut result = Self::default();
         visit(&root, &mut |node| {
             if let Some(import) = node.get().cast::<ModuleImport>() {
-                result.import(node, import, doc);
+                result.import(node, import, doc, files, path, seen);
                 return;
             }
             let Some(binding) = node.get().cast::<LetBinding>() else { return };
@@ -259,12 +275,13 @@ impl Bindings {
             for name in binding.kind().bindings() {
                 visit(node, &mut |leaf| {
                     if std::ptr::eq(leaf.get(), name.to_untyped()) {
-                        result.definitions.push(Binding { name: name.as_str().into(), start: doc.of_byte(leaf.offset()), end: doc.of_byte(leaf.offset() + leaf.len()), visible: doc.of_byte(node.offset() + node.len()), scope_end, meaning: meaning.clone(), module: None, original: None, wildcard: None });
+                        result.definitions.push(Binding { exported: module_level(node), name: name.as_str().into(), start: doc.of_byte(leaf.offset()), end: doc.of_byte(leaf.offset() + leaf.len()), visible: doc.of_byte(node.offset() + node.len()), scope_end, meaning: meaning.clone(), module: None, original: None, wildcard: None });
                     }
                 });
             }
         });
         visit(&root, &mut |node| result.read_use(node, doc));
+        seen.pop();
         result
     }
 
@@ -356,7 +373,7 @@ impl Bindings {
     }
 
     /// `#import units: km, mA as milli` or `#import constants: *`: the names a module gives, visible like other imports.
-    fn import(&mut self, node: &LinkedNode, import: ModuleImport, doc: &Doc) {
+    fn import(&mut self, node: &LinkedNode, import: ModuleImport, doc: &Doc, files: &[crate::ContextFile], path: &str, seen: &mut Vec<String>) {
         let visible = doc.of_byte(node.offset() + node.len());
         let scope_end = lexical_end(node, doc);
         let listed: Option<Vec<String>> = match import.imports() {
@@ -369,28 +386,60 @@ impl Bindings {
             ast::Expr::Ident(ident) => ident.as_str().to_string(),
             ast::Expr::FieldAccess(access) => access.field().as_str().to_string(),
             ast::Expr::Str(source) => {
-                // solveng's package, which holds the modules
-                if source.get().contains("solveng") && import.imports().is_some() {
-                    self.imports.push(Import { module: None, names: listed, append, line_end, visible, scope_end });
-                }
+                if import.imports().is_none() { return; }
+                let selected: Vec<_> = match import.imports() {
+                    Some(ast::Imports::Items(items)) => items.iter().map(|i| (i.original_name().as_str().to_string(), i.bound_name().as_str().to_string())).collect(),
+                    _ => Vec::new(),
+                };
+                let source = source.get();
+                let available = if source.starts_with('@') && source.contains("solveng") {
+                    [Module::Units, Module::Operations, Module::Constants, Module::Modifiers].into_iter().map(|m| (m, m.name().into())).collect()
+                } else {
+                    let target = crate::scope::resolve(&source, path);
+                    let Some(file) = files.iter().find(|f| f.path == target) else { return };
+                    let theirs_doc = Doc::new(&file.text);
+                    let theirs = Self::read(&theirs_doc, files, &target, seen);
+                    // Only bindings visible at module end are exports. Block-local imports stay local.
+                    for (id, binding) in theirs.definitions.iter().enumerate() {
+                        if !binding.exported || theirs.definitions.iter().rposition(|b| b.exported && b.name == binding.name) != Some(id) { continue; }
+                        let local = if listed.is_none() { Some(binding.name.clone()) } else { selected.iter().find(|(original, _)| *original == binding.name).map(|(_, local)| local.clone()) };
+                        if let Some(name) = local {
+                            self.definitions.push(Binding { exported: module_level(node), name, start: usize::MAX, end: usize::MAX, visible, scope_end, meaning: binding.meaning.clone(), module: None, original: None, wildcard: None });
+                        }
+                    }
+                    theirs.imports.iter().filter(|i| i.module.is_none() && i.exported).flat_map(|i| {
+                        i.available.iter().filter_map(|(module, exported)| {
+                            if i.names.is_none() { Some((*module, exported.clone())) }
+                            else { i.selected.iter().find(|(original, _)| original == exported).map(|(_, local)| (*module, local.clone())) }
+                        })
+                    }).collect()
+                };
+                self.imports.push(Import { exported: module_level(node), module: None, names: listed, append, line_end, visible, scope_end, available, selected });
                 return;
             }
             _ => return,
         };
-        let Some(module) = Module::of(&name) else { return };
+        let module = Module::of(&name).or_else(|| self.imports.iter().rev().filter(|i| i.visible <= visible && visible < i.scope_end).find_map(|i| {
+            i.available.iter().find_map(|(module, exported)| {
+                let local = if i.names.is_none() { Some(exported.as_str()) }
+                    else { i.selected.iter().find(|(original, _)| original == exported).map(|(_, local)| local.as_str()) };
+                (local == Some(name.as_str())).then_some(*module)
+            })
+        }));
+        let Some(module) = module else { return };
         if let Some(source) = node.children().find(|c| matches!(c.kind(), SyntaxKind::Ident | SyntaxKind::FieldAccess)) {
             let end = doc.of_byte(source.offset() + source.len());
             self.modules.push((end - name.chars().count(), end, module));
         }
         if import.imports().is_some() {
-            self.imports.push(Import { module: Some(module), names: listed, append, line_end, visible, scope_end });
+            self.imports.push(Import { exported: module_level(node), module: Some(module), names: listed, append, line_end, visible, scope_end, available: Vec::new(), selected: Vec::new() });
         }
         let line_start = doc.c[..doc.of_byte(node.offset())].iter().rposition(|&c| c == '\n').map_or(0, |i| i + 1);
         let indent: String = doc.c[line_start..].iter().take_while(|c| **c == ' ' || **c == '\t').collect();
         let wildcard = matches!(import.imports(), Some(ast::Imports::Wildcard)).then(|| (line_end, indent));
         let mut push = |name: &str, original: &str, start: usize, end: usize, written: Option<(usize, usize)>| {
             if let Some(meaning) = module.meaning(original) {
-                self.definitions.push(Binding { name: name.into(), start, end, visible, scope_end, meaning, module: Some((module, original.into())), original: written, wildcard: wildcard.clone() });
+                self.definitions.push(Binding { exported: module_level(node), name: name.into(), start, end, visible, scope_end, meaning, module: Some((module, original.into())), original: written, wildcard: wildcard.clone() });
             }
         };
         match import.imports() {
@@ -437,7 +486,7 @@ impl Bindings {
     fn renamable_at(&self, at: usize) -> Option<usize> {
         self.shorthand_at(at).filter(|&id| self.definitions[id].original.is_some() || self.definitions[id].wildcard.is_some())
             .or_else(|| self.definitions.iter().position(|b| b.module.is_none() && b.meaning != Meaning::Other && b.start <= at && at <= b.end))
-            .or_else(|| self.uses.iter().find(|&&(s, e, id)| s <= at && at <= e && self.definitions[id].module.is_none() && self.definitions[id].meaning != Meaning::Other).map(|&(_, _, id)| id))
+            .or_else(|| self.uses.iter().find(|&&(s, e, id)| s <= at && at <= e && self.definitions[id].module.is_none() && self.definitions[id].meaning != Meaning::Other && self.definitions[id].start != usize::MAX).map(|&(_, _, id)| id))
     }
 
     /// The imported name at `at` where its import lists it, and every use.
@@ -543,13 +592,16 @@ impl Bindings {
                 _ => Vec::new(),
             });
         }
-        let package = self.imports.iter().filter(in_scope).filter(|i| i.module.is_none()).max_by_key(|i| i.visible)?;
+        let (package, exported) = self.imports.iter().filter(in_scope).filter(|i| i.module.is_none()).rev()
+            .find_map(|i| i.available.iter().find(|(m, _)| *m == module).map(|(_, name)| (i, name)))?;
         let mut edits = Vec::new();
-        if let (Some(names), Some(append)) = (&package.names, package.append)
-            && !names.iter().any(|n| n == module.name()) {
-                edits.push(edit(append, format!(", {}", module.name())));
-            }
-        edits.push(edit(package.line_end, format!("\n#import {}: {name}", module.name())));
+        let source = if package.names.is_none() { exported.as_str() }
+            else if let Some((_, local)) = package.selected.iter().find(|(original, _)| original == exported) { local.as_str() }
+            else {
+                edits.push(edit(package.append?, format!(", {exported}")));
+                exported.as_str()
+            };
+        edits.push(edit(package.line_end, format!("\n#import {source}: {name}")));
         Some(edits)
     }
 
@@ -735,4 +787,14 @@ fn lexical_end(node: &LinkedNode, doc: &Doc) -> usize {
         parent = scope.parent().cloned();
     }
     doc.c.len()
+}
+
+// Module exports come only from top-level declarations, even when a nested block ends at EOF.
+fn module_level(node: &LinkedNode) -> bool {
+    let mut parent = node.parent();
+    while let Some(p) = parent {
+        if matches!(p.kind(), SyntaxKind::ContentBlock | SyntaxKind::CodeBlock | SyntaxKind::Closure) { return false; }
+        parent = p.parent();
+    }
+    true
 }

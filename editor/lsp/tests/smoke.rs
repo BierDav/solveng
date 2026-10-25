@@ -258,3 +258,39 @@ fn bindings_and_operation_references_have_their_tokens_and_hovers() {
     drop(stdin);
     assert!(child.wait().unwrap().success());
 }
+
+#[test]
+fn templates_supply_highlighting_completion_and_import_actions_over_stdio() {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_solveng-lsp")).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"capabilities": {}, "rootUri": "file:///tmp/solveng-template-test"}}));
+    wait(&mut stdout, |m| m["id"] == 1);
+    send(&mut stdin, json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}));
+    let template_uri = "file:///tmp/solveng-template-test/template.typ";
+    let template = "#import \"@solveng/solveng:1.0.0\": *\n#let template(body) = {\n show: worksheet\n worksheet($sigma(t) := cases(0 & t < 0, 1 & t >= 0)$, hidden: true)\n worksheet(body, scope: \"inherit\", clear-at: heading)\n}";
+    send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": template_uri, "languageId": "typst", "version": 1, "text": template}}}));
+    wait(&mut stdout, |m| m["method"] == "textDocument/publishDiagnostics" && m["params"]["uri"] == template_uri);
+    let uri = "file:///tmp/solveng-template-test/exercises/exercise.typ";
+    let text = "#import \"../template.typ\": *\n#show: template\n$g(t) := Re(s(t))$";
+    send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri, "languageId": "typst", "version": 1, "text": text}}}));
+    let diagnostic = wait(&mut stdout, |m| m["method"] == "textDocument/publishDiagnostics" && m["params"]["uri"] == uri);
+    assert!(diagnostic["params"]["diagnostics"].as_array().unwrap().iter().any(|d| d["message"].as_str().unwrap().contains("Typst's own")));
+    let position = json!({"line": 2, "character": 10});
+    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": uri}, "range": {"start": position, "end": position}, "context": {"diagnostics": []}}}));
+    let actions = wait(&mut stdout, |m| m["id"] == 2);
+    let action = actions["result"].as_array().unwrap().iter().find(|a| a["title"] == "Import Re from solveng's operations").unwrap();
+    assert!(action["edit"]["changes"][uri].as_array().unwrap().iter().any(|e| e["newText"] == "\n#import operations: Re"));
+    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 3, "method": "textDocument/completion", "params": {"textDocument": {"uri": uri}, "position": position}}));
+    let completion = wait(&mut stdout, |m| m["id"] == 3);
+    let re = completion["result"]["items"].as_array().unwrap().iter().find(|i| i["label"] == "Re").unwrap();
+    assert!(re["additionalTextEdits"].as_array().unwrap().iter().any(|e| e["newText"] == "\n#import operations: Re"));
+    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 4, "method": "textDocument/semanticTokens/full", "params": {"textDocument": {"uri": uri}}}));
+    let tokens = wait(&mut stdout, |m| m["id"] == 4);
+    assert!(!tokens["result"]["data"].as_array().unwrap().is_empty());
+    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null}));
+    wait(&mut stdout, |m| m["id"] == 5);
+    send(&mut stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    drop(stdin);
+    assert!(child.wait().unwrap().success());
+}

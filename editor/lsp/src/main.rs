@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use serde_json::{Value, json};
@@ -113,6 +113,21 @@ fn uri_of(path: &Path) -> String {
     out
 }
 
+/// Normalize imports lexically so `exercise/../template.typ` matches the module path and open buffer.
+/// This also works for unsaved files, which cannot be canonicalized through the filesystem.
+fn normalized(path: PathBuf) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {},
+            Component::ParentDir if out.file_name().is_some_and(|name| name != "..") => { out.pop(); },
+            Component::ParentDir if out.has_root() => {},
+            _ => out.push(component.as_os_str()),
+        }
+    }
+    out
+}
+
 /// UTF-16 offset of an LSP position.
 fn offset(text: &str, position: &Value) -> u32 {
     let line = position["line"].as_u64().unwrap_or(0) as usize;
@@ -186,10 +201,10 @@ impl Server {
     fn context(&self, uri: &str, text: &str) -> Context {
         let Some(file) = path_of(uri) else { return Context::default() };
         let root = self.root_for(&file);
-        let resolve = |reference: &str, from: &Path| match reference.strip_prefix('/') {
+        let resolve = |reference: &str, from: &Path| normalized(match reference.strip_prefix('/') {
             Some(rest) => root.join(rest),
             None => from.parent().unwrap_or(Path::new("")).join(reference),
-        };
+        });
         let mut queue: Vec<PathBuf> = ide::references(text).iter().map(|r| resolve(r, &file)).collect();
         if let Some(main) = &self.main
             && main != &file {
@@ -259,6 +274,10 @@ impl Server {
                             "insertTextFormat": if snippet { 2 } else { 1 },
                             "textEdit": { "range": range(&starts, c.from, c.to.unwrap_or(at)), "newText": new_text },
                         });
+                        let edits: Vec<_> = item.edits.iter().filter(|e| e.path.is_none())
+                            .map(|e| json!({ "range": range(&starts, e.start, e.end), "newText": e.text }))
+                            .collect();
+                        if !edits.is_empty() { v["additionalTextEdits"] = json!(edits); }
                         if let Some(doc) = &item.documentation {
                             v["documentation"] = json!({ "kind": "markdown", "value": doc });
                         }

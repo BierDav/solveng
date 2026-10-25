@@ -93,6 +93,8 @@ Use `#value($expression$)` for a result in text, `#defined()` to list definition
 
 The engine supports symbolic algebra, complex numbers, real calculus, matrices, finite and convergent infinite sums, signal operations, Laplace transforms, and graphs. Unit targets are expressions too: `preferred-units: ($#m / #s$,)` or `lambdify($U^2/R$, "U", unit: $#W$, units: (U: $#V$))`.
 
+Editor completions and import quick fixes follow bindings re-exported by local templates, including renamed imports. Highlighting also recognizes template functions that forward their content into nested worksheets or apply a worksheet show rule. Conditional or dynamically computed layouts use the compiler report when their behavior cannot be determined from the source.
+
 ## Development
 
 Run `cargo test --workspace` for the engine and editor. Build the Typst plugin with `plugin/build.sh`. Generate unit exports with `python3 scripts/unit-words.py`; `--check` verifies the generated module. `python3 tests/examples.py` checks documented examples.
