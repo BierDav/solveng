@@ -21,7 +21,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)(?:-(alpha|rc)\.(\d+))?$")
 CHANNELS = ("alpha", "rc", "stable")
 # files whose imports and links name the version; editor tests keep theirs
-DOC_FILES = re.compile(r"^(README\.md|lib\.typ|docs/.*\.(md|typ)|src/.*\.typ|tests/examples\.py)$")
+DOC_FILES = re.compile(r"^(README\.md|_probe\.typ|lib\.typ|docs/.*\.(md|typ)|src/.*\.typ|tests/examples\.py)$")
 
 
 def git(*args):
