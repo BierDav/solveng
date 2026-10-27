@@ -13,7 +13,7 @@
 // something. Equations that aren't formulas are left alone. quiet: only problems are shown (prose stays). loc: the
 // equation in the document, for the errors' notes; auto is its own.
 #let _math-def(it, quiet: false, loc: auto) = context {
-  if _busy.get() > 0 or _reshown(it) or _own(it) { return it }
+  if _own(it) or _reshown(it) or _busy.get() > 0 { return it }
   let loc = if loc == auto { it.location() } else { loc }
   let children = if it.body.has("children") { it.body.children } else { (it.body,) }
   if children.any(c => c.func() == linebreak) {
@@ -65,7 +65,7 @@
 // Not a `context`: that would hide `b` from show rules around it that read its structure (letmeout).
 #let _rules(b, clear-at, hidden) = {
   show std.math.equation: it => context {
-    if _busy.get() > 0 or _reshown(it) or _own(it) { return it }
+    if _own(it) or _reshown(it) or _busy.get() > 0 { return it }
     let cf = _cf.get()
     let on = _evaluates(cf)
     _noted(it, "math", on, cf, if on { _math-def(it, quiet: hidden) } else { it })

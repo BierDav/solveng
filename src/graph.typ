@@ -157,7 +157,9 @@
   let draw = context {
     let g = _call(_p.graph, _env(_st.get()), req)
     if "err" in g { return fail(g.err) }
-    let M(s) = _m(s, cf)
+    // Labels can be measured outside the graph's state context (notably in HTML frames).
+    // Mark every generated equation so worksheet rules never calculate it.
+    let M(s) = math.equation(_OWN + _m(s, cf))
     // a color, a dash and a dot shape per curve: curves stay apart without color too
     let style(i) = { let at(a) = a.at(calc.rem(i, a.len())); (color: at(cf.graph-colors), dash: at(cf.graph-lines), shape: at(cf.graph-dots), joined: at(cf.graph-joined)) }
     // the legend goes to the corner the curves leave emptiest
@@ -225,7 +227,7 @@
       let st = style(s.curve)
       let lay = layers.at(k)
       // the legend names each curve once, on what it draws first
-      let label = if name-of(s.curve) != none and s.curve not in named and (lay.line or lay.dots.len() > 0) { named.push(s.curve); $#M(name-of(s.curve))$ }
+      let label = if name-of(s.curve) != none and s.curve not in named and (lay.line or lay.dots.len() > 0) { named.push(s.curve); M(name-of(s.curve)) }
       // above the axes, each series over the ones before it, its dots over its line; below the legend (25)
       let z = 21 + k * 0.002
       if lay.line {
@@ -259,7 +261,7 @@
     }
     // the origin's 0, unless an axis writes it already
     let origin = g.x-axis-zero and g.y-axis-zero and 0 not in g.xticks and 0 not in g.yticks
-    if origin { plots.push(_lq.place(0, 0, align: top + right, box(inset: (right: 0.35em, top: 0.3em), $0$))) }
+    if origin { plots.push(_lq.place(0, 0, align: top + right, box(inset: (right: 0.35em, top: 0.3em), M("0")))) }
     // regular ticks get a grid line, marked values are only written on the axis. The grid stays open at the
     // edges, no line closes the plot area on any side. The x axis writes its last value at the arrow's end too,
     // without a grid line; the y axis's end has its label instead.
@@ -268,22 +270,22 @@
       let all = ticks.zip(labels, marked).filter(t => kind == "x" or not at(t.at(0), lim.at(1))).map(((v, l, m)) => (v, l, m or at(v, lim.at(0)) or at(v, lim.at(1))))
       let regular = all.filter(t => not t.at(2))
       (position: position, mirror: false, subticks: none,
-        ticks: regular.map(t => (t.at(0), $#M(t.at(1))$)),
-        extra-ticks: all.filter(t => t.at(2)).map(((v, l, _)) => _lq.tick(v, label: $#M(l)$, kind: kind)))
+        ticks: regular.map(t => (t.at(0), M(t.at(1)))),
+        extra-ticks: all.filter(t => t.at(2)).map(((v, l, _)) => _lq.tick(v, label: M(l), kind: kind)))
     }
     let xm = g.at("xmarked", default: g.xticks.map(_ => false))
     let ym = g.at("ymarked", default: g.yticks.map(_ => false))
     // the x axis's label beside the arrow's end, clear of the value written there; the graph makes room for it on
     // the right, where lilaq places it outside the diagram
     let end = g.xticks.position(v => calc.abs(v - g.x1) <= 1e-9 * (g.x1 - g.x0))
-    let xlabel = { if end != none { std.h(measure($#M(g.xlabels.at(end))$).width / 2 + 0.25em) }; $#M(g.xlabel)$ }
+    let xlabel = { if end != none { std.h(measure(M(g.xlabels.at(end))).width / 2 + 0.25em) }; M(g.xlabel) }
     let make(w, h) = {
       // schoolbook: axes through the origin with arrows, a faint grid at the regular ticks only
       show: _lq.theme.schoolbook
       show: _lq.set-grid(stroke: luma(225) + 0.5pt, stroke-sub: none)
       show: pad.with(right: measure(xlabel).width)
       _lq.diagram(width: w, height: h, xlim: (g.x0, g.x1), ylim: (g.y0, g.y1), legend: legend,
-        xlabel: xlabel, ylabel: $#M(g.ylabel)$,
+        xlabel: xlabel, ylabel: M(g.ylabel),
         xaxis: axis("x", g.xticks, g.xlabels, xm, if g.x-axis-zero { 0 } else { bottom }, (g.x0, g.x1)),
         yaxis: axis("y", g.yticks, g.ylabels, ym, if g.y-axis-zero { 0 } else { left }, (g.y0, g.y1)),
         ..args.named(), ..plots)
@@ -324,11 +326,11 @@
     )
     let lab(k, body) = html.elem("span", attrs: ("data-k": k), body)
     let labels = (
-      lab("x", $#M(g.xlabel)$), lab("y", $#M(g.ylabel)$),
-      ..("xu", "yu", "xn", "yn").map(k => { let v = g.at((xu: "xunit", yu: "yunit", xn: "xname", yn: "yname").at(k), default: ""); lab(k, if v != "" { $#M(v)$ }) }),
-      ..g.xlabels.enumerate().map(((i, l)) => lab("xt" + str(i), $#M(l)$)),
-      ..g.ylabels.enumerate().map(((i, l)) => lab("yt" + str(i), $#M(l)$)),
-      ..series.filter(s => s.label != none).map(s => lab("c" + str(s.curve), $#M(s.label)$)),
+      lab("x", M(g.xlabel)), lab("y", M(g.ylabel)),
+      ..("xu", "yu", "xn", "yn").map(k => { let v = g.at((xu: "xunit", yu: "yunit", xn: "xname", yn: "yname").at(k), default: ""); lab(k, if v != "" { M(v) }) }),
+      ..g.xlabels.enumerate().map(((i, l)) => lab("xt" + str(i), M(l))),
+      ..g.ylabels.enumerate().map(((i, l)) => lab("yt" + str(i), M(l))),
+      ..series.filter(s => s.label != none).map(s => lab("c" + str(s.curve), M(s.label))),
     )
     _css(); _plot-js()
     html.elem("div", attrs: (class: "solveng-plot"), {
