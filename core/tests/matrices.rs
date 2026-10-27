@@ -72,7 +72,7 @@ fn determinants_inverses_and_systems_are_exact() {
 fn symbolic_entries_give_formulas() {
     let mut env = Env::default();
     run(&mut env, "M := mat(a, b; c, d)");
-    assert_eq!(result(&mut env, "det(M) ->"), "a d - b c");
+    assert_eq!(result(&mut env, "det(M) ->"), "a dot d - b dot c");
     run(&mut env, "N := M M^(-1) -> simplify");
     assert_eq!(result(&mut env, "N ->"), "mat(\"1\", \"0\"; \"0\", \"1\")");
     // names get their values later

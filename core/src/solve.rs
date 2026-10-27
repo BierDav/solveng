@@ -8,7 +8,7 @@ use crate::eval::eval_f;
 use crate::complex::{CVal, Z};
 use crate::expr::{self, Expr, Func, Val, int, simp};
 use crate::num::{Num, Rat};
-use crate::poly::{coeffs, simplify, together};
+use crate::poly::{coeffs, factor, simplify, together};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Fail {
@@ -26,6 +26,31 @@ pub fn solve1(e: &Expr, x: &str, numeric_params: &dyn Fn(&str) -> bool) -> Resul
         return Err(Fail::Cancels);
     }
     let (n, d) = together(&e);
+    // a product is zero where a factor is: each factor with x solved on its own, factors free of x left out
+    let n = match factor(&n) {
+        Some(f) if !f.is_zero() => {
+            let with_x: Vec<&Expr> = f.num.iter().map(|(g, _)| g).filter(|g| g.has(x)).collect();
+            match with_x.as_slice() {
+                [] => return Err(Fail::Cancels),
+                [g] => (*g).clone(),
+                gs => {
+                    let mut sols: Vec<Expr> = vec![];
+                    for g in gs {
+                        for s in solve1(g, x, numeric_params)? {
+                            if !sols.contains(&s) && !simp(&d.subst(x, &s)).is_zero() {
+                                sols.push(s);
+                            }
+                        }
+                    }
+                    if sols.iter().all(|s| eval_f(s, &|_| None).is_some()) {
+                        sort_num(&mut sols);
+                    }
+                    return Ok(sols);
+                }
+            }
+        }
+        _ => n,
+    };
     if let Some(cs) = coeffs(&n, x) {
         let mut cs = cs;
         while cs.len() > 1 && cs.last().unwrap().is_zero() {
@@ -101,6 +126,86 @@ pub fn solve1(e: &Expr, x: &str, numeric_params: &dyn Fn(&str) -> bool) -> Resul
         }
     }
     Err(Fail::NotSymbolic)
+}
+
+/// What an equation l = r says, on the way there: l − r, simplified, and its numerator in factors.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Reduced {
+    pub difference: Expr,
+    pub factored: Expr,
+    pub holds: Holds,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Holds {
+    /// For every value of its names.
+    Always,
+    Never,
+    /// Where one of these equations holds: x = value where a factor gives one exactly, else the factor = 0.
+    Where(Vec<(Expr, Expr)>),
+}
+
+/// l = r reduced to where it holds: a product is zero where one of its factors is, so the equation holds where a
+/// factor of the numerator of l − r is zero (and its denominator isn't). Factors that are never zero (numbers,
+/// units, e^…) say nothing. A factor polynomial in one name is solved for it exactly; one with a name in degree one
+/// with a numeric coefficient is solved for that name; any other factor is kept as factor = 0. None where l − r
+/// isn't exact (floats).
+pub fn reduce(l: &Expr, r: &Expr) -> Option<Reduced> {
+    let d = simp(&expr::sub(l.clone(), r.clone()));
+    let f = factor(&d)?;
+    let difference = simplify(&d);
+    if f.is_zero() {
+        return Some(Reduced { difference, factored: int(0), holds: Holds::Always });
+    }
+    let fs: Vec<Expr> = f.num.iter().map(|(g, _)| g.clone()).filter(|g| !never_zero(g)).collect();
+    let factored = f.numerator();
+    if fs.is_empty() {
+        return Some(Reduced { difference, factored, holds: Holds::Never });
+    }
+    let exact = |e: &Expr| !e.contains(&|x| matches!(x, Expr::C(v) if !v.v.is_exact()));
+    let mut out: Vec<(Expr, Expr)> = vec![];
+    let mut push = |c: (Expr, Expr)| if !out.contains(&c) { out.push(c) };
+    for g in fs {
+        let names = g.syms();
+        if let [x] = names.as_slice()
+            && coeffs(&g, x).is_some()
+            && let Ok(sols) = solve1(&g, x, &|_| false)
+            && sols.iter().all(exact)
+        {
+            for s in sols {
+                push((expr::sym(x), s));
+            }
+            continue;
+        }
+        let linear = names.iter().find_map(|x| match coeffs(&g, x)?.as_slice() {
+            [c0, c1] if c1.as_c().is_some_and(|c| !c.is_zero()) => {
+                // 3 − y rather than −(y − 3)
+                let v = simplify(&expr::div(expr::neg(c0.clone()), c1.clone()));
+                let flat = simp(&expr::expand(&v));
+                Some((expr::sym(x), if flat.size() <= v.size() { flat } else { v }))
+            }
+            _ => None,
+        });
+        push(linear.unwrap_or((g, int(0))));
+    }
+    // by name, in the order the names appear, values ascending: a = 0 or a = 1 or p = 0
+    let names = d.syms();
+    let at = |c: &(Expr, Expr)| c.0.syms().first().and_then(|n| names.iter().position(|m| m == n)).unwrap_or(usize::MAX);
+    let num = |c: &(Expr, Expr)| eval_f(&c.1, &|_| None);
+    out.sort_by(|a, b| at(a).cmp(&at(b)).then_with(|| match (num(a), num(b)) {
+        (Some(x), Some(y)) => x.total_cmp(&y),
+        (x, y) => y.is_some().cmp(&x.is_some()),
+    }));
+    Some(Reduced { difference, factored, holds: Holds::Where(out) })
+}
+
+/// Whether a factor is zero nowhere: a nonzero number (a unit, π), or e to a power.
+fn never_zero(g: &Expr) -> bool {
+    match g {
+        Expr::F(Func::Exp, _) => true,
+        Expr::Pow(b, _) if **b == Expr::E => true,
+        _ => g.syms().is_empty() && eval_f(g, &|_| None).is_some_and(|v| v != 0.0),
+    }
 }
 
 fn sort_num(v: &mut [Expr]) {

@@ -71,7 +71,7 @@ fn i_is_exact_and_substitute_shows_its_expression() {
     assert_eq!(s.run("(1 + 2 #i)(3 - #i) ->").unwrap(), "\"5\" + \"5\" i");
     assert_eq!(s.run("1/(1 + #i) ->").unwrap(), "frac(\"1\", \"2\") - frac(i, \"2\")");
     assert_eq!(s.run("(1 + #i)^2 ->").unwrap(), "\"2\" i");
-    assert_eq!(s.run("x · (2 #i) + x #i ->").unwrap(), "\"3\" i x");
+    assert_eq!(s.run("x · (2 #i) + x #i ->").unwrap(), "\"3\" i dot x");
 }
 
 #[test]
@@ -80,9 +80,9 @@ fn values_are_complex() {
     // roots and logarithms of negative numbers, exactly and as values
     assert_eq!(s.run("⦇sqrt⦈(-4) ->").unwrap(), "\"2\" i");
     assert_eq!(s.run("⦇sqrt⦈(-4) =").unwrap(), "\"2\" i");
-    assert_eq!(s.run("⦇sqrt⦈(-2) ->").unwrap(), "i sqrt(\"2\")");
+    assert_eq!(s.run("⦇sqrt⦈(-2) ->").unwrap(), "i dot sqrt(\"2\")");
     assert_eq!(s.run("(-9)^(3/2) ->").unwrap(), "-\"27\" i");
-    assert_eq!(s.run("⦇ln⦈(-1) ->").unwrap(), "i π");
+    assert_eq!(s.run("⦇ln⦈(-1) ->").unwrap(), "i dot π");
     assert_eq!(s.run("⦇ln⦈(-2) =").unwrap(), "\"0.6931\" + \"3.142\" i");
     assert_eq!(s.run("⦇arcsin⦈(2) =").unwrap(), "\"1.571\" - \"1.317\" i");
     // a real value where there is one: (−8)^(1/3) is −2
@@ -162,7 +162,7 @@ fn constants_stay_symbolic_until_substituted() {
     assert_eq!(s.run(&format!("{c} / 2 =")).unwrap(), "\"149.9\" thin MΩ");
     assert_eq!(s.run(&format!("{c} / 2 -> ⦅substitute({c})⦆")).unwrap(), "\"149.9\" thin MΩ");
     s.run(&format!("E := m {c}^2")).unwrap();
-    assert_eq!(s.run("E ->").unwrap(), format!("m {shown}^(\"2\")"));
+    assert_eq!(s.run("E ->").unwrap(), format!("m dot {shown}^(\"2\")"));
     let j2 = token(&binding("constant", &format!("2 {}", s.i), Some("two-i")).unwrap());
     assert_eq!(s.run(&format!("{j2}^2 =")).unwrap(), "\"−4\"");
     assert_eq!(s.run(&format!("{j2}^2 -> ⦅substitute({j2})⦆")).unwrap(), "\"−4\"");

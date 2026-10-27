@@ -12,6 +12,9 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 - [`solve`](#solve)
 - [`substitute`](#substitute)
 - [`simplify`](#simplify)
+- [`expand`](#expand)
+- [`factor`](#factor)
+- [`steps`](#steps)
 - [`digits`](#digits)
 - [`sci`](#sci)
 - [`eng`](#eng)
@@ -69,6 +72,9 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 | [`solve`](#solve) | Solves an equation for these names (and defines them): `$x^2 - 4 = 0 -> solve(x)$`. |
 | [`substitute`](#substitute) | The result with these variables' formulas and constants' expressions put in, every other name kept: `$P := U^2/R -> substitute(U)$`, `$E := m #c^2 -> substitute(#c)$`. |
 | [`simplify`](#simplify) | The symbolic result, what `->` shows anyway: `$f := (x^2 - 1)/(x - 1) -> simplify$`. |
+| [`expand`](#expand) | The symbolic result multiplied out: `$(x + 1)^2 -> expand$` is x² + 2x + 1. |
+| [`factor`](#factor) | The symbolic result in factors: `$x^3 - x -> factor$` is x (x − 1)(x + 1), a fraction's numerator and denominator each. |
+| [`steps`](#steps) | The way to what `->` shows, a line each: `$F(a p) = a F(p) -> steps$` shows the equation with the definitions put in, one side zero, in factors, and where it holds; an expression goes from the definitions put in to its simplified form. |
 | [`digits`](#digits) | Decimals with n significant digits: `$t = #h, digits(2)$`. |
 | [`sci`](#sci) | Scientific notation: `$C = sci$` → 2.2 · 10⁻⁶ F. |
 | [`eng`](#eng) | Engineering notation, exponents in steps of 3: `$f = eng$`. |
@@ -126,9 +132,9 @@ so it lasts $t := Q_0 / I = #h$.
 - `:=` defines (shown as ≔), symbolically: `$I := 30 mA$`, `$P := U I$`, `$f(x) := x^2 + 1$`. Names not defined yet stay names until they are, see *Calculating like Mathcad*.
 - `=` inside an expression compares, 1 or 0: `$M := 1 = 2 =$` is 0.
 - `=` at the end shows the value, with a bold =: `$t =$` → t **=** 115 h, `$t := Q_0/I =$` defines and shows it. What follows it is the unit and modifiers: `$t = #h$`, `$t = min, digits(2)$`.
-- `->` at the end shows the symbolic result, the known values put in, exactly: `$f := (x^2 - 1)/(x - 1) -> simplify$`. With `solve(x)` it solves an equation for x (and defines it when the solution is a value): `$Q_0/2 = I t -> solve(t)$`, `$x^2 - 4 = 0 -> solve(x)$`, `$x + y = 3, x - y = 1 -> solve(x, y)$`, `$R <= U/I -> solve(R)$`.
+- `->` at the end shows the symbolic result, the known values put in, exactly: `$f := (x^2 - 1)/(x - 1) -> simplify$`; an equation, where it holds: `$x^2 = x ->$` is x = 0 ∨ x = 1. With `solve(x)` it solves an equation for x (and defines it when the solution is a value): `$Q_0/2 = I t -> solve(t)$`, `$x^2 - 4 = 0 -> solve(x)$`, `$x + y = 3, x - y = 1 -> solve(x, y)$`, `$R <= U/I -> solve(R)$`.
 
-Modifiers, imported from `modifiers` where you use them (`#import modifiers: solve, digits`): `solve(x, …)`, `substitute(x, …)` (these variables' formulas put in, other names kept), `simplify`, `fraction` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
+Modifiers, imported from `modifiers` where you use them (`#import modifiers: solve, digits`): `solve(x, …)`, `substitute(x, …)` (these variables' formulas put in, other names kept), `simplify`, `expand` (multiplied out), `factor` (in factors), `steps` (the way to the symbolic result, a line each), `fraction` (exact fractions), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
 
 **Units, constants, operations and modifiers** are Typst bindings, imported where you use them: `#import units: mA, s`, `#import constants: pi, i`, `#import operations: tri`, `#import modifiers: solve`, then `$30 mA$`, `$2 #s$`, `$2 pi$`. A binding of a single letter needs a `#` in math. Quoted text names worksheet variables; it never means a unit or operation. Raw blocks, also ```` ```solveng ```` ones, are ordinary text.
 
@@ -358,7 +364,25 @@ Returns content.
 
 ## `simplify`
 
-The symbolic result, what `->` shows anyway: `$f := (x^2 - 1)/(x - 1) -> simplify$`.
+The symbolic result, what `->` shows anyway: `$f := (x^2 - 1)/(x - 1) -> simplify$`. Of an equation, where it
+holds: one side brought to zero and split into factors, each factor zero – `$x^2 = x -> simplify$` is
+x = 0 ∨ x = 1; true when it always holds, false when never.
+
+## `expand`
+
+The symbolic result multiplied out: `$(x + 1)^2 -> expand$` is x² + 2x + 1. An equation side by side.
+
+## `factor`
+
+The symbolic result in factors: `$x^3 - x -> factor$` is x (x − 1)(x + 1), a fraction's numerator and
+denominator each. An equation side by side. Splits off common factors, repeated factors and factors of degree one
+in a name; numbers aren't split into primes, and decimals can't be factored.
+
+## `steps`
+
+The way to what `->` shows, a line each: `$F(a p) = a F(p) -> steps$` shows the equation with the definitions
+put in, one side zero, in factors, and where it holds; an expression goes from the definitions put in to its
+simplified form. Not with `solve`.
 
 ## `digits`
 
@@ -1038,7 +1062,7 @@ The clause after a trailing `=` or `->` takes a unit and modifiers, separated by
 only way to use them: `#import modifiers: solve, simplify` (or `#import modifiers: *`). Like any import, it holds
 only where it's written; `#import "@preview/solveng:1.0.0": *` brings none. Renamed imports
 (`#import modifiers: solve as löse`) work as the original. `solve`, `substitute` and `digits` are functions,
-called with what they take; `simplify`, `sci`, `eng` and `fraction` are written on their own.
+called with what they take; `simplify`, `expand`, `factor`, `steps`, `sci`, `eng` and `fraction` are written on their own.
 
 ```typ
 #import "@preview/solveng:1.0.0": *
@@ -1058,7 +1082,7 @@ Three operators, and `=` keeps its meaning from maths:
 - **`:=` defines**, symbolically. Names defined by then are put in right away, names that aren't stay names until they are: `$h := 5 z$` works before `z` is defined, and after `$z := 20 cm$`, `$h =$` shows 1 m. What's put in is the value at that point – defining a name again later changes what comes after, not what came before.
 - **`=` inside an expression compares**, as Mathcad's bold =: `$M := 1 = 2 =$` gives 0, `$M := 2 #A = 2000 mA$` gives 1. Values of different units are never equal (`1 A = 2 V` is 0, `1 A != 2 V` is 1); `<`, `<=`, `>`, `>=` and `!=` compare too, chains like `$0 < x <= 1$` hold when every step does. `and` and `or` (Typst shows ∧ and ∨) join them, `and` binding tighter: `$x < 0 or x > 2$`, also as a condition in `cases`.
 - **A trailing `=` shows the value**, numerically, with a bold =. After it come a unit and modifiers (from `modifiers`): `$t = #h, digits(3)$`. Every name in it must have a value by then.
-- **A trailing `->` shows the symbolic result**: defined values put in, exactly (fractions, roots and π stay), undefined names kept: `$x + 3/3 y -> simplify$` is x + y. With `solve(x)` it solves – symbolically when it can (`$0 = 1 + 3/x + y^2 -> solve(x)$` is x = −3/(y² + 1)), numerically when every other name has a value – and defines x when the solution is a value. `substitute(U, …)` shows the result with these variables' formulas put in and every other name kept: after `$U := R I$`, `$P := U^2/R -> substitute(U)$` is I² R.
+- **A trailing `->` shows the symbolic result**: defined values put in, exactly (fractions, roots and π stay), undefined names kept: `$x + 3/3 y -> simplify$` is x + y. An equation shows where it holds: `$a^2 p = a p ->$` is a = 0 ∨ a = 1 ∨ p = 0 (one side zero, in factors, each factor zero); `steps` shows the way there, a line each. `expand` multiplies out, `factor` splits into factors: `$x^3 - x -> factor$` is x (x − 1)(x + 1). With `solve(x)` it solves – symbolically when it can (`$0 = 1 + 3/x + y^2 -> solve(x)$` is x = −3/(y² + 1)), numerically when every other name has a value – and defines x when the solution is a value. `substitute(U, …)` shows the result with these variables' formulas put in and every other name kept: after `$U := R I$`, `$P := U^2/R -> substitute(U)$` is I² R.
 - **Any other `=`** states something: it's checked when everything in it has a value (`$U = R I$`), and left alone as prose when not (`$E = m c^2$`).
 
 **Functions** are defined the same way: `$f(x) := x^2 + 1$`. Their body is symbolic too, so a function needn't define everything it uses: names that aren't parameters and aren't defined stay names, looked up when the function is evaluated, and cancel where the algebra lets them (`$U(x: #m) := h x a$`, then `$g(x: #m) := U(x)/a ->$` is `1 m · x` without any `a`). Undefined function calls stay symbolic too: `$f(t) := integral_(-infinity)^t sigma(tau) dif tau$` is valid before `sigma` is defined; numerical evaluation requires its definition and convergence. A parameter can have a unit, `f(I: mA)`: arguments must carry its dimension (`f(2 mA)` is valid, `f(2)` reports a missing unit); `any` takes every unit. `..` makes the body's other undefined names parameters, in the order they appear: `$P(..) := U^2/R$` is `P(U, R)`. A parameter passed on to one with a unit takes that unit: with `$q(x: #A) := 2 x$`, `$f(y) := q(y)$` makes y an A. **Named parameters** have a default value and are passed by name, as in Typst: after `$f(x, n: 2) := x^n$`, `$f(3) =$` is 9 and `$f(3, n: 3) =$` is 27; a named argument that isn't a parameter, a positional one passed by name and one passed twice are errors. After the colon, an expression made only of unit bindings is a type (`I: mA`, `v: #m / #s`), anything else a default (`n: 2`, `R: 2 #Ω`, `s: k`). Defaults are taken where the function is defined, as Typst evaluates them, and come after the other parameters.

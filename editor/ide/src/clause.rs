@@ -9,7 +9,10 @@ use crate::text::{is_letter, sub};
 pub(crate) const KEYWORDS: &[(&str, &str)] = &[
     ("solve", "solve(x, …): solves the equation for these names and defines them"),
     ("substitute", "substitute(x, #c, …): the result with these variables' formulas and constants' expressions put in, other names kept"),
-    ("simplify", "the symbolic result, with the known values put in"),
+    ("simplify", "the symbolic result, with the known values put in; of an equation, where it holds"),
+    ("expand", "the symbolic result multiplied out, (x + 1)² → x² + 2x + 1"),
+    ("factor", "the symbolic result in factors, x³ − x → x (x − 1)(x + 1)"),
+    ("steps", "the way to the symbolic result, a line each: one side zero, in factors, where it holds"),
     ("fraction", "exact fractions"),
     ("digits", "digits(n): decimals with n significant digits"),
     ("sci", "scientific notation, 2.2 · 10⁻⁶ F"),
@@ -212,7 +215,7 @@ pub(crate) fn solved(tail: &str, modifier: Modifiers) -> Vec<String> {
 /// Inside `solve(…)` or `substitute(…)` of a clause the caret ends `line` in: where the marker starts (in
 /// characters of `line`), the modifier, and the names listed before the one being typed, as written.
 pub(crate) fn names_call(line: &str, modifier: Modifiers) -> Option<(usize, String, Vec<String>)> {
-    at_clause(line, modifier).filter(|names| *names)?;
+    at_clause(line, modifier).filter(|(names, ..)| *names)?;
     let c: Vec<char> = line.chars().collect();
     let (mut depth, mut quoted, mut marker) = (0i32, false, None);
     for (i, &ch) in c.iter().enumerate() {
@@ -240,8 +243,9 @@ pub(crate) fn names_call(line: &str, modifier: Modifiers) -> Option<(usize, Stri
 }
 
 /// Whether the caret, at the end of `line`, is in a clause: after a top-level `->`, or after a top-level `=` that
-/// only words, brackets and commas follow. `Some(true)` inside `solve(…)` or `substitute(…)`, where names go.
-pub(crate) fn at_clause(line: &str, modifier: Modifiers) -> Option<bool> {
+/// only words, brackets and commas follow: (whether inside `solve(…)` or `substitute(…)`, where names go; whether
+/// after `->`, where nothing but the clause can follow – after `=` a comparison can; what follows the marker).
+pub(crate) fn at_clause(line: &str, modifier: Modifiers) -> Option<(bool, bool, String)> {
     let c: Vec<char> = line.chars().collect();
     let (mut depth, mut quoted, mut found) = (0i32, false, None);
     for (i, &ch) in c.iter().enumerate() {
@@ -271,7 +275,7 @@ pub(crate) fn at_clause(line: &str, modifier: Modifiers) -> Option<bool> {
     if !arrow && value {
         return None;
     }
-    Some(open_names_call(&tail, modifier).is_some())
+    Some((open_names_call(&tail, modifier).is_some(), arrow, tail))
 }
 
 /// The call of `solve` or `substitute` still open at the end of a clause's text: after its `(`, and the modifier.

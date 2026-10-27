@@ -8,7 +8,7 @@
 /// - **`:=` defines**, symbolically. Names defined by then are put in right away, names that aren't stay names until they are: `$h := 5 z$` works before `z` is defined, and after `$z := 20 cm$`, `$h =$` shows 1 m. What's put in is the value at that point – defining a name again later changes what comes after, not what came before.
 /// - **`=` inside an expression compares**, as Mathcad's bold =: `$M := 1 = 2 =$` gives 0, `$M := 2 #A = 2000 mA$` gives 1. Values of different units are never equal (`1 A = 2 V` is 0, `1 A != 2 V` is 1); `<`, `<=`, `>`, `>=` and `!=` compare too, chains like `$0 < x <= 1$` hold when every step does. `and` and `or` (Typst shows ∧ and ∨) join them, `and` binding tighter: `$x < 0 or x > 2$`, also as a condition in `cases`.
 /// - **A trailing `=` shows the value**, numerically, with a bold =. After it come a unit and modifiers (from `modifiers`): `$t = #h, digits(3)$`. Every name in it must have a value by then.
-/// - **A trailing `->` shows the symbolic result**: defined values put in, exactly (fractions, roots and π stay), undefined names kept: `$x + 3/3 y -> simplify$` is x + y. With `solve(x)` it solves – symbolically when it can (`$0 = 1 + 3/x + y^2 -> solve(x)$` is x = −3/(y² + 1)), numerically when every other name has a value – and defines x when the solution is a value. `substitute(U, …)` shows the result with these variables' formulas put in and every other name kept: after `$U := R I$`, `$P := U^2/R -> substitute(U)$` is I² R.
+/// - **A trailing `->` shows the symbolic result**: defined values put in, exactly (fractions, roots and π stay), undefined names kept: `$x + 3/3 y -> simplify$` is x + y. An equation shows where it holds: `$a^2 p = a p ->$` is a = 0 ∨ a = 1 ∨ p = 0 (one side zero, in factors, each factor zero); `steps` shows the way there, a line each. `expand` multiplies out, `factor` splits into factors: `$x^3 - x -> factor$` is x (x − 1)(x + 1). With `solve(x)` it solves – symbolically when it can (`$0 = 1 + 3/x + y^2 -> solve(x)$` is x = −3/(y² + 1)), numerically when every other name has a value – and defines x when the solution is a value. `substitute(U, …)` shows the result with these variables' formulas put in and every other name kept: after `$U := R I$`, `$P := U^2/R -> substitute(U)$` is I² R.
 /// - **Any other `=`** states something: it's checked when everything in it has a value (`$U = R I$`), and left alone as prose when not (`$E = m c^2$`).
 ///
 /// **Functions** are defined the same way: `$f(x) := x^2 + 1$`. Their body is symbolic too, so a function needn't define everything it uses: names that aren't parameters and aren't defined stay names, looked up when the function is evaluated, and cancel where the algebra lets them (`$U(x: #m) := h x a$`, then `$g(x: #m) := U(x)/a ->$` is `1 m · x` without any `a`). Undefined function calls stay symbolic too: `$f(t) := integral_(-infinity)^t sigma(tau) dif tau$` is valid before `sigma` is defined; numerical evaluation requires its definition and convergence. A parameter can have a unit, `f(I: mA)`: arguments must carry its dimension (`f(2 mA)` is valid, `f(2)` reports a missing unit); `any` takes every unit. `..` makes the body's other undefined names parameters, in the order they appear: `$P(..) := U^2/R$` is `P(U, R)`. A parameter passed on to one with a unit takes that unit: with `$q(x: #A) := 2 x$`, `$f(y) := q(y)$` makes y an A. **Named parameters** have a default value and are passed by name, as in Typst: after `$f(x, n: 2) := x^n$`, `$f(3) =$` is 9 and `$f(3, n: 3) =$` is 27; a named argument that isn't a parameter, a positional one passed by name and one passed twice are errors. After the colon, an expression made only of unit bindings is a type (`I: mA`, `v: #m / #s`), anything else a default (`n: 2`, `R: 2 #Ω`, `s: k`). Defaults are taken where the function is defined, as Typst evaluates them, and come after the other parameters.
@@ -226,6 +226,23 @@
       return (if base == "∑" { "sum_(" } else { "integral_(" }) + _src(c.b) + ")^(" + _src(c.t) + ")"
     }
     let out = base
+    // y_A(a p): Typst sets the (a p) in the subscript; it's the call's arguments, spaces and all
+    if c.has("b") and c.b != none and c.b.has("children") {
+      let b = c.b.children
+      let group = b.last()
+      if b.len() > 1 and group.func() == math.lr and _plain(group).starts-with("(") and b.slice(0, -1).any(x => x.func() != _space) {
+        let fields = c.fields()
+        let _ = fields.remove("b")
+        let t = fields.remove("t", default: none)
+        let head = _src(math.attach(fields.remove("base"), b: b.slice(0, -1).join(), ..fields))
+        let args = _src(group)
+        if _E(head) { return head }
+        if _E(args) { return args }
+        if t == none { return head + args }
+        let ts = _src(t)
+        return if _E(ts) { ts } else { head + "(" + args + ")^(" + ts + ")" }
+      }
+    }
     // subscripts are part of a name (R_"load", "x"_("in" Delta))
     if c.has("b") and c.b != none {
       let sub = _src(c.b)
@@ -450,6 +467,21 @@
   }
   let space(x) = x == none or x.func() == _space
   let word(x) = if x.has("text") and type(x.text) == str { x.text } else { none }
+  // y_A(x): Typst sets the (x) in the subscript, solveng reads the call of y_A – shown as it is calculated
+  if f == math.attach and c.at("b", default: none) != none and c.b.has("children") {
+    let b = c.b.children
+    let group = b.last()
+    if b.len() > 1 and group.func() == math.lr and _plain(group).starts-with("(") and b.slice(0, -1).any(x => not space(x)) {
+      let fields = c.fields()
+      let base = fields.remove("base")
+      let _ = fields.remove("b")
+      let t = fields.remove("t", default: none)
+      let head = math.attach(base, b: b.slice(0, -1).join(), ..fields)
+      let n = _call(_p.name, _src(head))
+      let group = _restyle(group, cf)
+      return (if n != none { _m(n, cf) } else { head }) + (if t == none { group } else { math.attach(group, t: _restyle(t, cf)) })
+    }
+  }
   if c.has("children") {
     let (out, ch, i) = ((), c.children, 0)
     while i < ch.len() {

@@ -652,8 +652,23 @@ fn complete_math(a: &Analysis, e: &Element, from: usize) -> Option<Completions> 
     let hash = from > e.body_start && a.doc.c[from - 1] == '#';
     let before_ = a.doc.sub(e.body_start, from - usize::from(hash));
     let replacement = a.doc.to16(from);
-    if let Some(names) = crate::clause::at_clause(&before_, &|w| a.bindings.modifier(from, w)) {
-        return Some(Completions { to: None, from: replacement, items: clause_items(a, names, from, e.body_start, &before_, hash), exclusive: !names });
+    if let Some((names, arrow, tail)) = crate::clause::at_clause(&before_, &|w| a.bindings.modifier(from, w)) {
+        // after =, what's written so far decides: a modifier or unit makes it a clause, anything else a comparison
+        let comparing = !names && !arrow && match clause_or_comparison(a, from, &tail) {
+            Some(true) => return Some(Completions { to: None, from: replacement, items: clause_items(a, false, from, e.body_start, &before_, hash), exclusive: true }),
+            Some(false) => true,
+            None => false,
+        };
+        if !comparing {
+            let mut items = clause_items(a, names, from, e.body_start, &before_, hash);
+            // y(t) = … shows the value or compares: what a comparison takes too
+            if !names && !arrow {
+                let mut seen: HashSet<String> = items.iter().map(|i| i.label.clone()).collect();
+                if !hash { items.extend(name_items(a, from).into_iter().filter(|i| seen.insert(i.label.clone()))); }
+                items.extend(constants(a, from, hash).into_iter().filter(|i| seen.insert(i.label.clone())));
+            }
+            return Some(Completions { to: None, from: replacement, items, exclusive: !names && (arrow || hash) });
+        }
     }
     let units = || binding_items(a, from, hash, &|m| m.is_unit(), Module::Units);
     // V: |, q(x: |: units and the types that aren't units
@@ -685,6 +700,19 @@ fn complete_math(a: &Analysis, e: &Element, from: usize) -> Option<Completions> 
     if !hash { items.extend(keyword_items(&before_)); }
     if items.is_empty() { None } else { Some(Completions { to: None, from: replacement, items, exclusive: false }) }
 }
+
+/// What the text after a trailing `=` makes it, the word being typed left out: Some(true) a clause (a modifier or a
+/// unit is written: `= #h, |`), Some(false) a comparison (anything else: `= y_2(t) + |`), None not decided yet.
+fn clause_or_comparison(a: &Analysis, at: usize, tail: &str) -> Option<bool> {
+    if tail.trim().is_empty() {
+        return None;
+    }
+    let words = WORD.find_iter(tail).map(|m| m.as_str().trim_start_matches('#'));
+    let clause = words.into_iter().any(|w| a.bindings.modifier(at, w).is_some() || a.bindings.bound(at, w).is_some_and(|m| m.is_unit()));
+    Some(clause)
+}
+
+static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"#?\p{L}[\p{L}\p{N}]*").unwrap());
 
 /// The constants in scope at `at`, then the `constants` module's others, imported along.
 fn constants(a: &Analysis, at: usize, hash: bool) -> Vec<Item> {

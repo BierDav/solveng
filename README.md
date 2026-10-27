@@ -89,7 +89,7 @@ There is no worksheet unit table or automatic constant/function lookup. The form
 
 `#show: worksheet` calculates the remaining math. `#worksheet[…]` starts an isolated worksheet; `scope: "inherit"` reads outer definitions and `scope: "shared"` also keeps its changes. Equations passed directly to `worksheet` share definitions by default. `hidden: true` hides calculations, and `evaluate: false` leaves ordinary math alone.
 
-Use `#value($expression$)` for a result in text, `#defined()` to list definitions, and `#clear("x")` or `#clear(all: true)` to forget worksheet definitions. The modifiers after a result marker – `solve`, `substitute`, `simplify`, `digits`, `sci`, `eng` and `fraction` – are bindings of the `modifiers` module and only come from it: `#import modifiers: solve, digits` (renamed imports such as `solve as löse` work too). `any`, the type of a parameter that takes every unit, comes with the package import.
+Use `#value($expression$)` for a result in text, `#defined()` to list definitions, and `#clear("x")` or `#clear(all: true)` to forget worksheet definitions. The modifiers after a result marker – `solve`, `substitute`, `simplify`, `expand`, `factor`, `steps`, `digits`, `sci`, `eng` and `fraction` – are bindings of the `modifiers` module and only come from it: `#import modifiers: solve, digits` (renamed imports such as `solve as löse` work too). `any`, the type of a parameter that takes every unit, comes with the package import.
 
 The engine supports symbolic algebra, complex numbers, real calculus, matrices, finite and convergent infinite sums, signal operations, Laplace transforms, and graphs. Unit targets are expressions too: `preferred-units: ($#m / #s$,)` or `lambdify($U^2/R$, "U", unit: $#W$, units: (U: $#V$))`.
 

@@ -1,5 +1,6 @@
 //! Polynomials with exact coefficients in any number of variables: rational functions brought to lowest terms
-//! (`(x² − 1)/(x − 1)` → `x + 1`), and expressions over one denominator for solving.
+//! (`(x² − 1)/(x − 1)` → `x + 1`), expressions over one denominator for solving, and factors
+//! (`a² p² − a p²` → `a p² (a − 1)`).
 
 use std::collections::BTreeMap;
 
@@ -131,6 +132,17 @@ impl Poly {
         }
         Poly { n: self.n, t }
     }
+    fn diff(&self, v: usize) -> Option<Poly> {
+        let mut t = BTreeMap::new();
+        for (m, c) in &self.t {
+            if m[v] > 0 {
+                let mut m2 = m.clone();
+                m2[v] -= 1;
+                t.insert(m2, c.mul(Rat::int(m[v] as i128))?);
+            }
+        }
+        Some(Poly { n: self.n, t })
+    }
     fn vars(&self) -> Vec<usize> {
         (0..self.n).filter(|&i| self.t.keys().any(|m| m[i] > 0)).collect()
     }
@@ -257,6 +269,163 @@ pub fn gcd(a: &Poly, b: &Poly) -> Option<Poly> {
     Some(g.normalized()?.0)
 }
 
+// ---------- factors ----------
+
+/// A polynomial as k · Π fᵉ: each f with whole coefficients without a common factor, its leading one positive, and
+/// as far as split: the factors free of a variable (its content), repeated factors, and factors of degree one in a
+/// variable. A factor left over may still split (x⁴ + 4 is (x² − 2x + 2)(x² + 2x + 2)); it isn't searched further.
+fn factor_poly(p: &Poly) -> Option<(Rat, Vec<(Poly, u32)>)> {
+    if p.is_zero() {
+        return None;
+    }
+    let (mut q, _) = p.normalized()?;
+    let mut out = vec![];
+    // the variables every term has
+    let low: Mono = (0..q.n).map(|i| q.t.keys().map(|m| m[i]).min().unwrap_or(0)).collect();
+    if low.iter().any(|&e| e > 0) {
+        for (i, &e) in low.iter().enumerate() {
+            if e > 0 {
+                out.push((Poly::var(q.n, i), e));
+            }
+        }
+        let mut m = Poly::zero(q.n);
+        m.t.insert(low, Rat::ONE);
+        q = q.div_exact(&m)?;
+    }
+    merge(&mut out, split(&q, 0));
+    // the constant: what the factors don't give of p
+    let mut prod = Poly::constant(p.n, Rat::ONE);
+    for (f, e) in &out {
+        prod = prod.mul(&f.powi(*e)?)?;
+    }
+    let k = p.lead()?.1.div(*prod.lead()?.1)?;
+    Some((k, out))
+}
+
+/// Adds factors to a list, a factor already there by its multiplicity.
+fn merge(out: &mut Vec<(Poly, u32)>, more: Vec<(Poly, u32)>) {
+    for (f, e) in more {
+        match out.iter_mut().find(|g| g.0 == f) {
+            Some(g) => g.1 += e,
+            None => out.push((f, e)),
+        }
+    }
+}
+
+/// The factors of q (primitive, whole coefficients, no variable dividing it); q itself where it can't be split.
+fn split(q: &Poly, depth: u32) -> Vec<(Poly, u32)> {
+    if q.is_const() {
+        return vec![];
+    }
+    if depth < 16 {
+        if let Some(fs) = try_split(q, depth) {
+            return fs;
+        }
+    }
+    vec![(q.normalized().map_or_else(|| q.clone(), |n| n.0), 1)]
+}
+
+fn try_split(q: &Poly, depth: u32) -> Option<Vec<(Poly, u32)>> {
+    let q = q.normalized()?.0;
+    let both = |a: &Poly, b: &Poly| -> Option<Vec<(Poly, u32)>> {
+        let mut out = split(a, depth + 1);
+        merge(&mut out, split(b, depth + 1));
+        Some(out)
+    };
+    // the part free of a variable: its content in it
+    for v in q.vars() {
+        let c = q.content(v)?;
+        if !c.is_const() {
+            return both(&c, &q.div_exact(&c)?);
+        }
+    }
+    // now every factor has every variable: a repeated one is shared with the derivative in any of them
+    let vs = q.vars();
+    let g = gcd(&q, &q.diff(vs[0])?)?;
+    if !g.is_const() {
+        return both(&g, &q.div_exact(&g)?);
+    }
+    // of degree one in a variable it has no factor free of: irreducible
+    if vs.iter().any(|&v| q.deg(v) == 1) {
+        return Some(vec![(q, 1)]);
+    }
+    for &v in &vs {
+        if let Some(f) = linear_factor(&q, v)? {
+            let mut out = vec![(f.clone(), 1)];
+            merge(&mut out, split(&q.div_exact(&f)?, depth + 1));
+            return Some(out);
+        }
+    }
+    Some(vec![(q, 1)])
+}
+
+/// A factor a·v + b of q: a divides q's leading coefficient in v, b its coefficient free of v (the rational root
+/// test, with polynomials for the numbers when there are more variables).
+fn linear_factor(q: &Poly, v: usize) -> Option<Option<Poly>> {
+    let cs = q.coeffs(v);
+    let (lc, tc) = (cs.last()?, &cs[0]);
+    if tc.is_zero() {
+        return Some(Some(Poly::var(q.n, v)));
+    }
+    let (da, db) = (divisors(lc)?, divisors(tc)?);
+    if da.len() * db.len() > 4000 {
+        return None;
+    }
+    for a in &da {
+        for b in &db {
+            for b in [b.clone(), b.neg()?] {
+                let f = a.shift(v, 1).add(&b)?;
+                if q.div_exact(&f).is_some() {
+                    return Some(Some(f.normalized()?.0));
+                }
+            }
+        }
+    }
+    Some(None)
+}
+
+/// The divisors of a polynomial up to sign: products of its factors and of the divisors of its whole constant.
+fn divisors(p: &Poly) -> Option<Vec<Poly>> {
+    // free of a variable of q: its factors take fewer variables, so this ends
+    let (mut k, fs) = if p.is_const() { (*p.t.values().next()?, vec![]) } else { factor_poly(p)? };
+    if !k.is_int() {
+        return None;
+    }
+    k = k.abs();
+    let n = k.numer();
+    let mut ints = vec![];
+    if n > 10_000_000_000 {
+        ints.extend([1, n]);
+    } else {
+        let mut i = 1;
+        while i * i <= n {
+            if n % i == 0 {
+                ints.push(i);
+                if i * i != n {
+                    ints.push(n / i);
+                }
+            }
+            i += 1;
+        }
+    }
+    let mut out: Vec<Poly> = ints.into_iter().map(|i| Poly::constant(p.n, Rat::int(i))).collect();
+    for (f, e) in fs {
+        let mut more = vec![];
+        for d in &out {
+            let mut x = d.clone();
+            for _ in 0..e {
+                x = x.mul(&f)?;
+                more.push(x.clone());
+            }
+        }
+        out.extend(more);
+        if out.len() > 2000 {
+            return None;
+        }
+    }
+    Some(out)
+}
+
 /// Atoms of a polynomial: symbols, constants like π, functions, powers that aren't whole.
 struct Atoms(Vec<Expr>);
 
@@ -374,6 +543,73 @@ pub fn cancel_expr(e: &Expr) -> Option<Expr> {
     let k = Expr::C(Val::num(Num::R(kd.div(kn)?)));
     let (n, d) = (poly_expr(&n, &at), poly_expr(&d, &at));
     Some(simp(&expr::mul(vec![k, expr::div(n, d)])))
+}
+
+/// An expression over one denominator, both in factors: k · Π numᵉ / Π denᵉ.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Factored {
+    pub k: Rat,
+    pub num: Vec<(Expr, u32)>,
+    pub den: Vec<(Expr, u32)>,
+}
+
+impl Factored {
+    pub fn is_zero(&self) -> bool {
+        self.k.is_zero()
+    }
+    /// The numerator's factors multiplied, without the constant: what is zero where the expression is.
+    pub fn numerator(&self) -> Expr {
+        simp(&expr::mul(self.num.iter().map(|(f, e)| expr::pow(f.clone(), int(*e as i128))).collect()))
+    }
+}
+
+/// The factors of an expression (see `factor_poly` for how far it splits), None where it isn't exact.
+pub fn factor(e: &Expr) -> Option<Factored> {
+    let mut at = Atoms(vec![]);
+    let (n, d) = ratfn(e, &mut at)?;
+    if n.is_zero() {
+        return Some(Factored { k: Rat::int(0), num: vec![], den: vec![] });
+    }
+    let (kn, num) = factor_poly(&n)?;
+    let (kd, den) = factor_poly(&d)?;
+    let exprs = |fs: Vec<(Poly, u32)>| fs.into_iter().map(|(f, e)| (poly_expr(&f, &at), e)).collect();
+    Some(Factored { k: kn.div(kd)?, num: exprs(num), den: exprs(den) })
+}
+
+/// How a symbolic result is shown: the simplest form (`simplify`), multiplied out (`expand`), in factors (`factor`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Form {
+    #[default]
+    Simplest,
+    Expanded,
+    Factored,
+}
+
+/// e in the form asked for: an equation side by side, a vector or matrix element by element. None where factors
+/// can't be found (decimals).
+pub fn shaped(e: &Expr, form: Form) -> Option<Expr> {
+    if form == Form::Simplest {
+        return Some(simplify(e));
+    }
+    let each = |v: &[Expr]| v.iter().map(|x| shaped(x, form)).collect::<Option<Vec<_>>>();
+    match e {
+        Expr::Cmp(v, rs) => Some(Expr::Cmp(each(v)?, rs.clone())),
+        Expr::Vector(v) => Some(Expr::Vector(each(v)?)),
+        Expr::Matrix(rs) => Some(Expr::Matrix(rs.iter().map(|r| each(r)).collect::<Option<_>>()?)),
+        _ if form == Form::Expanded => Some(expr::expand(&simplify(e))),
+        _ => {
+            let s = simplify(e);
+            // a number isn't split into primes
+            if s.syms().is_empty() || s.contains(&crate::linalg::is_array) {
+                return Some(s);
+            }
+            let f = factor(&s)?;
+            let mut fs = vec![Expr::C(Val::num(Num::R(f.k)))];
+            fs.extend(f.num.iter().map(|(g, e)| expr::pow(g.clone(), int(*e as i128))));
+            fs.extend(f.den.iter().map(|(g, e)| expr::pow(g.clone(), int(-(*e as i128)))));
+            Some(simp(&expr::mul(fs)))
+        }
+    }
 }
 
 /// The simplest of the forms solveng knows: as it is (canonical), with fractions cancelled, multiplied out.
@@ -522,6 +758,48 @@ mod tests {
         assert_eq!(d, x.clone());
         let c = coeffs(&n, "x").unwrap();
         assert_eq!(c, vec![int(3), add(vec![pow(y.clone(), int(2)), int(1)])]);
+    }
+
+    /// e's factors: the numerator's, as k · Π fᵉ with each f simplified.
+    fn factors_of(e: &Expr) -> (Rat, Vec<(Expr, u32)>) {
+        let f = factor(&expand(e)).unwrap();
+        (f.k, f.num)
+    }
+
+    #[test]
+    fn factoring() {
+        let (x, y, a, p, t) = (sym("x"), sym("y"), sym("a"), sym("p"), sym("t"));
+        // a² p² t − a p² t = a p² t (a − 1)
+        let e = sub(mul(vec![pow(a.clone(), int(2)), pow(p.clone(), int(2)), t.clone()]), mul(vec![a.clone(), pow(p.clone(), int(2)), t.clone()]));
+        let (k, fs) = factors_of(&e);
+        assert_eq!(k, Rat::ONE);
+        assert_eq!(fs, vec![(a.clone(), 1), (p.clone(), 2), (t.clone(), 1), (simp(&sub(a.clone(), int(1))), 1)]);
+        // x² − y² = (x − y)(x + y)
+        let (_, fs) = factors_of(&sub(pow(x.clone(), int(2)), pow(y.clone(), int(2))));
+        assert_eq!(fs.len(), 2);
+        assert!(fs.contains(&(simp(&sub(x.clone(), y.clone())), 1)) && fs.contains(&(simp(&add(vec![x.clone(), y.clone()])), 1)));
+        // 2x³ − 2x = 2 x (x − 1)(x + 1)
+        let (k, fs) = factors_of(&sub(mul(vec![int(2), pow(x.clone(), int(3))]), mul(vec![int(2), x.clone()])));
+        assert_eq!(k, Rat::int(2));
+        assert_eq!(fs.len(), 3);
+        // repeated: (x − 1)² (x + 2)³ (y + 1)
+        let e = mul(vec![pow(sub(x.clone(), int(1)), int(2)), pow(add(vec![x.clone(), int(2)]), int(3)), add(vec![y.clone(), int(1)])]);
+        let (_, mut fs) = factors_of(&e);
+        fs.sort_by_key(|f| f.1);
+        assert_eq!(fs, vec![(simp(&add(vec![y.clone(), int(1)])), 1), (simp(&sub(x.clone(), int(1))), 2), (simp(&add(vec![x.clone(), int(2)])), 3)]);
+        // rational roots: 6x² − x − 1 = (2x − 1)(3x + 1); x⁴ − 1 = (x − 1)(x + 1)(x² + 1)
+        assert_eq!(factors_of(&add(vec![mul(vec![int(6), pow(x.clone(), int(2))]), neg(x.clone()), int(-1)])).1.len(), 2);
+        let (_, fs) = factors_of(&sub(pow(x.clone(), int(4)), int(1)));
+        assert_eq!(fs.len(), 3);
+        assert!(fs.contains(&(simp(&add(vec![pow(x.clone(), int(2)), int(1)])), 1)));
+        // irreducible stays: x² + y², x² − 2
+        assert_eq!(factors_of(&add(vec![pow(x.clone(), int(2)), pow(y.clone(), int(2))])).1.len(), 1);
+        assert_eq!(factors_of(&sub(pow(x.clone(), int(2)), int(2))).1.len(), 1);
+        // over a denominator: (x² − 1)/(2x) has x − 1 and x + 1 above, x below
+        let f = factor(&div(sub(pow(x.clone(), int(2)), int(1)), mul(vec![int(2), x.clone()]))).unwrap();
+        assert_eq!((f.k, f.num.len(), f.den), (Rat::new(1, 2).unwrap(), 2, vec![(x.clone(), 1)]));
+        // zero
+        assert!(factor(&sub(x.clone(), x.clone())).unwrap().is_zero());
     }
 
     #[test]

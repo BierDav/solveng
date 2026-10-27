@@ -84,6 +84,9 @@ pub struct Cfg {
     pub words: Words,
     /// A unit-style function is set: units are wrapped in svu(…).
     pub unit_style: bool,
+    /// How -> shows a symbolic result: from the clause (expand, factor), not an option.
+    #[serde(skip)]
+    pub symbolic: crate::poly::Form,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -124,6 +127,7 @@ fn serde_json_like_default() -> Cfg {
         show_types: "chip".into(),
         words: Words::default(),
         unit_style: false,
+        symbolic: crate::poly::Form::Simplest,
     }
 }
 

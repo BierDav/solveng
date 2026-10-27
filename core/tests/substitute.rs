@@ -13,11 +13,11 @@ fn puts_in_the_listed_formulas_and_keeps_every_other_name() {
     let mut env = Env::default();
     line(&mut env, "k := a b");
     line(&mut env, "m := k d");
-    assert_eq!(result(&mut env, "z := m c -> substitute(m)"), "c d k");
+    assert_eq!(result(&mut env, "z := m c -> substitute(m)"), "c dot d dot k");
     // a formula using another listed name gets that one's formula too
-    assert_eq!(result(&mut env, "z := m c -> substitute(m, k)"), "a b c d");
-    assert_eq!(result(&mut env, "m c -> substitute(m)"), "c d k");
-    assert_eq!(result(&mut env, "f(t) := m t -> substitute(m)"), "d k t");
+    assert_eq!(result(&mut env, "z := m c -> substitute(m, k)"), "a dot b dot c dot d");
+    assert_eq!(result(&mut env, "m c -> substitute(m)"), "c dot d dot k");
+    assert_eq!(result(&mut env, "f(t) := m t -> substitute(m)"), "d dot k dot t");
 }
 
 #[test]
@@ -26,7 +26,7 @@ fn keeps_known_values_out_and_the_value_unchanged() {
     line(&mut env, "R := 4.7 kΩ");
     line(&mut env, "I := 2 mA");
     line(&mut env, "U := R I");
-    assert_eq!(result(&mut env, "P := U^2 / R -> substitute(U)"), "I^(\"2\") R");
+    assert_eq!(result(&mut env, "P := U^2 / R -> substitute(U)"), "I^(\"2\") dot R");
     assert!((value(&env.vars["P"].expr).unwrap().v.f() - 0.0188).abs() < 1e-12);
     // what's listed and has a value is a value
     assert!(!result(&mut env, "P2 := U^2 / R -> substitute(U, R, I)").contains('R'));

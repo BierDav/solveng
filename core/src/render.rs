@@ -240,7 +240,8 @@ impl R<'_> {
                 let full = if c.is_one() { r } else { expr::simp(&expr::mul(vec![Expr::C(c), r])) };
                 let (n, d) = expr::num_den(&full);
                 if d.is_one() {
-                    self.factors(&n)
+                    // −(y − 3): a sum negated keeps its parentheses
+                    if neg && matches!(n, Expr::Add(_)) { format!("lr(({}))", self.factors(&n)) } else { self.factors(&n) }
                 } else {
                     format!("frac({}, {})", self.factors(&n), self.factors(&d))
                 }
@@ -277,7 +278,7 @@ impl R<'_> {
         Some(self.with_unit(&factor, u))
     }
 
-    /// Factors joined: 2 x y, 3 mA · R, 2 (x + 1).
+    /// Factors joined: 2 x · y, 3 mA · R, 2 (x + 1).
     fn factors(&self, e: &Expr) -> String {
         let fs: Vec<Expr> = match e {
             Expr::Mul(v) => v.clone(),
@@ -290,8 +291,13 @@ impl R<'_> {
             let (m, p) = self.expr(f);
             let is_num = matches!(f, Expr::C(_));
             let is_qty = matches!(f, Expr::C(v) if !v.d.is_one() || v.u.is_some());
+            // juxtaposed only after a number (2 x, 2 (x + 1)) and before an operation, upright and spaced by Typst
+            // (x ln(x)); else a dot, as Mathcad shows products: a s would read as the name as, a s_a(t) as as_a(t),
+            // x (x − 1) as a call of x
             if i > 0 {
-                s += if is_num || prev_qty || (prev_num && p < P_ATOM && !matches!(f, Expr::Add(_))) { " dot " } else { " " };
+                let after_number = prev_num && !prev_qty && (p == P_ATOM || matches!(f, Expr::Add(_)));
+                let operation = matches!(f, Expr::F(..)) && !matches!(fs[i - 1], Expr::C(_));
+                s += if (after_number || operation) && !is_num { " " } else { " dot " };
             }
             let m = if fs.len() > 1 && p < P_PROD { format!("lr(({m}))") } else if fs.len() > 1 && p == P_PROD && is_qty && i > 0 { m } else { m };
             s += &m;

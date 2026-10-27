@@ -19,7 +19,7 @@ use crate::format::{self, Cfg, name, pick, shown};
 use crate::linalg::{self, Array};
 use crate::num::{Num, close};
 use crate::parse::{self, Ast, Clause, Ctx, Head, Line, Param, ParamType, Rel, Stmt, Trail};
-use crate::poly::simplify;
+use crate::poly::{Form, shaped, simplify};
 use crate::render::{self, R};
 use crate::solve::{self, Fail};
 use crate::units::{UnitExpr, Units};
@@ -100,6 +100,9 @@ impl<'a> Sheet<'a> {
             None => (None, Clause::default()),
         };
         let cfg = self.clause_cfg(&clause);
+        if clause.steps && clause.solve.is_some() {
+            return Err("steps shows how -> simplifies, not how solve solves: $F(a p) = a F(p) -> steps$ shows where an equation holds".into());
+        }
         if let Some(xs) = &clause.solve {
             if !l.stmts.iter().any(|s| matches!(s, Stmt::Def { .. })) {
                 return self.solve(&l.stmts, xs, &clause, &cfg);
@@ -127,6 +130,12 @@ impl<'a> Sheet<'a> {
         if c.frac {
             cfg.form = "fraction".into();
         }
+        if c.expand {
+            cfg.symbolic = Form::Expanded;
+        }
+        if c.factor {
+            cfg.symbolic = Form::Factored;
+        }
         if c.sci {
             cfg.scientific = Some((0, 1));
             cfg.prefixes = crate::units::Prefixes::None;
@@ -152,6 +161,12 @@ impl<'a> Sheet<'a> {
 
     /// One statement.
     fn stmt(&mut self, s: &Stmt, trail: Option<Trail>, clause: &Clause, cfg: &Cfg) -> Result<(), String> {
+        if (clause.expand || clause.factor) && trail != Some(Trail::Sym) {
+            return Err(format!("{} shows a symbolic result: it goes after ->", if clause.expand { "expand" } else { "factor" }));
+        }
+        if clause.steps && (trail != Some(Trail::Sym) || clause.solve.is_some() || !matches!(s, Stmt::Expr(_))) {
+            return Err("steps shows how -> simplifies an expression or an equation: $F(a p) = a F(p) -> steps$".into());
+        }
         if !clause.substitute.is_empty() && (trail != Some(Trail::Sym) || clause.solve.is_some()) {
             return Err("substitute shows a formula: it goes after ->, without solve".into());
         }
@@ -274,7 +289,7 @@ impl<'a> Sheet<'a> {
         let given = literal(rhs);
         let s = simp(&e);
         // a symbolic result asked for: what's stored is the simplified form
-        let stored = if trail == Some(Trail::Sym) { simplify(&s) } else { s.clone() };
+        let stored = if trail == Some(Trail::Sym) { self.shaped(&s, cfg)? } else { s.clone() };
         let unit = clause.unit.clone();
         if let (Some(u), Ok(v)) = (&unit, value(&stored)) {
             pick(&v, Some(u), None, &self.units, cfg)?;
@@ -391,13 +406,17 @@ impl<'a> Sheet<'a> {
                 p.ty = inferred.get(&p.name).cloned();
             }
         }
+        // parameters are values: u(t) with a parameter u would be another function u, unrelated to it
+        if let Some(p) = ps.iter().find(|p| body.contains(&|e| matches!(e, Expr::Call(name, _) if *name == p.name))) {
+            return Err(format!("{n}: the parameter {0} is called like a function, {0}(…) – parameters are values; write {0} for its value at the point: {n}({0}) := {0}^2", p.name));
+        }
         // a parameter of the same name is the parameter: y(y) := X(y)
         if body.contains(&|e| matches!(e, Expr::Call(name, _) if name == n)) || (body.has(n) && !ps.iter().any(|p| p.name == n)) {
             return Err(format!("{n} is used in its own definition – functions can't call themselves"));
         }
         let shown = if clause.substitute.is_empty() { None } else { Some(self.substituted(rhs, &ps.iter().map(|p| p.name.clone()).collect::<Vec<_>>(), &clause.substitute)?) };
         let written = (clause.solve.is_none() && body.contains(&|e| matches!(e, Expr::Mul(_)))).then(|| body.clone());
-        let body = if sym { simplify(&body) } else { simp(&body) };
+        let body = if sym { self.shaped(&body, cfg)? } else { simp(&body) };
         let pd: BTreeMap<String, Dim> = ps
             .iter()
             .filter_map(|p| match &p.ty {
@@ -418,7 +437,8 @@ impl<'a> Sheet<'a> {
         self.env.define_fun(n, f, self.listed);
         self.out.defined.push(n.to_string());
         if sym {
-            let m = self.r(cfg, true).expr(&shown.map_or_else(|| body.clone(), |e| simplify(&e))).0;
+            let shown = match shown { Some(e) => self.shaped(&e, cfg)?, None => body.clone() };
+            let m = self.r(cfg, true).expr(&shown).0;
             self.show("->", m);
         }
         Ok(())
@@ -529,7 +549,7 @@ impl<'a> Sheet<'a> {
 
     /// A symbolic result as markup: exact; a value once nothing unknown is left, in the unit asked for.
     fn sym_markup(&self, e: &Expr, unit: Option<&UnitExpr>, cfg: &Cfg) -> Result<String, String> {
-        let s = simplify(e);
+        let s = self.shaped(e, cfg)?;
         if let Some(m) = linalg::problem(&s) {
             return Err(m);
         }
@@ -577,11 +597,64 @@ impl<'a> Sheet<'a> {
             Some(backing) => self.r(cfg, true).expr(&backing).0,
             None => {
                 let e = if clause.substitute.is_empty() { self.lower(a, &[], true)? } else { self.substituted(a, &[], &clause.substitute)? };
-                self.sym_markup(&e, clause.unit.as_ref(), cfg)?
+                self.sym_result(&e, clause, cfg)?
             }
         };
         self.show("->", m);
         Ok(())
+    }
+
+    /// A symbolic result in the form the clause asks for (simplest, expanded, in factors).
+    fn shaped(&self, e: &Expr, cfg: &Cfg) -> Result<Expr, String> {
+        shaped(e, cfg.symbolic).ok_or_else(|| "factor finds the factors of exact numbers – write decimals as fractions, or leave the numbers out".into())
+    }
+
+    /// What -> shows of an expression: its symbolic result; of an equation, where it holds (`a = 0 or a = 1`,
+    /// true, false). With steps, the forms on the way, a line each in a block: the equation with the definitions put
+    /// in, one side zero, in factors, where it holds.
+    fn sym_result(&self, e: &Expr, clause: &Clause, cfg: &Cfg) -> Result<String, String> {
+        let r = self.r(cfg, true);
+        let eq = |l: &Expr, x: &Expr| r.expr(&Expr::Cmp(vec![l.clone(), x.clone()], vec![Rel::Eq])).0;
+        let reduced = match e {
+            // expand and factor show the sides in their form
+            Expr::Cmp(v, rs) if rs[..] == [Rel::Eq] && cfg.symbolic == Form::Simplest && clause.unit.is_none() && !v.iter().any(|x| x.contains(&linalg::is_array)) => {
+                solve::reduce(&v[0], &v[1]).map(|red| (&v[0], &v[1], red))
+            }
+            _ => None,
+        };
+        let (mut steps, joint) = match reduced {
+            Some((l, x, red)) => {
+                let zero = expr::int(0);
+                let holds = match &red.holds {
+                    solve::Holds::Always => "\"true\"".to_string(),
+                    solve::Holds::Never => "\"false\"".to_string(),
+                    solve::Holds::Where(cs) => cs.iter().map(|(a, b)| eq(a, b)).collect::<Vec<_>>().join(" or "),
+                };
+                let mut steps = vec![eq(&simplify(l), &simplify(x)), eq(&red.difference, &zero)];
+                if matches!(red.holds, solve::Holds::Where(_)) {
+                    steps.push(eq(&red.factored, &zero));
+                }
+                steps.push(holds);
+                (steps, "<=>")
+            }
+            None => {
+                let mut steps = vec![];
+                if clause.steps {
+                    steps.push(r.expr(&simp(e)).0);
+                }
+                steps.push(self.sym_markup(e, clause.unit.as_ref(), cfg)?);
+                (steps, if matches!(e, Expr::Cmp(..)) { "<=>" } else { "=" })
+            }
+        };
+        if !clause.steps {
+            return Ok(steps.pop().unwrap_or_default());
+        }
+        steps.dedup();
+        if steps.len() == 1 {
+            return Ok(steps.remove(0));
+        }
+        // in a block a line each, aligned; inline in a row
+        Ok(if cfg.block { format!("& {}", steps.join(&format!(" \\ & {joint} "))) } else { steps.join(&format!(" {joint} ")) })
     }
 
     /// The result after the equation as written: = or -> and the markup.
@@ -604,6 +677,14 @@ impl<'a> Sheet<'a> {
                 self.out.prose = true;
                 return Ok(());
             };
+            // a function not defined yet inside a definition is unknown like a name: y(t) = … with y(t) := s(t)^2
+            // states, it isn't checked; one written here is a mistake (f(x) = … where f isn't defined)
+            let mut written = vec![];
+            ast_calls(s, &mut written);
+            if e.contains(&|x| matches!(x, Expr::Call(n, _) if !written.contains(n))) && !e.contains(&|x| matches!(x, Expr::Call(n, _) if written.contains(n))) {
+                self.out.prose = true;
+                return Ok(());
+            }
             match complex_value(&e) {
                 Ok(v) => vals.push(v),
                 Err(NoValue::Unknown(_)) => {
@@ -875,7 +956,7 @@ impl<'a> Sheet<'a> {
                         let hint = formula.as_ref().and_then(|f| self.hint_expr(f, z.d()));
                         crate::format::complex(z, unit, hint.as_ref(), &self.units, cfg)?.0
                     }
-                    Sol::Symbolic(e) => self.r(cfg, true).expr(e).0,
+                    Sol::Symbolic(e) => self.r(cfg, true).expr(&self.shaped(e, cfg)?).0,
                 };
                 results.push(format!("{lhs} {rel_m} {res}"));
             }
@@ -1010,6 +1091,26 @@ pub(crate) fn ast_names(a: &Ast, out: &mut Vec<String>) {
     }
 }
 
+/// The functions an expression calls by name, as written.
+fn ast_calls(a: &Ast, out: &mut Vec<String>) {
+    match a {
+        Ast::Call(n, args) => {
+            if !out.contains(n) { out.push(n.clone()); }
+            args.iter().for_each(|x| ast_calls(x, out));
+        }
+        Ast::Builtin(_, args) => args.iter().for_each(|x| ast_calls(x, out)),
+        Ast::Qty(x, _) | Ast::Neg(x) | Ast::Abs(x) | Ast::Arg(_, x) => ast_calls(x, out),
+        Ast::Add(ts) => ts.iter().for_each(|t| ast_calls(&t.1, out)),
+        Ast::Mul(fs) => fs.iter().for_each(|f| ast_calls(&f.1, out)),
+        Ast::Div(x, y) | Ast::Pow(x, y) | Ast::Range(x, y) => { ast_calls(x, out); ast_calls(y, out); }
+        Ast::Index(x, idx) => { ast_calls(x, out); idx.iter().for_each(|i| ast_calls(i, out)); }
+        Ast::Matrix(rs) => rs.iter().flatten().for_each(|x| ast_calls(x, out)),
+        Ast::Cmp(f, rest) => { ast_calls(f, out); rest.iter().for_each(|r| ast_calls(&r.1, out)); }
+        Ast::And(v) | Ast::Or(v) => v.iter().for_each(|x| ast_calls(x, out)),
+        _ => {}
+    }
+}
+
 /// An expression as text, for messages; units by their names.
 pub fn ast_text(a: &Ast, units: &Units) -> String {
     fn p(a: &Ast, min: u8, u: &Units) -> String {
@@ -1111,7 +1212,7 @@ mod tests {
         t.ok("h ≔ 5 z");
         t.ok("z ≔ 20 #cm");
         let o = t.ok("U(x: m) ≔ h x a →");
-        assert_eq!(o.result.as_deref(), Some("a x thin upright(\"m\")"));
+        assert_eq!(o.result.as_deref(), Some("a dot x thin upright(\"m\")"));
         let o = t.ok("h(x: m) ≔ frac(U(x), a) →");
         assert_eq!(o.result.as_deref(), Some("x thin upright(\"m\")"));
         let o = t.ok("y ≔ h(2 #m) =");

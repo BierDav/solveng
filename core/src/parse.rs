@@ -369,6 +369,11 @@ pub struct Clause {
     /// -> substitute(x, …): the variables whose formulas the result shows put in.
     pub substitute: Vec<String>,
     pub simplify: bool,
+    /// -> steps: the forms on the way to the result, one per line.
+    pub steps: bool,
+    /// -> expand: multiplied out; -> factor: in factors.
+    pub expand: bool,
+    pub factor: bool,
     pub frac: bool,
     pub digits: Option<u32>,
     pub sci: bool,
@@ -390,7 +395,7 @@ fn applies_bare(op: &str) -> bool {
     matches!(op, "sqrt" | "exp" | "ln" | "log" | "sin" | "cos" | "tan" | "arcsin" | "arccos" | "arctan" | "sinh" | "cosh" | "tanh" | "abs" | "rect" | "tri" | "sgn" | "floor" | "ceil" | "factorial" | "det" | "tr")
 }
 /// The keywords of a clause, as their bindings name them (frac is Typst's fraction).
-const KEYWORDS: &[&str] = &["solve", "substitute", "simplify", "digits", "sci", "eng", "frac"];
+const KEYWORDS: &[&str] = &["solve", "substitute", "simplify", "expand", "factor", "steps", "digits", "sci", "eng", "frac"];
 
 /// What the parser needs to know about the document so far.
 pub struct Ctx<'a> {
@@ -1123,14 +1128,12 @@ fn split_trail(t: &[Tok], c: &Ctx) -> Result<(usize, Option<(Trail, Clause)>), S
     }
     if let Some(i) = arrow {
         let Some(cl) = clause(&t[i + 1..], c)? else {
-            // a name is no unit: units are bindings
-            let name = t[i + 1..].iter().find_map(|k| match k {
-                Tok::Name(n) | Tok::Quoted(n) => Some(n),
-                _ => None,
-            });
-            return Err(match name {
-                Some(n) => format!("'{n}' after -> is a name, not a unit – a unit is a binding: #{n} with #import units: {n}, or one of your own"),
-                None => "-> takes keywords and a unit: -> solve(x), -> simplify, -> digits(3)".into(),
+            // what can't be a clause: a name alone is no unit (units are bindings), anything else no modifier either
+            let tail = &t[i + 1..];
+            let names: Vec<&String> = tail.iter().filter_map(|k| match k { Tok::Name(n) | Tok::Quoted(n) => Some(n), _ => None }).collect();
+            return Err(match names.as_slice() {
+                [n] if tail.iter().all(|k| matches!(k, Tok::Name(_) | Tok::Quoted(_) | Tok::Kw(_) | Tok::Op(","))) => format!("'{n}' after -> is a name, not a unit – a unit is a binding: #{n} with #import units: {n}, or one of your own"),
+                _ => format!("'{}' after -> is neither a modifier nor a unit – -> takes modifiers and a unit: -> simplify, -> solve(x), -> digits(3), -> #km", src_text(tail).split_whitespace().collect::<Vec<_>>().join(" ")),
             });
         };
         return Ok((i, Some((Trail::Sym, cl))));
@@ -1231,12 +1234,15 @@ fn clause(t: &[Tok], c: &Ctx) -> Result<Option<Clause>, String> {
                 let d: u32 = args.first().and_then(|a| a.parse().ok()).filter(|d| (1..=15).contains(d)).ok_or_else(|| format!("digits: 1…15, got {}", args.join(", ")))?;
                 cl.digits = Some(d);
             }
-            "simplify" | "sci" | "eng" | "frac" => {
+            "simplify" | "expand" | "factor" | "steps" | "sci" | "eng" | "frac" => {
                 if !args.is_empty() {
                     return Err(format!("{name} takes no arguments"));
                 }
                 match name.as_str() {
                     "simplify" => cl.simplify = true,
+                    "steps" => cl.steps = true,
+                    "expand" => cl.expand = true,
+                    "factor" => cl.factor = true,
                     "sci" => cl.sci = true,
                     "eng" => cl.eng = true,
                     _ => cl.frac = true,
@@ -1244,6 +1250,9 @@ fn clause(t: &[Tok], c: &Ctx) -> Result<Option<Clause>, String> {
             }
             _ => return Err(format!("unknown keyword '{name}' (keywords: {})", KEYWORDS.join(", "))),
         }
+    }
+    if cl.expand && cl.factor {
+        return Err("expand multiplies out, factor splits into factors – one of them".into());
     }
     if units.len() > 1 {
         return Err(format!("one unit per result, got {} and {}", units[0], units[1]));
@@ -1291,7 +1300,7 @@ fn unfrac(t: &[Tok]) -> Vec<Tok> {
 
 fn tok_text(t: &Tok) -> String {
     match t {
-        Tok::Bound(_) => "constant".into(),
+        Tok::Bound(c) => c.identity.clone(),
         Tok::Num(s) | Tok::Name(s) => s.clone(),
         Tok::Quoted(s) => format!("\"{s}\""),
         Tok::UnitWord(s) => s.clone(),
@@ -1390,7 +1399,8 @@ fn src_text(t: &[Tok]) -> String {
 }
 
 /// Whether a line is meant for solveng though it can't be read: it ends with a bare = or ->, or what comes before
-/// its arrow uses a unit or a defined name (`1 "min" -> s`), or a keyword follows it, unlike prose such as `f: X -> Y`.
+/// its arrow is a calculation (`x^2 + 1 -> 2`) or uses a unit or a defined name (`1 "min" -> s`), or a keyword
+/// follows it – unlike prose such as `f: X -> Y` or `n -> infinity`.
 pub fn meant(src: &str, c: &Ctx) -> bool {
     // a bare trailing = or -> asks for a result, also of what can't be lexed
     let end = src.trim_end();
@@ -1409,6 +1419,9 @@ pub fn meant(src: &str, c: &Ctx) -> bool {
     let Some(arrow) = arrow else { return false };
     // solveng's keywords after the arrow
     if t[arrow + 1..].iter().any(|k| matches!(k, Tok::Kw(_))) { return true; }
+    // a calculation before it, more than a name or number (x² + 1 -> …), unlike x -> 0 or f: X -> Y
+    let head = &t[..arrow];
+    if head.len() > 1 && stmt(head, c).is_ok() { return true; }
     t[..arrow].iter().any(|k| match k {
         Tok::UnitWord(_) => true,
         Tok::Quoted(n) | Tok::Name(n) => (c.is_var)(n) || (c.is_fn)(n),

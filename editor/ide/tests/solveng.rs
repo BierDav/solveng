@@ -238,9 +238,23 @@ fn completes_clauses() {
     let solve = labels(&doc);
     assert!(solve.iter().any(|l| name(l) == "x") && solve.iter().any(|l| name(l) == "I") && !solve.iter().any(|l| name(l) == "R") && !solve.contains(&"mA".into()), "{solve:?}");
     assert_eq!(name(&solve[0]), "x", "undefined first");
+    // after = the value is shown or compared: the clause, and what a comparison takes
     let c = complete_at(&format!("{ws}$t := 3 #h$ $t = |$")).unwrap();
-    assert!(c.exclusive && c.items.iter().any(|i| i.label == "min") && c.items.iter().any(|i| i.insert == "digits($0)"));
+    assert!(!c.exclusive && c.items.iter().any(|i| i.label == "min") && c.items.iter().any(|i| i.insert == "digits($0)"));
+    assert!(c.items.iter().any(|i| name(&i.label) == "t"));
     assert_eq!(c.items.iter().find(|i| i.label == "h").unwrap().insert, "#h");
+    let doc = format!("{ws}$y_\"a1\"(t) := t^2$\n$y_1(t) = y|$");
+    let c = complete_at(&doc).unwrap();
+    assert_eq!(c.items.iter().find(|i| i.label == "y_a1(t)").unwrap().insert, "y_\"a1\"($0)");
+    // what's written after = decides: a comparison takes names, a clause modifiers and units
+    let has = |c: &Completions, l: &str| c.items.iter().any(|i| name(&i.label) == l);
+    let c = complete_at(&format!("{ws}$v := 3$\n$y_1(t) = v + |$")).unwrap();
+    assert!(!c.exclusive && has(&c, "v") && !has(&c, "digits") && !has(&c, "min"));
+    let c = complete_at(&format!("{ws}$v := 3$\n$v = #min, |$")).unwrap();
+    assert!(c.exclusive && has(&c, "digits") && !has(&c, "v"));
+    // after -> only the clause follows
+    let c = complete_at(&format!("{ws}$y_\"a1\"(t) := t^2$\n$y_1(t) -> |$")).unwrap();
+    assert!(c.exclusive && !c.items.iter().any(|i| i.label == "y_a1(t)") && c.items.iter().any(|i| i.label == "expand"));
 }
 
 #[test]

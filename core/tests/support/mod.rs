@@ -195,7 +195,7 @@ pub fn bind(env: &Env, e: &Expr) -> Expr {
 // ---------- sources ----------
 
 const OPERATIONS_SKIPPED: &[&str] = &["mat", "frac"];
-const KEYWORDS: &[&str] = &["solve", "substitute", "simplify", "digits", "sci", "eng", "frac", "laplace", "invlaplace"];
+const KEYWORDS: &[&str] = &["solve", "substitute", "simplify", "expand", "factor", "steps", "digits", "sci", "eng", "frac", "laplace", "invlaplace"];
 
 fn word_char(c: char) -> bool {
     c.is_alphanumeric() || matches!(c, '_' | '´' | '`')
