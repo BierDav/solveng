@@ -349,6 +349,6 @@
       html.elem("script", attrs: (type: "application/json", class: "solveng-plot-spec"), json.encode(spec, pretty: false))
     })
   }
-  draw + _st.update(s => { let r = _call(_p.graph_define, _env(s), req); s + (env: r.env, last: (errors: r.errors)) })
+  draw + _st.update(s => { let r = _call(_p.graph_define, _env(s), req); s + (env: r.env, last: _out(errors: r.errors, operation: "graph")) })
   context _st.get().last.errors.map(fail).join()
 })

@@ -1,4 +1,4 @@
-/// Modifiers for the clause after a trailing `=` or `->`: `solve`, `substitute`, `simplify`, `expand`, `factor`, `steps`, `digits`, `sci`, `eng`, `fraction`.
+/// Modifiers for the clause after a trailing `=` or `->`: `solve`, `substitute`, `assume`, `simplify`, `expand`, `factor`, `steps`, `digits`, `sci`, `eng`, `fraction`.
 ///
 /// Import the ones you use, where you use them: `#import modifiers: solve, digits`. Typst imports are lexical, so
 /// they apply to that file or block and the ones nested in it; nothing comes along with
@@ -17,7 +17,7 @@
 /// `$x^2 = 4 -> solve(x)$`. Modifiers are Typst bindings of solveng's `modifiers` module, and importing them is the
 /// only way to use them: `#import modifiers: solve, simplify` (or `#import modifiers: *`). Like any import, it holds
 /// only where it's written; `#import "@preview/solveng:1.0.0": *` brings none. Renamed imports
-/// (`#import modifiers: solve as löse`) work as the original. `solve`, `substitute` and `digits` are functions,
+/// (`#import modifiers: solve as löse`) work as the original. `solve`, `substitute`, `assume` and `digits` are functions,
 /// called with what they take; `simplify`, `expand`, `factor`, `steps`, `sci`, `eng` and `fraction` are written on their own.
 ///
 /// ```typ
@@ -45,6 +45,28 @@
 /// - ..names (content): The variables and constants whose formulas to put in.
 /// -> content
 #let substitute(..names) = _key("substitute", ..names.pos())
+/// Assumptions for this symbolic calculation: `$Re(a z) = a Re(z) -> assume(a in RR)$`
+/// is true. Import `assume` from `modifiers`. Only real scalar names are supported currently; assumptions
+/// apply to this result and do not change definitions or later calculations.
+/// Use it after `->` on expressions and equations, without `solve` or a definition.
+/// A known nonreal value contradicts the assumption and reports an error. If a
+/// name already has a symbolic definition, assume its free scalar names instead.
+/// Without assumptions, equations may show `true for a in RR and b in RR`: a
+/// sufficient condition, not an exhaustive description of all solutions. This
+/// automatic check considers up to sixteen names in expressions of size at most 512.
+///
+/// ```typ
+/// #import "@preview/solveng:1.0.0": *
+/// #import operations: Re
+/// #import modifiers: assume
+/// #show: worksheet
+/// $Re(a z + b w) = a Re(z) + b Re(w) ->$
+/// $Re(a z + b w) = a Re(z) + b Re(w) -> assume(a in RR, b in RR)$
+/// ```
+///
+/// - ..conditions (content): Real scalar assumptions, for example `a in RR, b in RR`.
+/// -> content
+#let assume(..conditions) = _key("assume", ..conditions.pos())
 /// The symbolic result, what `->` shows anyway: `$f := (x^2 - 1)/(x - 1) -> simplify$`. Of an equation, where it
 /// holds: one side brought to zero and split into factors, each factor zero – `$x^2 = x -> simplify$` is
 /// x = 0 ∨ x = 1; true when it always holds, false when never.

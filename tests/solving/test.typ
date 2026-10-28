@@ -141,14 +141,14 @@ v_c := 4 m / t_c
   assert(r.any(x => x.kind == "math" and x.active and type(x.element) == location))
   assert(r.any(x => x.kind == "block" and x.defined.any(d => d.name == "k" and d.value == "2 V")))
 }
-// and what went wrong: per problem its message and element (none passed to worksheet); math has no statement of its own
+// and what went wrong: per problem its message, source and element (none passed to worksheet)
 // (content of a single equation is that equation, [$…$] is $…$, so the worksheet gets some text too)
 #worksheet[Voltage and time: $e_1 := 2 #V + 1 #s =$]
 #worksheet($e_3 := e_4 + 1 =$)
 #context {
   let r = query(<solveng>).map(it => it.value).filter(x => x.kind == "error")
-  assert(r.any(x => type(x.element) == location and x.source == "" and x.message.contains("units")), message: "math error reported")
-  assert(r.any(x => x.element == none and x.source == "" and x.message.contains("'e_4' in 'e_3'")), message: "call error reported")
+  assert(r.any(x => type(x.element) == location and x.source.contains("e_1") and x.message.contains("units")), message: "math error reported")
+  assert(r.any(x => x.element == none and x.source.contains("e_3") and x.message.contains("'e_4' in 'e_3'")), message: "call error reported")
 }
 // only the innermost worksheet reads an element
 #worksheet[

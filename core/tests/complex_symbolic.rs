@@ -1,7 +1,67 @@
 mod support;
 
 use solveng_core::env::Env;
-use support::{result, run};
+use support::{fails, result, run};
+
+#[test]
+fn real_conditions_and_local_assumptions_for_unresolved_coefficients() {
+    let mut env = Env::default();
+    run(&mut env, "x(t) := a s_a(t) + b s_b(t)");
+    run(&mut env, "y_1(t) := Re(x(t))");
+    run(&mut env, "y_2(t) := a Re(s_a(t)) + b Re(s_b(t))");
+    let equation = "y_1(t) = y_2(t)";
+    assert_eq!(result(&mut env, &format!("{equation} ->")), "\"true\" \"for\" a in RR and b in RR");
+    let before = env.clone();
+    for clause in ["assume(a in RR, b in RR)", "assume(b ∈ ℝ, a ∈ ℝ)", "assume(a in RR), assume(b in RR)"] {
+        assert_eq!(result(&mut env, &format!("{equation} -> {clause}")), "\"true\"");
+    }
+    assert_eq!(env, before, "assumptions must not persist or alter function bodies");
+    assert_eq!(result(&mut env, &format!("{equation} ->")), "\"true\" \"for\" a in RR and b in RR");
+    run(&mut env, "a := #i");
+    assert!(fails(&mut env, &format!("{equation} -> assume(a in RR, b in RR)")).contains("nonreal"));
+}
+
+#[test]
+fn conditional_proofs_are_sufficient_and_do_not_hide_nonlinearity() {
+    let mut env = Env::default();
+    assert_eq!(result(&mut env, "Re(a z) = a Re(z) ->"), "\"true\" \"for\" a in RR");
+    assert_eq!(result(&mut env, "Im(a z) = a Im(z) -> assume(a in RR)"), "\"true\"");
+    assert_eq!(result(&mut env, "conj(a z) = a conj(z) -> assume(a in RR)"), "\"true\"");
+    assert_eq!(result(&mut env, "Im(sin(a)) -> assume(a in RR)"), "\"0\"");
+    assert_ne!(result(&mut env, "Re(ln(a)) = ln(a) -> assume(a in RR)"), "\"true\"");
+    assert!(!result(&mut env, "(a z)^2 = a z^2 ->").contains("\"for\""));
+    let steps = result(&mut env, "Re(a z) = a Re(z) -> steps");
+    assert!(steps.contains("quad lr((\"true\" \"for\" a in RR))"), "{steps}");
+    assert_eq!(result(&mut env, "Re(a z) = a Re(z) -> assume(a in RR), steps").split("<=>").last().unwrap().trim(), "\"true\"");
+}
+
+#[test]
+fn assumption_syntax_and_supported_contexts_are_explicit() {
+    let mut env = Env::default();
+    for clause in ["assume()", "assume(a = real)", "assume(a in CC)", "assume(a > 0)", "assume(a + b in RR)"] {
+        assert!(fails(&mut env, &format!("Re(a) -> {clause}")).contains("assume"));
+    }
+    for input in ["a = assume(a in RR)", "f(a) := Re(a) -> assume(a in RR)", "a^2 = -1 -> assume(a in RR), solve(a)"] {
+        assert!(fails(&mut env, input).contains("assume"));
+    }
+    // A formal argument named a must remain complex-capable after a calculation assuming a real.
+    run(&mut env, "f(a) := Re(a)");
+    result(&mut env, "Re(a) = a -> assume(a in RR)");
+    assert_eq!(result(&mut env, "f(1 + #i) ->"), "\"1\"");
+    run(&mut env, "r := c + #i");
+    assert!(fails(&mut env, "Re(r) -> assume(r in RR)").contains("free scalar"));
+}
+
+#[test]
+fn local_assumptions_respect_bound_transform_variables() {
+    use solveng_core::{complex::assuming_real, expr::{Expr, Func, func, sym}};
+    use std::collections::BTreeSet;
+    // The transform variable is complex even if an outer scalar has the same spelling.
+    let inverse = Expr::InverseLaplace(Box::new(func(Func::Re, sym("a"))), "a".into(), Box::new(func(Func::Re, sym("t"))));
+    let actual = assuming_real(&inverse, &BTreeSet::from(["a".into(), "t".into()]));
+    let expected = Expr::InverseLaplace(Box::new(func(Func::Re, sym("a"))), "a".into(), Box::new(sym("t")));
+    assert_eq!(actual, expected);
+}
 
 #[test]
 fn real_projection_is_linear_in_real_coefficients_with_unresolved_signals() {

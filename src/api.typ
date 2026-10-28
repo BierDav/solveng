@@ -27,7 +27,7 @@
   let src = _src(it.body)
   if _E(src) or src.trim() == "" { return it }
   _calc(src, cf, out => {
-    let errs = out.errors.map(e => _errc(e, cf, wide: it.block)).join() + _err-notes(loc, out.errors, "")
+    let errs = out.errors.map(e => _errc(e, cf, wide: it.block)).join() + _err-notes(loc, out.errors, src)
     if out.prose { return _with-body(it, _restyle(it.body, cf)) + errs }
     if quiet { return errs }
     let shown = if out.mark == none { _restyle(it.body, cf) } else {

@@ -11,6 +11,7 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 - [`operation`](#operation)
 - [`solve`](#solve)
 - [`substitute`](#substitute)
+- [`assume`](#assume)
 - [`simplify`](#simplify)
 - [`expand`](#expand)
 - [`factor`](#factor)
@@ -72,6 +73,7 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 | [`operation`](#operation) | An operation under a name of your choice: `#let conv = operation("convolve")`, then `$conv(x, h)$`. |
 | [`solve`](#solve) | Solves an equation for these names (and defines them): `$x^2 - 4 = 0 -> solve(x)$`. |
 | [`substitute`](#substitute) | The result with these variables' formulas and constants' expressions put in, every other name kept: `$P := U^2/R -> substitute(U)$`, `$E := m #c^2 -> substitute(#c)$`. |
+| [`assume`](#assume) | Assumptions for this symbolic calculation: `$Re(a z) = a Re(z) -> assume(a in RR)$` is true. |
 | [`simplify`](#simplify) | The symbolic result, what `->` shows anyway: `$f := (x^2 - 1)/(x - 1) -> simplify$`. |
 | [`expand`](#expand) | The symbolic result multiplied out: `$(x + 1)^2 -> expand$` is x² + 2x + 1. |
 | [`factor`](#factor) | The symbolic result in factors: `$x^3 - x -> factor$` is x (x − 1)(x + 1), a fraction's numerator and denominator each. |
@@ -361,6 +363,33 @@ as written: `$#i -> substitute(#i)$` is √−1, where a simplified result would
 | parameter | type | default | |
 |---|---|---|---|
 | `..names` | content |  | The variables and constants whose formulas to put in. |
+
+Returns content.
+
+## `assume`
+
+Assumptions for this symbolic calculation: `$Re(a z) = a Re(z) -> assume(a in RR)$`
+is true. Import `assume` from `modifiers`. Only real scalar names are supported currently; assumptions
+apply to this result and do not change definitions or later calculations.
+Use it after `->` on expressions and equations, without `solve` or a definition.
+A known nonreal value contradicts the assumption and reports an error. If a
+name already has a symbolic definition, assume its free scalar names instead.
+Without assumptions, equations may show `true for a in RR and b in RR`: a
+sufficient condition, not an exhaustive description of all solutions. This
+automatic check considers up to sixteen names in expressions of size at most 512.
+
+```typ
+#import "@preview/solveng:1.0.0": *
+#import operations: Re
+#import modifiers: assume
+#show: worksheet
+$Re(a z + b w) = a Re(z) + b Re(w) ->$
+$Re(a z + b w) = a Re(z) + b Re(w) -> assume(a in RR, b in RR)$
+```
+
+| parameter | type | default | |
+|---|---|---|---|
+| `..conditions` | content |  | Real scalar assumptions, for example `a in RR, b in RR`. |
 
 Returns content.
 
@@ -1112,7 +1141,7 @@ The clause after a trailing `=` or `->` takes a unit and modifiers, separated by
 `$x^2 = 4 -> solve(x)$`. Modifiers are Typst bindings of solveng's `modifiers` module, and importing them is the
 only way to use them: `#import modifiers: solve, simplify` (or `#import modifiers: *`). Like any import, it holds
 only where it's written; `#import "@preview/solveng:1.0.0": *` brings none. Renamed imports
-(`#import modifiers: solve as löse`) work as the original. `solve`, `substitute` and `digits` are functions,
+(`#import modifiers: solve as löse`) work as the original. `solve`, `substitute`, `assume` and `digits` are functions,
 called with what they take; `simplify`, `expand`, `factor`, `steps`, `sci`, `eng` and `fraction` are written on their own.
 
 ```typ

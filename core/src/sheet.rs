@@ -100,6 +100,9 @@ impl<'a> Sheet<'a> {
             None => (None, Clause::default()),
         };
         let cfg = self.clause_cfg(&clause);
+        if !clause.real.is_empty() && (trail != Some(Trail::Sym) || clause.solve.is_some() || l.stmts.iter().any(|s| !matches!(s, Stmt::Expr(_)))) {
+            return Err("assume applies to a symbolic expression or equation after ->, without solve or a definition".into());
+        }
         if clause.steps && clause.solve.is_some() {
             return Err("steps shows how -> simplifies, not how solve solves: $F(a p) = a F(p) -> steps$ shows where an equation holds".into());
         }
@@ -613,6 +616,25 @@ impl<'a> Sheet<'a> {
     /// true, false). With steps, the forms on the way, a line each in a block: the equation with the definitions put
     /// in, one side zero, in factors, where it holds.
     fn sym_result(&self, e: &Expr, clause: &Clause, cfg: &Cfg) -> Result<String, String> {
+        let names: BTreeSet<_> = clause.real.iter().cloned().collect();
+        for n in &names {
+            if self.env.funs.contains_key(n) {
+                return Err(format!("assume: {n} is a function, not a scalar"));
+            }
+            if let Some(v) = self.env.vars.get(n) {
+                let bound = self.env.bind_with_units(&v.expr, &BTreeSet::new(), &self.units)?;
+                if let Ok(value) = complex_value(&bound) {
+                    if !value.is_real() { return Err(format!("assume: {n} has a nonreal value")); }
+                } else {
+                    return Err(format!("assume: {n} has a symbolic definition; assume its free scalar names instead"));
+                }
+            }
+        }
+        // Preserve the comparison itself so identities continue to render as true/false.
+        let assumed = if names.is_empty() { e.clone() } else if matches!(e, Expr::Cmp(..)) {
+            e.map(&mut |a| crate::complex::assuming_real(a, &names))
+        } else { crate::complex::assuming_real(e, &names) };
+        let e = &assumed;
         let r = self.r(cfg, true);
         let eq = |l: &Expr, x: &Expr| r.expr(&Expr::Cmp(vec![l.clone(), x.clone()], vec![Rel::Eq])).0;
         let reduced = match e {
@@ -624,12 +646,20 @@ impl<'a> Sheet<'a> {
         };
         let (mut steps, joint) = match reduced {
             Some((l, x, red)) => {
+                let condition = if matches!(red.holds, solve::Holds::Where(_)) {
+                    crate::complex::real_conditions(&expr::sub(l.clone(), x.clone()))
+                } else { None };
+                let note = condition.map(|ns| format!("\"true\" \"for\" {}", ns.iter().map(|n| format!("{} in RR", name(n))).collect::<Vec<_>>().join(" and ")));
+                if !clause.steps {
+                    if let Some(note) = &note { return Ok(note.clone()); }
+                }
                 let zero = expr::int(0);
-                let holds = match &red.holds {
+                let mut holds = match &red.holds {
                     solve::Holds::Always => "\"true\"".to_string(),
                     solve::Holds::Never => "\"false\"".to_string(),
                     solve::Holds::Where(cs) => cs.iter().map(|(a, b)| eq(a, b)).collect::<Vec<_>>().join(" or "),
                 };
+                if let Some(note) = note { holds.push_str(&format!(" quad lr(({note}))")); }
                 let mut steps = vec![eq(&simplify(l), &simplify(x)), eq(&red.difference, &zero)];
                 if matches!(red.holds, solve::Holds::Where(_)) {
                     steps.push(eq(&red.factored, &zero));

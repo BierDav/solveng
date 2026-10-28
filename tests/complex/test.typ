@@ -5,7 +5,7 @@
 #import units: m, s, kg, min, Ω, mH, Hz, V
 #import constants: pi, e, i, c
 #import operations: Re, Im, conj
-#import modifiers: solve, substitute
+#import modifiers: solve, substitute, assume, steps
 #set page(width: 18cm, height: auto)
 #show: worksheet
 
@@ -48,6 +48,18 @@
   $y_2(t) := a y_"a1"(t) + b y_"a2"(t)$
   $y_1(t) = y_2(t) ->$ #passes() #result("\"true\"")
   $Re(z w) = Re(z) Re(w) - Im(z) Im(w) ->$ #result("\"true\"")
+]
+
+// Sufficient real-domain conditions and assumptions local to one result.
+#worksheet[
+  $x(t) := a s_a(t) + b s_b(t)$
+  $y_1(t) := Re(x(t))$
+  $y_2(t) := a Re(s_a(t)) + b Re(s_b(t))$
+  $y_1(t) = y_2(t) ->$ #passes() #result("\"true\" \"for\" a in RR and b in RR")
+  $y_1(t) = y_2(t) -> assume(a in RR, b in RR)$ #passes() #result("\"true\"")
+  $Re(a z) = a Re(z) -> assume(a in RR)$ #result("\"true\"")
+  $Re(a z) = a Re(z) -> assume(a in RR), steps$ #passes()
+  $Re(a z) = a Re(z) ->$ #result("\"true\" \"for\" a in RR")
 ]
 
 // with units: an impedance

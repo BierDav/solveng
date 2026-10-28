@@ -24,6 +24,7 @@ pub enum Tok {
 }
 
 const OPS: &[(&str, &str)] = &[
+    ("∈", "∈"),
     (":=", ":="), ("≔", ":="), ("->", "->"), ("→", "->"), ("<=", "≤"), (">=", "≥"), ("!=", "≠"), ("≤", "≤"), ("≥", "≥"),
     ("≠", "≠"), ("=", "="), ("<", "<"), (">", ">"), ("+", "+"), ("-", "-"), ("−", "-"), ("*", "*"), ("∗", "*"),
     ("·", "·"), ("⋅", "·"), ("×", "×"), ("/", "/"), ("^", "^"), ("(", "("), (")", ")"), ("[", "("), ("]", ")"),
@@ -364,6 +365,8 @@ pub enum Trail {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Clause {
+    /// Real scalar assumptions, local to a symbolic result.
+    pub real: Vec<String>,
     pub unit: Option<UnitExpr>,
     pub solve: Option<Vec<String>>,
     /// -> substitute(x, …): the variables whose formulas the result shows put in.
@@ -395,7 +398,7 @@ fn applies_bare(op: &str) -> bool {
     matches!(op, "sqrt" | "exp" | "ln" | "log" | "sin" | "cos" | "tan" | "arcsin" | "arccos" | "arctan" | "sinh" | "cosh" | "tanh" | "abs" | "rect" | "tri" | "sgn" | "floor" | "ceil" | "factorial" | "det" | "tr")
 }
 /// The keywords of a clause, as their bindings name them (frac is Typst's fraction).
-const KEYWORDS: &[&str] = &["solve", "substitute", "simplify", "expand", "factor", "steps", "digits", "sci", "eng", "frac"];
+const KEYWORDS: &[&str] = &["solve", "substitute", "assume", "simplify", "expand", "factor", "steps", "digits", "sci", "eng", "frac"];
 
 /// What the parser needs to know about the document so far.
 pub struct Ctx<'a> {
@@ -1214,6 +1217,18 @@ fn clause(t: &[Tok], c: &Ctx) -> Result<Option<Clause>, String> {
         };
         let args: Vec<String> = args.map(|a| a.split(',').map(|x| greek(x.trim())).filter(|x| !x.is_empty()).collect()).unwrap_or_default();
         match name.as_str() {
+            "assume" => {
+                if args.is_empty() { return Err("assume: write assume(a in RR, b in RR)".into()); }
+                for arg in args {
+                    let tokens = lex(&arg)?;
+                    let n = match tokens.as_slice() {
+                        [Tok::Name(n) | Tok::Quoted(n), Tok::Op("∈"), Tok::Name(domain)] if domain == "RR" || domain == "ℝ" => n,
+                        [Tok::Name(n) | Tok::Quoted(n), Tok::Name(op), Tok::Name(domain)] if op == "in" && (domain == "RR" || domain == "ℝ") => n,
+                        _ => return Err(format!("assume: supported assumptions are real scalar names, a in RR; got '{arg}'")),
+                    };
+                    if !cl.real.contains(n) { cl.real.push(n.clone()); }
+                }
+            }
             "solve" => {
                 if args.is_empty() {
                     return Err("solve: what to solve for, solve(x) or solve(x, y)".into());

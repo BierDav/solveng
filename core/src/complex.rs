@@ -11,6 +11,7 @@ use crate::num::{Num, Rat};
 
 mod symbolic;
 pub use symbolic::projection;
+pub use symbolic::{assuming_real, real_conditions};
 
 /// A complex floating point number.
 #[derive(Clone, Copy, Debug, PartialEq)]

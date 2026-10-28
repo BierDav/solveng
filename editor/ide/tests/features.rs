@@ -342,6 +342,8 @@ fn completes_units_after_a_colon() {
 #[test]
 fn completes_keywords() {
     let insert = |doc: &str, label: &str| complete_at(doc, &Context::default()).and_then(|c| c.items.into_iter().find(|i| i.label == label && i.kind == ItemKind::KEYWORD)).map(|i| i.insert);
+    assert_eq!(insert("#import modifiers: assume\n#worksheet[$ Re(a z) = a Re(z) -> ass| $]", "assume").as_deref(), Some("assume($0)"));
+    assert_eq!(insert("#import modifiers: assume as vorausgesetzt\n#worksheet[$ Re(a z) = a Re(z) -> vor| $]", "vorausgesetzt").as_deref(), Some("vorausgesetzt($0)"));
     // any and 1 where a type goes, quoted as math needs them
     assert_eq!(insert("#worksheet[$ f(x: |) := x $]", "any").as_deref(), Some("any"));
     assert_eq!(insert("#worksheet($f(x: |) := x$)", "1").as_deref(), Some("1"));

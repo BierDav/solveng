@@ -35,7 +35,7 @@
   let req = ns.map(n => if type(n) == str { n } else { let s = _src(n.body); if _E(s) { repr(n.body) } else { s } })
   _st.update(s => {
     let r = _call(_p.clear, _env(s), (names: req))
-    s + (env: r.env, last: (errors: r.errors, result: none))
+    s + (env: r.env, last: _out(errors: r.errors, operation: "clear"))
   })
   context { let cf = _cf.get(); _st.get().last.errors.map(m => _errc(m, cf, wide: true)).join() }
 }

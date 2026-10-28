@@ -576,13 +576,64 @@
 // ---------- running ----------
 // the state: env (the engine's bytes), last (what the last line gave), ^ (outside a worksheet), ^0 (its start)
 #let _env(s) = s.at("env", default: bytes(()))
+// Every operation leaves the same last-result shape, including operations without math output.
+#let _out(errors: (), mark: none, result: none, prose: false, defined: (), operation: "error", source: "") = (
+  errors: errors, mark: mark, result: result, prose: prose, defined: defined, solutions: (), operation: operation, source: source,
+)
+// Validate the plugin boundary before any consumer reads dictionary fields. A bad
+// response is a calculation error, preserving the old environment and the source.
+#let _line-response(r, previous, source) = {
+  let bad(detail) = (
+    env: previous,
+    out: _out(errors: ("internal engine response error while calculating " + repr(source) + ": " + detail + ". The previous worksheet definitions were preserved.",)),
+  )
+  if type(r) != dictionary { return bad("expected a response dictionary, got " + repr(type(r))) }
+  for k in ("env", "out") {
+    if k not in r { return bad("missing response field " + repr(k) + "; received fields: " + r.keys().join(", ")) }
+  }
+  if type(r.env) != bytes { return bad("response field 'env' must be bytes, got " + repr(type(r.env))) }
+  let out = r.out
+  if type(out) != dictionary { return bad("response field 'out' must be a dictionary, got " + repr(type(out))) }
+  let missing = ("prose", "errors", "mark", "result", "defined").filter(k => k not in out)
+  if missing.len() > 0 { return bad("missing calculation fields: " + missing.join(", ") + "; received fields: " + out.keys().join(", ")) }
+  if type(out.prose) != bool { return bad("calculation field 'prose' must be a boolean, got " + repr(type(out.prose))) }
+  for k in ("errors", "defined") {
+    let v = out.at(k)
+    if type(v) != array { return bad("calculation field '" + k + "' must be an array, got " + repr(type(v))) }
+    if not v.all(x => type(x) == str) { return bad("calculation field '" + k + "' must contain strings") }
+  }
+  if out.mark not in (none, "=", "->") { return bad("calculation field 'mark' must be none, '=' or '->', got " + repr(out.mark)) }
+  if out.result != none and type(out.result) != str { return bad("calculation field 'result' must be none or a string, got " + repr(type(out.result))) }
+  r
+}
 #let _run(s, req) = {
-  let r = _call(_p.line, _env(s), req)
-  s + (env: r.env, last: r.out)
+  let previous = _env(s)
+  let r = _line-response(_call(_p.line, previous, req), previous, req.src)
+  s + (env: r.env, last: r.out + (operation: "line", source: req.src))
+}
+// A layout/state mismatch must not turn a graph or clear result into an equation's output.
+#let _calculation-out(s, source) = {
+  let raw = s.at("last", default: none)
+  if type(raw) == dictionary and "operation" in raw and raw.operation != "line" {
+    let operation = raw.at("operation", default: "unknown operation")
+    return _out(errors: ("internal worksheet state error while calculating " + repr(source) + ": expected this equation's result, received a result from " + repr(operation) + ". The equation was left unchanged.",))
+  }
+  if type(raw) == dictionary and raw.at("source", default: source) != source {
+    return _out(errors: ("internal worksheet state error while calculating " + repr(source) + ": received the result for " + repr(raw.source) + ". The equation was left unchanged.",))
+  }
+  _line-response((env: _env(s), out: raw), _env(s), source).out
 }
 // one line: calculated in the state, shown with view(out) (in context)
 #let _calc(src, cf, view) = {
   let req = (src: src, cfg: _req-cfg(cf))
   _st.update(s => _run(s, req))
-  context view(_st.get().at("last"))
+  context {
+    let s = _st.get()
+    let last = s.at("last", default: none)
+    let belongs = type(last) == dictionary and last.at("operation", default: none) == "line" and last.at("source", default: none) == src
+    // Measurement can discard state updates while still evaluating contexts. In
+    // that case calculate this equation locally instead of rendering another
+    // operation's last result. Keep state updates outside the context for convergence.
+    view(if belongs { _calculation-out(s, src) } else { _run(s, req).last })
+  }
 }
