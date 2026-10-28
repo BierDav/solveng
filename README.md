@@ -85,6 +85,8 @@ $#i -> substitute(#i)$
 
 There is no worksheet unit table or automatic constant/function lookup. The former `units`, `builtin-units`, and `builtin-functions` worksheet options and string unit constructors are removed. Solveng code blocks are ordinary raw text and are not calculated or offered as an editor conversion.
 
+Symbolic equalities also try a bounded exact proof in a common exponential form: `$sin(x)^2 + cos(x)^2 = 1 ->$` is true, as are Euler's formula and supported combinations of exponentials, trigonometric functions and `sinc`. Affine piecewise guards and the continuation of `sinc` at zero are checked separately. Pulse Fourier integrals produce compact `sinc` forms directly; opposite exponential phases combine into cosine or sine and common envelopes factor out. Guarded quotients become cardinal functions only when their exceptional values agree. Unsupported identities stay symbolic; numeric samples are never used as a proof.
+
 ## Worksheets and results
 
 `#show: worksheet` calculates the remaining math. `#worksheet[…]` starts an isolated worksheet; `scope: "inherit"` reads outer definitions and `scope: "shared"` also keeps its changes. Equations passed directly to `worksheet` share definitions by default. `hidden: true` hides calculations, and `evaluate: false` leaves ordinary math alone.

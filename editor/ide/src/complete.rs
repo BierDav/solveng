@@ -500,6 +500,8 @@ fn name_items(a: &Analysis, at: usize) -> Vec<Item> {
                 "vec" => "vec(${1:first}, ${2:second})$0".into(),
                 "mat" => "mat(${1:a}, ${2:b}; ${3:c}, ${4:d})$0".into(),
                 "cases" => "cases(${1:0} & ${2:t < 0}, ${3:1} & \"otherwise\")$0".into(),
+                "atan2" => "atan2(${1:y}, ${2:x})$0".into(),
+                "prod" => "prod(${1:expression}, ${2:k}, ${3:1}, ${4:10})$0".into(),
                 "sum" => "sum_(${1:k}=0)^(${2:10}) (${3:expression})$0".into(),
                 "laplace" => "laplace(${1:expression}, ${2:t}, ${3:s})$0".into(),
                 "invlaplace" => "invlaplace(${1:expression}, ${2:s}, ${3:t})$0".into(),
@@ -551,9 +553,26 @@ fn word_start(c: &[char], at: usize, floor: usize) -> usize {
 /// Completions when `offset` is in calculated math or a string or option of a solveng function, else None (and the
 /// Typst language server answers).
 pub fn complete(document: &str, context: &Context, offset: u32) -> Option<Completions> {
-    let mut result = complete_at(document, context, offset)?;
     let a = Analysis::new(document, context);
     let at = a.doc.from16(offset as usize);
+    if let Some((module, start, end, used)) = a.bindings.import_names(&a.doc, at) {
+        let prefix = a.doc.sub(start, at);
+        let items = module.exports().into_iter().filter(|n| n.starts_with(&prefix) && !used.contains(n)).filter_map(|name| {
+            let meaning = module.meaning(&name)?;
+            let kind = match meaning {
+                Meaning::Operation(_) => ItemKind::FUNCTION,
+                Meaning::Constant { .. } => ItemKind::CONSTANT,
+                Meaning::Modifier(_) => ItemKind::KEYWORD,
+                _ => ItemKind::UNIT,
+            };
+            let docs = crate::params::builtin(&name).filter(|_| module == Module::Operations);
+            let mut item = Item::new(&name, kind, &meaning.detail(), &name);
+            item.documentation = docs.map(crate::highlight::function_docs);
+            Some(item)
+        }).collect();
+        return Some(Completions { from: a.doc.to16(start), to: Some(a.doc.to16(end)), items, exclusive: true });
+    }
+    let mut result = complete_at(&a, at)?;
     let start = a.doc.from16(result.from as usize);
     let math = a.elements.iter().any(|e| e.body_start <= at && at <= e.body_end);
     let string = a.calls.iter().flat_map(|c| &c.texts).find(|t| t.start <= at && at <= t.end);
@@ -624,9 +643,7 @@ pub fn complete(document: &str, context: &Context, offset: u32) -> Option<Comple
     Some(result)
 }
 
-fn complete_at(document: &str, context: &Context, offset: u32) -> Option<Completions> {
-    let a = Analysis::new(document, context);
-    let at = a.doc.from16(offset as usize);
+fn complete_at(a: &Analysis, at: usize) -> Option<Completions> {
     if let Some((start, end, _)) = a.bindings.operator_strings().iter().find(|(s, e, _)| *s <= at && at <= *e) {
         let items = FUNCTIONS.iter().filter(|f| !matches!(**f, "mat" | "frac"))
             .map(|f| Item::new(f, ItemKind::FUNCTION, "built-in operation", f)).collect();

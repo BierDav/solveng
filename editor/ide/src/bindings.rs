@@ -508,6 +508,35 @@ impl Bindings {
         self.modules.iter().find(|&&(s, e, _)| s <= at && at <= e).copied()
     }
 
+    /// Parse a placeholder at the caret so unfinished import lists still have an item to complete.
+    pub(crate) fn import_names(&self, doc: &Doc, at: usize) -> Option<(Module, usize, usize, Vec<String>)> {
+        if self.modules.is_empty() { return None; }
+        let ident = |c: char| typst_syntax::is_ident(&format!("a{c}"));
+        let start = (0..at).rev().find(|&i| !ident(doc.c[i])).map_or(0, |i| i + 1);
+        let end = (at..doc.c.len()).find(|&i| !ident(doc.c[i])).unwrap_or(doc.c.len());
+        let placeholder = "solvengCompletionPlaceholder";
+        let head = doc.sub(0, start);
+        let source = format!("{head}{placeholder}{}", doc.sub(end, doc.c.len()));
+        let syntax = typst_syntax::parse(&source);
+        let mut result = None;
+        visit(&LinkedNode::new(&syntax), &mut |node| {
+            let Some(import) = node.get().cast::<ModuleImport>() else { return };
+            let Some(ast::Imports::Items(items)) = import.imports() else { return };
+            let Some(item) = items.iter().find(|i| i.original_name().as_str() == placeholder && i.bound_name().as_str() == placeholder) else { return };
+            let mut here = false;
+            visit(node, &mut |leaf| {
+                if std::ptr::eq(leaf.get(), item.original_name().to_untyped()) && leaf.offset() == head.len() { here = true; }
+            });
+            if !here { return; }
+            let Some((_, _, module)) = self.modules.iter().find(|(s, e, _)| {
+                *s >= doc.of_byte(node.offset()) && *e <= start
+            }) else { return };
+            let used = items.iter().filter(|i| i.original_name().as_str() != placeholder).map(|i| i.original_name().as_str().to_string()).collect();
+            result = Some((*module, start, end, used));
+        });
+        result
+    }
+
     /// The imported name at `at`, for its hover: the range there, the name it's bound to, the module's name for
     /// it, the module and what it means.
     pub(crate) fn shorthand_info(&self, at: usize) -> Option<(usize, usize, String, String, Module, &Meaning)> {

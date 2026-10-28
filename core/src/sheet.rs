@@ -1094,7 +1094,7 @@ pub(crate) fn ast_names(a: &Ast, out: &mut Vec<String>) {
             ast_names(y, out);
         }
         // a local variable (of an integral, a sum, a derivative, a convolution) is no name of the worksheet
-        Ast::Builtin(n, args) if matches!((n.as_str(), args.len()), ("integrate" | "sum", 4) | ("integrate" | "diff", 2) | ("convolve", 3 | 4)) => {
+        Ast::Builtin(n, args) if matches!((n.as_str(), args.len()), ("integrate" | "sum" | "prod", 4) | ("integrate" | "diff", 2) | ("convolve", 3 | 4)) => {
             let (bodies, var) = if n == "convolve" { (&args[..2], &args[2]) } else { (&args[..1], &args[1]) };
             let mut body = vec![];
             for b in bodies { ast_names(b, &mut body); }

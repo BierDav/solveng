@@ -91,6 +91,9 @@ pub enum Func {
     Sin,
     Cos,
     Tan,
+    Sinc,
+    Cosc,
+    Tanc,
     Asin,
     Acos,
     Atan,
@@ -122,6 +125,9 @@ impl Func {
             "sin" => Func::Sin,
             "cos" => Func::Cos,
             "tan" => Func::Tan,
+            "sinc" => Func::Sinc,
+            "cosc" => Func::Cosc,
+            "tanc" => Func::Tanc,
             "asin" | "arcsin" => Func::Asin,
             "acos" | "arccos" => Func::Acos,
             "atan" | "arctan" => Func::Atan,
@@ -151,6 +157,9 @@ impl Func {
             Func::Sin => "sin",
             Func::Cos => "cos",
             Func::Tan => "tan",
+            Func::Sinc => "sinc",
+            Func::Cosc => "cosc",
+            Func::Tanc => "tanc",
             Func::Asin => "arcsin",
             Func::Acos => "arccos",
             Func::Atan => "arctan",
@@ -190,6 +199,7 @@ impl Func {
             Func::Exp => x.exp(),
             Func::Ln if x > 0.0 => x.ln(),
             Func::Log if x > 0.0 => x.log10(),
+            Func::Sinc | Func::Cosc | Func::Tanc => crate::eval::cardinal(self, crate::complex::Z::real(x)).0.re,
             Func::Sin => x.sin(),
             Func::Cos => x.cos(),
             Func::Tan if x.cos() != 0.0 => x.tan(),
@@ -490,6 +500,17 @@ impl Expr {
                     Func::Exp => func(Func::Exp, a0),
                     Func::Ln => pow(a0, int(-1)),
                     Func::Log => pow(mul(vec![a0, func(Func::Ln, int(10))]), int(-1)),
+                    Func::Sinc | Func::Cosc | Func::Tanc => {
+                        let numerator = match f {
+                            Func::Sinc => sub(func(Func::Cos, a0.clone()), func(*f, a0.clone())),
+                            Func::Cosc => sub(func(Func::Sin, a0.clone()), func(*f, a0.clone())),
+                            _ => sub(pow(func(Func::Cos, a0.clone()), int(-2)), func(*f, a0.clone())),
+                        };
+                        Expr::Cases(vec![
+                            (if *f == Func::Cosc { rat(1, 2) } else { int(0) }, Expr::Cmp(vec![a0.clone(), int(0)], vec![Rel::Eq])),
+                            (div(numerator, a0), int(1)),
+                        ])
+                    }
                     Func::Sin => func(Func::Cos, a0),
                     Func::Cos => neg(func(Func::Sin, a0)),
                     Func::Tan => pow(func(Func::Cos, a0), int(-2)),
@@ -709,7 +730,17 @@ pub fn simp(e: &Expr) -> Expr {
     }
 }
 
+// Keep known undefined operands visible to evaluation, even under annihilating identities.
+fn undefined(e: &Expr) -> bool {
+    e.contains(&|e| match e {
+        Expr::Pow(b, x) => b.is_zero() && x.as_num().is_some_and(|n| n.is_neg()),
+        Expr::F(Func::Ln | Func::Log, a) => a.is_zero(),
+        _ => false,
+    })
+}
+
 fn simp_add(v: Vec<Expr>) -> Expr {
+    if v.iter().any(undefined) { return Expr::Add(v); }
     let mut flat = vec![];
     for t in v {
         match t {
@@ -739,8 +770,8 @@ fn simp_add(v: Vec<Expr>) -> Expr {
     }
     let mut ts: Vec<Expr> = groups
         .into_iter()
-        // a zero term goes, unless it's all there is with a unit (0 V)
-        .filter(|(r, c)| !c.is_zero() || (r.is_none() && false))
+        // Dimensioned zeros still participate in unit validation.
+        .filter(|(_, c)| !c.is_zero() || !c.d.is_one())
         .map(|(r, c)| match r {
             None => Expr::C(c),
             Some(r) => simp_mul(vec![Expr::C(c), r]),
@@ -755,6 +786,7 @@ fn simp_add(v: Vec<Expr>) -> Expr {
 }
 
 fn simp_mul(v: Vec<Expr>) -> Expr {
+    if v.iter().any(undefined) { return Expr::Mul(v); }
     let mut flat = vec![];
     for f in v {
         match f {
@@ -781,9 +813,6 @@ fn simp_mul(v: Vec<Expr>) -> Expr {
             None => bases.push((b, x)),
         }
     }
-    if coef.is_zero() {
-        return Expr::C(Val { v: Num::ZERO, raw: None, ..coef });
-    }
     let mut fs = vec![];
     for (b, x) in bases {
         match simp_pow(b, x) {
@@ -800,7 +829,12 @@ fn simp_mul(v: Vec<Expr>) -> Expr {
         }
     }
     if coef.is_zero() {
-        return Expr::C(Val { v: Num::ZERO, raw: None, ..coef });
+        // Binding-backed units are factors too: 0 · m retains the meter dimension.
+        let product = Expr::Mul(std::iter::once(Expr::C(coef.clone())).chain(fs.iter().cloned()).collect());
+        if let Ok(Some(d)) = crate::eval::dim_of(&product, &|_| None) {
+            return Expr::C(Val::new(Num::ZERO, d));
+        }
+        return product;
     }
     // equal bases may have come together again (√2·√2): one more round if anything repeats
     let n = fs.len();
@@ -848,6 +882,7 @@ fn simp_mul(v: Vec<Expr>) -> Expr {
 }
 
 fn simp_pow(b: Expr, x: Expr) -> Expr {
+    if undefined(&b) || undefined(&x) { return pow(b, x); }
     if linalg::is_array(&b) {
         return linalg::pow(b, x);
     }
@@ -981,9 +1016,9 @@ fn simp_f(f: Func, a: Expr) -> Expr {
     if matches!(f, Func::Re | Func::Im | Func::Conj) {
         return crate::complex::projection(f, &a);
     }
-    // inverse pairs: exp(ln x) = x, ln(exp x) = x
+    // exp(ln x) = x for nonzero x; ln(exp x) has a principal-branch restriction.
     if let Expr::F(g, inner) = &a {
-        if (f == Func::Exp && *g == Func::Ln) || (f == Func::Ln && *g == Func::Exp) {
+        if f == Func::Exp && *g == Func::Ln && !inner.is_zero() {
             return (**inner).clone();
         }
         if f == Func::Abs && *g == Func::Abs {
@@ -1011,8 +1046,8 @@ fn simp_f(f: Func, a: Expr) -> Expr {
     if let Some(n) = a.as_num() {
         let exact = |r: Num| Expr::C(Val::num(r));
         match (f, n) {
-            (Func::Sin | Func::Tan | Func::Asin | Func::Atan | Func::Sinh | Func::Tanh, x) if x.is_zero() => return exact(Num::ZERO),
-            (Func::Cos | Func::Cosh | Func::Exp, x) if x.is_zero() => return exact(Num::ONE),
+            (Func::Cosc | Func::Sin | Func::Tan | Func::Asin | Func::Atan | Func::Sinh | Func::Tanh, x) if x.is_zero() => return exact(Num::ZERO),
+            (Func::Sinc | Func::Tanc | Func::Cos | Func::Cosh | Func::Exp, x) if x.is_zero() => return exact(Num::ONE),
             (Func::Ln, x) if x.is_one() => return exact(Num::ZERO),
             (Func::Log, Num::R(r)) if r.is_int() && r.numer() > 0 => {
                 let mut k = r.numer();

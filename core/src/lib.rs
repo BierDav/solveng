@@ -23,6 +23,8 @@ pub mod solve;
 pub mod units;
 pub mod transforms;
 mod inverse_laplace;
+mod identity;
+mod spectral;
 
 #[cfg(test)]
 extern crate self as solveng_core;

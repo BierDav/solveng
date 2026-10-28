@@ -416,6 +416,7 @@ struct P<'a, 'b> {
     /// Functions being defined in this line (their own name in a recursive call is refused later).
     defining: Vec<String>,
     abs_depth: usize,
+    recursion_depth: usize,
     /// Inside an exponent: numbers take no units.
     in_exp: usize,
     integrand: Integrand,
@@ -432,8 +433,20 @@ struct Integrand {
 }
 
 fn visible_tokens(source: &str) -> Result<Vec<Tok>, String> {
-    lex(source)?.into_iter().map(|token| match token {
-        // math.op of a name that is no operation (min, lim): a name like any other
+    let tokens = lex(source)?;
+    let mut depth = 0usize;
+    for token in &tokens {
+        match token {
+            Tok::Op("(" | "[" | "⌊" | "⌈") => {
+                depth += 1;
+                if depth > 64 { return Err("input nesting limit exceeded (64 levels)".into()); }
+            }
+            Tok::Op(")" | "]" | "⌋" | "⌉") => depth = depth.saturating_sub(1),
+            _ => (),
+        }
+    }
+    tokens.into_iter().map(|token| match token {
+        // math.op of a name that is no operation (lim): a name like any other
         Tok::Builtin(name) if crate::builtins::explicit(&name).is_none() => Ok(Tok::Name(name)),
         token => Ok(token),
     }).collect()
@@ -711,6 +724,13 @@ impl<'a, 'b> P<'a, 'b> {
         Ok(collapse(fs))
     }
     fn unary(&mut self) -> Result<Ast, String> {
+        if self.recursion_depth >= 64 { return Err("expression nesting limit exceeded (64 levels)".into()); }
+        self.recursion_depth += 1;
+        let result = self.unary_inner();
+        self.recursion_depth -= 1;
+        result
+    }
+    fn unary_inner(&mut self) -> Result<Ast, String> {
         if self.eat("-") {
             return Ok(Ast::Neg(Box::new(self.unary()?)));
         }
@@ -720,6 +740,13 @@ impl<'a, 'b> P<'a, 'b> {
         self.power()
     }
     fn power(&mut self) -> Result<Ast, String> {
+        if self.recursion_depth >= 64 { return Err("expression nesting limit exceeded (64 levels)".into()); }
+        self.recursion_depth += 1;
+        let result = self.power_inner();
+        self.recursion_depth -= 1;
+        result
+    }
+    fn power_inner(&mut self) -> Result<Ast, String> {
         let mut b = self.atom()?;
         if self.ended() {
             return Ok(b);
@@ -1367,11 +1394,11 @@ fn params(t: &[Tok], c: &Ctx) -> Result<(Vec<Param>, bool), String> {
             // an expression of unit bindings only (and any, 1) is a type (I: mA); anything else a default value
             // (n: 2, t: 1 s), as in Typst a named parameter
             let value = {
-                let mut p = P { t: sub.clone(), i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0, integrand: Integrand::default() };
+                let mut p = P { t: sub.clone(), i: 0, c, defining: vec![], abs_depth: 0, recursion_depth: 0, in_exp: 0, integrand: Integrand::default() };
                 !(p.unit_spec().is_ok() && p.i == p.t.len())
             };
             if value {
-                let mut q = P { t: sub, i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0, integrand: Integrand::default() };
+                let mut q = P { t: sub, i: 0, c, defining: vec![], abs_depth: 0, recursion_depth: 0, in_exp: 0, integrand: Integrand::default() };
                 let d = q.cmp().map_err(|e| format!("the default value of {name}: {e}"))?;
                 if q.i < q.t.len() {
                     return Err(format!("the default value of {name}: can't read '{}'", q.t[q.i..].iter().map(tok_text).collect::<Vec<_>>().join(" ")));
@@ -1379,7 +1406,7 @@ fn params(t: &[Tok], c: &Ctx) -> Result<(Vec<Param>, bool), String> {
                 default = Some(d);
                 None
             } else {
-                let mut p = P { t: sub, i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0, integrand: Integrand::default() };
+                let mut p = P { t: sub, i: 0, c, defining: vec![], abs_depth: 0, recursion_depth: 0, in_exp: 0, integrand: Integrand::default() };
                 let u = p.unit_spec().map_err(|e| format!("the unit of {name}: {}", e.trim_start_matches("the unit: ")))?;
                 if p.i < p.t.len() {
                     return Err(format!("the unit of {name}: can't read '{}'", p.t[p.i..].iter().map(tok_text).collect::<Vec<_>>().join(" ")));
@@ -1482,7 +1509,7 @@ pub fn parse_line(src: &str, c: &Ctx) -> Result<Line, String> {
 
 fn stmt(t: &[Tok], c: &Ctx) -> Result<Stmt, String> {
     let def = t.iter().position(|k| *k == Tok::Op(":="));
-    let mut p = P { t: vec![], i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0, integrand: Integrand::default() };
+    let mut p = P { t: vec![], i: 0, c, defining: vec![], abs_depth: 0, recursion_depth: 0, in_exp: 0, integrand: Integrand::default() };
     if let Some(d) = def {
         let lhs = &t[..d];
         let rhs = &t[d + 1..];
@@ -1493,7 +1520,7 @@ fn stmt(t: &[Tok], c: &Ctx) -> Result<Stmt, String> {
             [Tok::Name(n)] => Head::Var(n.clone()),
             [Tok::Quoted(n)] => Head::Var(greek(n)),
             [Tok::Name(n) | Tok::Quoted(n), Tok::Op("["), inner @ .., Tok::Op("]")] => {
-                let mut q = P { t: inner.to_vec(), i: 0, c, defining: vec![], abs_depth: 0, in_exp: 0, integrand: Integrand::default() };
+                let mut q = P { t: inner.to_vec(), i: 0, c, defining: vec![], abs_depth: 0, recursion_depth: 0, in_exp: 0, integrand: Integrand::default() };
                 let mut indices = vec![];
                 loop {
                     indices.push(q.cmp()?);
@@ -1692,7 +1719,7 @@ pub fn parse_curve(src: &str, c: &Ctx) -> Result<Curve, String> {
         }
     }
     let body = |toks: &[Tok], defining: Option<String>| -> Result<Ast, String> {
-        let mut p = P { t: toks.to_vec(), i: 0, c, defining: defining.into_iter().collect(), abs_depth: 0, in_exp: 0, integrand: Integrand::default() };
+        let mut p = P { t: toks.to_vec(), i: 0, c, defining: defining.into_iter().collect(), abs_depth: 0, recursion_depth: 0, in_exp: 0, integrand: Integrand::default() };
         let e = p.sum()?;
         if p.i < p.t.len() {
             return Err(format!("unexpected '{}' in '{src}'", tok_text(&p.t[p.i])));

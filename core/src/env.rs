@@ -451,7 +451,7 @@ impl<'a> Lower<'a> {
             if added { self.params.remove(&input); }
             return crate::transforms::transform(&body?, &input, &output, inverse);
         }
-        if n == "diff" || n == "integrate" || n == "sum" {
+        if n == "diff" || n == "integrate" || n == "sum" || n == "prod" {
             let Ast::Name(var) = args[1] else { return Err("the calculus variable must be a name".into()); };
             let body = self.local(var, args[0])?;
             if n == "diff" { return Ok(body.diff(var)); }
@@ -461,6 +461,17 @@ impl<'a> Lower<'a> {
             }
             let lo = self.raw(args[2])?;
             let hi = self.raw(args[3])?;
+            if n == "prod" {
+                let bound = |e: &Expr| -> Result<i128, String> {
+                    let v = self.known(e, "prod: bound")?;
+                    if !v.d.is_one() { return Err("prod: bounds must be unitless integers".into()); }
+                    v.v.as_int().map(i128::from).ok_or_else(|| "prod: bounds must be integers".into())
+                };
+                let (lo, hi) = (bound(&lo)?, bound(&hi)?);
+                let count = hi.checked_sub(lo).and_then(|n| n.checked_add(1)).ok_or("prod: term limit exceeded")?;
+                if count > 10000 { return Err("prod: term limit exceeded (10000)".into()); }
+                return Ok(simp(&expr::mul((lo..=hi).map(|k| body.subst(var, &expr::int(k))).collect())));
+            }
             return Ok(if n == "sum" { crate::calculus::sum(body, var.clone(), lo, hi) } else { crate::calculus::integral(body, var.clone(), lo, hi) });
         }
         if n == "convolve" {
@@ -511,6 +522,11 @@ impl<'a> Lower<'a> {
             // what can be told already: a value of another dimension
             crate::eval::dim_of(&e, &|n| self.param_dim(n))?;
             return Ok(e);
+        }
+        if n == "log" && args.len() == 2 {
+            let a = self.raw(args[0])?;
+            let b = self.raw(args[1])?;
+            return Ok(expr::div(expr::func(Func::Ln, a), expr::func(Func::Ln, b)));
         }
         if n == "sqrt" || Func::of(n).is_some() {
             let a = self.raw(args[0])?;

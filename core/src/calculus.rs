@@ -4,6 +4,7 @@ use crate::num::Num;
 pub fn integral(body: Expr, var: String, lo: Expr, hi: Expr) -> Expr {
     let (lo, hi) = unit_bounds(lo, hi);
     if lo == hi && !lo.contains(&infinite) { return int(0); }
+    if let Some(value) = crate::spectral::integral(&body, &var, &lo, &hi) { return value; }
     match closed(&body, &var, &lo, &hi) {
         Some((value, nonzero)) => guarded(value, nonzero, &body, &var, &lo, &hi),
         None => Expr::Integral(Box::new(body), var, Box::new(lo), Box::new(hi)),
@@ -19,10 +20,27 @@ fn closed(body: &Expr, var: &str, lo: &Expr, hi: &Expr) -> Option<(Expr, Vec<Exp
         _ => true,
     };
     // where an antiderivative jumps or is undefined between the bounds: 1/u and ln u at u = 0, tan u at cos u = 0
-    let crosses_pole = body.contains(&|e| {
+    let normalized = simp(body);
+    let crosses_pole = normalized.contains(&|e| {
         let at = |a: &Expr| (crate::eval::eval_f(&a.subst(&var, &lo), &|_| None), crate::eval::eval_f(&a.subst(&var, &hi), &|_| None));
         match e {
-            Expr::Pow(base, power) if power.as_num().is_some_and(|n| n.is_neg()) => matches!(at(base), (Some(a), Some(b)) if a * b <= 0.0),
+            Expr::Pow(base, power) if power.as_num().is_some_and(|n| n.is_neg()) => {
+                // An affine root with exponent in (-1, 0) is an integrable
+                // algebraic singularity; its continuous primitive can be used.
+                if power.as_num().is_some_and(|n| n.f() > -1.0)
+                    && crate::poly::coeffs(base, var).is_some_and(|cs| cs.len() == 2) {
+                    return false;
+                }
+                let crosses = matches!(at(base), (Some(a), Some(b)) if a * b <= 0.0);
+                let roots_inside = (|| {
+                    let l = crate::eval::eval_f(lo, &|_| None)?;
+                    let h = crate::eval::eval_f(hi, &|_| None)?;
+                    let cs = crate::poly::coeffs(base, var)?;
+                    let cs = cs.iter().map(|c| crate::eval::eval_f(c, &|_| None)).collect::<Option<Vec<_>>>()?;
+                    Some(crate::solve::roots(&cs).iter().any(|r| *r >= l.min(h) && *r <= l.max(h)))
+                })().unwrap_or(false);
+                crosses || roots_inside
+            },
             Expr::F(Func::Ln, a) => matches!(at(a), (Some(a), Some(b)) if a * b <= 0.0),
             Expr::F(Func::Tan, a) => matches!(at(a), (Some(a), Some(b)) if {
                 let pole = |u: f64| (u / std::f64::consts::PI - 0.5).floor();
@@ -36,7 +54,14 @@ fn closed(body: &Expr, var: &str, lo: &Expr, hi: &Expr) -> Option<(Expr, Vec<Exp
     if !bounds_match || crosses_pole || lo.contains(&infinite) || hi.contains(&infinite) { return None; }
     let mut nonzero = vec![];
     let f = primitive(&simp(body), var, &mut nonzero)?;
-    (defined_at(&f, lo) && defined_at(&f, hi)).then(|| (simp(&sub(f.subst(var, hi), f.subst(var, lo))), nonzero))
+    (defined_at(&f, lo) && defined_at(&f, hi)).then(|| {
+        let lower = simp(&f.subst(var, lo));
+        let upper = simp(&f.subst(var, hi));
+        // The primitive has the same dimension at both endpoints. A zero endpoint
+        // must not constrain the dimension of a bound that is still symbolic.
+        let value = if lower.is_zero() { upper } else if upper.is_zero() { neg(lower) } else { sub(upper, lower) };
+        (simp(&value), nonzero)
+    })
 }
 
 /// Signals (rect, tri, sgn, abs, conditions) with numeric affine corners: between two corners each is the

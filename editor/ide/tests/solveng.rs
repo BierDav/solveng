@@ -249,7 +249,10 @@ fn completes_clauses() {
     // what's written after = decides: a comparison takes names, a clause modifiers and units
     let has = |c: &Completions, l: &str| c.items.iter().any(|i| name(&i.label) == l);
     let c = complete_at(&format!("{ws}$v := 3$\n$y_1(t) = v + |$")).unwrap();
-    assert!(!c.exclusive && has(&c, "v") && !has(&c, "digits") && !has(&c, "min"));
+    assert!(!c.exclusive && has(&c, "v") && !has(&c, "digits"));
+    // min is also an operation now; the minute unit still belongs only in a unit clause.
+    assert!(!c.items.iter().any(|i| name(&i.label) == "min" && i.kind == ItemKind::UNIT));
+    assert!(c.items.iter().any(|i| name(&i.label) == "min" && i.kind == ItemKind::FUNCTION));
     let c = complete_at(&format!("{ws}$v := 3$\n$v = #min, |$")).unwrap();
     assert!(c.exclusive && has(&c, "digits") && !has(&c, "v"));
     // after -> only the clause follows

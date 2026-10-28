@@ -25,6 +25,14 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 - [`lambdify`](#lambdify)
 - [`value`](#value)
 - [`clear`](#clear)
+- [`atan2`](#atan2)
+- [`min`](#min)
+- [`max`](#max)
+- [`mean`](#mean)
+- [`prod`](#prod)
+- [`sinc`](#sinc)
+- [`cosc`](#cosc)
+- [`tanc`](#tanc)
 - [`rect`](#rect)
 - [`tri`](#tri)
 - [`dirac`](#dirac)
@@ -92,6 +100,14 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 
 | operation | does |
 |---|---|
+| [`atan2`](#atan2) | Quadrant-aware angle: `atan2(y, x)` returns radians in [−π, π]. |
+| [`min`](#min) | Minimum of one or more real scalars with matching units: `min(3, -2, 7)` is −2. |
+| [`max`](#max) | Maximum of one or more real scalars with matching units: `max(3, -2, 7)` is 7. |
+| [`mean`](#mean) | Arithmetic mean of a nonempty vector: `mean(vec(1, 2, 6))` is 3. |
+| [`prod`](#prod) | Inclusive finite product: `prod(expression, index, lower, upper)`. |
+| [`sinc`](#sinc) | Cardinal sine: `sinc(x) = sin(x)/x`, with `sinc(0) = 1`. |
+| [`cosc`](#cosc) | Cardinal cosine: `cosc(x) = (1 - cos(x))/x`, with `cosc(0) = 0`. |
+| [`tanc`](#tanc) | Cardinal tangent: `tanc(x) = tan(x)/x`, with `tanc(0) = 1`. |
 | [`rect`](#rect) | Rectangular pulse: `rect(x)` is 1 for \|x\| < ½, ½ at x = ±½, and 0 otherwise. |
 | [`tri`](#tri) | Triangular pulse: `tri(x)` is max(1 − \|x\|, 0), with height 1 at 0 and support from −1 to 1. |
 | [`dirac`](#dirac) | Dirac distribution: `dirac(x)`, with unit area and units reciprocal to x's units. |
@@ -611,6 +627,93 @@ $U := 12 #V$
 
 Returns content.
 
+## `atan2`
+
+Quadrant-aware angle: `atan2(y, x)` returns radians in [−π, π].
+Arguments must be real and have matching units; (0, 0) is undefined.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `y` | expression |  | Vertical component. |
+| `x` | expression |  | Horizontal component. |
+
+## `min`
+
+Minimum of one or more real scalars with matching units: `min(3, -2, 7)` is −2.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `..values` | expression |  | Values to compare. |
+
+## `max`
+
+Maximum of one or more real scalars with matching units: `max(3, -2, 7)` is 7.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `..values` | expression |  | Values to compare. |
+
+## `mean`
+
+Arithmetic mean of a nonempty vector: `mean(vec(1, 2, 6))` is 3.
+Elements must have matching units; complex values are supported.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `values` | expression |  | Vector of measurements. |
+
+## `prod`
+
+Inclusive finite product: `prod(expression, index, lower, upper)`.
+The index is local. Bounds must be known unitless integers, with at most 10000 terms.
+An empty product is 1. `prod(k, k, 1, 5)` is 120.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `expression` | expression |  | Factor, optionally with units. |
+| `index` | name |  | Local product index. |
+| `lower` | int |  | Inclusive lower bound. |
+| `upper` | int |  | Inclusive upper bound. |
+
+## `sinc`
+
+Cardinal sine: `sinc(x) = sin(x)/x`, with `sinc(0) = 1`.
+
+This is the unnormalized convention (no factor of π). The argument and result
+are unitless; real and complex arguments are supported.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | number |  | Unitless argument. |
+
+Returns number.
+
+## `cosc`
+
+Cardinal cosine: `cosc(x) = (1 - cos(x))/x`, with `cosc(0) = 0`.
+
+The argument and result are unitless; real and complex arguments are supported.
+Evaluation avoids cancellation near zero.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | number |  | Unitless argument. |
+
+Returns number.
+
+## `tanc`
+
+Cardinal tangent: `tanc(x) = tan(x)/x`, with `tanc(0) = 1`.
+
+The argument and result are unitless; real and complex arguments are supported.
+Tangent's poles at π/2 + kπ remain poles.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | number |  | Unitless argument. |
+
+Returns number.
+
 ## `rect`
 
 Rectangular pulse: `rect(x)` is 1 for |x| < ½, ½ at x = ±½, and 0 otherwise.
@@ -817,9 +920,14 @@ With bounds, the bounds must have matching units (0 and ±∞ match any); the re
 times the variable's unit. Either bound may be infinite. Recognized antiderivatives simplify exactly where they
 are continuous between the bounds. Signals with numeric affine arguments (rect, tri, sgn, abs, cases) are split
 at their corners and each piece is integrated exactly, also times an exponential, sin or cos: a Fourier
-integral of pulses over ±∞, `$integral_(-infinity)^infinity rect(t) #e^(-#i 2 pi f t) dif t ->$`, is a closed
-form. A closed form that divides by a parameter holds where that isn't 0, and the result says so:
-`$F(a) := integral_0^1 #e^(a t) dif t ->$` is (eᵃ − 1)/a if a ≠ 0, otherwise 1. Near such a point its parts
+integral of pulses over ±∞, `$integral_(-infinity)^infinity rect(t) #e^(-#i 2 pi f t) dif t ->$`, is sinc(πf).
+Shifted and scaled rect/tri pulses use the shift and scale rules directly, including exponential, sine,
+cosine and hyperbolic kernels. Whole-line affine Dirac integrals use sifting with the scale factor.
+Polynomial weights use derivatives of the pulse's moment-generating function, within a size budget.
+Opposite exponential phases combine into cosine or sine, and common envelopes factor out.
+Finite-interval exponential moments use the same cardinal form; for example
+`$F(a) := integral_0^1 #e^(a t) dif t ->$` is e^(a/2) sinc(ia/2), including F(0) = 1.
+Other closed forms that divide by a parameter keep the exceptional case explicitly. Near such a point their parts
 cancel, so numbers there are the mean of the values around it (the singularity is removable). Remaining
 integrals stay symbolic with `->` and use adaptive quadrature for `=` or graphs, split at signal corners so
 narrow pulses are not skipped. Undefined integrands or failure to converge report an error. Complex integrands are evaluated with both components
@@ -929,6 +1037,7 @@ Other signals (exp, sin, symbolic shifts) stay the integral, evaluated numerical
 Dirac distributions use the exact sifting rule: `convolve(f(t), dirac(t - a), t)` is `f(t - a)`.
 Finite sums and weighted impulses with affine arguments are supported; see `dirac`.
 Units multiply: the result has f's unit times g's unit (times τ's unit, or the step's).
+Discrete convolution allows at most 1,000,000 coefficient products; larger requests report a work limit.
 
 | parameter | type | default | |
 |---|---|---|---|
@@ -1171,6 +1280,8 @@ Three operators, and `=` keeps its meaning from maths:
 - **A trailing `=` shows the value**, numerically, with a bold =. After it come a unit and modifiers (from `modifiers`): `$t = #h, digits(3)$`. Every name in it must have a value by then.
 - **A trailing `->` shows the symbolic result**: defined values put in, exactly (fractions, roots and π stay), undefined names kept: `$x + 3/3 y -> simplify$` is x + y. An equation shows where it holds: `$a^2 p = a p ->$` is a = 0 ∨ a = 1 ∨ p = 0 (one side zero, in factors, each factor zero); `steps` shows the way there, a line each. `expand` multiplies out, `factor` splits into factors: `$x^3 - x -> factor$` is x (x − 1)(x + 1). With `solve(x)` it solves – symbolically when it can (`$0 = 1 + 3/x + y^2 -> solve(x)$` is x = −3/(y² + 1)), numerically when every other name has a value – and defines x when the solution is a value. `substitute(U, …)` shows the result with these variables' formulas put in and every other name kept: after `$U := R I$`, `$P := U^2/R -> substitute(U)$` is I² R.
 - **Any other `=`** states something: it's checked when everything in it has a value (`$U = R I$`), and left alone as prose when not (`$E = m c^2$`).
+
+**Exact identities:** equations also try a bounded proof in a common exponential form: `$sin(x)^2 + cos(x)^2 = 1 ->$`, Euler's formula, angle addition and supported combinations of exponentials, hyperbolic functions and sinc. Affine piecewise guards and the continuation at zero are checked separately. A quotient such as sin(x)/x becomes sinc(x) only with a matching continuation at zero; an unguarded quotient retains its excluded point. Unsupported identities stay symbolic. Numerical samples never establish a symbolic identity.
 
 **Functions** are defined the same way: `$f(x) := x^2 + 1$`. Their body is symbolic too, so a function needn't define everything it uses: names that aren't parameters and aren't defined stay names, looked up when the function is evaluated, and cancel where the algebra lets them (`$U(x: #m) := h x a$`, then `$g(x: #m) := U(x)/a ->$` is `1 m · x` without any `a`). Undefined function calls stay symbolic too: `$f(t) := integral_(-infinity)^t sigma(tau) dif tau$` is valid before `sigma` is defined; numerical evaluation requires its definition and convergence. A parameter can have a unit, `f(I: mA)`: arguments must carry its dimension (`f(2 mA)` is valid, `f(2)` reports a missing unit); `any` takes every unit. `..` makes the body's other undefined names parameters, in the order they appear: `$P(..) := U^2/R$` is `P(U, R)`. A parameter passed on to one with a unit takes that unit: with `$q(x: #A) := 2 x$`, `$f(y) := q(y)$` makes y an A. **Named parameters** have a default value and are passed by name, as in Typst: after `$f(x, n: 2) := x^n$`, `$f(3) =$` is 9 and `$f(3, n: 3) =$` is 27; a named argument that isn't a parameter, a positional one passed by name and one passed twice are errors. After the colon, an expression made only of unit bindings is a type (`I: mA`, `v: #m / #s`), anything else a default (`n: 2`, `R: 2 #Ω`, `s: k`). Defaults are taken where the function is defined, as Typst evaluates them, and come after the other parameters.
 

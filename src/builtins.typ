@@ -108,6 +108,33 @@
 /// -> unitless value
 #let tri = [#math.op("tri")<solveng-builtin-operation>]
 
+/// Cardinal sine: `sinc(x) = sin(x)/x`, with `sinc(0) = 1`.
+///
+/// This is the unnormalized convention (no factor of π). The argument and result
+/// are unitless; real and complex arguments are supported.
+///
+/// - x (number): Unitless argument.
+/// -> number
+#let sinc = [#math.op("sinc")<solveng-builtin-operation>]
+
+/// Cardinal cosine: `cosc(x) = (1 - cos(x))/x`, with `cosc(0) = 0`.
+///
+/// The argument and result are unitless; real and complex arguments are supported.
+/// Evaluation avoids cancellation near zero.
+///
+/// - x (number): Unitless argument.
+/// -> number
+#let cosc = [#math.op("cosc")<solveng-builtin-operation>]
+
+/// Cardinal tangent: `tanc(x) = tan(x)/x`, with `tanc(0) = 1`.
+///
+/// The argument and result are unitless; real and complex arguments are supported.
+/// Tangent's poles at π/2 + kπ remain poles.
+///
+/// - x (number): Unitless argument.
+/// -> number
+#let tanc = [#math.op("tanc")<solveng-builtin-operation>]
+
 /// Dirac distribution: `dirac(x)`, with unit area and units reciprocal to x's units.
 ///
 /// Import `dirac` from `operations`. It is a symbolic distribution, with no pointwise value:
@@ -244,9 +271,14 @@
 /// times the variable's unit. Either bound may be infinite. Recognized antiderivatives simplify exactly where they
 /// are continuous between the bounds. Signals with numeric affine arguments (rect, tri, sgn, abs, cases) are split
 /// at their corners and each piece is integrated exactly, also times an exponential, sin or cos: a Fourier
-/// integral of pulses over ±∞, `$integral_(-infinity)^infinity rect(t) #e^(-#i 2 pi f t) dif t ->$`, is a closed
-/// form. A closed form that divides by a parameter holds where that isn't 0, and the result says so:
-/// `$F(a) := integral_0^1 #e^(a t) dif t ->$` is (eᵃ − 1)/a if a ≠ 0, otherwise 1. Near such a point its parts
+/// integral of pulses over ±∞, `$integral_(-infinity)^infinity rect(t) #e^(-#i 2 pi f t) dif t ->$`, is sinc(πf).
+/// Shifted and scaled rect/tri pulses use the shift and scale rules directly, including exponential, sine,
+/// cosine and hyperbolic kernels. Whole-line affine Dirac integrals use sifting with the scale factor.
+/// Polynomial weights use derivatives of the pulse's moment-generating function, within a size budget.
+/// Opposite exponential phases combine into cosine or sine, and common envelopes factor out.
+/// Finite-interval exponential moments use the same cardinal form; for example
+/// `$F(a) := integral_0^1 #e^(a t) dif t ->$` is e^(a/2) sinc(ia/2), including F(0) = 1.
+/// Other closed forms that divide by a parameter keep the exceptional case explicitly. Near such a point their parts
 /// cancel, so numbers there are the mean of the values around it (the singularity is removable). Remaining
 /// integrals stay symbolic with `->` and use adaptive quadrature for `=` or graphs, split at signal corners so
 /// narrow pulses are not skipped. Undefined integrands or failure to converge report an error. Complex integrands are evaluated with both components
@@ -279,6 +311,7 @@
 /// Dirac distributions use the exact sifting rule: `convolve(f(t), dirac(t - a), t)` is `f(t - a)`.
 /// Finite sums and weighted impulses with affine arguments are supported; see `dirac`.
 /// Units multiply: the result has f's unit times g's unit (times τ's unit, or the step's).
+/// Discrete convolution allows at most 1,000,000 coefficient products; larger requests report a work limit.
 ///
 /// - f (expression): A sequence (vector), or a function of the variable.
 /// - g (expression): A sequence (vector), or a function of the variable.
@@ -376,7 +409,7 @@
 /// - x (expression): Unitless value.
 // @builtin ln
 
-/// Base-10 logarithm: `log(x)` is the exponent giving x as a power of 10.
+/// Logarithm: `log(x)` uses base 10; `log(x, base)` uses an explicit base.
 ///
 /// The argument must be unitless and not 0; of a negative number it's complex. `log(100)` is 2.
 /// - x (expression): Unitless value.
@@ -545,7 +578,7 @@
 // @builtin tr
 
 /// Norm: `norm(v)`, written ‖v‖, is the length of a vector and the Frobenius norm of a matrix
-/// (the root of the sum of its squared elements); of a number, its absolute value.
+/// (the root of the sum of its squared magnitudes); of a number, its absolute value.
 /// - x (expression): A vector, matrix or number.
 // @builtin norm
 
@@ -570,3 +603,31 @@
 /// - matrix (expression): A vector or matrix.
 /// -> integer
 #let cols = [#math.op("cols")<solveng-builtin-operation>]
+
+/// Quadrant-aware angle: `atan2(y, x)` returns radians in [−π, π].
+/// Arguments must be real and have matching units; (0, 0) is undefined.
+/// - y (expression): Vertical component.
+/// - x (expression): Horizontal component.
+#let atan2 = [#math.op("atan2")<solveng-builtin-operation>]
+
+/// Minimum of one or more real scalars with matching units: `min(3, -2, 7)` is −2.
+/// - ..values (expression): Values to compare.
+#let min = [#math.op("min")<solveng-builtin-operation>]
+
+/// Maximum of one or more real scalars with matching units: `max(3, -2, 7)` is 7.
+/// - ..values (expression): Values to compare.
+#let max = [#math.op("max")<solveng-builtin-operation>]
+
+/// Arithmetic mean of a nonempty vector: `mean(vec(1, 2, 6))` is 3.
+/// Elements must have matching units; complex values are supported.
+/// - values (expression): Vector of measurements.
+#let mean = [#math.op("mean")<solveng-builtin-operation>]
+
+/// Inclusive finite product: `prod(expression, index, lower, upper)`.
+/// The index is local. Bounds must be known unitless integers, with at most 10000 terms.
+/// An empty product is 1. `prod(k, k, 1, 5)` is 120.
+/// - expression (expression): Factor, optionally with units.
+/// - index (name): Local product index.
+/// - lower (int): Inclusive lower bound.
+/// - upper (int): Inclusive upper bound.
+#let prod = [#math.op("prod")<solveng-builtin-operation>]

@@ -237,7 +237,7 @@ fn finite_parts(e: &Expr) -> Option<CVal> {
                 acc = Some(match acc {
                     None => p,
                     Some(a) => {
-                        // a zero part has no unit of its own
+                        // Only a unitless zero can adopt the other operand's dimension.
                         let (re, im) = (unify(&a.re, &p.re)?, unify(&a.im, &p.im)?);
                         CVal { re, im }
                     }
@@ -254,8 +254,8 @@ fn finite_parts(e: &Expr) -> Option<CVal> {
 }
 
 fn unify(a: &Val, b: &Val) -> Option<Val> {
-    if a.v.is_zero() && a.d != b.d { return Some(b.clone()); }
-    if b.v.is_zero() && a.d != b.d { return Some(a.clone()); }
+    if a.v.is_zero() && a.d.is_one() && a.d != b.d { return Some(b.clone()); }
+    if b.v.is_zero() && b.d.is_one() && a.d != b.d { return Some(a.clone()); }
     a.add(b)
 }
 

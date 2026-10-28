@@ -3,7 +3,7 @@ use unicode_normalization::UnicodeNormalization;
 
 /// Built-in operation names for editor completion.
 pub const OPERATIONS: &[&str] = &[
-    "sqrt", "exp", "ln", "log", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "abs",
+    "atan2", "min", "max", "mean", "prod", "sqrt", "exp", "ln", "log", "sin", "cos", "tan", "sinc", "cosc", "tanc", "asin", "acos", "atan", "sinh", "cosh", "tanh", "abs",
     "arcsin", "arccos", "arctan", "diff", "integrate", "laplace", "invlaplace", "sum", "vec", "at", "rect", "tri", "sgn", "floor", "ceil", "factorial", "Re", "Im", "conj", "arg", "number", "cases",
     "mat", "det", "tr", "norm", "rank", "identity", "rows", "cols", "convolve", "range", "dirac",
 ];

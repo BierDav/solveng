@@ -116,9 +116,48 @@ fn pow_dim(bd: &Dim, xv: Z) -> Result<Dim, String> {
     bd.pow(r).ok_or_else(|| "a unit to a power that isn't a simple fraction".into())
 }
 
+/// Cardinal trigonometric values and derivatives, using convergent series near the origin.
+pub(crate) fn cardinal(f: Func, z: Z) -> (Z, Z) {
+    let one = Z::real(1.0);
+    if z.abs() < 0.5 {
+        let cosc = f == Func::Cosc;
+        let mut term = Z::real(if cosc { 0.5 } else { 1.0 });
+        let mut value = if cosc { term.mul(z) } else { term };
+        let mut derivative = if cosc { term } else { Z::real(0.0) };
+        let zz = z.mul(z).neg();
+        let mut power = one;
+        for k in 1..=10 {
+            let degree = 2 * k + usize::from(cosc);
+            term = term.scale(1.0 / ((degree + 1) * degree) as f64);
+            let dterm = term.mul(power).mul(z).neg();
+            derivative = derivative.add(if cosc { dterm.mul(z) } else { dterm }.scale(degree as f64));
+            power = power.mul(zz);
+            value = value.add(term.mul(power).mul(if cosc { z } else { one }));
+        }
+        if f == Func::Tanc {
+            let cos = z.cos();
+            return (value.div(cos), derivative.div(cos).add(value.mul(z.sin()).div(cos.mul(cos))));
+        }
+        return (value, derivative);
+    }
+    let value = match f {
+        Func::Sinc => z.sin().div(z),
+        Func::Cosc => z.scale(0.5).sin().mul(z.scale(0.5).sin()).scale(2.0).div(z),
+        Func::Tanc => z.sin().div(z.cos()).div(z),
+        _ => unreachable!(),
+    };
+    let leading = match f {
+        Func::Sinc => z.cos(),
+        Func::Cosc => z.sin(),
+        _ => one.div(z.cos().mul(z.cos())),
+    };
+    (value, leading.sub(value).div(z))
+}
+
 /// A function of a complex argument; None for the ones only defined for real arguments.
 fn complex_f(f: Func, z: Z) -> Option<Z> {
     Some(match f {
+        Func::Sinc | Func::Cosc | Func::Tanc => cardinal(f, z).0,
         Func::Exp => z.exp(),
         Func::Ln => z.ln(),
         Func::Log => z.ln().scale(1.0 / std::f64::consts::LN_10),
@@ -138,6 +177,7 @@ fn complex_f(f: Func, z: Z) -> Option<Z> {
 fn numeric_function(f: Func, v: N, z: Z) -> N {
     let one = Z::real(1.0);
     let derivative = match f {
+        Func::Sinc | Func::Cosc | Func::Tanc => cardinal(f, v.z).1,
         Func::Exp => z,
         Func::Ln => one.div(v.z),
         Func::Log => one.div(v.z).scale(1.0 / std::f64::consts::LN_10),
@@ -470,7 +510,7 @@ fn analytic(e: &Expr, x: &str) -> bool {
         Expr::Add(v) | Expr::Mul(v) => v.iter().all(|a| analytic(a, x)),
         Expr::Pow(b, k) if !k.has(x) => k.as_num().is_some_and(|n| n.is_int()) && analytic(b, x),
         Expr::Pow(b, k) if !b.has(x) => analytic(k, x),
-        Expr::F(Func::Exp | Func::Sin | Func::Cos | Func::Sinh | Func::Cosh, a) | Expr::Number(a, ..) => analytic(a, x),
+        Expr::F(Func::Exp | Func::Sin | Func::Cos | Func::Sinh | Func::Cosh | Func::Sinc | Func::Cosc, a) | Expr::Number(a, ..) => analytic(a, x),
         _ => false,
     }
 }
@@ -578,7 +618,7 @@ pub fn dim_of(e: &Expr, sd: &dyn Fn(&str) -> Option<Dim>) -> Result<Option<Dim>,
             let mut unknown = false;
             for t in ts {
                 // a literal 0 fits any unit
-                if t.is_zero() {
+                if t.as_c().is_some_and(|v| v.is_zero() && v.d.is_one()) {
                     continue;
                 }
                 match dim_of(t, sd)? {

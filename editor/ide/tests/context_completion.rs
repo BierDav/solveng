@@ -166,3 +166,38 @@ fn constants_complete_after_numbers() {
     let items = complete_marked(&format!("{doc}$y := 2 |$"));
     assert!(items.iter().position(|i| i.kind == ItemKind::UNIT) < items.iter().position(|i| i.kind == ItemKind::CONSTANT));
 }
+
+#[test]
+fn module_import_lists_complete_exported_names() {
+    for (module, existing, wanted) in [("operations", "dirac", "sinc"), ("units", "mA", "km"), ("constants", "pi", "e"), ("modifiers", "solve", "digits")] {
+        for tail in ["|".to_string(), format!("{existing}, |"), format!("{existing} as renamed, |"), format!("{}|{}", &wanted[..1], &wanted[1..])] {
+            let marked = format!("#import {module}: {tail}");
+            let at = marked.find('|').unwrap();
+            let doc = marked.replace('|', "");
+            let result = complete(&doc, &Context::default(), at as u32).unwrap_or_else(|| panic!("{marked}"));
+            assert!(result.exclusive, "{marked}");
+            let item = result.items.iter().find(|i| i.label == wanted).unwrap_or_else(|| panic!("{marked}: {:?}", result.items));
+            assert_eq!(item.insert, wanted, "{marked}");
+            assert!(item.edits.is_empty());
+            if tail.contains(existing) { assert!(!result.items.iter().any(|i| i.label == existing), "{marked}"); }
+            if tail.contains(&format!("{}|", &wanted[..1])) {
+                assert_eq!(&doc[result.from as usize..result.to.unwrap() as usize], wanted);
+            }
+        }
+    }
+    assert!(complete_marked("#import operations: dirac as | ").is_empty());
+    assert!(complete_marked("Text `#import operations: |`").is_empty());
+    assert!(complete_marked("// #import operations: |\n").is_empty());
+    assert!(complete_marked("#import operations: * |\n").is_empty());
+}
+
+#[test]
+fn import_completions_follow_renamed_modules_and_blocks() {
+    let doc = "#import \"@preview/solveng:1.0.0\": operations as ops\n#[#import ops: dirac, co|]\n";
+    let items = complete_marked(doc);
+    assert!(items.iter().any(|i| i.label == "cosc" && i.insert == "cosc"), "{items:?}");
+    let items = complete_marked("#import operations: (\n  dirac,\n  si|\n)");
+    assert!(items.iter().any(|i| i.label == "sinc"), "{items:?}");
+    let items = complete_marked("#import operations: sinc, cosc, tanc\n#show: worksheet\n$x := si|$");
+    assert!(items.iter().any(|i| i.label == "sinc" && i.insert == "sinc($0)"));
+}

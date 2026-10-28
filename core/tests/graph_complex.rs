@@ -107,9 +107,9 @@ fn ordinary_real_graphs_keep_domains_and_discontinuities() {
 #[test]
 fn fourier_transform_of_pulses_is_closed_and_solvable() {
     let mut env = fourier_env();
-    // closed form, guarded at f = 0 where it would divide by 0
+    // Compact entire form, including the continuation at f = 0.
     let out = run(&mut env, "S(f) ->");
-    assert!(out.result.as_deref().is_some_and(|r| r.starts_with("cases(") && !r.contains("integral")), "{out:?}");
+    assert!(out.result.as_deref().is_some_and(|r| r.contains("sinc(") && r.contains("cos(") && !r.contains("cases(") && !r.contains("integral")), "{out:?}");
     for f in [0.0, 1e-13, -1e-9, 1e-6, 0.2] {
         let value = eval_f(&env.funs["S"].body, &|n| (n == "f").then_some(f)).unwrap();
         assert!((value - analytic(f)).abs() < 1e-9, "f={f}: {value}");

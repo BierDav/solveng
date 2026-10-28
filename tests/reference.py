@@ -14,7 +14,7 @@ OUT = os.path.join(ROOT, "docs", "reference.md")
 # public functions (worksheet comes with the option tables) and the operations of the `operations` module,
 # in the order they are documented
 FUNCTIONS = ["worksheet", "base-unit", "unit", "constant", "operation", "solve", "substitute", "assume", "simplify", "expand", "factor", "steps", "digits", "sci", "eng", "fraction", "defined", "graph", "lambdify", "value", "clear"]
-OPERATIONS = ["rect", "tri", "dirac", "sgn", "Re", "Im", "conj", "number", "floor", "ceil", "factorial", "diff", "integrate", "laplace", "invlaplace", "convolve", "range", "at", "rank", "identity", "rows", "cols", "asin", "acos", "atan"]
+OPERATIONS = ["atan2", "min", "max", "mean", "prod", "sinc", "cosc", "tanc", "rect", "tri", "dirac", "sgn", "Re", "Im", "conj", "number", "floor", "ceil", "factorial", "diff", "integrate", "laplace", "invlaplace", "convolve", "range", "at", "rank", "identity", "rows", "cols", "asin", "acos", "atan"]
 DOCUMENTED = FUNCTIONS + OPERATIONS
 CHAPTERS = ["src/builtins.typ", "src/modifiers.typ", "src/engine.typ", "src/display.typ", "tests/util.typ"]
 PARAM = re.compile(r"^- ((?:\.\.)?[a-z][\w-]*(?:, [a-z][\w-]*)*(?:, …)?) \(([^)]*)\): (.*)$")
@@ -70,7 +70,7 @@ def functions():
         lines = text.split("\n")
         for n, line in enumerate(lines):
             m = re.match(r"#let ([A-Za-z][\w-]*)\b", line)
-            if m and m.group(1) in DOCUMENTED:
+            if m and m.group(1) in DOCUMENTED and (m.group(1) not in OPERATIONS or f == "builtins.typ"):
                 start = sum(len(l) + 1 for l in lines[:n])
                 found[m.group(1)] = (doc_before(lines, n), signature(text, start))
     return found

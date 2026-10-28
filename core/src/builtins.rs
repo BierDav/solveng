@@ -55,7 +55,7 @@ const fn sig(name: &'static str, positional: &'static [Param], named: &'static [
 /// Every built-in operation. Names of Typst's math syntax (mat, frac) are no operations: they are always read as
 /// that syntax.
 pub const BUILTINS: &[Builtin] = &[
-    one("sqrt"), one("exp"), one("ln"), one("log"), one("sin"), one("cos"), one("tan"), one("arcsin"), one("arccos"),
+    one("sqrt"), one("exp"), one("ln"), sig("log", &[req("x"), opt("base")], &[]), one("sin"), one("cos"), one("tan"), one("sinc"), one("cosc"), one("tanc"), one("arcsin"), one("arccos"),
     one("arctan"), one("sinh"), one("cosh"), one("tanh"), one("abs"), one("rect"), one("tri"), one("sgn"), one("floor"),
     one("ceil"), one("factorial"), one("Re"), one("Im"), one("conj"), one("arg"), one("dirac"),
     sig("number", &[req("value"), req("unit")], &[]),
@@ -63,6 +63,11 @@ pub const BUILTINS: &[Builtin] = &[
     sig("at", &[req("v"), req("i"), opt("j")], &[]),
     sig("diff", &[req("expression"), req("variable")], &[]),
     sig("integrate", &[req("expression"), req("variable"), opt("lower"), opt("upper")], &[]),
+    sig("atan2", &[req("y"), req("x")], &[]),
+    one("mean"),
+    Builtin { name: "min", sig: Sig { positional: X, variadic: true, named: &[] } },
+    Builtin { name: "max", sig: Sig { positional: X, variadic: true, named: &[] } },
+    sig("prod", &[req("expression"), req("index"), req("lower"), req("upper")], &[]),
     sig("sum", &[req("expression"), req("index"), req("lower"), req("upper")], &[]),
     sig("laplace", &[req("expression"), opt("variable"), opt("result")], &[]),
     sig("invlaplace", &[req("expression"), opt("variable"), opt("result")], &[]),

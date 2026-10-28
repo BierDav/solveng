@@ -30,3 +30,31 @@ $"explicit" := triangle(1/2) + op("rect")(0) + step(-3) =$
 #passes() #expect("explicit", 0.5)
 // without an import a name is no operation: quoted, it is a worksheet function
 #worksheet(errors: "document")[$"quoted" := "tri"(0) =$ #fails("tri isn't defined")]
+
+#import operations: sinc, cosc, tanc, diff
+$"cardinal_origin" := sinc(0) + cosc(0) + tanc(0) =$
+#passes() #expect("cardinal_origin", 2)
+$"cardinal_sine" := sinc(1) =$
+#passes() #expect("cardinal_sine", calc.sin(1))
+$"cardinal_cosine" := cosc(0.00000001) =$
+#passes() #expect("cardinal_cosine", 0.000000005)
+$"cardinal_tangent" := tanc(1) =$
+#passes() #expect("cardinal_tangent", calc.tan(1))
+$f_c(x) := diff(cosc(x), x)$
+$"cardinal_derivative" := f_c(0) =$
+#passes() #expect("cardinal_derivative", 0.5)
+#graph($sinc(x) \ cosc(x) \ tanc(x)$, xrange: (-1, 1), errors: "panic")
+
+#import operations: atan2, min, max, mean, prod
+$"quadrant" := atan2(1, -1) =$
+#passes() #expect("quadrant", 3 * calc.pi / 4)
+$"smallest" := min(3, -2, 7) =$
+#passes() #expect("smallest", -2)
+$"largest" := max(3, -2, 7) =$
+#passes() #expect("largest", 7)
+$"average" := mean(vec(1, 2, 6)) =$
+#passes() #expect("average", 3)
+$"product" := prod(k, k, 1, 5) =$
+#passes() #expect("product", 120)
+$"binary_log" := log(8, 2) =$
+#passes() #expect("binary_log", 3)

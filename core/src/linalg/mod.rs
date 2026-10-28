@@ -19,7 +19,7 @@ use crate::num::Num;
 use crate::poly::simplify;
 use eliminate::Mat;
 
-/// A matrix operation, kept as written until its arguments are matrices (or known scalars). The names are
+/// An operation on arrays or multiple scalars, kept as written until its arguments are known. The names are
 /// Typst's: det, tr, norm; A^T, A^top and a times b are written as operators.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Op {
@@ -44,6 +44,10 @@ pub enum Op {
     Col,
     /// convolve(x, h): the discrete convolution of two sequences (vectors), of length n + m − 1.
     Convolve,
+    Atan2,
+    Min,
+    Max,
+    Mean,
 }
 
 /// The functions on matrices, by name.
@@ -53,6 +57,10 @@ impl Op {
     /// The operation called by a name (A^T and a times b are operators).
     pub fn of(n: &str) -> Option<Op> {
         Some(match n {
+            "atan2" => Op::Atan2,
+            "min" => Op::Min,
+            "max" => Op::Max,
+            "mean" => Op::Mean,
             "det" => Op::Det,
             "tr" => Op::Trace,
             "rank" => Op::Rank,
@@ -79,11 +87,17 @@ impl Op {
             Op::Row => "row",
             Op::Col => "column",
             Op::Convolve => "convolve",
+            Op::Atan2 => "atan2",
+            Op::Min => "min",
+            Op::Max => "max",
+            Op::Mean => "mean",
         }
     }
     /// What it takes, for a call with the wrong number of arguments.
     pub fn usage(self) -> String {
         match self {
+            Op::Atan2 => "atan2 takes two arguments: atan2(y, x)".into(),
+            Op::Min | Op::Max => format!("{} takes one or more arguments", self.name()),
             Op::At => "at takes a vector and an index, or a matrix, a row and a column, starting at 0".into(),
             _ => format!("{} takes one argument", self.name()),
         }
@@ -91,7 +105,8 @@ impl Op {
     /// How many arguments it takes.
     pub fn arity(self) -> RangeInclusive<usize> {
         match self {
-            Op::Cross | Op::Convolve | Op::Row | Op::Col => 2..=2,
+            Op::Cross | Op::Convolve | Op::Row | Op::Col | Op::Atan2 => 2..=2,
+            Op::Min | Op::Max => 1..=usize::MAX,
             Op::At => 2..=3,
             _ => 1..=1,
         }
@@ -328,7 +343,7 @@ pub fn func(f: Func, a: Expr) -> Expr {
 fn function(f: Func, a: &Expr) -> Result<Expr, String> {
     let m = Array::of(a).expect("a function of an array");
     match f {
-        Func::Abs if m.vector() => Ok(simp(&expr::sqrt(Expr::Add(m.a.iter().map(|x| expr::pow(x.clone(), int(2))).collect())))),
+        Func::Abs if m.vector() => Ok(simp(&expr::sqrt(Expr::Add(m.a.iter().map(|x| expr::pow(expr::func(Func::Abs, x.clone()), int(2))).collect())))),
         Func::Abs if m.square() => det(&m),
         Func::Abs => Err(format!("|…| of {}: it's the length of a vector or the determinant of a square matrix", m.describe())),
         _ => Err(format!("{} takes a number, not {}", f.name(), m.describe())),
@@ -350,6 +365,26 @@ fn eval(op: Op, args: &[Expr]) -> Result<Option<Expr>, String> {
     let waits = |e: &Expr| !is_array(e) && !scalar(e);
     if !op.arity().contains(&args.len()) {
         return Err(op.usage());
+    }
+    if matches!(op, Op::Atan2 | Op::Min | Op::Max | Op::Mean) {
+        if args.iter().any(|e| !e.syms().is_empty()) { return Ok(None); }
+        let entries = if op == Op::Mean {
+            let a = Array::of(&args[0]).filter(Array::vector).ok_or("mean takes a vector")?;
+            if a.a.is_empty() { return Err("mean takes a nonempty vector".into()); }
+            return Ok(Some(simp(&expr::div(expr::add(a.a.clone()), int(a.a.len() as i128)))));
+        } else { args };
+        let values = entries.iter().map(|e| crate::eval::value(e).map_err(|e| e.message())).collect::<Result<Vec<_>, _>>()?;
+        let d = &values[0].d;
+        if values.iter().any(|v| v.d != *d) { return Err(format!("{}: arguments must have matching units", op.name())); }
+        if op == Op::Atan2 {
+            let (y, x) = (values[0].v.f(), values[1].v.f());
+            if x == 0.0 && y == 0.0 { return Err("atan2 is undefined at (0, 0)".into()); }
+            return Ok(Some(expr::c(Num::F(y.atan2(x)))));
+        }
+        let selected = values.iter().reduce(|a, b| {
+            if (op == Op::Min && b.v.cmp(a.v).is_lt()) || (op == Op::Max && b.v.cmp(a.v).is_gt()) { b } else { a }
+        }).unwrap();
+        return Ok(Some(Expr::C(selected.clone())));
     }
     if op == Op::Cross {
         // × of scalars is the product
@@ -396,6 +431,9 @@ fn eval(op: Op, args: &[Expr]) -> Result<Option<Expr>, String> {
         let (x, h) = (seq(&args[0])?, seq(&args[1])?);
         if x.is_empty() || h.is_empty() {
             return Err("convolve: a sequence without elements".into());
+        }
+        if x.len().saturating_mul(h.len()) > 1_000_000 {
+            return Err("convolve: work limit exceeded (at most 1000000 coefficient products)".into());
         }
         let n = x.len() + h.len() - 1;
         // sequences of values (the usual case, sampled signals): computed with their numbers directly
@@ -453,7 +491,7 @@ fn eval(op: Op, args: &[Expr]) -> Result<Option<Expr>, String> {
         }
         Op::Rank => int(rank(&need(0)?) as i128),
         Op::Norm => match &arrays[0] {
-            Some(a) => simp(&expr::sqrt(Expr::Add(a.a.iter().map(|x| expr::pow(x.clone(), int(2))).collect()))),
+            Some(a) => simp(&expr::sqrt(Expr::Add(a.a.iter().map(|x| expr::pow(expr::func(Func::Abs, x.clone()), int(2))).collect()))),
             None => simp(&expr::func(Func::Abs, args[0].clone())),
         },
         Op::Rows => int(need(0)?.rows as i128),
@@ -491,7 +529,7 @@ fn eval(op: Op, args: &[Expr]) -> Result<Option<Expr>, String> {
             // a row of a vector, a column of a row: one element
             if picked.a.len() == 1 { picked.a[0].clone() } else { picked.expr() }
         }
-        Op::Cross | Op::Convolve => unreachable!("handled above"),
+        Op::Cross | Op::Convolve | Op::Atan2 | Op::Min | Op::Max | Op::Mean => unreachable!("handled above"),
     }))
 }
 

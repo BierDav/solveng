@@ -116,13 +116,31 @@ pub fn solve1(e: &Expr, x: &str, numeric_params: &dyn Fn(&str) -> bool) -> Resul
     // x once: isolate it
     if count(&e, x) == 1 {
         if let Some(s) = isolate(e.clone(), int(0), x) {
-            return Ok(vec![simplify(&s)]);
+            let s = simplify(&s);
+            // Inverse operations (squaring, exponentiating) may introduce roots.
+            // Validate whenever substitution leaves a fully numeric equation.
+            let residual = simp(&e.subst(x, &s));
+            if residual.syms().is_empty() {
+                let valid = crate::eval::complex_value(&residual)
+                    .is_ok_and(|v| v.z().abs() <= 1e-9);
+                if !valid { return Ok(vec![]); }
+            }
+            return Ok(vec![s]);
         }
     }
     // both sides over one denominator may leave x once: (x + 1)/x = 3
     if count(&n, x) == 1 {
         if let Some(s) = isolate(n.clone(), int(0), x) {
-            return Ok(vec![simplify(&s)]);
+            let s = simplify(&s);
+            // Inverse operations (squaring, exponentiating) may introduce roots.
+            // Validate whenever substitution leaves a fully numeric equation.
+            let residual = simp(&e.subst(x, &s));
+            if residual.syms().is_empty() {
+                let valid = crate::eval::complex_value(&residual)
+                    .is_ok_and(|v| v.z().abs() <= 1e-9);
+                if !valid { return Ok(vec![]); }
+            }
+            return Ok(vec![s]);
         }
     }
     Err(Fail::NotSymbolic)
@@ -152,6 +170,9 @@ pub enum Holds {
 /// isn't exact (floats).
 pub fn reduce(l: &Expr, r: &Expr) -> Option<Reduced> {
     let d = simp(&expr::sub(l.clone(), r.clone()));
+    if !d.is_zero() && crate::identity::proves(l, r) {
+        return Some(Reduced { difference: int(0), factored: int(0), holds: Holds::Always });
+    }
     let f = factor(&d)?;
     let difference = simplify(&d);
     if f.is_zero() {
