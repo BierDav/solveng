@@ -18,7 +18,7 @@ pub(crate) fn proves(l: &Expr, r: &Expr) -> bool {
         || matches!(e, Expr::Pow(b, _) if **b == Expr::E);
     if !l.contains(&relevant) && !r.contains(&relevant) { return false; }
     let unsupported = |e: &Expr| matches!(e,
-        Expr::Integral(..) | Expr::Sum(..) | Expr::Derivative(..) | Expr::Subs(..) |
+        Expr::Numerical(..) | Expr::Integral(..) | Expr::Sum(..) | Expr::Derivative(..) | Expr::Subs(..) |
         Expr::Antiderivative(..) | Expr::InverseLaplace(..) | Expr::Vector(..) |
         Expr::Matrix(..) | Expr::Op(..)
     ) || matches!(e, Expr::Call(n, _) if n == GENERATOR);

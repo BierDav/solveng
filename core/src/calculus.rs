@@ -282,7 +282,7 @@ fn by_parts(factors: &[Expr], x: &str, nonzero: &mut Vec<Expr>) -> Option<Expr> 
     None
 }
 
-/// Adaptive Gauss quadrature keeps samples away from improper endpoints.
+/// Globally adaptive Gauss–Kronrod quadrature avoids sampling improper endpoints.
 pub fn quadrature(f: &impl Fn(f64) -> Option<f64>, lo: f64, hi: f64) -> Result<f64, String> {
     integrate(f, lo, hi)
 }
@@ -312,6 +312,19 @@ impl Quad for crate::numeric::N {
     fn accepted(mut self, discrepancy: Self) -> Self { self.error.re += discrepancy.re.abs(); self.error.im += discrepancy.im.abs(); self }
 }
 
+/// Largest estimated error first; values themselves need no ordering.
+struct Panel<T> {
+    a: f64,
+    b: f64,
+    value: T,
+    error: f64,
+    discrepancy: T,
+}
+impl<T> PartialEq for Panel<T> { fn eq(&self, other: &Self) -> bool { self.error.total_cmp(&other.error).is_eq() } }
+impl<T> Eq for Panel<T> {}
+impl<T> PartialOrd for Panel<T> { fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> { Some(self.cmp(other)) } }
+impl<T> Ord for Panel<T> { fn cmp(&self, other: &Self) -> std::cmp::Ordering { self.error.total_cmp(&other.error) } }
+
 fn integrate<T: Quad>(f: &impl Fn(f64) -> Option<T>, lo: f64, hi: f64) -> Result<T, String> {
     if lo.is_nan() || hi.is_nan() { return Err("invalid integral bounds".into()); }
     if lo == hi { return if lo.is_finite() { Ok(T::zero()) } else { Err("invalid integral bounds".into()) }; }
@@ -330,28 +343,77 @@ fn integrate<T: Quad>(f: &impl Fn(f64) -> Option<T>, lo: f64, hi: f64) -> Result
         let y = f(x)?.scale(jac);
         y.finite().then_some(y)
     };
-    fn gauss<T: Quad>(f: &impl Fn(f64) -> Option<T>, a: f64, b: f64) -> Option<T> {
-        let (mid, half) = ((a + b) * 0.5, (b - a) * 0.5);
-        let mut sum = T::zero();
-        for (x, w) in [(0.1834346424956498, 0.362683783378362), (0.525532409916329, 0.3137066458778873), (0.7966664774136267, 0.2223810344533745), (0.9602898564975363, 0.1012285362903763)] {
-            sum = sum.add(f(mid - half * x)?.add(f(mid + half * x)?).scale(w));
+    // The embedded 7/15 rule adds Kronrod samples to the Gauss nodes. Scale
+    // their difference by the sampled variation so unresolved oscillations do
+    // not look converged merely because two inaccurate estimates nearly agree.
+    fn panel<T: Quad>(f: &impl Fn(f64) -> Option<T>, a: f64, b: f64) -> Option<Panel<T>> {
+        let (mid, half) = (a + (b - a) * 0.5, (b - a) * 0.5);
+        let centre = f(mid)?;
+        let mut kronrod = centre.scale(0.2094821410847278);
+        let mut gauss = centre.scale(0.4179591836734694);
+        let mut magnitude = centre.norm() * 0.2094821410847278;
+        let nodes = [
+            (0.9914553711208126, 0.02293532201052922, 0.0),
+            (0.9491079123427585, 0.06309209262997855, 0.1294849661688697),
+            (0.8648644233597691, 0.1047900103222502, 0.0),
+            (0.7415311855993945, 0.1406532597155259, 0.2797053914892766),
+            (0.5860872354676911, 0.1690047266392679, 0.0),
+            (0.4058451513773972, 0.1903505780647854, 0.3818300505051189),
+            (0.2077849550078985, 0.2044329400752989, 0.0),
+        ];
+        let mut samples = Vec::with_capacity(nodes.len());
+        for (x, kw, gw) in nodes {
+            let (left, right) = (mid - half * x, mid + half * x);
+            if left <= a || right >= b { return None; }
+            let (l, r) = (f(left)?, f(right)?);
+            let pair = l.add(r);
+            kronrod = kronrod.add(pair.scale(kw));
+            if gw != 0.0 { gauss = gauss.add(pair.scale(gw)); }
+            magnitude += (l.norm() + r.norm()) * kw;
+            samples.push((l, r, kw));
         }
-        Some(sum.scale(half))
+        let mean = kronrod.scale(0.5);
+        let mut variation = centre.add(mean.scale(-1.0)).norm() * 0.2094821410847278;
+        for (l, r, w) in samples {
+            variation += (l.add(mean.scale(-1.0)).norm() + r.add(mean.scale(-1.0)).norm()) * w;
+        }
+        variation *= half;
+        let difference = kronrod.add(gauss.scale(-1.0)).scale(half);
+        let raw_error = difference.norm();
+        let mut error = raw_error;
+        if variation > 0.0 && raw_error > 0.0 {
+            error = variation * (200.0 * raw_error / variation).powf(1.5).min(1.0);
+        }
+        error = error.max(50.0 * f64::EPSILON * magnitude * half);
+        let value = kronrod.scale(half);
+        (value.finite() && error.is_finite()).then_some(Panel {
+            a, b, value, error,
+            discrepancy: if raw_error > 0.0 { difference.scale(error / raw_error) } else { T::zero() },
+        })
     }
-    fn adapt<T: Quad>(f: &impl Fn(f64) -> Option<T>, a: f64, b: f64, whole: T, tol: f64, depth: u32, budget: &mut u32) -> Option<T> {
-        if *budget == 0 { return None; }
-        *budget -= 1;
-        let mid = (a + b) * 0.5;
-        let (l, r) = (gauss(f, a, mid)?, gauss(f, mid, b)?);
-        let combined = l.add(r);
-        let discrepancy = combined.add(whole.scale(-1.0));
-        if discrepancy.norm() <= tol { return Some(combined.accepted(discrepancy)); }
-        if depth == 0 { return None; }
-        Some(adapt(f, a, mid, l, tol * 0.5, depth - 1, budget)?.add(adapt(f, mid, b, r, tol * 0.5, depth - 1, budget)?))
-    }
+    let failed = || "integral did not converge or its integrand is undefined".to_string();
     if mapped(0.5).is_none() { return Err("integrand is undefined inside the interval".into()); }
-    let result = gauss(&mapped, 0.0, 1.0).and_then(|whole| adapt(&mapped, 0.0, 1.0, whole, 1e-10 * whole.norm().max(1.0), 32, &mut 20000));
-    result.filter(|v| v.finite()).ok_or_else(|| "integral did not converge or its integrand is undefined".into())
+    let first = panel(&mapped, 0.0, 1.0).ok_or_else(failed)?;
+    let (mut total, mut error) = (first.value, first.error);
+    let mut panels = std::collections::BinaryHeap::from([first]);
+    // Spend the global error budget where it matters most. Local tolerances
+    // proportional to interval width cannot converge at logarithmic endpoints.
+    while error > 1e-10 * total.norm().max(1.0) {
+        if panels.len() >= 20_000 { return Err(failed()); }
+        let worst = panels.pop().ok_or_else(failed)?;
+        let mid = worst.a + (worst.b - worst.a) * 0.5;
+        let left = panel(&mapped, worst.a, mid).ok_or_else(failed)?;
+        let right = panel(&mapped, mid, worst.b).ok_or_else(failed)?;
+        total = total.add(worst.value.scale(-1.0)).add(left.value).add(right.value);
+        error = (error - worst.error).max(0.0) + left.error + right.error;
+        if !total.finite() { return Err(failed()); }
+        panels.push(left);
+        panels.push(right);
+    }
+    // Rebuild from the accepted leaves: discarded estimates must not inflate
+    // the componentwise forward-error estimates carried by complex numbers.
+    let result = panels.into_iter().fold(T::zero(), |sum, p| sum.add(p.value.accepted(p.discrepancy)));
+    result.finite().then_some(result).ok_or_else(failed)
 }
 
 /// Split affine signal arguments at their corners so quadrature never skips a narrow pulse.
@@ -488,6 +550,8 @@ pub(crate) fn series_estimated(f: &impl Fn(f64) -> Option<(f64, f64)>, lo: f64, 
     let last_corner = points.last().copied().unwrap_or(f64::NEG_INFINITY);
     let (mut total, mut correction, mut tail, mut stable, mut previous_tail) = (0.0_f64, 0.0, 0.0, 0, f64::INFINITY);
     let mut magnitude = 0.0;
+    let mut dyadic = vec![];
+    let mut first_magnitude = 0.0_f64;
     for offset in 0..100_000 {
         let k = lo + offset as f64;
         if k > hi { return Ok((total, uncertainty + 32.0 * f64::EPSILON * magnitude)); }
@@ -499,6 +563,16 @@ pub(crate) fn series_estimated(f: &impl Fn(f64) -> Option<(f64, f64)>, lo: f64, 
         total = next;
         if !total.is_finite() { return Err("sum overflow".into()); }
         magnitude += term.abs();
+        if offset < 32 { first_magnitude = first_magnitude.max(term.abs()); }
+        let count = offset+1;
+        if hi == f64::INFINITY && count >= 32 && (count as u32).is_power_of_two() && k > last_corner {
+            dyadic.push(total);
+            if term.abs() < first_magnitude*0.5 {
+                if let Some((estimate,error)) = extrapolate(&dyadic) {
+                    return Ok((estimate, uncertainty + error + 32.0*f64::EPSILON*magnitude));
+                }
+            }
+        }
         tail += term.abs();
         if offset % 32 == 31 {
             if hi == f64::INFINITY && k > last_corner && (tail == 0.0 || tail < previous_tail * 0.99) && tail <= 1e-12 * total.abs().max(1.0) {
@@ -514,6 +588,38 @@ pub(crate) fn series_estimated(f: &impl Fn(f64) -> Option<(f64, f64)>, lo: f64, 
         if k == hi { return Ok((total, uncertainty + 32.0 * f64::EPSILON * magnitude)); }
     }
     Err("sum did not converge within 100000 terms".into())
+}
+
+/// Wynn's epsilon algorithm on geometrically spaced partial sums. Even
+/// columns extrapolate a sequence; three adjacent windows and the preceding
+/// even column must agree before accepting an accelerated tail estimate.
+fn extrapolate(sequence:&[f64]) -> Option<(f64,f64)> {
+    if sequence.len() < 7 { return None; }
+    let mut previous=vec![0.0;sequence.len()+1];
+    let mut current=sequence.to_vec();
+    let mut prior_even=sequence.to_vec();
+    for order in 1..sequence.len() {
+        let next:Vec<f64>=current.windows(2).enumerate().map(|(i,pair)| {
+            let difference=pair[1]-pair[0];
+            if difference == 0.0 || !difference.is_finite() { f64::NAN } else { previous[i+1]+1.0/difference }
+        }).collect();
+        previous=current; current=next;
+        if order % 2 == 0 {
+            if order >= 4 && current.len() >= 3 && prior_even.len() >= 3 {
+                // Later windows discard the early asymptotic transient. This
+                // matters for shifted tails, without assuming a power law.
+                for i in (0..current.len()-2).rev() {
+                    let estimate=current[i];
+                    let error=(estimate-current[i+1]).abs().max((estimate-current[i+2]).abs()).max((estimate-prior_even[i+2]).abs())*4.0;
+                    if current[i..i+3].iter().all(|v| v.is_finite()) && prior_even[i+2].is_finite() && error <= 1e-11*estimate.abs().max(1.0) {
+                        return Some((estimate,error));
+                    }
+                }
+            }
+            prior_even=current.clone();
+        }
+    }
+    None
 }
 
 /// Refine both components together and accumulate their error across pieces.

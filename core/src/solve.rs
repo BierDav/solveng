@@ -91,6 +91,11 @@ pub fn solve1(e: &Expr, x: &str, numeric_params: &dyn Fn(&str) -> bool) -> Resul
                     .map(|s| simplify(&expr::div(expr::add(vec![expr::neg(b.clone()), expr::mul(vec![int(*s), expr::sqrt(disc.clone())])]), expr::mul(vec![int(2), a.clone()]))))
                     .collect()
             }
+        } else if deg >= 3 && !only_known {
+            // A solved function can retain an algebraic root operation until
+            // its parameters are supplied, without unstable radical formulas.
+            let roots = Expr::Op(crate::linalg::Op::Polyroots, vec![Expr::Vector(cs.clone())]);
+            (0..deg).map(|i| Expr::Op(crate::linalg::Op::At, vec![roots.clone(), int(i as i128)])).collect()
         } else if cs.iter().all(|c| c.syms().is_empty()) {
             // numbers only: every root, the real ones exactly where they can be
             let Some(cz) = cs.iter().map(crate::complex::parts).collect::<Option<Vec<CVal>>>() else { return Err(Fail::NotSymbolic) };
@@ -349,62 +354,33 @@ pub fn roots(c: &[f64]) -> Vec<f64> {
             }
         }
     } else if n > 2 {
-        // Durand–Kerner on the rescaled monic polynomial (roots of size ~1)
-        let r0 = (c[0] / c[n]).abs().powf(1.0 / n as f64);
-        let r0 = if r0 > 0.0 && r0.is_finite() { r0 } else { 1.0 };
-        let m: Vec<f64> = (0..=n).map(|i| c[i] / c[n] * r0.powi(i as i32 - n as i32)).collect();
-        let mut zs: Vec<(f64, f64)> = (0..n).map(|k| {
-            let t = 2.0 * std::f64::consts::PI * k as f64 / n as f64 + 0.4;
-            (t.cos(), t.sin())
-        }).collect();
-        let cm = |a: (f64, f64), b: (f64, f64)| (a.0 * b.0 - a.1 * b.1, a.0 * b.1 + a.1 * b.0);
-        let cs = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0, a.1 - b.1);
-        let cabs = |a: (f64, f64)| (a.0 * a.0 + a.1 * a.1).sqrt();
-        let cd = |a: (f64, f64), b: (f64, f64)| {
-            let q = b.0 * b.0 + b.1 * b.1;
-            ((a.0 * b.0 + a.1 * b.1) / q, (a.1 * b.0 - a.0 * b.1) / q)
+        // Derivative roots partition the real line into monotone intervals.
+        // A multiple root is a derivative root, so its location is recovered
+        // from the lower-degree polynomial instead of a tiny residual in p.
+        let derivative: Vec<f64> = (1..=n).map(|i| i as f64 * c[i]).collect();
+        let critical = roots(&derivative);
+        let radius = 2.0 * (0..n).map(|i| (c[i] / c[n]).abs().powf(1.0 / (n-i) as f64)).fold(0.0_f64, f64::max).max(1.0);
+        let at = |x: f64| c.iter().rev().fold(0.0_f64, |y, a| y.mul_add(x, *a));
+        let zero = |x: f64| {
+            let scale = c.iter().rev().fold(0.0_f64, |y, a| y * x.abs() + a.abs());
+            at(x).abs() <= 32.0 * f64::EPSILON * scale
         };
-        for _ in 0..800 {
-            let mut mx: f64 = 0.0;
-            for k in 0..n {
-                let zk = zs[k];
-                let mut p = (1.0, 0.0);
-                for i in (0..n).rev() {
-                    p = cm(p, zk);
-                    p.0 += m[i];
-                }
-                let mut den = (1.0, 0.0);
-                for j in 0..n {
-                    if j != k {
-                        den = cm(den, cs(zk, zs[j]));
-                    }
-                }
-                if cabs(den) == 0.0 {
-                    den = (1e-12, 0.0);
-                }
-                let dz = cd(p, den);
-                zs[k] = cs(zk, dz);
-                mx = mx.max(cabs(dz));
+        rs.extend(critical.iter().copied().filter(|x| zero(*x)));
+        let mut ends = vec![-radius];
+        ends.extend(critical);
+        ends.push(radius);
+        for pair in ends.windows(2) {
+            let (mut a, mut b) = (pair[0], pair[1]);
+            if zero(a) || zero(b) || at(a).signum() == at(b).signum() { continue; }
+            let sign = at(a).signum();
+            for _ in 0..160 {
+                let mid = a * 0.5 + b * 0.5;
+                if mid == a || mid == b { break; }
+                let value = at(mid);
+                if value == 0.0 { a = mid; b = mid; break; }
+                if value.signum() == sign { a = mid; } else { b = mid; }
             }
-            if mx < 1e-15 {
-                break;
-            }
-        }
-        let pv = |y: f64| -> (f64, f64) { (0..=n).rev().fold((0.0, 0.0), |(v, g), i| (v * y + m[i], g * y + v)) };
-        for (re, im) in zs {
-            if im.abs() > 1e-6 * cabs((re, im)).max(1e-9) {
-                continue;
-            }
-            let mut y = re;
-            for _ in 0..8 {
-                let (v, g) = pv(y);
-                if g == 0.0 {
-                    break;
-                }
-                let y2 = y - v / g;
-                if pv(y2).0.abs() < v.abs() { y = y2 } else { break }
-            }
-            rs.push(y * r0);
+            rs.push(a * 0.5 + b * 0.5);
         }
     }
     uniq(rs)
@@ -864,6 +840,7 @@ fn lin(e: &Expr, xs: &[String], known: &dyn Fn(&str) -> Option<Dim>, cons: &mut 
             let d = crate::eval::dim_of(body, known)?;
             match (d, known(var)) { (Some(a), Some(b)) => Some(k(a.mul(&b.powi(-1)))), _ => None }
         }
+        Expr::Numerical(..) => crate::eval::dim_of(e,known)?.map(k),
         Expr::InverseLaplace(..) => {
             crate::eval::dim_of(e, known)?;
             Some(k(Dim::ONE))

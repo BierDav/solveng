@@ -432,3 +432,48 @@ fn signal_integrals_are_exact_piecewise() {
     // unbounded support stays an integral (and diverges numerically)
     assert!(!line(&mut Env::default(), "integral_0^infinity sgn(t) dif t =").errors.is_empty());
 }
+
+#[test]
+fn quadrature_controls_global_error_at_endpoints_and_oscillatory_tails() {
+    use solveng_core::calculus::quadrature;
+    let check = |f: &dyn Fn(f64) -> f64, lo, hi, expected: f64| {
+        let got = quadrature(&|t| Some(f(t)), lo, hi).unwrap();
+        assert!((got - expected).abs() < 1e-9, "[{lo}, {hi}]: {got} != {expected}");
+    };
+    for upper in [0.2_f64, 0.75, 1.5, 12.0] {
+        let expected = upper * (upper.ln() - 1.0);
+        check(&|t| t.ln(), 0.0, upper, expected);
+        check(&|t| t.ln(), upper, 0.0, -expected);
+        check(&|t| (upper - t).ln(), 0.0, upper, expected);
+    }
+    check(&|t| t.ln() + (1.0 - t).ln(), 0.0, 1.0, -2.0);
+    for decay in [0.25_f64, 1.0, 3.0] {
+        for frequency in [8.0_f64, 28.0, 36.0, 120.0] {
+            let denominator = decay * decay + frequency * frequency;
+            check(&|t| (-decay*t).exp() * (frequency*t).sin(), 0.0, f64::INFINITY, frequency / denominator);
+            check(&|t| (decay*t).exp() * (frequency*t).cos(), f64::NEG_INFINITY, 0.0, decay / denominator);
+        }
+    }
+    check(&|t| (-t.abs()).exp(), f64::NEG_INFINITY, f64::INFINITY, 2.0);
+    for (lo, hi) in [(f64::NAN, 1.0), (f64::INFINITY, f64::INFINITY)] {
+        assert!(quadrature(&|_| Some(1.0), lo, hi).is_err());
+    }
+    assert!(quadrature(&|t| Some(1.0/t), 0.0, 1.0).is_err());
+    assert!(quadrature(&|t| Some(t.sin()), 0.0, f64::INFINITY).is_err());
+}
+
+#[test]
+fn endpoint_quadrature_preserves_complex_values_units_and_scope() {
+    use solveng_core::eval::complex_value;
+    let mut env = Env::default();
+    run(&mut env, "t := 42");
+    run(&mut env, "a := integrate((1 + #i)*ln(t), t, 0, 1)");
+    let got = complex_value(&support::bind(&env, &env.vars["a"].expr)).unwrap();
+    assert!((got.re.v.f() + 1.0).abs() < 1e-9);
+    assert!((got.im.v.f() + 1.0).abs() < 1e-9);
+    run(&mut env, "b := integrate(ln(t/[1 s]), t, [0 s], [2 s])");
+    let got = value(&support::bind(&env, &env.vars["b"].expr)).unwrap();
+    assert!((got.v.f() - 2.0*(2.0_f64.ln() - 1.0)).abs() < 1e-9);
+    assert_eq!(got.d, solveng_core::dim::Dim::base(2));
+    assert_eq!(value(&env.vars["t"].expr).unwrap().v.f(), 42.0);
+}

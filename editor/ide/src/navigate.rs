@@ -113,10 +113,10 @@ fn names(doc: &Doc, elements: &[Element], calls: &[Call], bindings: &crate::bind
     out
 }
 
-fn locals(doc: &Doc, elements: &[Element], active: &dyn Fn(&Element) -> bool) -> Vec<crate::locals::Local> {
+fn locals(doc: &Doc, elements: &[Element], bindings:&crate::bindings::Bindings, active: &dyn Fn(&Element) -> bool) -> Vec<crate::locals::Local> {
     let mut out = Vec::new();
     for e in elements.iter().filter(|e| active(e)) {
-        out.extend(crate::locals::read(&doc.c[e.body_start..e.body_end], e.body_start));
+        out.extend(crate::locals::read(&doc.c[e.body_start..e.body_end], e.body_start, &|at|bindings.operation(at).map(str::to_string)));
     }
     out
 }
@@ -223,18 +223,21 @@ pub(crate) fn parameter_at(a: &Analysis, at: usize) -> Option<(String, Option<(S
 }
 
 /// A sum index at a declaration or use, before global variable hovers.
-pub(crate) fn local_at(a: &Analysis, at: usize) -> Option<String> {
+pub(crate) fn local_at(a: &Analysis, at: usize) -> Option<(String,&'static str)> {
     let (_, occurrences, _, params) = resolved_all(a);
-    params.locals.iter().map(|&i| &occurrences[i]).find(|o| o.file == 0 && o.start <= at && at < o.end).map(|o| o.key.clone())
+    let occurrence=params.locals.iter().map(|&i| &occurrences[i]).find(|o| o.file == 0 && o.start <= at && at < o.end)?;
+    locals(&a.doc,&a.elements,&a.bindings,&|e|a.active(e)).into_iter()
+        .filter(|l| l.key==occurrence.key && ((l.body.0<=at && at<l.body.1) || (l.declaration.0<=at && at<l.declaration.1)))
+        .min_by_key(|l|l.body.1-l.body.0).map(|l|(l.key,l.description))
 }
 
 /// Locals visible for completion, with inner binders first.
-pub(crate) fn local_names(a: &Analysis, at: usize) -> Vec<String> {
-    let mut locals = locals(&a.doc, &a.elements, &|e| a.active(e));
+pub(crate) fn local_names(a: &Analysis, at: usize) -> Vec<(String,&'static str)> {
+    let mut locals = locals(&a.doc, &a.elements, &a.bindings, &|e| a.active(e));
     locals.sort_by_key(|l| l.body.1 - l.body.0);
-    let mut names = Vec::new();
+    let mut names:Vec<(String,&'static str)> = Vec::new();
     for local in locals {
-        if local.body.0 <= at && at <= local.body.1 && !names.contains(&local.key) { names.push(local.key); }
+        if local.body.0 <= at && at <= local.body.1 && !names.iter().any(|(n,_)|*n==local.key) { names.push((local.key,local.description)); }
     }
     names
 }
@@ -341,7 +344,7 @@ fn files<'a>(a: &'a Analysis) -> Vec<File<'a>> {
             strings: strings(calls),
             graphs: graphs(doc, calls),
             functions: curve_functions(doc, calls),
-            locals: locals(doc, elements, active),
+            locals: locals(doc, elements, bindings, active),
             bindings,
         }
     };

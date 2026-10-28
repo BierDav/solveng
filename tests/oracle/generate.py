@@ -168,8 +168,8 @@ def values(r, cases):
 
 
 def calculus(r, cases):
-    """Definite integrals and series with values from mpmath: smooth, infinite ranges, endpoint singularities,
-    slowly converging and alternating series."""
+    """Definite integrals and series from SymPy, with mpmath as a fallback: smooth, infinite ranges,
+    endpoint singularities, slowly converging and alternating series."""
     t, k = sp.symbols("t k")
     integrals = [
         ("poly-exp", lambda: (sp.Poly([r.randint(-3, 3) for _ in range(4)], t).as_expr() * sp.exp(rnd_rat(r, -2, 2) * t), rnd_rat(r, -2, 0), rnd_rat(r, 1, 3))),
@@ -185,9 +185,15 @@ def calculus(r, cases):
     for i in range(3):
         for name, make in integrals:
             f, lo, hi = make()
-            val = mpmath.quad(sp.lambdify(t, f, "mpmath"), [mpmath.mpf(sp.N(lo, 30)) if lo != -sp.oo else -mpmath.inf, mpmath.mpf(sp.N(hi, 30)) if hi != sp.oo else mpmath.inf])
+            # Prefer an exact independent result. Unsplit quadrature on an
+            # infinite interval can miss oscillatory tails even at high precision.
+            exact = sp.integrate(f, (t, lo, hi))
+            if not exact.has(sp.Integral):
+                val = exact
+            else:
+                val = sp.Float(str(mpmath.quad(sp.lambdify(t, f, "mpmath"), [mpmath.mpf(sp.N(lo, 30)) if lo != -sp.oo else -mpmath.inf, mpmath.mpf(sp.N(hi, 30)) if hi != sp.oo else mpmath.inf])), 30)
             bound = lambda b: "infinity" if b == sp.oo else "(-infinity)" if b == -sp.oo else code(b)
-            cases.append(("value", f"integral-{name}-{i}", f"integrate({code(f)}, t, {bound(lo)}, {bound(hi)})", num(sp.Float(str(val), 30)), "1e-7"))
+            cases.append(("value", f"integral-{name}-{i}", f"integrate({code(f)}, t, {bound(lo)}, {bound(hi)})", num(val), "1e-7"))
     series = [
         ("zeta-2", 1 / k ** 2, 1, sp.oo), ("zeta-3", 1 / k ** 3, 1, sp.oo), ("geometric", sp.Rational(2, 3) ** k, 0, sp.oo),
         ("exponential", sp.Rational(3, 2) ** k / sp.factorial(k), 0, sp.oo), ("leibniz", (-1) ** k / (2 * k + 1), 0, sp.oo),

@@ -483,8 +483,8 @@ fn clause_name_items(a: &Analysis, at: usize, line_start: usize, line: &str) -> 
 }
 
 fn local_items(a: &Analysis, seen: &mut HashSet<String>, at: usize) -> Vec<Item> {
-    crate::navigate::local_names(a, at).into_iter().filter(|name| seen.insert(name.clone())).map(|name| {
-        variable_item(&name, "local sum index (unitless integer)", &math_name(&name))
+    crate::navigate::local_names(a, at).into_iter().filter(|(name,_)| seen.insert(name.clone())).map(|(name,description)| {
+        variable_item(&name, description, &math_name(&name))
     }).collect()
 }
 

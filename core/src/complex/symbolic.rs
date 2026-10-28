@@ -9,18 +9,19 @@ use std::collections::BTreeSet;
 pub fn assuming_real(e: &Expr, names: &BTreeSet<String>) -> Expr {
     fn walk(e: &Expr, names: &BTreeSet<String>) -> Expr {
         let bound = match e {
+            Expr::Numerical(_,vars,_) => vars.clone(),
             Expr::Sum(_, v, _, _) | Expr::Integral(_, v, _, _) |
             Expr::Derivative(_, v) | Expr::Subs(_, v, _) |
-            Expr::Antiderivative(_, v, _) | Expr::InverseLaplace(_, v, _) => Some(v),
-            _ => None,
+            Expr::Antiderivative(_, v, _) | Expr::InverseLaplace(_, v, _) => vec![v.clone()],
+            _ => vec![],
         };
         let mut local = names.clone();
-        if let Some(v) = bound { local.remove(v); }
+        for v in &bound { local.remove(v); }
         // The first child is the body; limits and evaluation points use the outer context.
         let mut child = 0;
         let mapped = e.map(&mut |a| {
             child += 1;
-            walk(a, if bound.is_some() && child == 1 { &local } else { names })
+            walk(a, if !bound.is_empty() && child == 1 { &local } else { names })
         });
         match mapped {
             Expr::F(f @ (Func::Re | Func::Im), a) => {
@@ -174,4 +175,59 @@ pub fn projection(f: Func, a: &Expr) -> Expr {
         Func::Conj => conjugate(a, names),
         _ => unreachable!("a complex projection"),
     }
+}
+
+/// Sign facts refine real assumptions, and are shadowed by local binders.
+pub fn assuming_signs(e:&Expr, names:&BTreeSet<String>, signs:&std::collections::BTreeMap<String,crate::parse::Sign>) -> Expr {
+    use crate::parse::Sign;
+    fn mask(e:&Expr, signs:&std::collections::BTreeMap<String,Sign>) -> u8 {
+        match e {
+            Expr::C(v) => if v.v.is_zero() { 2 } else if v.v.is_neg() { 1 } else { 4 },
+            Expr::Sym(n) => signs.get(n).map_or(7,|s| s.mask()),
+            Expr::F(Func::Abs,_) => 6,
+            Expr::F(Func::Exp,a) if real(a,&signs.keys().cloned().collect()) => 4,
+            Expr::Mul(fs) => fs.iter().fold(4,|a,b| {
+                let b=mask(b,signs);
+                let mut result=0;
+                for (bit,sign) in [(1,-1),(2,0),(4,1)] { for (other,value) in [(1,-1),(2,0),(4,1)] {
+                    if a & bit != 0 && b & other != 0 { result |= match sign*value { -1=>1,0=>2,_=>4 }; }
+                }}
+                result
+            }),
+            _=>7,
+        }
+    }
+    fn walk(e:&Expr,names:&BTreeSet<String>,signs:&std::collections::BTreeMap<String,Sign>) -> Expr {
+        let bound:Vec<String> = match e {
+            Expr::Numerical(_,vars,_) => vars.clone(),
+            Expr::Integral(_,v,_,_) | Expr::Sum(_,v,_,_) | Expr::Derivative(_,v) | Expr::Subs(_,v,_) | Expr::Antiderivative(_,v,_) | Expr::InverseLaplace(_,v,_) => vec![v.clone()],
+            _=>vec![],
+        };
+        let (mut local_names,mut local_signs)=(names.clone(),signs.clone());
+        for v in &bound { local_names.remove(v); local_signs.remove(v); }
+        let mut child=0;
+        let mapped=e.map(&mut |a| {
+            child+=1;
+            if child==1 && !bound.is_empty() { walk(a,&local_names,&local_signs) } else { walk(a,names,signs) }
+        });
+        let absolute = |a:Expr| match mask(&a,signs) {
+            2|4|6=>a,
+            1|3=>neg(a),
+            _=>func(Func::Abs,a),
+        };
+        match mapped {
+            Expr::Pow(b,n) if n.as_num().is_some_and(|n| n.same(crate::num::Num::R(crate::num::Rat::new(1,2).unwrap()))) => {
+                if let Expr::Pow(a,k)=&*b {
+                    if k.as_num().is_some_and(|k| k.same(crate::num::Num::int(2))) && real(a,names) {
+                        return simp(&absolute((**a).clone()));
+                    }
+                }
+                simp(&pow(*b,*n))
+            }
+            Expr::F(Func::Abs,a) => simp(&absolute(*a)),
+            e=>simp(&e),
+        }
+    }
+    if signs.is_empty() { return e.clone(); }
+    walk(e,names,signs)
 }

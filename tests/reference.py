@@ -15,9 +15,10 @@ OUT = os.path.join(ROOT, "docs", "reference.md")
 # in the order they are documented
 FUNCTIONS = ["worksheet", "base-unit", "unit", "constant", "operation", "solve", "substitute", "assume", "simplify", "expand", "factor", "steps", "digits", "sci", "eng", "fraction", "defined", "graph", "lambdify", "value", "clear"]
 OPERATIONS = ["atan2", "min", "max", "mean", "prod", "sinc", "cosc", "tanc", "rect", "tri", "dirac", "sgn", "Re", "Im", "conj", "number", "floor", "ceil", "factorial", "diff", "integrate", "laplace", "invlaplace", "convolve", "range", "at", "rank", "identity", "rows", "cols", "asin", "acos", "atan"]
+OPERATIONS += ['lsolve', 'eigenvals', 'singularvals', 'svds', 'cond', 'median', 'variance', 'stdev', 'normalcdf', 'normalquantile', 'pnorm', 'qnorm', 'linterp', 'linfit', 'dft', 'idft', 'gamma', 'erf', 'besselj', 'minimize', 'odesolve', 'celsius', 'fahrenheit', 'polyroots']
 DOCUMENTED = FUNCTIONS + OPERATIONS
 CHAPTERS = ["src/builtins.typ", "src/modifiers.typ", "src/engine.typ", "src/display.typ", "tests/util.typ"]
-PARAM = re.compile(r"^- ((?:\.\.)?[a-z][\w-]*(?:, [a-z][\w-]*)*(?:, …)?) \(([^)]*)\): (.*)$")
+PARAM = re.compile(r"^- ((?:\.\.)?[A-Za-z][\w-]*(?:, [A-Za-z][\w-]*)*(?:, …)?) \(([^)]*)\): (.*)$")
 
 
 def read(path):

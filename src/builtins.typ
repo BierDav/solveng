@@ -63,8 +63,8 @@
 /// | `sum(expression, index, lower, upper)` | Sum over inclusive integer bounds; the index is local and unitless. In math use `sum_(k=0)^10 k^2`. Small finite sums simplify exactly; infinite sums stay symbolic with `->` and are evaluated for `=` and graphs. |
 ///
 /// For sums, the upper bound may be `infinity`. Piecewise linear signal sums are counted
-/// directly between their corners; other numerical sums use a shrinking-tail convergence
-/// estimate with a limit of 100000 terms. Nonconvergent or slower-converging series report an error.
+/// directly between their corners; other numerical sums use a shrinking-tail check and guarded
+/// epsilon extrapolation with a limit of 100000 terms. Unresolved or nonconvergent series report an error.
 ///
 /// ```typ
 /// #import "@preview/solveng:1.0.0": *
@@ -281,7 +281,13 @@
 /// Other closed forms that divide by a parameter keep the exceptional case explicitly. Near such a point their parts
 /// cancel, so numbers there are the mean of the values around it (the singularity is removable). Remaining
 /// integrals stay symbolic with `->` and use adaptive quadrature for `=` or graphs, split at signal corners so
-/// narrow pulses are not skipped. Undefined integrands or failure to converge report an error. Complex integrands are evaluated with both components
+/// narrow pulses are not skipped. Numerical integration uses an embedded Gauss–Kronrod rule,
+/// refining the interval with the largest estimated error until the total estimated error is at most
+/// 10⁻¹⁰ times max(1, |result|) per piece, in SI values. Samples avoid endpoints, allowing convergent
+/// logarithmic singularities. Infinite bounds are mapped to a finite interval. The estimate is numerical,
+/// not a proof of convergence: unresolved narrow features or sufficiently difficult oscillations can still
+/// escape sampling. Undefined samples, exhausted floating-point resolution, or a budget of 20000
+/// intervals without convergence report an error. Complex integrands are evaluated with both components
 /// refined together; local integration variables keep their scope and the units inferred from the bounds.
 ///
 /// In math, `$integral_0^3 x^2 dif x =$` and `$integral x^2 dif x ->$` do the same. The differential (`dif`, not
@@ -631,3 +637,183 @@
 /// - lower (int): Inclusive lower bound.
 /// - upper (int): Inclusive upper bound.
 #let prod = [#math.op("prod")<solveng-builtin-operation>]
+
+/// Linear solve and rectangular least squares: `lsolve(A, b)` minimizes ‖A x − b‖₂.
+/// Uses a bounded singular-value decomposition, without forming Aᵀ A. A must have
+/// at least as many rows as columns and full column rank. b may have several columns.
+/// Complex values are supported. Each column of A and each column of b must have
+/// matching units down its rows; x[i,j] has units b[:,j]/A[:,i]. Residuals are weighted
+/// equally in SI values. Rank deficiency reports an error rather than arbitrary coefficients.
+/// Matrix dimensions are limited to 256; numerical decompositions have an iteration budget.
+/// - A (expression): Tall or square coefficient matrix.
+/// - b (expression): Right-side vector or matrix with the same number of rows.
+/// -> vector or matrix
+#let lsolve = [#math.op("lsolve")<solveng-builtin-operation>]
+
+/// Eigenvalues of a square matrix, including complex eigenvalues of real matrices.
+/// Entries must have matching units; eigenvalues have those units. Their ordering
+/// is unspecified. Uses a bounded complex Schur decomposition, at most 256 rows.
+/// - A (expression): Square real or complex matrix.
+/// -> vector
+#let eigenvals = [#math.op("eigenvals")<solveng-builtin-operation>]
+
+/// All singular values of a rectangular real or complex matrix, in descending order.
+/// Returns min(rows, cols) values, with the entries' common unit. This is the
+/// singular-value spectrum, not a truncated or sparse decomposition. Maximum dimension: 256.
+/// - A (expression): Matrix with matching entry units.
+/// -> vector
+#let singularvals = [#math.op("singularvals")<solveng-builtin-operation>]
+
+/// Alias for `singularvals(A)`; returns all singular values, not a truncated decomposition.
+/// - A (expression): Matrix with matching entry units.
+#let svds = [#math.op("singularvals")<solveng-builtin-operation>]
+
+/// Spectral condition number: largest / smallest singular value, a unitless sensitivity diagnostic.
+/// Entries must have matching units. Numerically singular matrices report an error;
+/// a finite result is meaningful only to floating-point resolution. Maximum dimension: 256.
+/// - A (expression): Nonempty real or complex matrix.
+/// -> unitless value
+#let cond = [#math.op("cond")<solveng-builtin-operation>]
+
+/// Median of a nonempty real vector; the mean of the two middle values for even length.
+/// Preserves the observations' common unit.
+/// - values (expression): Real vector of measurements with matching units.
+#let median = [#math.op("median")<solveng-builtin-operation>]
+
+/// Sample variance, with n−1 in the denominator. At least two real observations
+/// are required. The result has the square of the observations' common unit.
+/// - values (expression): Real vector of measurements with matching units.
+#let variance = [#math.op("variance")<solveng-builtin-operation>]
+
+/// Sample standard deviation, with n−1 in the variance denominator.
+/// At least two real observations are required. Preserves their common unit.
+/// - values (expression): Real vector of measurements with matching units.
+#let stdev = [#math.op("stdev")<solveng-builtin-operation>]
+
+/// Normal cumulative probability at x, using a stable complementary error function.
+/// x, mean and sigma have matching units; sigma must be strictly positive.
+/// - x (expression): Real observation.
+/// - mean (expression): Distribution mean.
+/// - sigma (expression): Positive standard deviation.
+/// -> unitless probability
+#let normalcdf = [#math.op("normalcdf")<solveng-builtin-operation>]
+
+/// Inverse normal cumulative probability. Probability is unitless and strictly
+/// between 0 and 1; mean and positive sigma have matching units. The result
+/// has their unit. Inverts the smaller tail to avoid cancellation near probability 1.
+/// - probability (expression): Probability strictly between 0 and 1.
+/// - mean (expression): Distribution mean.
+/// - sigma (expression): Positive standard deviation.
+#let normalquantile = [#math.op("normalquantile")<solveng-builtin-operation>]
+
+/// Alias for `normalcdf(x, mean, sigma)`.
+/// - x (expression): Real observation.
+/// - mean (expression): Distribution mean.
+/// - sigma (expression): Positive standard deviation.
+#let pnorm = [#math.op("normalcdf")<solveng-builtin-operation>]
+
+/// Alias for `normalquantile(probability, mean, sigma)`.
+/// - probability (expression): Probability strictly between 0 and 1.
+/// - mean (expression): Distribution mean.
+/// - sigma (expression): Positive standard deviation.
+#let qnorm = [#math.op("normalquantile")<solveng-builtin-operation>]
+
+/// Linear interpolation of measured data: `linterp(x, y, at)`.
+/// x and y are equally sized real vectors with at least two entries. x knots
+/// must be strictly increasing. at has x's unit and must lie in the closed
+/// data range. The result has y's unit. Exact knots preserve the original y value.
+/// Extrapolation is an error, so calculations cannot silently extend measured data.
+/// - x (expression): Strictly increasing real knots with matching units.
+/// - y (expression): Observations with matching units.
+/// - at (expression): Position within the data range, with x's unit.
+#let linterp = [#math.op("linterp")<solveng-builtin-operation>]
+
+/// Ordinary least-squares straight-line regression, minimizing vertical residuals.
+/// Returns vec(intercept, slope): y ≈ intercept + slope x. x and y are real
+/// vectors of equal length, at least two, and x must contain distinct values.
+/// The intercept has y's unit; the slope has y's unit divided by x's unit.
+/// Centered data avoid losing the slope to a large coordinate offset.
+/// - x (expression): Real input observations with matching units.
+/// - y (expression): Real measured responses with matching units.
+/// -> vector(intercept, slope)
+#let linfit = [#math.op("linfit")<solveng-builtin-operation>]
+
+/// Discrete Fourier transform: X[k] = Σ x[j] exp(−2πi j k/n), without forward normalization.
+/// Real or complex input values share one unit, retained by the spectrum. Uses a
+/// direct O(n²) transform, at most 2048 samples. Imaginary roundoff is removed only
+/// within a componentwise error estimate; resolvable small complex signals remain.
+/// - values (expression): Nonempty column vector of samples with matching units.
+/// -> complex vector
+#let dft = [#math.op("dft")<solveng-builtin-operation>]
+
+/// Inverse discrete Fourier transform: x[j] = Σ X[k] exp(2πi j k/n) / n.
+/// Shares dft's unit handling and 2048-sample limit. `idft(dft(x))` recovers x to roundoff.
+/// - values (expression): Nonempty column vector of spectral samples with matching units.
+/// -> complex vector
+#let idft = [#math.op("idft")<solveng-builtin-operation>]
+
+/// Real gamma function. The argument is unitless; nonpositive integer poles
+/// and results outside the floating-point range report errors.
+/// - x (expression): Real unitless argument away from a pole.
+#let gamma = [#math.op("gamma")<solveng-builtin-operation>]
+
+/// Real error function. The argument and result are unitless.
+/// - x (expression): Real unitless argument.
+#let erf = [#math.op("erf")<solveng-builtin-operation>]
+
+/// Bessel function of the first kind, J_order(x), for integer order.
+/// Both arguments are real and unitless; order must be between −10000 and 10000.
+/// Noninteger orders are currently unsupported and report an error.
+/// - order (int): Integer order, from -10000 through 10000.
+/// - x (expression): Real unitless argument.
+#let besselj = [#math.op("besselj")<solveng-builtin-operation>]
+
+/// Bounded scalar minimization; returns the minimizing position, not the objective value.
+/// The variable is local. Bounds must be finite and ordered, with matching units;
+/// the result has those units. Uses golden-section search for a continuous unimodal
+/// real objective, comparing endpoints as candidates. It is not a global optimizer
+/// for multimodal objectives, a multivariate constrained solver, or a proof of optimality.
+/// - expression (expression): Continuous unimodal real objective.
+/// - variable (name): Local optimization variable.
+/// - lower (expression): Finite lower bound.
+/// - upper (expression): Finite upper bound with the lower bound's unit.
+#let minimize = [#math.op("minimize")<solveng-builtin-operation>]
+
+/// Scalar non-stiff ODE initial-value problem; returns state(end).
+/// Solves dy/dt = expression with y(start) = initial. State and time are distinct
+/// local names; outer definitions of either name do not enter the right side.
+/// The right side has units state/time. Initial state and finite time bounds may
+/// carry units; the result has the initial state's unit. Reverse time is supported.
+/// Uses adaptive RK4 step doubling, relative tolerance 1e-10 and an absolute
+/// scale of 1e-12 times max(|initial|, 1e-12) in SI values, at most 100000 steps.
+/// Stiff problems, systems, events and boundary-value problems are not supported.
+/// - expression (expression): Real right side dy/dt.
+/// - state (name): Local state variable.
+/// - time (name): Local time variable, distinct from state.
+/// - initial (expression): Initial state value.
+/// - start (expression): Finite initial time.
+/// - end (expression): Finite final time with start's unit.
+#let odesolve = [#math.op("odesolve")<solveng-builtin-operation>]
+
+/// Absolute Celsius temperature expressed as kelvin: `celsius(20)` is 293.15 K.
+/// Input is a real unitless temperature reading; values below absolute zero are rejected.
+/// Subtract converted Kelvin values for a temperature difference. The existing
+/// degC unit remains a temperature difference, without an affine offset.
+/// - x (expression): Unitless reading on the Celsius scale.
+/// -> temperature in kelvin
+#let celsius = [#math.op("celsius")<solveng-builtin-operation>]
+
+/// Absolute Fahrenheit temperature expressed as kelvin: `fahrenheit(32)` is 273.15 K.
+/// Input is a real unitless reading; values below absolute zero are rejected.
+/// - x (expression): Unitless reading on the Fahrenheit scale.
+/// -> temperature in kelvin
+#let fahrenheit = [#math.op("fahrenheit")<solveng-builtin-operation>]
+
+/// All numerical complex roots of a polynomial. Coefficients are a unitless
+/// vector in ascending power order: vec(c0, c1, …, cn). The leading coefficient
+/// must be nonzero; degree is limited to 60. Ordering is by real part then imaginary
+/// part. Repeated roots occur with multiplicity and are numerically ill-conditioned.
+/// Solved polynomial functions retain this operation until parameters are supplied.
+/// - coefficients (expression): Vector of 2 to 61 unitless coefficients.
+/// -> complex vector
+#let polyroots = [#math.op("polyroots")<solveng-builtin-operation>]

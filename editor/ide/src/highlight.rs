@@ -370,7 +370,7 @@ fn hover_at(document: &str, context: &Context, offset: u32) -> Option<Hover> {
     if word == "any" && a.doc.sub(0, s).trim_end().ends_with(':') {
         return hover("`any` type: a parameter that takes every unit; the result's unit follows what's passed. `1` is the type of a plain number.".to_string());
     }
-    if let Some(name) = crate::navigate::local_at(&a, at) { return hover(format!("`{name}` local sum index (unitless integer)")); }
+    if let Some((name,description)) = crate::navigate::local_at(&a, at) { return hover(format!("`{name}` {description}")); }
     if let Some((name, owner)) = crate::navigate::parameter_at(&a, at) {
         let Some((function, written)) = owner else { return hover(format!("`{word}` what the graph plots against, its x axis")) };
         // Its type as compiled (inferred ones too), else as written.

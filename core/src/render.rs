@@ -147,6 +147,12 @@ impl R<'_> {
             Expr::Cases(v) => (cases(v.iter().map(|(value, condition)| (self.expr(value).0, self.expr(condition).0)).collect()), P_ATOM),
             Expr::Vector(v) => (format!("vec({})", v.iter().map(|e| self.expr(e).0).collect::<Vec<_>>().join(", ")), P_ATOM),
             Expr::Matrix(rs) => (mat(rs.iter().map(|r| r.iter().map(|e| self.expr(e).0).collect()).collect()), P_ATOM),
+            Expr::Numerical(op, vars, args) => {
+                let mut rendered = vec![self.expr(&args[0]).0];
+                rendered.extend(vars.iter().map(|v| name(v)));
+                rendered.extend(args[1..].iter().map(|a| self.expr(a).0));
+                (format!("#svop(\"{}\") ({})",op.name(),rendered.join(", ")), P_ATOM)
+            }
             Expr::Op(op, args) => matrix_op(*op, args.iter().map(|a| self.expr(a)).collect()),
             Expr::C(v) => self.val(v),
             Expr::Sym(n) => (name(n), P_ATOM),

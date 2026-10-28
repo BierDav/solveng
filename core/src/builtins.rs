@@ -64,6 +64,18 @@ pub const BUILTINS: &[Builtin] = &[
     sig("diff", &[req("expression"), req("variable")], &[]),
     sig("integrate", &[req("expression"), req("variable"), opt("lower"), opt("upper")], &[]),
     sig("atan2", &[req("y"), req("x")], &[]),
+    sig("lsolve", &[req("A"), req("b")], &[]),
+    matrix("eigenvals"), matrix("singularvals"), matrix("cond"),
+    one("median"), one("variance"), one("stdev"),
+    sig("normalcdf", &[req("x"), req("mean"), req("sigma")], &[]),
+    sig("normalquantile", &[req("probability"), req("mean"), req("sigma")], &[]),
+    sig("linterp", &[req("x"), req("y"), req("at")], &[]),
+    sig("linfit", &[req("x"), req("y")], &[]),
+    one("dft"), one("idft"), one("gamma"), one("erf"),
+    sig("besselj", &[req("order"), req("x")], &[]),
+    one("celsius"), one("fahrenheit"), one("polyroots"),
+    sig("minimize", &[req("expression"), req("variable"), req("lower"), req("upper")], &[]),
+    sig("odesolve", &[req("expression"), req("state"), req("time"), req("initial"), req("start"), req("end")], &[]),
     one("mean"),
     Builtin { name: "min", sig: Sig { positional: X, variadic: true, named: &[] } },
     Builtin { name: "max", sig: Sig { positional: X, variadic: true, named: &[] } },
@@ -78,7 +90,7 @@ pub const BUILTINS: &[Builtin] = &[
 ];
 
 /// Other spellings of operations.
-const ALIASES: &[(&str, &str)] = &[("asin", "arcsin"), ("acos", "arccos"), ("atan", "arctan"), ("re", "Re"), ("im", "Im")];
+const ALIASES: &[(&str, &str)] = &[("svds", "singularvals"), ("pnorm", "normalcdf"), ("qnorm", "normalquantile"), ("γ", "gamma"), ("asin", "arcsin"), ("acos", "arccos"), ("atan", "arctan"), ("re", "Re"), ("im", "Im")];
 
 /// The operation of a name, without overlays.
 pub fn builtin(name: &str) -> Option<&'static Builtin> {

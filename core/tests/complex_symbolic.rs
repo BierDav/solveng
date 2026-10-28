@@ -38,7 +38,7 @@ fn conditional_proofs_are_sufficient_and_do_not_hide_nonlinearity() {
 #[test]
 fn assumption_syntax_and_supported_contexts_are_explicit() {
     let mut env = Env::default();
-    for clause in ["assume()", "assume(a = real)", "assume(a in CC)", "assume(a > 0)", "assume(a + b in RR)"] {
+    for clause in ["assume()", "assume(a = real)", "assume(a in CC)", "assume(a > 1)", "assume(a + b in RR)"] {
         assert!(fails(&mut env, &format!("Re(a) -> {clause}")).contains("assume"));
     }
     for input in ["a = assume(a in RR)", "f(a) := Re(a) -> assume(a in RR)", "a^2 = -1 -> assume(a in RR), solve(a)"] {

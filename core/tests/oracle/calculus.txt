@@ -3,28 +3,28 @@ value	integral-poly-exp-0	integrate(((3 + ((-3)*t) + (3*(t)^(3)))*exp(((-1)*t)))
 value	integral-rational-0	integrate((((4/7) + (t)^(2)))^((-1)), t, (-2), 3)	3.3513568769937265618	1e-7
 value	integral-sqrt-0	integrate(((1 + ((-1)*(t)^(2))))^((1/2)), t, 0, (2/25))	0.079914584558836266166	1e-7
 value	integral-gaussian-infinite-0	integrate(exp(((-2)*(t)^(2))), t, (-infinity), infinity)	1.2533141373155002512	1e-7
-value	integral-gamma-0	integrate(((t)^(5)*exp(((-1)*t))), t, 0, infinity)	120.0	1e-7
+value	integral-gamma-0	integrate(((t)^(5)*exp(((-1)*t))), t, 0, infinity)	120	1e-7
 value	integral-log-endpoint-0	integrate(ln(t), t, 0, (3/2))	-0.89180233783775342703	1e-7
 value	integral-inverse-sqrt-endpoint-0	integrate((t)^((-1/2)), t, 0, 2)	2.8284271247461900976	1e-7
-value	integral-oscillating-0	integrate((exp(((-1)*t))*sin((8*t))), t, 0, infinity)	0.12307692307692307586	1e-7
+value	integral-oscillating-0	integrate((exp(((-1)*t))*sin((8*t))), t, 0, infinity)	8/65	1e-7
 value	integral-lorentzian-infinite-0	integrate(((1 + (t)^(4)))^((-1)), t, 0, infinity)	1.1107207345395915618	1e-7
 value	integral-poly-exp-1	integrate(((2 + ((-1)*(t)^(2)) + ((-2)*t))*exp(((-1/3)*t))), t, (-1), (1/2))	3.8578767062618295428	1e-7
 value	integral-rational-1	integrate(((2 + (t)^(2)))^((-1)), t, (-2), (1/7))	0.74669795267915590215	1e-7
 value	integral-sqrt-1	integrate(((1 + ((-1)*(t)^(2))))^((1/2)), t, 0, (1/4))	0.2473708571400211044	1e-7
 value	integral-gaussian-infinite-1	integrate(exp(((-2)*(t)^(2))), t, (-infinity), infinity)	1.2533141373155002512	1e-7
-value	integral-gamma-1	integrate((t*exp(((-1)*t))), t, 0, infinity)	1.0	1e-7
+value	integral-gamma-1	integrate((t*exp(((-1)*t))), t, 0, infinity)	1	1e-7
 value	integral-log-endpoint-1	integrate(ln(t), t, 0, (3/4))	-0.96576155433883569558	1e-7
-value	integral-inverse-sqrt-endpoint-1	integrate((t)^((-1/2)), t, 0, 1)	2.0	1e-7
-value	integral-oscillating-1	integrate((exp(((-1)*t))*sin((28*t))), t, 0, infinity)	0.035669247567347168466	1e-7
+value	integral-inverse-sqrt-endpoint-1	integrate((t)^((-1/2)), t, 0, 1)	2	1e-7
+value	integral-oscillating-1	integrate((exp(((-1)*t))*sin((28*t))), t, 0, infinity)	28/785	1e-7
 value	integral-lorentzian-infinite-1	integrate(((1 + (t)^(4)))^((-1)), t, 0, infinity)	1.1107207345395915618	1e-7
 value	integral-poly-exp-2	integrate((((-2) + ((-1)*(t)^(3)) + (3*t))*exp(((-2/5)*t))), t, (-1/7), (1/2))	-0.91684020121404882331	1e-7
 value	integral-rational-2	integrate(((5 + (t)^(2)))^((-1)), t, (-3/4), (3/2))	0.40897294923561485239	1e-7
 value	integral-sqrt-2	integrate(((1 + ((-1)*(t)^(2))))^((1/2)), t, 0, (2/35))	0.057111743739770113322	1e-7
 value	integral-gaussian-infinite-2	integrate(exp(((-4)*(t)^(2))), t, (-infinity), infinity)	0.88622692545275801365	1e-7
-value	integral-gamma-2	integrate(((t)^(3)*exp(((-1)*t))), t, 0, infinity)	6.0	1e-7
+value	integral-gamma-2	integrate(((t)^(3)*exp(((-1)*t))), t, 0, infinity)	6	1e-7
 value	integral-log-endpoint-2	integrate(ln(t), t, 0, (1/5))	-0.52188758248682007492	1e-7
-value	integral-inverse-sqrt-endpoint-2	integrate((t)^((-1/2)), t, 0, 4)	4.0	1e-7
-value	integral-oscillating-2	integrate((exp(((-1)*t))*sin((36*t))), t, 0, infinity)	0.027755471429684028612	1e-7
+value	integral-inverse-sqrt-endpoint-2	integrate((t)^((-1/2)), t, 0, 4)	4	1e-7
+value	integral-oscillating-2	integrate((exp(((-1)*t))*sin((36*t))), t, 0, infinity)	36/1297	1e-7
 value	integral-lorentzian-infinite-2	integrate(((1 + (t)^(4)))^((-1)), t, 0, infinity)	1.1107207345395915618	1e-7
 value	sum-zeta-2	sum((k)^((-2)), k, 1, infinity)	1.6449340668482264365	1e-7
 value	sum-zeta-3	sum((k)^((-3)), k, 1, infinity)	1.2020569031595942854	1e-7

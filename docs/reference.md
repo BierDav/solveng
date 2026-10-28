@@ -58,6 +58,30 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 - [`asin`](#asin)
 - [`acos`](#acos)
 - [`atan`](#atan)
+- [`lsolve`](#lsolve)
+- [`eigenvals`](#eigenvals)
+- [`singularvals`](#singularvals)
+- [`svds`](#svds)
+- [`cond`](#cond)
+- [`median`](#median)
+- [`variance`](#variance)
+- [`stdev`](#stdev)
+- [`normalcdf`](#normalcdf)
+- [`normalquantile`](#normalquantile)
+- [`pnorm`](#pnorm)
+- [`qnorm`](#qnorm)
+- [`linterp`](#linterp)
+- [`linfit`](#linfit)
+- [`dft`](#dft)
+- [`idft`](#idft)
+- [`gamma`](#gamma)
+- [`erf`](#erf)
+- [`besselj`](#besselj)
+- [`minimize`](#minimize)
+- [`odesolve`](#odesolve)
+- [`celsius`](#celsius)
+- [`fahrenheit`](#fahrenheit)
+- [`polyroots`](#polyroots)
 - [Options](#options)
 - [Modifiers](#modifiers)
 - [Calculating like Mathcad](#calculating-like-mathcad)
@@ -65,6 +89,7 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 - [Complex numbers](#complex-numbers)
 - [Units](#units)
 - [How it solves](#how-it-solves)
+- [Numerical engineering operations](#numerical-engineering-operations)
 - [Limits](#limits)
 - [Errors](#errors)
 - [HTML](#html)
@@ -133,6 +158,30 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 | [`asin`](#asin) | Inverse sine, also spelled `arcsin`: `asin(x)` returns an angle in radians from −π/2 to π/2. |
 | [`acos`](#acos) | Inverse cosine, also spelled `arccos`: `acos(x)` returns an angle in radians from 0 to π. |
 | [`atan`](#atan) | Inverse tangent, also spelled `arctan`: `atan(x)` returns an angle in radians between −π/2 and π/2. |
+| [`lsolve`](#lsolve) | Linear solve and rectangular least squares: `lsolve(A, b)` minimizes ‖A x − b‖₂. |
+| [`eigenvals`](#eigenvals) | Eigenvalues of a square matrix, including complex eigenvalues of real matrices. |
+| [`singularvals`](#singularvals) | All singular values of a rectangular real or complex matrix, in descending order. |
+| [`svds`](#svds) | Alias for `singularvals(A)`; returns all singular values, not a truncated decomposition. |
+| [`cond`](#cond) | Spectral condition number: largest / smallest singular value, a unitless sensitivity diagnostic. |
+| [`median`](#median) | Median of a nonempty real vector; the mean of the two middle values for even length. |
+| [`variance`](#variance) | Sample variance, with n−1 in the denominator. |
+| [`stdev`](#stdev) | Sample standard deviation, with n−1 in the variance denominator. |
+| [`normalcdf`](#normalcdf) | Normal cumulative probability at x, using a stable complementary error function. |
+| [`normalquantile`](#normalquantile) | Inverse normal cumulative probability. |
+| [`pnorm`](#pnorm) | Alias for `normalcdf(x, mean, sigma)`. |
+| [`qnorm`](#qnorm) | Alias for `normalquantile(probability, mean, sigma)`. |
+| [`linterp`](#linterp) | Linear interpolation of measured data: `linterp(x, y, at)`. |
+| [`linfit`](#linfit) | Ordinary least-squares straight-line regression, minimizing vertical residuals. |
+| [`dft`](#dft) | Discrete Fourier transform: X[k] = Σ x[j] exp(−2πi j k/n), without forward normalization. |
+| [`idft`](#idft) | Inverse discrete Fourier transform: x[j] = Σ X[k] exp(2πi j k/n) / n. |
+| [`gamma`](#gamma) | Real gamma function. |
+| [`erf`](#erf) | Real error function. |
+| [`besselj`](#besselj) | Bessel function of the first kind, J_order(x), for integer order. |
+| [`minimize`](#minimize) | Bounded scalar minimization; returns the minimizing position, not the objective value. |
+| [`odesolve`](#odesolve) | Scalar non-stiff ODE initial-value problem; returns state(end). |
+| [`celsius`](#celsius) | Absolute Celsius temperature expressed as kelvin: `celsius(20)` is 293.15 K. |
+| [`fahrenheit`](#fahrenheit) | Absolute Fahrenheit temperature expressed as kelvin: `fahrenheit(32)` is 273.15 K. |
+| [`polyroots`](#polyroots) | All numerical complex roots of a polynomial. |
 
 ## `worksheet`
 
@@ -385,10 +434,10 @@ Returns content.
 ## `assume`
 
 Assumptions for this symbolic calculation: `$Re(a z) = a Re(z) -> assume(a in RR)$`
-is true. Import `assume` from `modifiers`. Only real scalar names are supported currently; assumptions
+is true. Import `assume` from `modifiers`. Real scalar names and sign constraints such as `x > 0`, `x >= 0`, `x < 0`, `x <= 0` are supported; assumptions
 apply to this result and do not change definitions or later calculations.
 Use it after `->` on expressions and equations, without `solve` or a definition.
-A known nonreal value contradicts the assumption and reports an error. If a
+A known nonreal value or an incompatible sign contradicts the assumption and reports an error. If a
 name already has a symbolic definition, assume its free scalar names instead.
 Without assumptions, equations may show `true for a in RR and b in RR`: a
 sufficient condition, not an exhaustive description of all solutions. This
@@ -405,7 +454,7 @@ $Re(a z + b w) = a Re(z) + b Re(w) -> assume(a in RR, b in RR)$
 
 | parameter | type | default | |
 |---|---|---|---|
-| `..conditions` | content |  | Real scalar assumptions, for example `a in RR, b in RR`. |
+| `..conditions` | content |  | Real scalar or sign assumptions, for example `a in RR, x > 0`. |
 
 Returns content.
 
@@ -930,7 +979,13 @@ Finite-interval exponential moments use the same cardinal form; for example
 Other closed forms that divide by a parameter keep the exceptional case explicitly. Near such a point their parts
 cancel, so numbers there are the mean of the values around it (the singularity is removable). Remaining
 integrals stay symbolic with `->` and use adaptive quadrature for `=` or graphs, split at signal corners so
-narrow pulses are not skipped. Undefined integrands or failure to converge report an error. Complex integrands are evaluated with both components
+narrow pulses are not skipped. Numerical integration uses an embedded Gauss–Kronrod rule,
+refining the interval with the largest estimated error until the total estimated error is at most
+10⁻¹⁰ times max(1, |result|) per piece, in SI values. Samples avoid endpoints, allowing convergent
+logarithmic singularities. Infinite bounds are mapped to a finite interval. The estimate is numerical,
+not a proof of convergence: unresolved narrow features or sufficiently difficult oscillations can still
+escape sampling. Undefined samples, exhausted floating-point resolution, or a budget of 20000
+intervals without convergence report an error. Complex integrands are evaluated with both components
 refined together; local integration variables keep their scope and the units inferred from the bounds.
 
 In math, `$integral_0^3 x^2 dif x =$` and `$integral x^2 dif x ->$` do the same. The differential (`dif`, not
@@ -1164,6 +1219,293 @@ The argument and result are unitless. `$atan(1) =$` gives π/4.
 
 Returns unitless angle in radians.
 
+## `lsolve`
+
+Linear solve and rectangular least squares: `lsolve(A, b)` minimizes ‖A x − b‖₂.
+Uses a bounded singular-value decomposition, without forming Aᵀ A. A must have
+at least as many rows as columns and full column rank. b may have several columns.
+Complex values are supported. Each column of A and each column of b must have
+matching units down its rows; x[i,j] has units b[:,j]/A[:,i]. Residuals are weighted
+equally in SI values. Rank deficiency reports an error rather than arbitrary coefficients.
+Matrix dimensions are limited to 256; numerical decompositions have an iteration budget.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `A` | expression |  | Tall or square coefficient matrix. |
+| `b` | expression |  | Right-side vector or matrix with the same number of rows. |
+
+Returns vector or matrix.
+
+## `eigenvals`
+
+Eigenvalues of a square matrix, including complex eigenvalues of real matrices.
+Entries must have matching units; eigenvalues have those units. Their ordering
+is unspecified. Uses a bounded complex Schur decomposition, at most 256 rows.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `A` | expression |  | Square real or complex matrix. |
+
+Returns vector.
+
+## `singularvals`
+
+All singular values of a rectangular real or complex matrix, in descending order.
+Returns min(rows, cols) values, with the entries' common unit. This is the
+singular-value spectrum, not a truncated or sparse decomposition. Maximum dimension: 256.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `A` | expression |  | Matrix with matching entry units. |
+
+Returns vector.
+
+## `svds`
+
+Alias for `singularvals(A)`; returns all singular values, not a truncated decomposition.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `A` | expression |  | Matrix with matching entry units. |
+
+## `cond`
+
+Spectral condition number: largest / smallest singular value, a unitless sensitivity diagnostic.
+Entries must have matching units. Numerically singular matrices report an error;
+a finite result is meaningful only to floating-point resolution. Maximum dimension: 256.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `A` | expression |  | Nonempty real or complex matrix. |
+
+Returns unitless value.
+
+## `median`
+
+Median of a nonempty real vector; the mean of the two middle values for even length.
+Preserves the observations' common unit.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `values` | expression |  | Real vector of measurements with matching units. |
+
+## `variance`
+
+Sample variance, with n−1 in the denominator. At least two real observations
+are required. The result has the square of the observations' common unit.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `values` | expression |  | Real vector of measurements with matching units. |
+
+## `stdev`
+
+Sample standard deviation, with n−1 in the variance denominator.
+At least two real observations are required. Preserves their common unit.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `values` | expression |  | Real vector of measurements with matching units. |
+
+## `normalcdf`
+
+Normal cumulative probability at x, using a stable complementary error function.
+x, mean and sigma have matching units; sigma must be strictly positive.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | expression |  | Real observation. |
+| `mean` | expression |  | Distribution mean. |
+| `sigma` | expression |  | Positive standard deviation. |
+
+Returns unitless probability.
+
+## `normalquantile`
+
+Inverse normal cumulative probability. Probability is unitless and strictly
+between 0 and 1; mean and positive sigma have matching units. The result
+has their unit. Inverts the smaller tail to avoid cancellation near probability 1.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `probability` | expression |  | Probability strictly between 0 and 1. |
+| `mean` | expression |  | Distribution mean. |
+| `sigma` | expression |  | Positive standard deviation. |
+
+## `pnorm`
+
+Alias for `normalcdf(x, mean, sigma)`.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | expression |  | Real observation. |
+| `mean` | expression |  | Distribution mean. |
+| `sigma` | expression |  | Positive standard deviation. |
+
+## `qnorm`
+
+Alias for `normalquantile(probability, mean, sigma)`.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `probability` | expression |  | Probability strictly between 0 and 1. |
+| `mean` | expression |  | Distribution mean. |
+| `sigma` | expression |  | Positive standard deviation. |
+
+## `linterp`
+
+Linear interpolation of measured data: `linterp(x, y, at)`.
+x and y are equally sized real vectors with at least two entries. x knots
+must be strictly increasing. at has x's unit and must lie in the closed
+data range. The result has y's unit. Exact knots preserve the original y value.
+Extrapolation is an error, so calculations cannot silently extend measured data.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | expression |  | Strictly increasing real knots with matching units. |
+| `y` | expression |  | Observations with matching units. |
+| `at` | expression |  | Position within the data range, with x's unit. |
+
+## `linfit`
+
+Ordinary least-squares straight-line regression, minimizing vertical residuals.
+Returns vec(intercept, slope): y ≈ intercept + slope x. x and y are real
+vectors of equal length, at least two, and x must contain distinct values.
+The intercept has y's unit; the slope has y's unit divided by x's unit.
+Centered data avoid losing the slope to a large coordinate offset.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | expression |  | Real input observations with matching units. |
+| `y` | expression |  | Real measured responses with matching units. |
+
+Returns vector(intercept, slope).
+
+## `dft`
+
+Discrete Fourier transform: X[k] = Σ x[j] exp(−2πi j k/n), without forward normalization.
+Real or complex input values share one unit, retained by the spectrum. Uses a
+direct O(n²) transform, at most 2048 samples. Imaginary roundoff is removed only
+within a componentwise error estimate; resolvable small complex signals remain.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `values` | expression |  | Nonempty column vector of samples with matching units. |
+
+Returns complex vector.
+
+## `idft`
+
+Inverse discrete Fourier transform: x[j] = Σ X[k] exp(2πi j k/n) / n.
+Shares dft's unit handling and 2048-sample limit. `idft(dft(x))` recovers x to roundoff.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `values` | expression |  | Nonempty column vector of spectral samples with matching units. |
+
+Returns complex vector.
+
+## `gamma`
+
+Real gamma function. The argument is unitless; nonpositive integer poles
+and results outside the floating-point range report errors.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | expression |  | Real unitless argument away from a pole. |
+
+## `erf`
+
+Real error function. The argument and result are unitless.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | expression |  | Real unitless argument. |
+
+## `besselj`
+
+Bessel function of the first kind, J_order(x), for integer order.
+Both arguments are real and unitless; order must be between −10000 and 10000.
+Noninteger orders are currently unsupported and report an error.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `order` | int |  | Integer order, from -10000 through 10000. |
+| `x` | expression |  | Real unitless argument. |
+
+## `minimize`
+
+Bounded scalar minimization; returns the minimizing position, not the objective value.
+The variable is local. Bounds must be finite and ordered, with matching units;
+the result has those units. Uses golden-section search for a continuous unimodal
+real objective, comparing endpoints as candidates. It is not a global optimizer
+for multimodal objectives, a multivariate constrained solver, or a proof of optimality.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `expression` | expression |  | Continuous unimodal real objective. |
+| `variable` | name |  | Local optimization variable. |
+| `lower` | expression |  | Finite lower bound. |
+| `upper` | expression |  | Finite upper bound with the lower bound's unit. |
+
+## `odesolve`
+
+Scalar non-stiff ODE initial-value problem; returns state(end).
+Solves dy/dt = expression with y(start) = initial. State and time are distinct
+local names; outer definitions of either name do not enter the right side.
+The right side has units state/time. Initial state and finite time bounds may
+carry units; the result has the initial state's unit. Reverse time is supported.
+Uses adaptive RK4 step doubling, relative tolerance 1e-10 and an absolute
+scale of 1e-12 times max(|initial|, 1e-12) in SI values, at most 100000 steps.
+Stiff problems, systems, events and boundary-value problems are not supported.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `expression` | expression |  | Real right side dy/dt. |
+| `state` | name |  | Local state variable. |
+| `time` | name |  | Local time variable, distinct from state. |
+| `initial` | expression |  | Initial state value. |
+| `start` | expression |  | Finite initial time. |
+| `end` | expression |  | Finite final time with start's unit. |
+
+## `celsius`
+
+Absolute Celsius temperature expressed as kelvin: `celsius(20)` is 293.15 K.
+Input is a real unitless temperature reading; values below absolute zero are rejected.
+Subtract converted Kelvin values for a temperature difference. The existing
+degC unit remains a temperature difference, without an affine offset.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | expression |  | Unitless reading on the Celsius scale. |
+
+Returns temperature in kelvin.
+
+## `fahrenheit`
+
+Absolute Fahrenheit temperature expressed as kelvin: `fahrenheit(32)` is 273.15 K.
+Input is a real unitless reading; values below absolute zero are rejected.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | expression |  | Unitless reading on the Fahrenheit scale. |
+
+Returns temperature in kelvin.
+
+## `polyroots`
+
+All numerical complex roots of a polynomial. Coefficients are a unitless
+vector in ascending power order: vec(c0, c1, …, cn). The leading coefficient
+must be nonzero; degree is limited to 60. Ordering is by real part then imaginary
+part. Repeated roots occur with multiplicity and are numerically ill-conditioned.
+Solved polynomial functions retain this operation until parameters are supplied.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `coefficients` | expression |  | Vector of 2 to 61 unitless coefficients. |
+
+Returns complex vector.
+
 ## Options
 
 Options of `worksheet`, and of `defined` and `graph`. Each one defaults to `auto`, which keeps the current setting.
@@ -1314,7 +1656,7 @@ $Q := U_2 dot 2 #s -> substitute(U_2)$        // U_2's formula put in: Q ≔ U_2
 - **Decimal point:** numbers are written with a point, `$7.2 #V$`, also in German documents; results use the document language's separator (option `separator`), so they show 7,2 there. A comma always separates: `at(A, 0,1)` and `mat(2,4,6)` are lists of numbers.
 - **No e-notation:** numbers are written out (`$11200$`, or `$1.12 dot 10^4$`). `1.12e4` is the coefficient 1.12 times the variable `e4` (undefined unless defined; quote it, `$"e4"$`, for a name of several letters). Scientific notation is only how results are written (option `scientific`, keyword `sci`).
 - **Names:** the acute accent `´` and the backtick (`` ` ``) are literal name characters (`$x´ := 3$`), with no escaping needed. Digits continue a name: `t2` differs from `t_2` and keeps its digits on the baseline. Complete Latin letter runs normalize to Greek: `Delta2tau` → Δ2τ, while `Deltatau` stays unchanged. `""` joins name fragments: `Delta""tau` → Δτ and `t""2` → t2. Quotes only carry a name through Typst: `$"Delta2tau"$` names Δ2τ, and `$"Delta\"\"tau"$` names Δτ. Quoted text is always a name, also when it spells a unit or an operation: `$"mA" := 3$` is a variable. Explicit subscripts may be grouped: `$R_(a b)$` names R_ab. Operators and whitespace end a name; a leading number remains a coefficient (`2t2` is 2 times t2).
-- **Sums:** `sum_(k=0)^10 k^2` or `sum(k^2, k, 0, 10)` sums over inclusive integer bounds. The index is local and case-sensitive. Parenthesize a summand containing addition. Small finite sums simplify exactly; infinite sums stay symbolic after `->` and are evaluated numerically for `=` and graphs. For example, `$s_2(t) := sum_(k=0)^infinity sigma(t-k+3/4)$` defines a function usable as `#graph($s_2(t)$)` once `sigma` is defined. Piecewise linear signal sums are counted directly between their corners. Other numerical sums use at most 100000 terms and a shrinking-tail convergence estimate; slow or nonconvergent series report an error. Bounds and the index are unitless, while summands may carry units.
+- **Sums:** `sum_(k=0)^10 k^2` or `sum(k^2, k, 0, 10)` sums over inclusive integer bounds. The index is local and case-sensitive. Parenthesize a summand containing addition. Small finite sums simplify exactly; infinite sums stay symbolic after `->` and are evaluated numerically for `=` and graphs. For example, `$s_2(t) := sum_(k=0)^infinity sigma(t-k+3/4)$` defines a function usable as `#graph($s_2(t)$)` once `sigma` is defined. Piecewise linear signal sums are counted directly between their corners. Other numerical sums use at most 100000 terms, a shrinking-tail check and guarded epsilon extrapolation; unresolved or nonconvergent series report an error. Bounds and the index are unitless, while summands may carry units.
 - **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. Import the names from `operations` (`#import operations: rect, tri, sgn`); a worksheet function such as `$Lambda(t) := tri(t)$` or `#let triangle = math.op("tri")` gives another name. Linear combinations simplify and can be solved; definite integrals of them (also times exponentials, sin or cos) are exact piecewise, over ±∞ too where they vanish outside a bounded interval. Distributional derivatives stay symbolic.
 - **Ranges and elements:** `$i := 0..N$` (also `0 .. N`, `0...N`) is a range variable: the values from 0 to N in steps of 1, both included, counting down when N < 0; with units, use `range(start, end, step: …)`. `x[i]` and `A[i, j]` are elements, counted from 0, written right after the name without a space; a vector of indices selects several (`x[i]` with i a range is a vector). `:` selects a whole row or column: `A[i, :]` is row i (a matrix of one row), `A[:, j]` column j (a vector), both plottable as data: `#graph($A[1, :]$)`. `$x[i] := …$` defines an element for each value of the range variable i, the body calculated with i standing for that value: `$t[i] := i Delta""t$`, `$x[i] := tri(t[i])$`. Elements not defined yet are 0; defining one past the end extends the vector, as in Mathcad. `A[i, j] := …` defines a matrix.
 - **Convolution:** `convolve(x, h)` of sequences and `convolve(f(τ), g(τ), τ, t)` of functions, see `convolve`. Sequences of values are convolved numerically (whole numbers exactly), so long sampled signals stay fast; functions exactly where they're piecewise polynomial.
@@ -1374,20 +1716,52 @@ $d := 3 byte = bit$, $p := 3 bar$, $n := 3000 rpm$
 
 ## How it solves
 
-solveng calculates in a WebAssembly plugin written in Rust (`core/` in the repository). Equations are solved symbolically first, other names as parameters: an unknown that occurs once is isolated; an equation that is a polynomial in it, once both sides are over one denominator, is solved by formula up to degree 2 and for all real roots numerically above; a system is solved one equation at a time where an equation has a single unknown, and by elimination where it's linear. Equations that contain `i` are solved in the complex numbers, the others in the real numbers. Results are simplified: like terms combined, fractions cancelled (`(x^2 - 1)/(x - 1)` is x + 1), exact numbers kept exact. What can't be done symbolically is solved numerically, once every other name has a value: sign changes over ±10⁻¹⁵…10¹⁵ (times the target unit) are bisected and Newton starts from every local minimum of the absolute value; systems by damped Newton from 41 starts. Units of unknowns are inferred from the equations; mismatched units stop with an error.
+solveng calculates in a WebAssembly plugin written in Rust (`core/` in the repository). Equations are solved symbolically first, other names as parameters: an unknown that occurs once is isolated; an equation that is a polynomial in it, once both sides are over one denominator, is solved by formula up to degree 2 and by numerical polynomial roots above; parameterized higher-degree solutions remain deferred until their coefficients are known; a system is solved one equation at a time where an equation has a single unknown, and by elimination where it's linear. Polynomial equations are solved in the complex numbers; general numerical searches find real roots. Results are simplified: like terms combined, fractions cancelled (`(x^2 - 1)/(x - 1)` is x + 1), exact numbers kept exact. What can't be done symbolically is solved numerically, once every other name has a value: sign changes over ±10⁻¹⁵…10¹⁵ (times the target unit) are bisected and Newton starts from every local minimum of the absolute value; systems by damped Newton from 41 starts. Units of unknowns are inferred from the equations; mismatched units stop with an error.
 
 A solved definition keeps its solutions: `circle(x, r) := x^2 + b^2 = r^2 -> solve(b)` returns a vector of both branches. A relation function can supply the equation: `p(a, b, c) := a^2 + b^2 = c^2`, then `circle(x, r) := p(x, b, r) -> solve(b)`. The solve variable is local, not a parameter. One solution returns a scalar; several return a vector, with `at(vector, 0)` selecting its first component. Graphing a vector plots every branch. Solved definitions require a symbolic solution; equations in `vec(...)` with several solve variables return components in the requested order, nested by branch when needed.
+## Numerical engineering operations
+
+Import these operations from `operations`. They use the same explicit references,
+worksheet function scopes and deferred definitions as existing operations; plain
+unbound names do not select a built-in. Canonical names are `singularvals`,
+`normalcdf` and `normalquantile`; `svds`, `pnorm` and `qnorm` are aliases.
+The operation source comments also supply editor hover and parameter help.
+
+Numerical decompositions allow dimensions up to 256 and at most 10000 iterations.
+The direct O(n²) DFT allows 2048 samples. ODE integration uses RK4 step doubling
+with a 100000-step budget, relative tolerance 1e-10, and absolute tolerance 1e-12
+times max(|initial|, 1e-12) in SI values. These are numerical estimates, not interval
+proofs or guarantees that a problem is well conditioned. Nonconvergence, invalid
+domains, inconsistent units and finite-range overflow report errors.
+
+Infinite series combine the existing compensated sum and shrinking-tail check
+with Wynn epsilon extrapolation on geometrically spaced partial sums. Several
+adjacent extrapolation windows must agree before an accelerated result is accepted.
+The 100000-term budget remains; this numerical convergence estimate does not
+certify arbitrary series.
+
+For symbolic results, `assume(x > 0)` (also `<`, `<=`, `>=`, and `= 0`) supplies
+local real sign information. For example `sqrt(x^2) -> assume(x > 0)` is x and
+`sqrt(x^2) -> assume(x < 0)` is −x. Contradictory constraints and incompatible known
+values are errors. Assumptions do not persist and are shadowed by bound variables.
+Unrestricted complex simplification retains branch restrictions.
+
+Real rational polynomial inequalities use a sign chart at every real root and
+pole, retaining open/closed endpoints and disconnected components. For example,
+`x^2 < 1 -> solve(x)` gives −1 < x < 1 and `x^2 > 1 -> solve(x)` gives x < −1 or
+x > 1. These set-valued results do not assign a representative value to x. Affine
+single-boundary inequalities keep the existing scalar boundary behavior.
 
 ## Limits
 
 - **Numbers** are exact fractions as long as they fit (128-bit numerator and denominator), else 64-bit floats: about 15 significant digits, magnitudes up to 10³⁰⁰.
 - **Isolating** `sqrt(x) = 2` gives only the positive root, periodic functions only the principal value (`tan(x) = 1` → `arctan(1)`); polynomials like `x^2 = 4` give all their roots.
-- **Symbolically**, polynomials are solved up to degree 2; higher degrees need values for their coefficients. Simplifying cancels common factors of polynomials (with exact coefficients) but doesn't factor or use trigonometric identities.
+- **Symbolically**, polynomials have radical formulas through degree 2; higher-degree parameterized solutions retain numerical root operations until their coefficients have values. Simplifying cancels common factors of exact polynomials and proves supported entire trigonometric/hyperbolic identities; unsupported identities stay symbolic. Logarithm and square-root branch restrictions are preserved.
 - **Numeric search** can miss roots squeezed between nearby poles, roots of very fast oscillations, and roots outside ±10¹⁵ (scaled by the target unit); the result then says "no real solution".
 - **Systems** are solved numerically from a fixed set of starts; solutions far away from them can be missed. Underdetermined systems show one arbitrary solution.
-- **Domains:** values are complex, with the real value where there is one: `sqrt(-1)` is i, `(-8)^(1/3)` is −2. Complex roots of polynomials with names in their coefficients and of degree 3 or more aren't found.
-- **Complex numbers:** complex roots of polynomials of degree 3 and more aren't found. Graphs, `lambdify`, numeric solving and inequalities need real values, and complex numbers have no order (`<` on them is an error).
-- **°C** (`degC`) is a temperature difference (no 273.15 offset); temperatures in formulas like `p V = n R T` need K.
+- **Domains:** values are complex, with the real value where there is one: `sqrt(-1)` is i, `(-8)^(1/3)` is −2. Higher-degree polynomial solutions with parameters are deferred until coefficients have values.
+- **Complex numbers:** numerical polynomial roots use bounded iteration and can lose root-location accuracy near repeated or clustered roots; real-root isolation uses derivative roots to recover repeated real locations. Graphs, `lambdify`, numeric solving and inequalities need real values, and complex numbers have no order (`<` on them is an error).
+- **°C** (`degC`) is a temperature difference. Use `celsius(reading)` or `fahrenheit(reading)` for explicit absolute-temperature conversion to kelvin; temperatures in formulas like `p V = n R T` use these Kelvin values.
 - **Unit expressions** take whole-number powers (`#m^2`, `#s^(-1)`); fractional ones (`#m^(1/2)`) aren't units.
 - **Functions** can't call themselves.
 - **Ranges** have at most 100000 values, and their bounds and steps need values when they're defined. In math an index follows its name directly, so `a[b + c]` is an element of a – write `a dot [b + c]` or `a (b + c)` for a product.

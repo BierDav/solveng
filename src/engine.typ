@@ -44,7 +44,7 @@
 /// - **Decimal point:** numbers are written with a point, `$7.2 #V$`, also in German documents; results use the document language's separator (option `separator`), so they show 7,2 there. A comma always separates: `at(A, 0,1)` and `mat(2,4,6)` are lists of numbers.
 /// - **No e-notation:** numbers are written out (`$11200$`, or `$1.12 dot 10^4$`). `1.12e4` is the coefficient 1.12 times the variable `e4` (undefined unless defined; quote it, `$"e4"$`, for a name of several letters). Scientific notation is only how results are written (option `scientific`, keyword `sci`).
 /// - **Names:** the acute accent `´` and the backtick (`` ` ``) are literal name characters (`$x´ := 3$`), with no escaping needed. Digits continue a name: `t2` differs from `t_2` and keeps its digits on the baseline. Complete Latin letter runs normalize to Greek: `Delta2tau` → Δ2τ, while `Deltatau` stays unchanged. `""` joins name fragments: `Delta""tau` → Δτ and `t""2` → t2. Quotes only carry a name through Typst: `$"Delta2tau"$` names Δ2τ, and `$"Delta\"\"tau"$` names Δτ. Quoted text is always a name, also when it spells a unit or an operation: `$"mA" := 3$` is a variable. Explicit subscripts may be grouped: `$R_(a b)$` names R_ab. Operators and whitespace end a name; a leading number remains a coefficient (`2t2` is 2 times t2).
-/// - **Sums:** `sum_(k=0)^10 k^2` or `sum(k^2, k, 0, 10)` sums over inclusive integer bounds. The index is local and case-sensitive. Parenthesize a summand containing addition. Small finite sums simplify exactly; infinite sums stay symbolic after `->` and are evaluated numerically for `=` and graphs. For example, `$s_2(t) := sum_(k=0)^infinity sigma(t-k+3/4)$` defines a function usable as `#graph($s_2(t)$)` once `sigma` is defined. Piecewise linear signal sums are counted directly between their corners. Other numerical sums use at most 100000 terms and a shrinking-tail convergence estimate; slow or nonconvergent series report an error. Bounds and the index are unitless, while summands may carry units.
+/// - **Sums:** `sum_(k=0)^10 k^2` or `sum(k^2, k, 0, 10)` sums over inclusive integer bounds. The index is local and case-sensitive. Parenthesize a summand containing addition. Small finite sums simplify exactly; infinite sums stay symbolic after `->` and are evaluated numerically for `=` and graphs. For example, `$s_2(t) := sum_(k=0)^infinity sigma(t-k+3/4)$` defines a function usable as `#graph($s_2(t)$)` once `sigma` is defined. Piecewise linear signal sums are counted directly between their corners. Other numerical sums use at most 100000 terms, a shrinking-tail check and guarded epsilon extrapolation; unresolved or nonconvergent series report an error. Bounds and the index are unitless, while summands may carry units.
 /// - **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. Import the names from `operations` (`#import operations: rect, tri, sgn`); a worksheet function such as `$Lambda(t) := tri(t)$` or `#let triangle = math.op("tri")` gives another name. Linear combinations simplify and can be solved; definite integrals of them (also times exponentials, sin or cos) are exact piecewise, over ±∞ too where they vanish outside a bounded interval. Distributional derivatives stay symbolic.
 /// - **Ranges and elements:** `$i := 0..N$` (also `0 .. N`, `0...N`) is a range variable: the values from 0 to N in steps of 1, both included, counting down when N < 0; with units, use `range(start, end, step: …)`. `x[i]` and `A[i, j]` are elements, counted from 0, written right after the name without a space; a vector of indices selects several (`x[i]` with i a range is a vector). `:` selects a whole row or column: `A[i, :]` is row i (a matrix of one row), `A[:, j]` column j (a vector), both plottable as data: `#graph($A[1, :]$)`. `$x[i] := …$` defines an element for each value of the range variable i, the body calculated with i standing for that value: `$t[i] := i Delta""t$`, `$x[i] := tri(t[i])$`. Elements not defined yet are 0; defining one past the end extends the vector, as in Mathcad. `A[i, j] := …` defines a matrix.
 /// - **Convolution:** `convolve(x, h)` of sequences and `convolve(f(τ), g(τ), τ, t)` of functions, see `convolve`. Sequences of values are convolved numerically (whole numbers exactly), so long sampled signals stay fast; functions exactly where they're piecewise polynomial.
@@ -104,20 +104,52 @@
 ///
 /// ## How it solves
 ///
-/// solveng calculates in a WebAssembly plugin written in Rust (`core/` in the repository). Equations are solved symbolically first, other names as parameters: an unknown that occurs once is isolated; an equation that is a polynomial in it, once both sides are over one denominator, is solved by formula up to degree 2 and for all real roots numerically above; a system is solved one equation at a time where an equation has a single unknown, and by elimination where it's linear. Equations that contain `i` are solved in the complex numbers, the others in the real numbers. Results are simplified: like terms combined, fractions cancelled (`(x^2 - 1)/(x - 1)` is x + 1), exact numbers kept exact. What can't be done symbolically is solved numerically, once every other name has a value: sign changes over ±10⁻¹⁵…10¹⁵ (times the target unit) are bisected and Newton starts from every local minimum of the absolute value; systems by damped Newton from 41 starts. Units of unknowns are inferred from the equations; mismatched units stop with an error.
+/// solveng calculates in a WebAssembly plugin written in Rust (`core/` in the repository). Equations are solved symbolically first, other names as parameters: an unknown that occurs once is isolated; an equation that is a polynomial in it, once both sides are over one denominator, is solved by formula up to degree 2 and by numerical polynomial roots above; parameterized higher-degree solutions remain deferred until their coefficients are known; a system is solved one equation at a time where an equation has a single unknown, and by elimination where it's linear. Polynomial equations are solved in the complex numbers; general numerical searches find real roots. Results are simplified: like terms combined, fractions cancelled (`(x^2 - 1)/(x - 1)` is x + 1), exact numbers kept exact. What can't be done symbolically is solved numerically, once every other name has a value: sign changes over ±10⁻¹⁵…10¹⁵ (times the target unit) are bisected and Newton starts from every local minimum of the absolute value; systems by damped Newton from 41 starts. Units of unknowns are inferred from the equations; mismatched units stop with an error.
 ///
 /// A solved definition keeps its solutions: `circle(x, r) := x^2 + b^2 = r^2 -> solve(b)` returns a vector of both branches. A relation function can supply the equation: `p(a, b, c) := a^2 + b^2 = c^2`, then `circle(x, r) := p(x, b, r) -> solve(b)`. The solve variable is local, not a parameter. One solution returns a scalar; several return a vector, with `at(vector, 0)` selecting its first component. Graphing a vector plots every branch. Solved definitions require a symbolic solution; equations in `vec(...)` with several solve variables return components in the requested order, nested by branch when needed.
+/// ## Numerical engineering operations
+///
+/// Import these operations from `operations`. They use the same explicit references,
+/// worksheet function scopes and deferred definitions as existing operations; plain
+/// unbound names do not select a built-in. Canonical names are `singularvals`,
+/// `normalcdf` and `normalquantile`; `svds`, `pnorm` and `qnorm` are aliases.
+/// The operation source comments also supply editor hover and parameter help.
+///
+/// Numerical decompositions allow dimensions up to 256 and at most 10000 iterations.
+/// The direct O(n²) DFT allows 2048 samples. ODE integration uses RK4 step doubling
+/// with a 100000-step budget, relative tolerance 1e-10, and absolute tolerance 1e-12
+/// times max(|initial|, 1e-12) in SI values. These are numerical estimates, not interval
+/// proofs or guarantees that a problem is well conditioned. Nonconvergence, invalid
+/// domains, inconsistent units and finite-range overflow report errors.
+///
+/// Infinite series combine the existing compensated sum and shrinking-tail check
+/// with Wynn epsilon extrapolation on geometrically spaced partial sums. Several
+/// adjacent extrapolation windows must agree before an accelerated result is accepted.
+/// The 100000-term budget remains; this numerical convergence estimate does not
+/// certify arbitrary series.
+///
+/// For symbolic results, `assume(x > 0)` (also `<`, `<=`, `>=`, and `= 0`) supplies
+/// local real sign information. For example `sqrt(x^2) -> assume(x > 0)` is x and
+/// `sqrt(x^2) -> assume(x < 0)` is −x. Contradictory constraints and incompatible known
+/// values are errors. Assumptions do not persist and are shadowed by bound variables.
+/// Unrestricted complex simplification retains branch restrictions.
+///
+/// Real rational polynomial inequalities use a sign chart at every real root and
+/// pole, retaining open/closed endpoints and disconnected components. For example,
+/// `x^2 < 1 -> solve(x)` gives −1 < x < 1 and `x^2 > 1 -> solve(x)` gives x < −1 or
+/// x > 1. These set-valued results do not assign a representative value to x. Affine
+/// single-boundary inequalities keep the existing scalar boundary behavior.
 ///
 /// ## Limits
 ///
 /// - **Numbers** are exact fractions as long as they fit (128-bit numerator and denominator), else 64-bit floats: about 15 significant digits, magnitudes up to 10³⁰⁰.
 /// - **Isolating** `sqrt(x) = 2` gives only the positive root, periodic functions only the principal value (`tan(x) = 1` → `arctan(1)`); polynomials like `x^2 = 4` give all their roots.
-/// - **Symbolically**, polynomials are solved up to degree 2; higher degrees need values for their coefficients. Simplifying cancels common factors of polynomials (with exact coefficients) but doesn't factor or use trigonometric identities.
+/// - **Symbolically**, polynomials have radical formulas through degree 2; higher-degree parameterized solutions retain numerical root operations until their coefficients have values. Simplifying cancels common factors of exact polynomials and proves supported entire trigonometric/hyperbolic identities; unsupported identities stay symbolic. Logarithm and square-root branch restrictions are preserved.
 /// - **Numeric search** can miss roots squeezed between nearby poles, roots of very fast oscillations, and roots outside ±10¹⁵ (scaled by the target unit); the result then says "no real solution".
 /// - **Systems** are solved numerically from a fixed set of starts; solutions far away from them can be missed. Underdetermined systems show one arbitrary solution.
-/// - **Domains:** values are complex, with the real value where there is one: `sqrt(-1)` is i, `(-8)^(1/3)` is −2. Complex roots of polynomials with names in their coefficients and of degree 3 or more aren't found.
-/// - **Complex numbers:** complex roots of polynomials of degree 3 and more aren't found. Graphs, `lambdify`, numeric solving and inequalities need real values, and complex numbers have no order (`<` on them is an error).
-/// - **°C** (`degC`) is a temperature difference (no 273.15 offset); temperatures in formulas like `p V = n R T` need K.
+/// - **Domains:** values are complex, with the real value where there is one: `sqrt(-1)` is i, `(-8)^(1/3)` is −2. Higher-degree polynomial solutions with parameters are deferred until coefficients have values.
+/// - **Complex numbers:** numerical polynomial roots use bounded iteration and can lose root-location accuracy near repeated or clustered roots; real-root isolation uses derivative roots to recover repeated real locations. Graphs, `lambdify`, numeric solving and inequalities need real values, and complex numbers have no order (`<` on them is an error).
+/// - **°C** (`degC`) is a temperature difference. Use `celsius(reading)` or `fahrenheit(reading)` for explicit absolute-temperature conversion to kelvin; temperatures in formulas like `p V = n R T` use these Kelvin values.
 /// - **Unit expressions** take whole-number powers (`#m^2`, `#s^(-1)`); fractional ones (`#m^(1/2)`) aren't units.
 /// - **Functions** can't call themselves.
 /// - **Ranges** have at most 100000 values, and their bounds and steps need values when they're defined. In math an index follows its name directly, so `a[b + c]` is an element of a – write `a dot [b + c]` or `a (b + c)` for a product.

@@ -1,25 +1,6 @@
 # cases of core/tests/oracle that the engine can't do yet (unsupported), gets wrong, or doesn't simplify
 # fully (weak); written by ORACLE_BLESS=1 cargo test --test oracle
-integral-log-endpoint-0	unsupported	integral did not converge or its integrand is undefined
-integral-log-endpoint-1	unsupported	integral did not converge or its integrand is undefined
-integral-oscillating-1	wrong	got None [0.03566878980890259], want None [0.03566924756734717]
-integral-log-endpoint-2	unsupported	integral did not converge or its integrand is undefined
-integral-oscillating-2	wrong	got None [0.027756360832691153], want None [0.027755471429684028]
-sum-zeta-2	unsupported	sum did not converge within 100000 terms
-sum-zeta-3	unsupported	sum did not converge within 100000 terms
-sum-leibniz	unsupported	sum did not converge within 100000 terms
-sum-alternating-harmonic	unsupported	sum did not converge within 100000 terms
-cancel-5	weak	degrees in p: 4/2, cancelled 2/0
-constant-0	weak	not simplified to a constant
-constant-1	weak	not simplified to a constant
 constant-4	weak	not simplified to a constant
 constant-5	weak	not simplified to a constant
 constant-7	weak	not simplified to a constant
-polynomial-6	wrong	numeric: got [[-1.5], [0.9999999974198484], [4.0], [4.5]], want [[-1.5], [1.0], [4.0], [4.5]]
-polynomial-11	wrong	numeric: got [[-8.0], [-4.000000031830101], [-0.2], [1.75]], want [[-8.0], [-4.0], [-0.2], [1.75]]
-cubic-params-0	unsupported	symbolic: this equation cannot yet be solved symbolically as a function of its parameters
-cubic-params-1	unsupported	symbolic: this equation cannot yet be solved symbolically as a function of its parameters
-cubic-params-2	unsupported	symbolic: this equation cannot yet be solved symbolically as a function of its parameters
-cubic-params-3	unsupported	symbolic: this equation cannot yet be solved symbolically as a function of its parameters
-cubic-params-4	unsupported	symbolic: this equation cannot yet be solved symbolically as a function of its parameters
 rational-12	unsupported	numeric: 'x' does not appear in '"1" = "−3"'

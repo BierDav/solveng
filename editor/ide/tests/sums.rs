@@ -129,3 +129,18 @@ fn completions_work_while_typing_a_summand_and_after_a_coefficient() {
         assert!(items.iter().any(|i| i.label == "k" && i.detail.contains("sum index")), "missing local completion in {doc}");
     }
 }
+
+#[test]
+fn ode_and_optimization_locals_have_distinct_scopes_and_help() {
+    let doc="#import operations: odesolve, minimize as minimum\n#show: worksheet\n$y := 9$ $t := 2$ $x := 3$\n$a := odesolve(-y + t,y,t,y,t,4)$\n$b := minimum(x^2,x,x,10)$";
+    def(doc,"y + t","y,t,y");
+    def(doc,"t,y,t,y","t,y,t,4");
+    def(doc,"y,t,4","y := 9");
+    def(doc,"t,4","t := 2");
+    def(doc,"x^2","x,x,10");
+    def(doc,"x,10","x := 3");
+    let state=hover(doc,&Context::default(),at(doc,"-y + t")+1).unwrap();
+    assert!(state.markdown.contains("local ODE state"),"{}",state.markdown);
+    let renamed=apply(doc,rename(doc,&Context::default(),at(doc,"-y + t")+1,"z"));
+    assert!(renamed.contains("odesolve(-z + t,z,t,y,t,4)"),"{renamed}");
+}

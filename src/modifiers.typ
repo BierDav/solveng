@@ -46,10 +46,10 @@
 /// -> content
 #let substitute(..names) = _key("substitute", ..names.pos())
 /// Assumptions for this symbolic calculation: `$Re(a z) = a Re(z) -> assume(a in RR)$`
-/// is true. Import `assume` from `modifiers`. Only real scalar names are supported currently; assumptions
+/// is true. Import `assume` from `modifiers`. Real scalar names and sign constraints such as `x > 0`, `x >= 0`, `x < 0`, `x <= 0` are supported; assumptions
 /// apply to this result and do not change definitions or later calculations.
 /// Use it after `->` on expressions and equations, without `solve` or a definition.
-/// A known nonreal value contradicts the assumption and reports an error. If a
+/// A known nonreal value or an incompatible sign contradicts the assumption and reports an error. If a
 /// name already has a symbolic definition, assume its free scalar names instead.
 /// Without assumptions, equations may show `true for a in RR and b in RR`: a
 /// sufficient condition, not an exhaustive description of all solutions. This
@@ -64,7 +64,7 @@
 /// $Re(a z + b w) = a Re(z) + b Re(w) -> assume(a in RR, b in RR)$
 /// ```
 ///
-/// - ..conditions (content): Real scalar assumptions, for example `a in RR, b in RR`.
+/// - ..conditions (content): Real scalar or sign assumptions, for example `a in RR, x > 0`.
 /// -> content
 #let assume(..conditions) = _key("assume", ..conditions.pos())
 /// The symbolic result, what `->` shows anyway: `$f := (x^2 - 1)/(x - 1) -> simplify$`. Of an equation, where it

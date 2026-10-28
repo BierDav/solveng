@@ -230,7 +230,14 @@ fn evaluate<const WITH_UNITS: bool>(e: &Expr, dom: Domain, vars: &dyn Fn(&str) -
         }
         Expr::Vector(_) => return Err("a vector has several components – select one with at(vector, index), starting at 0".into()),
         Expr::Matrix(_) => return Err("a matrix has several elements – select one with at(matrix, row, column), starting at 0".into()),
-        Expr::Op(..) => return Err(crate::linalg::problem(e).unwrap_or_else(|| "this matrix operation has no value here".into())),
+        Expr::Op(..) => {
+            let replacements = e.syms().into_iter().filter_map(|n| vars(&n).map(|(v,d)| (n,crate::complex::expr(crate::complex::CVal {
+                re:Val::new(Num::F(v.re),d.clone()), im:Val::new(Num::F(v.im),d),
+            })))).collect();
+            let resolved = crate::expr::simp(&e.subst_all(&replacements));
+            if matches!(resolved,Expr::Op(..)) { return Err(crate::linalg::problem(&resolved).unwrap_or_else(|| "this operation requires known numeric arguments".into())); }
+            return evaluate::<WITH_UNITS>(&resolved,dom,vars);
+        }
         Expr::C(v) => (N::real(v.v.f()), if WITH_UNITS { v.d.clone() } else { Dim::ONE }),
         Expr::Pi => (N::real(std::f64::consts::PI), Dim::ONE),
         Expr::E => (N::real(std::f64::consts::E), Dim::ONE),
@@ -345,6 +352,27 @@ fn evaluate<const WITH_UNITS: bool>(e: &Expr, dom: Domain, vars: &dyn Fn(&str) -
             if !dimension.is_one() { return Err("inverse Laplace evaluation time must be unitless".into()); }
             if WITH_UNITS { dim_of(e, &|n| vars(n).map(|v| v.1))?; }
             (N::real(crate::inverse_laplace::evaluate(body, var, t, &|n| vars(n).filter(|v| v.0.is_real()).map(|v| v.0.re))?), Dim::ONE)
+        }
+        Expr::Numerical(op, names, args) => {
+            use crate::numerics::NumericOp;
+            let vals = args[1..].iter().map(|a| real(a, "a numerical argument")).collect::<Result<Vec<_>,_>>()?;
+            let (start,end) = if *op == NumericOp::Minimize { (0,1) } else { (1,2) };
+            let time_dim = if WITH_UNITS { bound_dim(Some(vals[start].1.clone()), &args[start+1], Some(vals[end].1.clone()), &args[end+1])?.unwrap_or(Dim::ONE) } else { Dim::ONE };
+            let result_dim = if *op == NumericOp::Minimize { time_dim.clone() } else { vals[0].1.clone() };
+            let local_dim = |n:&str| if n == names[0] { Some(result_dim.clone()) } else if names.get(1).is_some_and(|v| v == n) { Some(time_dim.clone()) } else { vars(n).map(|v| v.1) };
+            let objective_dim = if *op == NumericOp::Ode && args[0].is_zero() { result_dim.div(&time_dim) }
+                else if WITH_UNITS { dim_of(&args[0], &local_dim)?.ok_or("unknown numerical right-side dimension")? } else { Dim::ONE };
+            if *op == NumericOp::Ode && objective_dim != result_dim.div(&time_dim) { return Err("odesolve: right side must have units of state divided by time".into()); }
+            let sample = |t:f64,y:f64| evaluate::<WITH_UNITS>(&args[0],dom,&|n| {
+                if n == names[0] { Some((N::real(y),result_dim.clone())) }
+                else if names.get(1).is_some_and(|v| v == n) { Some((N::real(t),time_dim.clone())) }
+                else { vars(n) }
+            }).ok().filter(|(v,d)| v.is_real() && (*d == objective_dim || (v.abs() == 0.0 && d.is_one()))).map(|(v,_)| v.re);
+            let v = match op {
+                NumericOp::Minimize => crate::numerics::minimize(&|x| sample(x,x),vals[0].0,vals[1].0)?,
+                NumericOp::Ode => crate::numerics::ode(&sample,vals[0].0,vals[1].0,vals[2].0)?,
+            };
+            (N::real(v), result_dim)
         }
         Expr::Sum(body, var, lo, hi) | Expr::Integral(body, var, lo, hi) => {
             let sum = matches!(e, Expr::Sum(..));
@@ -526,7 +554,12 @@ fn eval_real(e: &Expr, vars: &dyn Fn(&str) -> Option<f64>) -> Option<f64> {
             }
             return eval_real(selected?, vars);
         }
-        Expr::Vector(_) | Expr::Matrix(_) | Expr::Op(..) => return None,
+        Expr::Vector(_) | Expr::Matrix(_) => return None,
+        Expr::Op(..) => {
+            let v=evaluate::<false>(e,Domain::Real,&|n|vars(n).map(|v|(N::real(v),Dim::ONE))).ok()?.0;
+            if !v.is_real_result() { return None; }
+            v.re
+        }
         Expr::C(v) => v.v.f(),
         Expr::Pi => std::f64::consts::PI,
         Expr::E => std::f64::consts::E,
@@ -580,6 +613,7 @@ fn eval_real(e: &Expr, vars: &dyn Fn(&str) -> Option<f64>) -> Option<f64> {
             let points = crate::calculus::signal_points(body, var, vars);
             crate::calculus::piecewise_quadrature(&|x| eval_real(body, &|n| if n == var { Some(x) } else { vars(n) }), bound(lo)?, bound(hi)?, &points).ok()?
         }
+        Expr::Numerical(..) => evaluate::<false>(e,Domain::Real,&|n| vars(n).map(|v| (N::real(v),Dim::ONE))).ok()?.0.re,
         Expr::Number(a, k, ..) => eval_real(a, vars)? / k.f(),
     };
     r.is_finite().then_some(r)
@@ -601,7 +635,13 @@ pub fn dim_of(e: &Expr, sd: &dyn Fn(&str) -> Option<Dim>) -> Result<Option<Dim>,
             }
             result.or(Some(Dim::ONE))
         }
-        Expr::Vector(_) | Expr::Matrix(_) | Expr::Op(..) => {
+        Expr::Numerical(op,_,args) => {
+            if *op == crate::numerics::NumericOp::Minimize {
+                bound_dim(dim_of(&args[1],sd)?,&args[1],dim_of(&args[2],sd)?,&args[2])?
+            } else { dim_of(&args[1],sd)? }
+        }
+        Expr::Op(op,args) => crate::numerics::dimension(*op,args,sd)?,
+        Expr::Vector(_) | Expr::Matrix(_) => {
             for e in e.children() { dim_of(e, sd)?; }
             None
         }

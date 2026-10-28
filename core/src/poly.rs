@@ -511,6 +511,9 @@ fn cancel((n, d): (Poly, Poly)) -> Option<(Poly, Poly)> {
     if n.is_zero() {
         return Some((n, Poly::constant(MAXV, Rat::ONE)));
     }
+    // Exact divisibility is common after expanding a product. Check it before
+    // pseudo-remainders, whose intermediate coefficients can overflow i128.
+    if let Some(q) = n.div_exact(&d) { return Some((q, Poly::constant(MAXV, Rat::ONE))); }
     let g = gcd(&n, &d)?;
     let (n, d) = if g.is_const() { (n, d) } else { (n.div_exact(&g)?, d.div_exact(&g)?) };
     // whole coefficients below, the leading one positive
@@ -618,6 +621,15 @@ pub fn simplify(e: &Expr) -> Expr {
     // arrays are simplified element by element (above); as polynomial atoms they would commute
     if a.contains(&crate::linalg::is_array) {
         return a;
+    }
+    let names=a.syms();
+    if !names.is_empty() {
+        // Substitution only proposes a candidate; the exact identity engine
+        // must prove independence of every free variable before replacing it.
+        let at_zero=names.into_iter().map(|n|(n,int(0))).collect();
+        let candidate=simp(&a.subst_all(&at_zero));
+        if candidate.size() < a.size() && crate::identity::proves(&a,&candidate)
+            && crate::eval::complex_value(&candidate).is_ok() { return candidate; }
     }
     let mut best = a.clone();
     let mut cands = vec![];

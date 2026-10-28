@@ -264,6 +264,8 @@ pub enum Expr {
     Subs(Box<Expr>, String, Box<Expr>),
     /// An algorithmically evaluable causal inverse, with a bound transform variable.
     InverseLaplace(Box<Expr>, String, Box<Expr>),
+    /// A numerical calculation with local names in its first argument only.
+    Numerical(crate::numerics::NumericOp, Vec<String>, Vec<Expr>),
 }
 
 pub fn c(v: Num) -> Expr {
@@ -324,6 +326,7 @@ impl Expr {
     }
     pub fn children(&self) -> Vec<&Expr> {
         match self {
+            Expr::Numerical(_, _, args) => args.iter().collect(),
             Expr::Cases(v) => v.iter().flat_map(|(value, condition)| [value, condition]).collect(),
             Expr::Vector(v) | Expr::Add(v) | Expr::Mul(v) | Expr::Cmp(v, _) | Expr::Call(_, v) | Expr::Op(_, v) => v.iter().collect(),
             Expr::Matrix(rs) => rs.iter().flatten().collect(),
@@ -336,6 +339,7 @@ impl Expr {
     pub fn map(&self, f: &mut impl FnMut(&Expr) -> Expr) -> Expr {
         match self {
             Expr::Cases(v) => Expr::Cases(v.iter().map(|(value, condition)| (f(value), f(condition))).collect()),
+            Expr::Numerical(op, vars, args) => Expr::Numerical(*op, vars.clone(), args.iter().map(&mut *f).collect()),
             Expr::Call(n, v) => Expr::Call(n.clone(), v.iter().map(&mut *f).collect()),
             Expr::Vector(v) => Expr::Vector(v.iter().map(&mut *f).collect()),
             Expr::Matrix(rs) => Expr::Matrix(rs.iter().map(|r| r.iter().map(&mut *f).collect()).collect()),
@@ -362,6 +366,12 @@ impl Expr {
         out
     }
     fn syms_into(&self, out: &mut Vec<String>) {
+        if let Expr::Numerical(_, vars, args) = self {
+            for n in args[0].syms().into_iter().filter(|n| !vars.contains(n)).chain(args[1..].iter().flat_map(Expr::syms)) {
+                if !out.contains(&n) { out.push(n); }
+            }
+            return;
+        }
         if let Expr::Subs(body, var, by) | Expr::InverseLaplace(body, var, by) | Expr::Antiderivative(body, var, by) = self {
             for n in body.syms().into_iter().filter(|n| n != var).chain(by.syms()) {
                 if !out.contains(&n) { out.push(n); }
@@ -385,20 +395,35 @@ impl Expr {
     }
     pub fn has(&self, x: &str) -> bool {
         match self {
-            Expr::Sum(..) | Expr::Integral(..) | Expr::Subs(..) | Expr::InverseLaplace(..) | Expr::Antiderivative(..) => self.syms().iter().any(|n| n == x),
+            Expr::Numerical(..) | Expr::Sum(..) | Expr::Integral(..) | Expr::Subs(..) | Expr::InverseLaplace(..) | Expr::Antiderivative(..) => self.syms().iter().any(|n| n == x),
             Expr::Sym(n) => n == x,
             _ => self.children().iter().any(|c| c.has(x)),
         }
     }
     pub fn subst(&self, x: &str, by: &Expr) -> Expr {
         match self {
-            Expr::Sum(..) | Expr::Integral(..) | Expr::Derivative(..) | Expr::Subs(..) | Expr::InverseLaplace(..) | Expr::Antiderivative(..) => self.subst_all(&BTreeMap::from([(x.to_string(), by.clone())])),
+            Expr::Numerical(..) | Expr::Sum(..) | Expr::Integral(..) | Expr::Derivative(..) | Expr::Subs(..) | Expr::InverseLaplace(..) | Expr::Antiderivative(..) => self.subst_all(&BTreeMap::from([(x.to_string(), by.clone())])),
             Expr::Sym(n) if n == x => by.clone(),
             _ => self.map(&mut |c| c.subst(x, by)),
         }
     }
     pub fn subst_all(&self, m: &BTreeMap<String, Expr>) -> Expr {
         match self {
+            Expr::Numerical(op, vars, args) => {
+                // Reuse the integral's capture-avoiding substitution for a
+                // nested scope over every local variable. Bounds remain outer.
+                let mut scope = args[0].clone();
+                for v in vars.iter().rev() { scope = Expr::Integral(Box::new(scope), v.clone(), Box::new(int(0)), Box::new(int(0))); }
+                scope = scope.subst_all(m);
+                let mut names = vec![];
+                for _ in vars {
+                    let Expr::Integral(body, v, _, _) = scope else { unreachable!() };
+                    names.push(v); scope = *body;
+                }
+                let mut values = vec![scope];
+                values.extend(args[1..].iter().map(|a| a.subst_all(m)));
+                Expr::Numerical(*op, names, values)
+            }
             Expr::Sum(a, v, lo, hi) => {
                 let scope = Expr::Integral(a.clone(), v.clone(), lo.clone(), hi.clone()).subst_all(m);
                 let Expr::Integral(a, v, lo, hi) = scope else { unreachable!() };
@@ -493,7 +518,7 @@ impl Expr {
                 }
             }
             Expr::Antiderivative(body, var, by) if var == x || !body.has(x) => mul(vec![body.subst(var, by), by.d(x)]),
-            Expr::Call(..) | Expr::Op(..) | Expr::Cases(..) | Expr::Derivative(..) | Expr::Subs(..) | Expr::InverseLaplace(..) | Expr::Antiderivative(..) => return Expr::Derivative(Box::new(self.clone()), x.into()),
+            Expr::Numerical(..) | Expr::Call(..) | Expr::Op(..) | Expr::Cases(..) | Expr::Derivative(..) | Expr::Subs(..) | Expr::InverseLaplace(..) | Expr::Antiderivative(..) => return Expr::Derivative(Box::new(self.clone()), x.into()),
             Expr::F(f, a) => {
                 let a0 = (**a).clone();
                 let inner = match f {
@@ -706,6 +731,7 @@ pub fn simp(e: &Expr) -> Expr {
                 simp(&body.subst(var, &by))
             }
         }
+        Expr::Numerical(op,vars,args) => Expr::Numerical(*op,vars.clone(),args.iter().map(simp).collect()),
         Expr::Call(n, v) => Expr::Call(n.clone(), v.iter().map(simp).collect()),
         Expr::Derivative(a, x) => Expr::Derivative(Box::new(simp(a)), x.clone()),
         Expr::InverseLaplace(a, x, by) => Expr::InverseLaplace(Box::new(simp(a)), x.clone(), Box::new(simp(by))),

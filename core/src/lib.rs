@@ -33,3 +33,4 @@ extern crate self as solveng_core;
 mod test_support;
 
 mod numeric;
+pub mod numerics;

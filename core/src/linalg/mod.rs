@@ -48,15 +48,53 @@ pub enum Op {
     Min,
     Max,
     Mean,
+    Lsolve,
+    Eigenvals,
+    SingularValues,
+    Condition,
+    Median,
+    Variance,
+    Stdev,
+    NormalCdf,
+    NormalQuantile,
+    Interpolate,
+    LinearFit,
+    Dft,
+    Idft,
+    Gamma,
+    Erf,
+    BesselJ,
+    Celsius,
+    Fahrenheit,
+    Polyroots,
 }
 
 /// The functions on matrices, by name.
-pub const FUNCTIONS: &[&str] = &["det", "tr", "rank", "norm", "identity", "rows", "cols"];
+pub const FUNCTIONS: &[&str] = &["det", "tr", "rank", "norm", "identity", "rows", "cols", "lsolve", "eigenvals", "singularvals", "cond"];
 
 impl Op {
     /// The operation called by a name (A^T and a times b are operators).
     pub fn of(n: &str) -> Option<Op> {
         Some(match n {
+            "lsolve" => Op::Lsolve,
+            "eigenvals" => Op::Eigenvals,
+            "singularvals" => Op::SingularValues,
+            "cond" => Op::Condition,
+            "median" => Op::Median,
+            "variance" => Op::Variance,
+            "stdev" => Op::Stdev,
+            "normalcdf" => Op::NormalCdf,
+            "normalquantile" => Op::NormalQuantile,
+            "linterp" => Op::Interpolate,
+            "linfit" => Op::LinearFit,
+            "dft" => Op::Dft,
+            "idft" => Op::Idft,
+            "gamma" => Op::Gamma,
+            "erf" => Op::Erf,
+            "besselj" => Op::BesselJ,
+            "celsius" => Op::Celsius,
+            "fahrenheit" => Op::Fahrenheit,
+            "polyroots" => Op::Polyroots,
             "atan2" => Op::Atan2,
             "min" => Op::Min,
             "max" => Op::Max,
@@ -91,6 +129,26 @@ impl Op {
             Op::Min => "min",
             Op::Max => "max",
             Op::Mean => "mean",
+            Op::Lsolve => "lsolve",
+            Op::Eigenvals => "eigenvals",
+            Op::SingularValues => "singularvals",
+            Op::Condition => "cond",
+            Op::Median => "median",
+            Op::Variance => "variance",
+            Op::Stdev => "stdev",
+            Op::NormalCdf => "normalcdf",
+            Op::NormalQuantile => "normalquantile",
+            Op::Interpolate => "linterp",
+            Op::LinearFit => "linfit",
+            Op::Dft => "dft",
+            Op::Idft => "idft",
+            Op::Gamma => "gamma",
+            Op::Erf => "erf",
+            Op::BesselJ => "besselj",
+            Op::Celsius => "celsius",
+            Op::Fahrenheit => "fahrenheit",
+            Op::Polyroots => "polyroots",
+
         }
     }
     /// What it takes, for a call with the wrong number of arguments.
@@ -105,6 +163,8 @@ impl Op {
     /// How many arguments it takes.
     pub fn arity(self) -> RangeInclusive<usize> {
         match self {
+            Op::Lsolve | Op::LinearFit | Op::BesselJ => 2..=2,
+            Op::NormalCdf | Op::NormalQuantile | Op::Interpolate => 3..=3,
             Op::Cross | Op::Convolve | Op::Row | Op::Col | Op::Atan2 => 2..=2,
             Op::Min | Op::Max => 1..=usize::MAX,
             Op::At => 2..=3,
@@ -366,6 +426,10 @@ fn eval(op: Op, args: &[Expr]) -> Result<Option<Expr>, String> {
     if !op.arity().contains(&args.len()) {
         return Err(op.usage());
     }
+    if matches!(op, Op::Lsolve | Op::Eigenvals | Op::SingularValues | Op::Condition | Op::Median | Op::Variance | Op::Stdev | Op::NormalCdf | Op::NormalQuantile | Op::Interpolate | Op::LinearFit | Op::Dft | Op::Idft | Op::Gamma | Op::Erf | Op::BesselJ | Op::Celsius | Op::Fahrenheit | Op::Polyroots) {
+        if args.iter().any(|e| !e.syms().is_empty()) { return Ok(None); }
+        return crate::numerics::operation(op, args).map(Some);
+    }
     if matches!(op, Op::Atan2 | Op::Min | Op::Max | Op::Mean) {
         if args.iter().any(|e| !e.syms().is_empty()) { return Ok(None); }
         let entries = if op == Op::Mean {
@@ -529,6 +593,7 @@ fn eval(op: Op, args: &[Expr]) -> Result<Option<Expr>, String> {
             // a row of a vector, a column of a row: one element
             if picked.a.len() == 1 { picked.a[0].clone() } else { picked.expr() }
         }
+        Op::Lsolve | Op::Eigenvals | Op::SingularValues | Op::Condition | Op::Median | Op::Variance | Op::Stdev | Op::NormalCdf | Op::NormalQuantile | Op::Interpolate | Op::LinearFit | Op::Dft | Op::Idft | Op::Gamma | Op::Erf | Op::BesselJ | Op::Celsius | Op::Fahrenheit | Op::Polyroots => unreachable!("handled above"),
         Op::Cross | Op::Convolve | Op::Atan2 | Op::Min | Op::Max | Op::Mean => unreachable!("handled above"),
     }))
 }

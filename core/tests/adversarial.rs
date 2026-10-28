@@ -1,5 +1,5 @@
 //! Confirmed failures and proposed common-feature contracts. These assert desired behavior,
-//! not today's incorrect answers. See docs/adversarial.md.
+//! not today's incorrect answers.
 mod support;
 
 use solveng_core::{

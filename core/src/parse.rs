@@ -363,10 +363,22 @@ pub enum Trail {
     Sym,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sign { Negative, Nonpositive, Zero, Nonnegative, Positive }
+impl Sign {
+    pub fn mask(self) -> u8 { match self { Self::Negative=>1, Self::Nonpositive=>3, Self::Zero=>2, Self::Nonnegative=>6, Self::Positive=>4 } }
+    pub fn allows(self, value:f64) -> bool { self.mask() & if value < 0.0 { 1 } else if value == 0.0 { 2 } else { 4 } != 0 }
+    pub fn intersect(self, other:Self) -> Option<Self> {
+        Some(match self.mask() & other.mask() { 1=>Self::Negative,2=>Self::Zero,3=>Self::Nonpositive,4=>Self::Positive,6=>Self::Nonnegative,_=>return None })
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Clause {
     /// Real scalar assumptions, local to a symbolic result.
     pub real: Vec<String>,
+    /// Allowed signs (-, 0, +), local to this result.
+    pub signs: std::collections::BTreeMap<String, Sign>,
     pub unit: Option<UnitExpr>,
     pub solve: Option<Vec<String>>,
     /// -> substitute(x, …): the variables whose formulas the result shows put in.
@@ -1248,11 +1260,21 @@ fn clause(t: &[Tok], c: &Ctx) -> Result<Option<Clause>, String> {
                 if args.is_empty() { return Err("assume: write assume(a in RR, b in RR)".into()); }
                 for arg in args {
                     let tokens = lex(&arg)?;
-                    let n = match tokens.as_slice() {
-                        [Tok::Name(n) | Tok::Quoted(n), Tok::Op("∈"), Tok::Name(domain)] if domain == "RR" || domain == "ℝ" => n,
-                        [Tok::Name(n) | Tok::Quoted(n), Tok::Name(op), Tok::Name(domain)] if op == "in" && (domain == "RR" || domain == "ℝ") => n,
-                        _ => return Err(format!("assume: supported assumptions are real scalar names, a in RR; got '{arg}'")),
+                    let (n, sign) = match tokens.as_slice() {
+                        [Tok::Name(n) | Tok::Quoted(n), Tok::Op("∈"), Tok::Name(domain)] if domain == "RR" || domain == "ℝ" => (n,None),
+                        [Tok::Name(n) | Tok::Quoted(n), Tok::Name(op), Tok::Name(domain)] if op == "in" && (domain == "RR" || domain == "ℝ") => (n,None),
+                        [Tok::Name(n) | Tok::Quoted(n), Tok::Op(op), Tok::Num(zero)] if Rat::parse_decimal(zero).is_some_and(|v| v.is_zero()) => {
+                            (n,Some(match *op { ">"=>Sign::Positive,"≥"=>Sign::Nonnegative,"<"=>Sign::Negative,"≤"=>Sign::Nonpositive,"="=>Sign::Zero,_=>return Err(format!("assume: unsupported sign constraint '{arg}'")) }))
+                        }
+                        [Tok::Num(zero), Tok::Op(op), Tok::Name(n) | Tok::Quoted(n)] if Rat::parse_decimal(zero).is_some_and(|v| v.is_zero()) => {
+                            (n,Some(match *op { "<"=>Sign::Positive,"≤"=>Sign::Nonnegative,">"=>Sign::Negative,"≥"=>Sign::Nonpositive,"="=>Sign::Zero,_=>return Err(format!("assume: unsupported sign constraint '{arg}'")) }))
+                        }
+                        _ => return Err(format!("assume: use a in RR or a sign constraint such as a > 0; got '{arg}'")),
                     };
+                    if let Some(sign) = sign {
+                        let sign = match cl.signs.get(n) { Some(previous)=>previous.intersect(sign).ok_or_else(||format!("assume: contradictory sign constraints for {n}"))?,None=>sign };
+                        cl.signs.insert(n.clone(),sign);
+                    }
                     if !cl.real.contains(n) { cl.real.push(n.clone()); }
                 }
             }

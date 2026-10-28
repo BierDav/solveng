@@ -148,6 +148,13 @@ impl Env {
                     Expr::Call(n.clone(), args)
                 }
             }
+            Expr::Numerical(op, vars, args) => {
+                let mut local = keep.clone();
+                local.extend(vars.iter().cloned());
+                let mut values = vec![self.bind_(&args[0], &local, path, units)?];
+                values.extend(args[1..].iter().map(|a| self.bind_(a, keep, path, units)).collect::<Result<Vec<_>,_>>()?);
+                Expr::Numerical(*op, vars.clone(), values)
+            }
             Expr::Antiderivative(body, var, by) => {
                 let mut local = keep.clone();
                 local.insert(var.clone());
@@ -232,6 +239,16 @@ impl<'a> Lower<'a> {
     }
 
     fn substitute_(&self, e: &Expr, names: &[String], path: &mut Vec<String>, used: &mut BTreeSet<String>) -> Result<Expr, String> {
+        if matches!(e,Expr::Numerical(..)) {
+            let mut replacements=BTreeMap::new();
+            for n in e.syms() {
+                if !names.contains(&n) || path.contains(&n) { continue; }
+                let original=expr::sym(&n);
+                let replacement=self.substitute_(&original,names,path,used)?;
+                if replacement != original { replacements.insert(n,replacement); }
+            }
+            return Ok(e.subst_all(&replacements));
+        }
         let local = match e {
             Expr::Sym(n) if names.contains(n) && !path.contains(n) => {
                 let Some(v) = self.env.vars.get(n) else { return Ok(e.clone()) };
@@ -428,6 +445,20 @@ impl<'a> Lower<'a> {
             return Ok(Expr::Cases(branches));
         }
         if n == "vec" { return Ok(Expr::Vector(args.iter().map(|a| self.raw(a)).collect::<Result<_, _>>()?)); }
+        if n == "minimize" || n == "odesolve" {
+            let count = if n == "minimize" { 1 } else { 2 };
+            let vars = args[1..=count].iter().map(|a| match a {
+                Ast::Name(n) => Ok(n.clone()),
+                _ => Err(format!("{n}: local variables must be names")),
+            }).collect::<Result<Vec<_>,String>>()?;
+            if vars.len() == 2 && vars[0] == vars[1] { return Err("odesolve: state and time must be distinct names".into()); }
+            let added: Vec<_> = vars.iter().filter(|v| self.params.insert((*v).clone())).cloned().collect();
+            let body = self.expr(args[0]);
+            for v in added { self.params.remove(&v); }
+            let mut values = vec![body?];
+            values.extend(args[count+1..].iter().map(|a| self.raw(a)).collect::<Result<Vec<_>,_>>()?);
+            return Ok(Expr::Numerical(if n == "minimize" { crate::numerics::NumericOp::Minimize } else { crate::numerics::NumericOp::Ode }, vars, values));
+        }
         if let Some(op) = Op::of(n) {
             if !op.arity().contains(&args.len()) {
                 return Err(op.usage());

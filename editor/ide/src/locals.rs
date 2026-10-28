@@ -1,4 +1,4 @@
-//! Source ranges of sum binders. Keep bounds outside the index's scope, just as
+//! Source ranges of numerical binders. Keep bounds outside the local scope, just as
 //! the engine does.
 
 #[derive(Clone, Debug)]
@@ -6,6 +6,7 @@ pub(crate) struct Local {
     pub declaration: (usize, usize),
     pub body: (usize, usize),
     pub key: String,
+    pub description: &'static str,
 }
 
 #[derive(Debug)]
@@ -91,7 +92,7 @@ fn term_end(t: &[Token], start: usize) -> usize {
 }
 
 /// Read each complete sum while tolerating unfinished text elsewhere.
-pub(crate) fn read(source: &[char], base: usize) -> Vec<Local> {
+pub(crate) fn read(source: &[char], base: usize, operation:&dyn Fn(usize)->Option<String>) -> Vec<Local> {
     let c = source;
     let mut out = Vec::new();
     for (start, equation_end) in crate::text::equation_ranges(c) {
@@ -99,11 +100,13 @@ pub(crate) fn read(source: &[char], base: usize) -> Vec<Local> {
         let at = |i: usize| base + start + i;
         for (i, token) in t.iter().enumerate() {
             let notation = token.text == "sum_";
-            if !notation && token.text != "sum" { continue; }
+            let op=operation(at(token.start)).unwrap_or_else(||token.text.clone());
+            if !notation && !matches!(op.as_str(),"sum"|"minimize"|"odesolve") { continue; }
+            if !notation && token.text != "sum" && operation(at(token.start)).is_none() { continue; }
             // sum_(k=0)^n, or the call sum(body, k, lo, hi).
             if t.get(i + 1).map(|t| t.text.as_str()) != Some("(") { continue; }
             let Some(end) = close(&t, i + 1) else { continue };
-            let (declaration, body) = if notation {
+            let (declarations, body) = if notation {
                 if t.get(i + 3).map(|t| t.text.as_str()) != Some("=") || end <= i + 4 { continue; }
                 if t.get(end + 1).map(|t| t.text.as_str()) != Some("^") { continue; }
                 let Some(body_start) = atom_end(&t, end + 2) else { continue };
@@ -111,7 +114,7 @@ pub(crate) fn read(source: &[char], base: usize) -> Vec<Local> {
                 let body = if body_start == t.len() { (equation_end - start, equation_end - start) }
                     else if body_start == body_end { continue; }
                     else { (t[body_start].start, t[body_end - 1].end) };
-                (i + 2, body)
+                (vec![i + 2], body)
             } else {
                 let mut commas = Vec::new();
                 let mut j = i + 2;
@@ -124,13 +127,23 @@ pub(crate) fn read(source: &[char], base: usize) -> Vec<Local> {
                     if t[j].text == "," { commas.push(j); }
                     j += 1;
                 }
-                if commas.len() != 3 || commas[0] <= i + 2 || commas[1] != commas[0] + 2 { continue; }
-                (commas[0] + 1, (t[i + 2].start, t[commas[0] - 1].end))
+                let count=if op == "odesolve" { 2 } else { 1 };
+                if commas.len() != if count==2 { 5 } else { 3 } || commas[0] <= i+2 { continue; }
+                if (0..count).any(|j|commas[j+1] != commas[j]+2) { continue; }
+                ((0..count).map(|j|commas[j]+1).collect(), (t[i+2].start,t[commas[0]-1].end))
             };
-            let decl = &t[declaration];
-            let raw: Vec<char> = decl.text.chars().collect();
-            let Some(name) = solveng_names::scan(&raw, 0).ok().flatten().filter(|n| n.end == raw.len()) else { continue };
-            out.push(Local { declaration: (at(decl.start), at(decl.end)), body: (at(body.0), at(body.1)), key: name.value });
+            for (j,declaration) in declarations.into_iter().enumerate() {
+                let decl = &t[declaration];
+                let raw: Vec<char> = decl.text.chars().collect();
+                let Some(name) = solveng_names::scan(&raw, 0).ok().flatten().filter(|n| n.end == raw.len()) else { continue };
+                let description=match op.as_str() {
+                    "minimize"=>"local optimization variable",
+                    "odesolve" if j==0=>"local ODE state",
+                    "odesolve"=>"local ODE time",
+                    _=>"local sum index (unitless integer)",
+                };
+                out.push(Local { declaration: (at(decl.start), at(decl.end)), body: (at(body.0), at(body.1)), key: name.value, description });
+            }
         }
     }
     out

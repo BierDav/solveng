@@ -625,6 +625,7 @@ impl<'a> Sheet<'a> {
                 let bound = self.env.bind_with_units(&v.expr, &BTreeSet::new(), &self.units)?;
                 if let Ok(value) = complex_value(&bound) {
                     if !value.is_real() { return Err(format!("assume: {n} has a nonreal value")); }
+                    if clause.signs.get(n).is_some_and(|s| !s.allows(value.re.v.f())) { return Err(format!("assume: {n} contradicts its known value")); }
                 } else {
                     return Err(format!("assume: {n} has a symbolic definition; assume its free scalar names instead"));
                 }
@@ -634,6 +635,9 @@ impl<'a> Sheet<'a> {
         let assumed = if names.is_empty() { e.clone() } else if matches!(e, Expr::Cmp(..)) {
             e.map(&mut |a| crate::complex::assuming_real(a, &names))
         } else { crate::complex::assuming_real(e, &names) };
+        let assumed = if matches!(assumed,Expr::Cmp(..)) {
+            assumed.map(&mut |a|crate::complex::assuming_signs(a,&names,&clause.signs))
+        } else { crate::complex::assuming_signs(&assumed,&names,&clause.signs) };
         let e = &assumed;
         let r = self.r(cfg, true);
         let eq = |l: &Expr, x: &Expr| r.expr(&Expr::Cmp(vec![l.clone(), x.clone()], vec![Rel::Eq])).0;
@@ -767,6 +771,62 @@ impl<'a> Sheet<'a> {
         Ok(Some(a.into_iter().zip(b).map(|(x, y)| Expr::Cmp(vec![x, y], rs.clone())).collect()))
     }
 
+    /// A sign chart of a real rational polynomial, including even roots and
+    /// excluded denominator roots. Connected components render as intervals.
+    fn polynomial_inequality(&self, equation:&(Expr,Expr), x:&str, relation:Rel, clause:&Clause, cfg:&Cfg) -> Result<Option<String>,String> {
+        let difference = simp(&expr::sub(equation.0.clone(),equation.1.clone()));
+        let (num,den) = crate::poly::together(&difference);
+        let coefficients = |e:&Expr| crate::poly::coeffs(e,x)?.iter().map(|c| crate::eval::eval_f(c,&|_| None)).collect::<Option<Vec<_>>>();
+        let (Some(n),Some(d)) = (coefficients(&num),coefficients(&den)) else { return Ok(None); };
+        // Preserve the existing single-boundary definition behavior for affine expressions.
+        if n.len() <= 2 && d.len() == 1 && n.len() == 2 && n[1] != 0.0 { return Ok(None); }
+        let numerator = solve::roots(&n);
+        let poles = solve::roots(&d);
+        let mut points = numerator.clone(); points.extend(&poles); points=solve::uniq(points);
+        if points.iter().any(|v| !v.is_finite()) { return Err("inequality boundaries are outside the finite range".into()); }
+        let close = |a:f64,b:f64| (a-b).abs() <= 1e-8*a.abs().max(b.abs()).max(1e-12);
+        let holds = |value:f64| match relation { Rel::Lt=>value<0.0,Rel::Le=>value<=0.0,Rel::Gt=>value>0.0,Rel::Ge=>value>=0.0,_=>false };
+        let mut ends=vec![f64::NEG_INFINITY]; ends.extend(&points); ends.push(f64::INFINITY);
+        let mut intervals:Vec<(f64,f64,bool,bool)>=vec![];
+        for pair in ends.windows(2) {
+            let (a,b)=(pair[0],pair[1]);
+            let sample=if !a.is_finite() && !b.is_finite() { 0.0 } else if !a.is_finite() { b-b.abs().max(1.0) } else if !b.is_finite() { a+a.abs().max(1.0) } else { a*0.5+b*0.5 };
+            let value=crate::eval::eval_f(&difference,&|v| (v==x).then_some(sample)).ok_or("inequality is undefined in an interval")?;
+            if holds(value) { intervals.push((a,b,false,false)); }
+        }
+        if matches!(relation,Rel::Le|Rel::Ge) {
+            for r in &numerator {
+                if !poles.iter().any(|p| close(*r,*p)) { intervals.push((*r,*r,true,true)); }
+            }
+        }
+        intervals.sort_by(|a,b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+        let mut merged:Vec<(f64,f64,bool,bool)>=vec![];
+        for interval in intervals {
+            if let Some(last)=merged.last_mut() {
+                if last.1 == interval.0 && (last.3 || interval.2) {
+                    last.1=interval.1; last.3=interval.3; continue;
+                }
+            }
+            merged.push(interval);
+        }
+        let dims=solve::infer_dims(&[equation.clone()],&[x.into()],&|_|None)?;
+        let dimension=dims[0].clone().or_else(||clause.unit.as_ref().and_then(|u| self.units.dim(u))).unwrap_or(Dim::ONE);
+        let endpoint = |v:f64| -> Result<String,String> {
+            let z=CVal::real(Val::new(solve::snap(v),dimension.clone()));
+            Ok(crate::format::complex(&z,clause.unit.as_ref(),None,&self.units,cfg)?.0)
+        };
+        let mut rendered=vec![];
+        for (a,b,left,right) in merged {
+            let var=name(x);
+            rendered.push(if a == b { format!("{var} = {}",endpoint(a)?) }
+            else if !a.is_finite() && !b.is_finite() { format!("{var} in RR") }
+            else if !a.is_finite() { format!("{var} {} {}",if right {"<="} else {"<"},endpoint(b)?) }
+            else if !b.is_finite() { format!("{var} {} {}",if left {">="} else {">"},endpoint(a)?) }
+            else { format!("{} {} {var} {} {}",endpoint(a)?,if left {"<="} else {"<"},if right {"<="} else {"<"},endpoint(b)?) });
+        }
+        Ok(Some(if rendered.is_empty() { "\"no real solution\"".into() } else { rendered.join(" or ") }))
+    }
+
     fn solve(&mut self, stmts: &[Stmt], xs: &[String], clause: &Clause, cfg: &Cfg) -> Result<(), String> {
         let mut unique = BTreeSet::new();
         if xs.iter().any(|x| !unique.insert(x)) { return Err("each solve variable must be different".into()); }
@@ -824,6 +884,12 @@ impl<'a> Sheet<'a> {
             let ks: BTreeSet<String> = keep.iter().cloned().collect();
             bound.push((self.env.bind_with_units(&ln, &ks, &self.units)?, self.env.bind_with_units(&rn, &ks, &self.units)?));
             named.push((ln, rn));
+        }
+        if ineq {
+            if let Some(result) = self.polynomial_inequality(&bound[0], &xs[0], eqs[0].2, clause, cfg)? {
+                self.show("->",result);
+                return Ok(());
+            }
         }
         // names with numeric values (the formula keeps them; polynomials in them are solved numerically)
         let known_num = |n: &str| -> bool {
@@ -1092,6 +1158,15 @@ pub(crate) fn ast_names(a: &Ast, out: &mut Vec<String>) {
         Ast::Div(x, y) | Ast::Pow(x, y) => {
             ast_names(x, out);
             ast_names(y, out);
+        }
+        Ast::Builtin(n,args) if (n == "minimize" && args.len() == 4) || (n == "odesolve" && args.len() == 6) => {
+            let count = if n == "minimize" { 1 } else { 2 };
+            let mut body = vec![];
+            ast_names(&args[0], &mut body);
+            for name in body {
+                if !args[1..=count].iter().any(|a| matches!(a,Ast::Name(v) if *v == name)) && !out.contains(&name) { out.push(name); }
+            }
+            for a in &args[count+1..] { ast_names(a,out); }
         }
         // a local variable (of an integral, a sum, a derivative, a convolution) is no name of the worksheet
         Ast::Builtin(n, args) if matches!((n.as_str(), args.len()), ("integrate" | "sum" | "prod", 4) | ("integrate" | "diff", 2) | ("convolve", 3 | 4)) => {

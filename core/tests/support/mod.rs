@@ -20,7 +20,17 @@
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Mutex, OnceLock};
 
-use solveng_core::{api::{self, LineReq}, bindings::{self, Binding, BindingReq}, dim::{Dim, IDENTITIES}, env::Env, eval::value, expr::Expr, format::Cfg, sheet::Out, units::Units};
+use solveng_core::{
+    api::{self, LineReq},
+    bindings::{self, Binding, BindingReq},
+    dim::{Dim, IDENTITIES},
+    env::Env,
+    eval::value,
+    expr::Expr,
+    format::Cfg,
+    sheet::Out,
+    units::Units,
+};
 
 /// The worksheet configuration production uses: no built-in unit names, no automatic operation names.
 pub fn cfg() -> Cfg {
@@ -30,7 +40,15 @@ pub fn cfg() -> Cfg {
 // ---------- units and constants ----------
 
 /// SI base units: (name, dimension identity).
-const BASE: &[(&str, &str)] = &[("m", IDENTITIES[0]), ("kg", IDENTITIES[1]), ("s", IDENTITIES[2]), ("A", IDENTITIES[3]), ("K", IDENTITIES[4]), ("mol", IDENTITIES[5]), ("cd", IDENTITIES[6])];
+const BASE: &[(&str, &str)] = &[
+    ("m", IDENTITIES[0]),
+    ("kg", IDENTITIES[1]),
+    ("s", IDENTITIES[2]),
+    ("A", IDENTITIES[3]),
+    ("K", IDENTITIES[4]),
+    ("mol", IDENTITIES[5]),
+    ("cd", IDENTITIES[6]),
+];
 
 /// Every other unit: (name, factor in SI, exponents of m, kg, s, A, K, mol, cd).
 const DERIVED: &[(&str, &str, [i32; 7])] = &[
@@ -69,8 +87,20 @@ const DERIVED: &[(&str, &str, [i32; 7])] = &[
 ];
 
 const PREFIXES: &[(&str, i32)] = &[
-    ("a", -18), ("f", -15), ("p", -12), ("n", -9), ("µ", -6), ("μ", -6), ("u", -6), ("m", -3), ("c", -2), ("d", -1),
-    ("k", 3), ("M", 6), ("G", 9), ("T", 12),
+    ("a", -18),
+    ("f", -15),
+    ("p", -12),
+    ("n", -9),
+    ("µ", -6),
+    ("μ", -6),
+    ("u", -6),
+    ("m", -3),
+    ("c", -2),
+    ("d", -1),
+    ("k", 3),
+    ("M", 6),
+    ("G", 9),
+    ("T", 12),
 ];
 
 fn symbol(name: &str) -> &str {
@@ -99,12 +129,27 @@ fn def(name: &str) -> Option<Def> {
     let rest = &name[p.len_utf8()..];
     let (_, exp) = PREFIXES.iter().find(|(q, _)| q.starts_with(p) && q.chars().count() == 1)?;
     let shown = if matches!(p, 'u' | 'μ') { 'µ' } else { p };
-    if rest == "Omega" || rest.is_empty() { return None; }
-    if !rest.chars().next().is_some_and(char::is_alphabetic) && !rest.starts_with('Ω') { return None; }
+    if rest == "Omega" || rest.is_empty() {
+        return None;
+    }
+    if !rest.chars().next().is_some_and(char::is_alphabetic) && !rest.starts_with('Ω') {
+        return None;
+    }
     let (display, factor, e) = match def(rest)? {
         // kg is the base; g carries its own factor
         Def::Base(n, _) if n == "kg" => return None,
-        Def::Base(n, _) => (n.clone(), "1".to_string(), BASE.iter().position(|(b, _)| *b == n).map(|i| { let mut e = [0; 7]; e[i] = 1; e }).unwrap()),
+        Def::Base(n, _) => (
+            n.clone(),
+            "1".to_string(),
+            BASE.iter()
+                .position(|(b, _)| *b == n)
+                .map(|i| {
+                    let mut e = [0; 7];
+                    e[i] = 1;
+                    e
+                })
+                .unwrap(),
+        ),
         Def::Derived(d, f, e) => (d, f, e),
     };
     Some(Def::Derived(format!("{shown}{display}"), format!("{factor} * 10^({exp})"), e))
@@ -128,15 +173,24 @@ fn ids() -> &'static Mutex<HashMap<String, String>> {
 }
 
 fn construct(kind: &str, src: String, identity: Option<&str>, display: &str) -> &'static Made {
-    let binding = bindings::construct(BindingReq { kind: kind.into(), src: src.clone(), identity: identity.map(str::to_owned), presentation: display.into(), description: display.into(), auto: false })
-        .unwrap_or_else(|e| panic!("{kind} {display} := {src}: {e}"));
+    let binding = bindings::construct(BindingReq {
+        kind: kind.into(),
+        src: src.clone(),
+        identity: identity.map(str::to_owned),
+        presentation: display.into(),
+        description: display.into(),
+        auto: false,
+    })
+    .unwrap_or_else(|e| panic!("{kind} {display} := {src}: {e}"));
     let token = format!("⟦{}⟧", binding.encode().unwrap());
     ids().lock().unwrap().insert(binding.id.clone(), display.to_string());
     Box::leak(Box::new(Made { binding, token, display: display.to_string() }))
 }
 
 fn made(name: &str) -> Option<&'static Made> {
-    if let Some(m) = cache().lock().unwrap().get(name) { return *m; }
+    if let Some(m) = cache().lock().unwrap().get(name) {
+        return *m;
+    }
     let m = match name {
         "pi" | "π" => Some(construct("constant", "3.141592653589793".into(), Some("pi"), "π")),
         "e" => Some(construct("constant", "2.718281828459045".into(), Some("euler"), "e")),
@@ -145,8 +199,12 @@ fn made(name: &str) -> Option<&'static Made> {
             None => None,
             Some(Def::Base(n, identity)) => Some(construct("base-unit", String::new(), Some(identity), &n)),
             Some(Def::Derived(display, factor, e)) => {
-                let bases: Vec<String> = e.iter().enumerate().filter(|(_, p)| **p != 0)
-                    .map(|(i, p)| format!("{}^({p})", unit(BASE[i].0))).collect();
+                let bases: Vec<String> = e
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, p)| **p != 0)
+                    .map(|(i, p)| format!("{}^({p})", unit(BASE[i].0)))
+                    .collect();
                 Some(construct("unit", format!("{factor} {}", bases.join(" ")), None, &display))
             }
         },
@@ -195,7 +253,21 @@ pub fn bind(env: &Env, e: &Expr) -> Expr {
 // ---------- sources ----------
 
 const OPERATIONS_SKIPPED: &[&str] = &["mat", "frac"];
-const KEYWORDS: &[&str] = &["solve", "substitute", "assume", "simplify", "expand", "factor", "steps", "digits", "sci", "eng", "frac", "laplace", "invlaplace"];
+const KEYWORDS: &[&str] = &[
+    "solve",
+    "substitute",
+    "assume",
+    "simplify",
+    "expand",
+    "factor",
+    "steps",
+    "digits",
+    "sci",
+    "eng",
+    "frac",
+    "laplace",
+    "invlaplace",
+];
 
 fn word_char(c: char) -> bool {
     c.is_alphanumeric() || matches!(c, '_' | '´' | '`')
@@ -210,15 +282,44 @@ pub fn src(text: &str, env: &Env) -> String {
     while i < cs.len() {
         let c = cs[i];
         match c {
-            '"' => { i += 1; while i < cs.len() && cs[i] != '"' { if cs[i] == '\\' { i += 1; } i += 1; } }
-            '⟦' | '⦇' | '⦅' => { while i < cs.len() && !matches!(cs[i], '⟧' | '⦈' | '⦆') { i += 1; } }
+            '"' => {
+                i += 1;
+                while i < cs.len() && cs[i] != '"' {
+                    if cs[i] == '\\' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+            }
+            '⟦' | '⦇' | '⦅' => {
+                while i < cs.len() && !matches!(cs[i], '⟧' | '⦈' | '⦆') {
+                    i += 1;
+                }
+            }
             '(' | '[' | '{' => depth += 1,
             ')' | ']' | '}' => depth -= 1,
-            ':' if depth == 0 && cs.get(i + 1) == Some(&'=') => { if def_at.is_none() { def_at = Some(i); } i += 1; }
+            ':' if depth == 0 && cs.get(i + 1) == Some(&'=') => {
+                if def_at.is_none() {
+                    def_at = Some(i);
+                }
+                i += 1;
+            }
             '≔' if depth == 0 && def_at.is_none() => def_at = Some(i),
-            '-' if depth == 0 && cs.get(i + 1) == Some(&'>') => { clause_at = Some(i + 2); arrow = true; i += 1; }
-            '→' if depth == 0 => { clause_at = Some(i + 1); arrow = true; }
-            '=' if depth == 0 && !arrow && !matches!(i.checked_sub(1).map(|j| cs[j]), Some('<' | '>' | '!' | ':' | '=')) => clause_at = Some(i + 1),
+            '-' if depth == 0 && cs.get(i + 1) == Some(&'>') => {
+                clause_at = Some(i + 2);
+                arrow = true;
+                i += 1;
+            }
+            '→' if depth == 0 => {
+                clause_at = Some(i + 1);
+                arrow = true;
+            }
+            '=' if depth == 0
+                && !arrow
+                && !matches!(i.checked_sub(1).map(|j| cs[j]), Some('<' | '>' | '!' | ':' | '=')) =>
+            {
+                clause_at = Some(i + 1)
+            }
             _ => {}
         }
         i += 1;
@@ -231,30 +332,52 @@ pub fn src(text: &str, env: &Env) -> String {
         let mut bracket = 0;
         while i < to.min(cs.len()) {
             let c = cs[i];
-            if c == '"' { i += 1; while i < cs.len() && cs[i] != '"' { if cs[i] == '\\' { i += 1; } i += 1; } i += 1; continue; }
-            if c == '[' && !(i > 0 && word_char(cs[i - 1])) { bracket += 1; }
-            if c == ']' && bracket > 0 { bracket -= 1; }
+            if c == '"' {
+                i += 1;
+                while i < cs.len() && cs[i] != '"' {
+                    if cs[i] == '\\' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+                i += 1;
+                continue;
+            }
+            if c == '[' && !(i > 0 && word_char(cs[i - 1])) {
+                bracket += 1;
+            }
+            if c == ']' && bracket > 0 {
+                bracket -= 1;
+            }
             if c.is_alphabetic() {
                 let start = i;
-                while i < cs.len() && word_char(cs[i]) { i += 1; }
+                while i < cs.len() && word_char(cs[i]) {
+                    i += 1;
+                }
                 let before: String = cs[..start].iter().collect();
                 let before = before.trim_end();
                 let w: String = cs[start..i].iter().collect();
                 let after_number = before.chars().last().is_some_and(|c| c.is_ascii_digit());
-                if !typed || (bracket == 0 && !before.ends_with(':') && !after_number) { declared.insert(w); }
+                if !typed || (bracket == 0 && !before.ends_with(':') && !after_number) {
+                    declared.insert(w);
+                }
                 continue;
             }
             i += 1;
         }
     };
-    if let Some(d) = def_at { words(0, d, true, &mut declared); }
+    if let Some(d) = def_at {
+        words(0, d, true, &mut declared);
+    }
     // what's solved for
     let mut k = 0;
     let joined: String = cs.iter().collect();
     while let Some(p) = joined[k..].find("solve(") {
         let start = k + p + "solve(".len();
         let end = joined[start..].find(')').map_or(joined.len(), |e| start + e);
-        for n in joined[start..end].split(',') { declared.insert(n.trim().to_string()); }
+        for n in joined[start..end].split(',') {
+            declared.insert(n.trim().to_string());
+        }
         k = end;
     }
     let is_declared = |w: &str| declared.contains(w) || env.vars.contains_key(w) || env.funs.contains_key(w);
@@ -270,25 +393,47 @@ pub fn src(text: &str, env: &Env) -> String {
         let after_number = before.chars().last().is_some_and(|c| c.is_ascii_digit());
         match c {
             '"' => {
-                out.push(c); i += 1;
+                out.push(c);
+                i += 1;
                 while i < cs.len() {
-                    let d = cs[i]; out.push(d); i += 1;
-                    if d == '\\' && i < cs.len() { out.push(cs[i]); i += 1; continue; }
-                    if d == '"' { break; }
+                    let d = cs[i];
+                    out.push(d);
+                    i += 1;
+                    if d == '\\' && i < cs.len() {
+                        out.push(cs[i]);
+                        i += 1;
+                        continue;
+                    }
+                    if d == '"' {
+                        break;
+                    }
                 }
                 run = false;
                 continue;
             }
             '⟦' | '⦇' | '⦅' => {
-                let close = match c { '⟦' => '⟧', '⦇' => '⦈', _ => '⦆' };
-                while i < cs.len() { let d = cs[i]; out.push(d); i += 1; if d == close { break; } }
+                let close = match c {
+                    '⟦' => '⟧',
+                    '⦇' => '⦈',
+                    _ => '⦆',
+                };
+                while i < cs.len() {
+                    let d = cs[i];
+                    out.push(d);
+                    i += 1;
+                    if d == close {
+                        break;
+                    }
+                }
                 run = c == '⟦';
                 continue;
             }
             '#' if cs.get(i + 1).is_some_and(|c| c.is_alphabetic() || *c == '°' || *c == '%') => {
                 let start = i + 1;
                 i = start + 1;
-                while i < cs.len() && (word_char(cs[i]) || (cs[start] == '°' && cs[i] == 'C')) { i += 1; }
+                while i < cs.len() && (word_char(cs[i]) || (cs[start] == '°' && cs[i] == 'C')) {
+                    i += 1;
+                }
                 let w: String = cs[start..i].iter().collect();
                 let m = made(&w).unwrap_or_else(|| panic!("#{w}: no unit or constant"));
                 out += &m.token;
@@ -296,7 +441,13 @@ pub fn src(text: &str, env: &Env) -> String {
                 continue;
             }
             '°' => {
-                let name = if cs.get(i + 1) == Some(&'C') { i += 2; "°C" } else { i += 1; "°" };
+                let name = if cs.get(i + 1) == Some(&'C') {
+                    i += 2;
+                    "°C"
+                } else {
+                    i += 1;
+                    "°"
+                };
                 out += &unit(name);
                 run = true;
                 continue;
@@ -310,7 +461,11 @@ pub fn src(text: &str, env: &Env) -> String {
             '[' => {
                 let index = i > 0 && (word_char(cs[i - 1]) || matches!(cs[i - 1], ')' | ']' | '"'));
                 brackets.push(!index);
-                if index { out.push('['); } else if !in_clause { out.push('('); }
+                if index {
+                    out.push('[');
+                } else if !in_clause {
+                    out.push('(');
+                }
                 i += 1;
                 run = false;
                 continue;
@@ -318,28 +473,48 @@ pub fn src(text: &str, env: &Env) -> String {
             ']' => {
                 match brackets.pop() {
                     Some(false) | None => out.push(']'),
-                    Some(true) => if !in_clause { out.push(')') },
+                    Some(true) => {
+                        if !in_clause {
+                            out.push(')')
+                        }
+                    }
                 }
                 i += 1;
                 continue;
             }
             c if c.is_alphabetic() => {
                 let start = i;
-                while i < cs.len() && word_char(cs[i]) { i += 1; }
+                while i < cs.len() && word_char(cs[i]) {
+                    i += 1;
+                }
                 let w: String = cs[start..i].iter().collect();
                 let next = cs[i..].iter().find(|c| !c.is_whitespace()).copied();
                 let in_bracket = brackets.last() == Some(&true);
                 // a keyword of the clause, with its arguments
-                if in_clause && KEYWORDS.contains(&w.as_str()) && !(w == "frac" && next == Some('(')) && !is_declared(&w) {
+                if in_clause
+                    && KEYWORDS.contains(&w.as_str())
+                    && !(w == "frac" && next == Some('('))
+                    && !is_declared(&w)
+                {
                     let mut kw = w.clone();
                     let mut j = i;
-                    while j < cs.len() && cs[j].is_whitespace() { j += 1; }
+                    while j < cs.len() && cs[j].is_whitespace() {
+                        j += 1;
+                    }
                     if cs.get(j) == Some(&'(') {
                         let mut d = 0;
                         while j < cs.len() {
                             kw.push(cs[j]);
-                            if cs[j] == '(' { d += 1; }
-                            if cs[j] == ')' { d -= 1; if d == 0 { j += 1; break; } }
+                            if cs[j] == '(' {
+                                d += 1;
+                            }
+                            if cs[j] == ')' {
+                                d -= 1;
+                                if d == 0 {
+                                    j += 1;
+                                    break;
+                                }
+                            }
                             j += 1;
                         }
                         i = j;
@@ -348,7 +523,13 @@ pub fn src(text: &str, env: &Env) -> String {
                     run = false;
                     continue;
                 }
-                let unit_here = is_unit(&w) && (in_bracket || (!is_declared(&w) && (run || after_number || (before.ends_with(':') && !before.ends_with(":=")) || (in_clause && w.chars().count() > 1))));
+                let unit_here = is_unit(&w)
+                    && (in_bracket
+                        || (!is_declared(&w)
+                            && (run
+                                || after_number
+                                || (before.ends_with(':') && !before.ends_with(":="))
+                                || (in_clause && w.chars().count() > 1))));
                 if unit_here {
                     out += &unit(&w);
                     run = true;
@@ -371,11 +552,18 @@ pub fn src(text: &str, env: &Env) -> String {
                 out.push(c);
                 i += 1;
                 let paren = cs.get(i) == Some(&'(');
-                while i < cs.len() && (cs[i].is_ascii_digit() || cs[i] == '-' || cs[i] == '−' || (paren && (cs[i] == '(' || cs[i] == ')'))) {
+                while i < cs.len()
+                    && (cs[i].is_ascii_digit()
+                        || cs[i] == '-'
+                        || cs[i] == '−'
+                        || (paren && (cs[i] == '(' || cs[i] == ')')))
+                {
                     let d = cs[i];
                     out.push(d);
                     i += 1;
-                    if d == ')' { break; }
+                    if d == ')' {
+                        break;
+                    }
                 }
                 continue;
             }
@@ -416,8 +604,15 @@ pub fn readable(markup: &str) -> String {
     while let Some(p) = rest.find("sv") {
         let id = rest[p..].get(..66).filter(|id| id[2..].chars().all(|c| ('a'..='p').contains(&c)));
         match id.and_then(|id| ids.get(id)) {
-            Some(name) => { out += &rest[..p]; out += name; rest = &rest[p + 66..]; }
-            None => { out += &rest[..p + 2]; rest = &rest[p + 2..]; }
+            Some(name) => {
+                out += &rest[..p];
+                out += name;
+                rest = &rest[p + 66..];
+            }
+            None => {
+                out += &rest[..p + 2];
+                rest = &rest[p + 2..];
+            }
         }
     }
     out + rest
