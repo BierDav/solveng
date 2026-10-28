@@ -104,3 +104,37 @@ fn vectors_survive_reports_serialization_graphs_and_domain_checks() {
     run(&mut env, "typed(x, r) := relation(x, b, r) -> solve(b)");
     assert!(env.funs["typed"].params.iter().all(|p| p.ty.is_some()));
 }
+
+#[test]
+fn graphs_after_a_solve_are_over_the_solved_name() {
+    use solveng_core::graph::{self, GraphReq, XV};
+    let plot = |env: &Env, srcs: &[&str], xrange: Vec<XV>| graph::graph(env, &GraphReq {
+        cfg: support::cfg(), curves: srcs.iter().map(|s| support::curve(s, env)).collect(),
+        xrange, yrange: vec![], marks: vec![], ymark: vec![], samples: 50,
+    });
+    let mut env = Env::default();
+    run(&mut env, "f_0 := 1 kHz");
+    run(&mut env, "S_1(f: Hz) := 1/sqrt(1 + (f/f_0)^2)");
+    // untyped: f's unit comes from its value once it has one
+    run(&mut env, "S_2(f) := 1/sqrt(1 + (f/f_0)^2)");
+    let before = plot(&env, &["S_1(f)"], vec![]).unwrap();
+    // solve(f) defines f as a value: the graph is still over f, as before the solve
+    run(&mut env, "S_1(f) = 1/2 -> solve(f)");
+    assert!(env.vars.contains_key("f"));
+    let after = plot(&env, &["S_1(f)"], vec![]).unwrap();
+    assert_eq!((after.x0, after.x1, &after.xlabel), (before.x0, before.x1, &before.xlabel));
+    assert_eq!(after.series[0].points, before.series[0].points);
+    // in the value's unit, also where only an expression or a constant line goes with it
+    for srcs in [&["S_2(f)"][..], &["2 S_2(f) + 1"], &["S_1(f)", "1/2"], &["S_1(f)", "S_2(2 f)"]] {
+        let p = plot(&env, srcs, vec![XV::Num(0.0), XV::Num(5000.0)]).unwrap_or_else(|e| panic!("{srcs:?}: {e}"));
+        assert!(p.xlabel.contains("Hz"), "{srcs:?}: {}", p.xlabel);
+        let s = &p.series[0].points;
+        assert!(s.first().unwrap().1 > s.last().unwrap().1, "{srcs:?}: {s:?}");
+    }
+    // something else varies: the defined f stays its value
+    let p = plot(&env, &["S_1(f) + x"], vec![XV::Num(0.0), XV::Num(1.0)]).unwrap();
+    assert!(p.xlabel.contains('x'), "{}", p.xlabel);
+    // two names with values: which one the graph is over isn't clear
+    let e = plot(&env, &["S_1(f) + f/f_0"], vec![]).err().unwrap();
+    assert!(e.contains("nothing varies") && e.contains("'f', 'f_0' have values"), "{e}");
+}

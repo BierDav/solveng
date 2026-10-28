@@ -45,3 +45,11 @@ $"roots" =$
 #passes() #result("vec(\"−3\", \"3\")")
 $"bad"(x, r) := "pytagoras"(x, b, r) = b -> solve(b)$
 #fails("omit the extra = b")
+// a graph after solve(f) is over f, as before it: f's value doesn't stop it from varying
+#import units: Hz, kHz
+$f_0 := 1 #kHz$
+$S_1(f: #Hz) := 1/sqrt(1 + (f/f_0)^2)$
+$S_1(f) = 1/2 -> solve(f)$
+#passes() #expect("f", calc.sqrt(3) * 1000)
+#graph($S_1(f)$, errors: "panic")
+#graph($S_1(f) \ 1/2$, mark: (), errors: "panic")

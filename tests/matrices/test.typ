@@ -36,7 +36,7 @@ $K := mat(A, b; 0, 0, 1) =$ #result("mat(\"2\", \"1\", \"3\"; \"1\", \"3\", \"5\
 
 // symbolic
 $M := mat(p, q; r, w)$
-$det(M) ->$ #result("p w - q r")
+$det(M) ->$ #result("p dot w - q dot r")
 
 #worksheet(errors: "document")[
   $mat(1, 2; 3, 4) mat(1, 2, 3; 4, 5, 6; 7, 8, 9) =$ #fails("columns of the first must match the rows of the second")

@@ -343,7 +343,45 @@ fn case_boundaries(e: &Expr, x: &str, scale: f64, points: &mut Vec<f64>, edges: 
     for child in e.children() { case_boundaries(child, x, scale, points, edges); }
 }
 
+/// The curves of a graph and what they're plotted against. When nothing varies, but the curves write exactly one
+/// name with a value (f after `S_1(f) = 1/2 -> solve(f)`), the graph is over that name, as a curve's written
+/// parameter is (`S(f) = S_1(f)`), whatever it means outside.
 fn read(env: &Env, req: &GraphReq, units: &Units) -> Result<Read, String> {
+    let err = match read_over(env, req, units, &BTreeSet::new()) {
+        Err(e) if e.starts_with("nothing varies") => e,
+        r => return r,
+    };
+    let is_fn = |n: &str| env.funs.contains_key(n);
+    let is_var = |n: &str| env.vars.contains_key(n);
+    let mut names = vec![];
+    for c in &req.curves {
+        if let Ok(cv) = parse::parse_curve(&c.src, &Ctx { units, is_fn: &is_fn, is_var: &is_var }) {
+            crate::sheet::ast_names(&cv.body, &mut names);
+        }
+    }
+    // values only: a vector would be data, which has its own x
+    let defined: Vec<String> = names.into_iter().filter(|n| !is_fn(n)
+        && env.vars.get(n).is_some_and(|v| env.bind_with_units(&v.expr, &BTreeSet::new(), units).ok().is_some_and(|e| value(&e).is_ok())))
+        .collect();
+    match defined.as_slice() {
+        [n] => {
+            let mut r = read_over(env, req, units, &BTreeSet::from([n.clone()]))?;
+            // in the unit of its value, unless a function it's passed to has one
+            if r.xunit_typed.is_none() && let Some(d) = env.vars.get(n)
+                .and_then(|v| value(&env.bind_with_units(&v.expr, &BTreeSet::new(), units).ok()?).ok()).map(|v| v.d)
+                && !d.is_one() {
+                r.xunit_typed = Some(units.auto(&d));
+            }
+            Ok(r)
+        }
+        [] => Err(err),
+        ns => Err(format!("{} – {} have values, so write the one it's plotted against as a parameter: S({}) = …",
+            err.split(" – ").next().unwrap_or(&err), ns.iter().map(|n| format!("'{n}'")).collect::<Vec<_>>().join(", "), ns[0])),
+    }
+}
+
+/// The curves, with the names in `over` varying even where they have a value.
+fn read_over(env: &Env, req: &GraphReq, units: &Units, over: &BTreeSet<String>) -> Result<Read, String> {
     let cfg = &req.cfg;
     let is_fn = |n: &str| env.funs.contains_key(n);
     let is_var = |n: &str| env.vars.contains_key(n);
@@ -391,6 +429,7 @@ fn read(env: &Env, req: &GraphReq, units: &Units) -> Result<Read, String> {
         // the free names: what the curve is plotted against
         let mut lo = Lower::new(env, units);
         lo.params.extend(data_x.iter().cloned());
+        lo.params.extend(over.iter().cloned());
         let mut written: Vec<String> = vec![];
         if let Some((_, ps, _)) = &cv.head {
             for p in ps {
@@ -1268,6 +1307,35 @@ fn bisect_edge(h: &dyn Fn(f64) -> Option<f64>, mut a: f64, mut b: f64) -> f64 {
     (a + b) / 2.0
 }
 
+/// Where a curve without roots, extrema or edges away from 0 changes, on each side of 0 (`ks`: distances from 0,
+/// growing): halfway from its value at 0 to the one it settles at (1/√(1 + (f/f₀)²): at √3 f₀), or, where it
+/// doesn't settle, where it has changed by as much as its value at 0 (e^(t/τ): at τ ln 2). A curve without a
+/// scale of its own (x², a constant) changes nowhere.
+fn change(h: &dyn Fn(f64) -> Option<f64>, ks: &[f64]) -> Vec<f64> {
+    let finite = |v: Option<f64>| v.filter(|v| v.is_finite() && v.abs() < 1e30);
+    let Some(v0) = finite(h(0.0)).or_else(|| finite(h(ks[0]))) else { return vec![] };
+    let mut out = vec![];
+    for side in [-1.0, 1.0] {
+        let vs: Vec<Option<f64>> = ks.iter().map(|k| finite(h(side * k))).collect();
+        // it settles if its last decade moves it little against how far it has come from v0
+        let n = vs.len();
+        let settles = vs[n - 1].zip(vs[n - 9]).filter(|(a, b)| (a - b).abs() < 0.1 * (a - v0).abs());
+        let far = match settles {
+            Some((v, _)) => 0.5 * (v - v0).abs(),
+            None if v0 != 0.0 => v0.abs(),
+            None => continue,
+        };
+        if far == 0.0 { continue; }
+        let Some(i) = vs.iter().position(|v| v.is_none_or(|v| (v - v0).abs() >= far)) else { continue };
+        if vs[i].is_none() { continue; }
+        let t = if i == 0 { side * ks[0] } else {
+            bisect(&|t| h(t).map(|v| (v - v0).abs() - far), side * ks[i - 1], side * ks[i])
+        };
+        out.push(t);
+    }
+    out
+}
+
 /// The x range: the cluster of interesting points nearest 0 (roots, extrema, poles, edges of the domain and,
 /// above all, where curves cross), with some room.
 fn autorange(cs: &[Curve], x: &str, s: f64) -> (f64, f64) {
@@ -1319,7 +1387,13 @@ fn autorange(cs: &[Curve], x: &str, s: f64) -> (f64, f64) {
         let w = 2.0 * xs.iter().map(|v| v.abs()).fold(0.0, f64::max);
         pts.retain(|t| t.abs() <= w);
     }
-    let pts: Vec<f64> = pts.into_iter().map(|t| if t.abs() < 1e-9 * s { 0.0 } else { t }).collect();
+    let mut pts: Vec<f64> = pts.into_iter().map(|t| if t.abs() < 1e-9 * s { 0.0 } else { t }).collect();
+    // nothing interesting away from 0: the curves' own scale, where they change (a filter's corner, a decay time)
+    if pts.iter().all(|t| *t == 0.0) {
+        for c in cs {
+            pts.extend(change(&|t| at(&c.e, t), &ks));
+        }
+    }
     // distances from 0, outward while each is at most 10× the previous, 4 at most
     let mut absd: Vec<f64> = pts.iter().filter(|t| **t != 0.0).map(|t| t.abs()).collect();
     absd.sort_by(|a, b| a.total_cmp(b));
@@ -1380,6 +1454,31 @@ fn autorange(cs: &[Curve], x: &str, s: f64) -> (f64, f64) {
 mod tests {
     use super::*;
     use crate::api::line;
+
+    #[test]
+    fn curves_without_features_are_shown_over_their_own_scale() {
+        let mut env = Env::default();
+        for src in ["a := 1000", "b := 0.002"] {
+            let r = crate::test_support::req(src, &env);
+            assert!(line(&mut env, &r).errors.is_empty());
+        }
+        let range = |src: &str| {
+            let curves = vec![crate::test_support::curve(src, &env)];
+            let req = GraphReq { cfg: Cfg::default(), curves, xrange: vec![], yrange: vec![], marks: vec![], ymark: vec![], samples: 50 };
+            let g = graph(&env, &req).unwrap_or_else(|e| panic!("{src}: {e}"));
+            (g.x0, g.x1)
+        };
+        // a low-pass corner, a step, a decay, a Gaussian: the range shows where they change, at any scale
+        for (src, scale) in [("1/sqrt(1 + (x/a)^2)", 1000.0), ("tanh(x/a)", 1000.0), ("x^2 + a^2", 1000.0),
+            ("exp(-x/b)", 0.002), ("exp(-(x/b)^2)", 0.002), ("1/sqrt(1 + (x/b)^2)", 0.002)] {
+            let (x0, x1) = range(src);
+            assert!(x0 < -0.5 * scale && x1 > 0.5 * scale && x1 < 10.0 * scale && x0 > -10.0 * scale, "{src}: {x0}..{x1}");
+        }
+        // no scale of their own: around 1 as before
+        for src in ["x^2", "x^3", "2 x"] {
+            assert_eq!(range(src), (-1.0, 1.0), "{src}");
+        }
+    }
 
     #[test]
     fn graph_axes_respect_constants_and_calculus_scope() {

@@ -70,5 +70,5 @@ $"rzero" := r(0) =$
 
 // a transform is an operation, never a keyword after ->
 #worksheet(errors: "document")[
-  $x := t^2 -> laplace$ #fails("-> takes keywords and a unit")
+  $x := t^2 -> laplace$ #fails("-> takes modifiers and a unit")
 ]
