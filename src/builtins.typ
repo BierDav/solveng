@@ -163,6 +163,16 @@
 /// Real part of a complex number: `Re(3 + 4 #i)` is 3. Keeps the unit: `Re(Z)` of an impedance is its
 /// resistance. Real numbers are their own real part.
 ///
+/// Symbolic `Re` and `Im` distribute over sums and use complex arithmetic for products,
+/// quotients and integer powers, including unresolved function calls. For example,
+/// `Re(a z) = a Re(z)` when `a` has a real value, and
+/// `Re(z w) = Re(z) Re(w) - Im(z) Im(w)` in general. Undefined symbols and functions
+/// may be complex; define real coefficients or use an explicitly real expression such
+/// as `Re(a)` or `abs(a)`. Projections of real expressions simplify recursively.
+/// Expansion is limited to 512 expression nodes across the two parts; larger results
+/// keep their exact, unevaluated projection. Noninteger powers and branch-sensitive
+/// functions such as `ln` remain opaque unless their argument can be evaluated.
+///
 /// - z (expression): A complex or real value.
 /// -> value
 #let Re = [#math.op("Re")<solveng-builtin-operation>]
@@ -175,6 +185,11 @@
 #let Im = [#math.op("Im")<solveng-builtin-operation>]
 
 /// Complex conjugate: `conj(3 + 4 #i)` is 3 − 4i, shown with a bar. Keeps the unit.
+///
+/// Conjugation distributes over sums, products and integer powers, cancels nested
+/// conjugation, and commutes with `exp`, `sin`, `cos`, `sinh` and `cosh`. It preserves
+/// provably real expressions. Conjugation stays outside branch-sensitive functions
+/// and noninteger powers when their arguments are symbolic.
 ///
 /// The magnitude is `abs(z)` and the angle is Typst's own `arg(z)`, in radians from −π to π; both need no
 /// import.

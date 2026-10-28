@@ -9,6 +9,9 @@ use crate::dim::Dim;
 use crate::expr::{Expr, Val, simp};
 use crate::num::{Num, Rat};
 
+mod symbolic;
+pub use symbolic::projection;
+
 /// A complex floating point number.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Z {

@@ -972,6 +972,9 @@ fn simp_f(f: Func, a: Expr) -> Expr {
             _ => {}
         }
     }
+    if matches!(f, Func::Re | Func::Im | Func::Conj) {
+        return crate::complex::projection(f, &a);
+    }
     // inverse pairs: exp(ln x) = x, ln(exp x) = x
     if let Expr::F(g, inner) = &a {
         if (f == Func::Exp && *g == Func::Ln) || (f == Func::Ln && *g == Func::Exp) {

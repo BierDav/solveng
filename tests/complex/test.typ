@@ -38,6 +38,18 @@
   $#i -> substitute(#i)$ #result("sqrt(\"−1\")")
 ]
 
+// Real projection is linear even while the signals are still undefined.
+#worksheet[
+  $a := 2$, $b := -3$
+  $x(t) := a s_a(t) + b s_b(t)$
+  $y_1(t) := Re(x(t))$
+  $y_"a1"(t) := Re(s_a(t))$
+  $y_"a2"(t) := Re(s_b(t))$
+  $y_2(t) := a y_"a1"(t) + b y_"a2"(t)$
+  $y_1(t) = y_2(t) ->$ #passes() #result("\"true\"")
+  $Re(z w) = Re(z) Re(w) - Im(z) Im(w) ->$ #result("\"true\"")
+]
+
 // with units: an impedance
 #worksheet[
   $Z := 100 #Ω + #i 2 pi 50 Hz 10 mH =$ #passes() #result("lr((\"100\" + \"3.142\" i)) thin Ω")
