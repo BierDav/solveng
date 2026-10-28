@@ -175,10 +175,16 @@ fn evaluate<const WITH_UNITS: bool>(e: &Expr, dom: Domain, vars: &dyn Fn(&str) -
     };
     let r = match e {
         Expr::Cases(v) => {
-            for (value, condition) in v {
+            for (k, (value, condition)) in v.iter().enumerate() {
                 let (test, dim) = real(condition, "a cases condition")?;
                 if !dim.is_one() { return Err("a cases condition must be unitless".into()); }
-                if test != 0.0 { return evaluate::<WITH_UNITS>(value, dom, vars); }
+                if test != 0.0 {
+                    let found = evaluate::<WITH_UNITS>(value, dom, vars)?;
+                    if crate::calculus::guard(condition).is_none() { return Ok(found); }
+                    // the function's size where the guard fails: the next branch, the closed form's limit there
+                    let at_root = v.get(k + 1).and_then(|(w, _)| evaluate::<WITH_UNITS>(w, Domain::Complex, vars).ok()).map_or(0.0, |(w, _)| w.abs());
+                    return Ok(removable::<WITH_UNITS>(value, condition, &found, at_root, vars).unwrap_or(found));
+                }
             }
             return Err("no cases condition matches here".into());
         }
@@ -288,6 +294,11 @@ fn evaluate<const WITH_UNITS: bool>(e: &Expr, dom: Domain, vars: &dyn Fn(&str) -
             (N::real(if ok { 1.0 } else { 0.0 }), Dim::ONE)
         }
         Expr::Antiderivative(..) => return Err("integral: no antiderivative found for this integrand – with bounds, integral_a^b f dif x is evaluated numerically".into()),
+        // a value put in (a guarded closed form at a number): the body with the variable at that value
+        Expr::Subs(body, var, by) if !body.contains(&|e| matches!(e, Expr::Derivative(..))) => {
+            let at = evaluate::<WITH_UNITS>(by, dom, vars)?;
+            return evaluate::<WITH_UNITS>(body, dom, &|n| if n == var { Some(at.clone()) } else { vars(n) });
+        }
         Expr::Subs(..) | Expr::Derivative(..) => return Err("this derivative needs piecewise or distributional calculus; it is kept symbolic".into()),
         Expr::InverseLaplace(body, var, by) => {
             let (t, dimension) = real(by, "the inverse Laplace evaluation time")?;
@@ -388,11 +399,89 @@ pub(crate) fn graph_sample(e: &Expr, x: &str, t: f64, dimension: &Dim) -> Result
     if v.is_real_result() { Ok(v.re) } else { Err(SampleError::Complex) }
 }
 
+/// A closed form that holds where `condition` (g ≠ 0 for a parameter x) does, (eˣ − 1)/x: near g = 0 its parts
+/// cancel and rounding swamps the value, though the function is analytic there (the singularity is removable).
+/// An analytic function is the mean of its values on a circle around the point (Cauchy's mean value theorem), and
+/// on a circle far enough from g = 0 the closed form is well-conditioned: the trapezoid rule on it converges
+/// geometrically. Rounding is measured against the function's size at g = 0 (`at_root`, the other branch), so
+/// values near the function's own zeros don't count as swamped. The radius goes up tenfold from the distance to
+/// g = 0, probed with a few samples, until their error estimate (rounding plus the difference to half the
+/// samples) stops improving; the best radius then gets the full sum. None where the value is accurate already or
+/// the closed form isn't analytic in x (abs, signals, non-integer powers of x).
+fn removable<const WITH_UNITS: bool>(value: &Expr, condition: &Expr, found: &(N, Dim), at_root: f64, vars: &dyn Fn(&str) -> Option<(N, Dim)>) -> Option<(N, Dim)> {
+    let (z, d) = found;
+    let error = z.error.abs();
+    if error <= 1e-8 * z.abs().max(at_root) { return None; }
+    let (x, root) = crate::calculus::guard(condition)?;
+    if !analytic(value, &x) { return None; }
+    let (center, xd) = vars(&x)?;
+    let root = evaluate::<WITH_UNITS>(&root, Domain::Complex, vars).ok()?.0;
+    let distance = center.z.add(root.z.scale(-1.0)).abs();
+    // the trapezoid sum on the circle of radius rho with n samples, and its error estimate
+    let circle = |rho: f64, n: usize| -> Option<(Z, f64)> {
+        let mut points = Vec::with_capacity(n);
+        for k in 0..n {
+            let angle = std::f64::consts::TAU * k as f64 / n as f64;
+            let at = N::from(center.z.add(Z::new(rho * angle.cos(), rho * angle.sin())));
+            let sample = |name: &str| if name == x { Some((at, xd.clone())) } else { vars(name) };
+            let (v, _) = evaluate::<WITH_UNITS>(value, Domain::Complex, &sample).ok()?;
+            if !(v.re.is_finite() && v.im.is_finite()) { return None; }
+            points.push(v);
+        }
+        let mean = |step: usize| points.iter().step_by(step).fold(Z::new(0.0, 0.0), |sum, v| sum.add(v.z)).scale(step as f64 / n as f64);
+        let (all, half) = (mean(1), mean(2));
+        let rounding = points.iter().map(|v| v.error.abs()).fold(0.0, f64::max);
+        Some((all, all.add(half.scale(-1.0)).abs() + rounding))
+    };
+    // near g = 0 the best radius is the function's, not the point's: the last one found for this closed form
+    let key = (value as *const Expr as usize, x.clone());
+    if let Some(rho) = RADIUS.with(|r| r.borrow().as_ref().filter(|(k, rho)| *k == key && *rho > 4.0 * distance).map(|(_, rho)| *rho)) {
+        if let Some((mean, estimate)) = circle(rho, 32).filter(|(_, e)| *e < error && *e <= 1e-9 * at_root.max(1e-300)) {
+            return Some((N::estimated(mean, Z::new(estimate, estimate)), d.clone()));
+        }
+    }
+    let mut best: Option<(f64, f64)> = None;
+    let mut rho = (2.0 * distance).max(1e-300);
+    for _ in 0..40 {
+        if let Some((_, estimate)) = circle(rho, 8) {
+            match best {
+                Some((_, e)) if estimate >= e => break,
+                _ => best = Some((rho, estimate)),
+            }
+        }
+        rho *= 10.0;
+    }
+    let rho = best?.0;
+    let (mean, estimate) = circle(rho, 32)?;
+    RADIUS.with(|r| *r.borrow_mut() = Some((key, rho)));
+    (estimate < error).then(|| (N::estimated(mean, Z::new(estimate, estimate)), d.clone()))
+}
+
+thread_local! {
+    /// The closed form (by address, with its parameter) [`removable`] last found a radius for, and the radius.
+    static RADIUS: std::cell::RefCell<Option<((usize, String), f64)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Whether an expression is analytic in x (poles allowed): sums, products, integer powers, exp, sin, cos, sinh, cosh.
+fn analytic(e: &Expr, x: &str) -> bool {
+    if !e.has(x) { return true; }
+    match e {
+        Expr::Sym(_) => true,
+        Expr::Add(v) | Expr::Mul(v) => v.iter().all(|a| analytic(a, x)),
+        Expr::Pow(b, k) if !k.has(x) => k.as_num().is_some_and(|n| n.is_int()) && analytic(b, x),
+        Expr::Pow(b, k) if !b.has(x) => analytic(k, x),
+        Expr::F(Func::Exp | Func::Sin | Func::Cos | Func::Sinh | Func::Cosh, a) | Expr::Number(a, ..) => analytic(a, x),
+        _ => false,
+    }
+}
+
 fn eval_real(e: &Expr, vars: &dyn Fn(&str) -> Option<f64>) -> Option<f64> {
     let r = match e {
         Expr::Cases(v) => {
             let mut selected = None;
             for (value, condition) in v {
+                // a closed form guarded against its removable singularity may need the careful evaluation
+                if crate::calculus::guard(condition).is_some() { return None; }
                 if eval_real(condition, vars)? != 0.0 { selected = Some(value); break; }
             }
             return eval_real(selected?, vars);

@@ -609,7 +609,13 @@ impl<'a> Lower<'a> {
             Some(w) if arrays => w,
             _ => &f.body,
         };
-        Ok(body.subst_all(&m))
+        // a number for a parameter a closed form is guarded in is put in as a value (see simp of Subs)
+        let names: Vec<String> = f.params.iter()
+            .filter(|p| m.get(&p.name).is_some_and(|x| x.syms().is_empty()) && crate::calculus::guarded_in(body, &p.name))
+            .map(|p| p.name.clone())
+            .collect();
+        let kept: Vec<(String, Expr)> = names.into_iter().filter_map(|n| Some((n.clone(), m.remove(&n)?))).collect();
+        Ok(kept.into_iter().fold(body.subst_all(&m), |e, (name, x)| simp(&Expr::Subs(Box::new(e), name, Box::new(x)))))
     }
 
     /// Typed arguments must carry the declared dimension, including literal numbers.

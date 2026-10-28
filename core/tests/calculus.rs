@@ -396,3 +396,39 @@ fn symmetric_pulse_fourier_integral_with_bounds_is_plottable() {
     }).unwrap();
     assert!(!plot.series.is_empty());
 }
+
+#[test]
+fn closed_forms_hold_where_their_divisor_vanishes() {
+    let mut env = Env::default();
+    // e^(a t) / a is the integral only for a ≠ 0; at a = 0 the integrand is 1
+    run(&mut env, "F(a) := integral_0^1 e^(a t) dif t ->");
+    // near a = 0 the parts of (e^a − 1)/a cancel: a number put in is still exact to rounding
+    for (a, expected) in [("0", 1.0), ("1", std::f64::consts::E - 1.0), ("-2", (1.0 - (-2.0f64).exp()) / 2.0), ("10^(-12)", 1.0 + 0.5e-12)] {
+        run(&mut env, &format!("y := F({a}) ="));
+        assert!((value(&env.vars["y"].expr).unwrap().v.f() - expected).abs() < 1e-12, "F({a})");
+    }
+    // t^(n + 1)/(n + 1) except at n = −1
+    run(&mut env, "G(n) := integral_1^2 t^n dif t ->");
+    run(&mut env, "y := G(-1) =");
+    assert!((value(&env.vars["y"].expr).unwrap().v.f() - 2f64.ln()).abs() < 1e-12);
+    assert_eq!(run(&mut env, "F(1) ->").result.as_deref(), Some("#svconst(\"euler\") - \"1\""));
+    run(&mut env, "y := G(2) =");
+    assert!((value(&env.vars["y"].expr).unwrap().v.f() - 7.0 / 3.0).abs() < 1e-12);
+}
+
+#[test]
+fn signal_integrals_are_exact_piecewise() {
+    let mut env = Env::default();
+    for (source, expected) in [
+        ("integral_(-infinity)^(infinity) rect(t) dif t ->", "\"1\""),
+        ("integral_(-2)^(0.25) tri(t) dif t ->", "frac(\"23\", \"32\")"),
+        ("integral_(0.25)^(-2) tri(t) dif t ->", "-frac(\"23\", \"32\")"),
+        ("integral_(-infinity)^(infinity) t rect(t - 1) dif t ->", "\"1\""),
+    ] {
+        assert_eq!(run(&mut env, source).result.as_deref(), Some(expected), "{source}");
+    }
+    run(&mut env, "y := integral_0^infinity rect(t) e^(-t) dif t =");
+    assert!((value(&env.vars["y"].expr).unwrap().v.f() - (1.0 - (-0.5f64).exp())).abs() < 1e-12);
+    // unbounded support stays an integral (and diverges numerically)
+    assert!(!line(&mut Env::default(), "integral_0^infinity sgn(t) dif t =").errors.is_empty());
+}

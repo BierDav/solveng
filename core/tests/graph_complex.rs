@@ -104,3 +104,28 @@ fn ordinary_real_graphs_keep_domains_and_discontinuities() {
     assert!(plot(&env,"1/x",-1.0,1.0).is_ok());
     assert!(plot(&env,"ln(x)",-2.0,-1.0).unwrap_err().contains("complex"));
 }
+#[test]
+fn fourier_transform_of_pulses_is_closed_and_solvable() {
+    let mut env = fourier_env();
+    // closed form, guarded at f = 0 where it would divide by 0
+    let out = run(&mut env, "S(f) ->");
+    assert!(out.result.as_deref().is_some_and(|r| r.starts_with("cases(") && !r.contains("integral")), "{out:?}");
+    for f in [0.0, 1e-13, -1e-9, 1e-6, 0.2] {
+        let value = eval_f(&env.funs["S"].body, &|n| (n == "f").then_some(f)).unwrap();
+        assert!((value - analytic(f)).abs() < 1e-9, "f={f}: {value}");
+    }
+    // a number put in close to 0, directly or through a variable
+    for source in ["answer := S(10^(-9)) =", "answer := S(-10^(-13)) + 0 =", "answer := S(2 x) ="] {
+        run(&mut env, "x := 10^(-10)");
+        run(&mut env, source);
+        let value = complex_value(&env.vars["answer"].expr).unwrap();
+        assert!((value.re.v.f() - 6.0).abs() < 1e-9 && value.im.v.f().abs() < 1e-9, "{source}: {value:?}");
+    }
+    // the zeros nearest the origin: cos(5πf) cos(2πf) = 0 (it used to crash the engine)
+    let out = run(&mut env, "S(f) = 0 -> solve(f)");
+    let result = out.result.unwrap();
+    for root in ["f_(1) = \"0.1\"", "f_(3) = \"0.25\"", "f_(5) = \"0.3\""] {
+        assert!(result.contains(root), "{root} in {result}");
+    }
+    assert_eq!(env.funs["S"].params.len(), 1);
+}

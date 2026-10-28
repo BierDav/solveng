@@ -4,6 +4,16 @@ use crate::num::Num;
 pub fn integral(body: Expr, var: String, lo: Expr, hi: Expr) -> Expr {
     let (lo, hi) = unit_bounds(lo, hi);
     if lo == hi && !lo.contains(&infinite) { return int(0); }
+    match closed(&body, &var, &lo, &hi) {
+        Some((value, nonzero)) => guarded(value, nonzero, &body, &var, &lo, &hi),
+        None => Expr::Integral(Box::new(body), var, Box::new(lo), Box::new(hi)),
+    }
+}
+
+/// The definite integral in closed form, with the expressions it divided by (each must be ≠ 0 for it to hold),
+/// or None.
+fn closed(body: &Expr, var: &str, lo: &Expr, hi: &Expr) -> Option<(Expr, Vec<Expr>)> {
+    if let Some(found) = piecewise(body, var, lo, hi) { return Some(found); }
     let bounds_match = match (crate::eval::dim_of(&lo, &|_| None), crate::eval::dim_of(&hi, &|_| None)) {
         (Ok(Some(a)), Ok(Some(b))) => a == b,
         _ => true,
@@ -22,13 +32,108 @@ pub fn integral(body: Expr, var: String, lo: Expr, hi: Expr) -> Expr {
         }
     });
     // the antiderivative at a numeric bound must have a value (ln u at u = 0 has none, the integral may converge)
-    let defined_at = |f: &Expr, bound: &Expr| !crate::eval::eval_f(&f.subst(&var, bound), &|_| None).is_some_and(|v| !v.is_finite());
-    if let Some(f) = primitive(&simp(&body), &var) {
-        if bounds_match && !crosses_pole && !lo.contains(&infinite) && !hi.contains(&infinite) && defined_at(&f, &lo) && defined_at(&f, &hi) {
-            return simp(&sub(f.subst(&var, &hi), f.subst(&var, &lo)));
-        }
+    let defined_at = |f: &Expr, bound: &Expr| !crate::eval::eval_f(&f.subst(var, bound), &|_| None).is_some_and(|v| !v.is_finite());
+    if !bounds_match || crosses_pole || lo.contains(&infinite) || hi.contains(&infinite) { return None; }
+    let mut nonzero = vec![];
+    let f = primitive(&simp(body), var, &mut nonzero)?;
+    (defined_at(&f, lo) && defined_at(&f, hi)).then(|| (simp(&sub(f.subst(var, hi), f.subst(var, lo))), nonzero))
+}
+
+/// Signals (rect, tri, sgn, abs, conditions) with numeric affine corners: between two corners each is the
+/// polynomial or constant it is there, so the integral is the sum of the pieces' integrals. Pieces where the body
+/// is 0 drop out, which makes infinite bounds finite for signals of bounded support (Fourier integrals of pulses).
+fn piecewise(body: &Expr, var: &str, lo: &Expr, hi: &Expr) -> Option<(Expr, Vec<Expr>)> {
+    use crate::convolution::{breakpoints, inside, resolve, sorted};
+    // distributions aren't functions of pieces (δ(0) has no value); the convolution sifts them
+    if body.contains(&|e| matches!(e, Expr::F(Func::Dirac, _))) { return None; }
+    let mut points = vec![];
+    breakpoints(body, var, &mut points)?;
+    if points.is_empty() { return None; }
+    let (Expr::C(l), Expr::C(h)) = (lo, hi) else { return None };
+    if h.v.cmp(l.v) == std::cmp::Ordering::Less {
+        let (value, nonzero) = piecewise(body, var, hi, lo)?;
+        return Some((neg(value), nonzero));
     }
-    Expr::Integral(Box::new(body), var, Box::new(lo), Box::new(hi))
+    // var's dimension: its corners' (a unitless 0 fits any), else the bounds'
+    let d = points.iter().find(|p| !(p.is_zero() && p.d.is_one())).map_or_else(|| l.d.clone(), |p| p.d.clone());
+    let finite = |v: &crate::expr::Val| v.v.f().is_finite();
+    let mut ends = vec![l.clone()];
+    ends.extend(sorted(points).into_iter().filter(|p| p.v.cmp(l.v).is_gt() && p.v.cmp(h.v).is_lt()).map(|p| {
+        if p.is_zero() { crate::expr::Val::new(Num::ZERO, d.clone()) } else { p }
+    }));
+    ends.push(h.clone());
+    let (mut values, mut nonzero) = (vec![], vec![]);
+    for w in ends.windows(2) {
+        let sample = inside(Some(&w[0]).filter(|v| finite(v)), Some(&w[1]).filter(|v| finite(v)), d.clone())?;
+        let piece = simp(&resolve(body, var, &sample)?);
+        if piece.is_zero() { continue; }
+        if !finite(&w[0]) || !finite(&w[1]) { return None; }
+        let (value, conditions) = closed(&piece, var, &Expr::C(w[0].clone()), &Expr::C(w[1].clone()))?;
+        values.push(value);
+        nonzero.extend(conditions);
+    }
+    Some((simp(&add(values)), nonzero))
+}
+
+/// The closed form where what it divided by isn't 0, and the integral at the parameter values where it is.
+/// A condition is solved for a parameter it holds linearly (f ≠ 0 from −2πi f, a ≠ −b from a + b): that branch is
+/// the integral with the parameter put in. Conditions with no such parameter stay unchecked.
+fn guarded(value: Expr, nonzero: Vec<Expr>, body: &Expr, var: &str, lo: &Expr, hi: &Expr) -> Expr {
+    let mut seen: Vec<(Expr, String, Expr)> = vec![];
+    for condition in nonzero {
+        let condition = essential(&condition);
+        if seen.iter().any(|(c, ..)| *c == condition) { continue; }
+        let Some((name, root)) = parameter(&condition) else { continue };
+        seen.push((condition, name, root));
+    }
+    seen.into_iter().rev().fold(value, |inner, (condition, name, root)| {
+        let at = |e: &Expr| simp(&e.subst(&name, &root));
+        let otherwise = integral(at(body), var.to_string(), at(lo), at(hi));
+        let test = Expr::Cmp(vec![condition, int(0)], vec![crate::parse::Rel::Ne]);
+        simp(&Expr::Cases(vec![(inner, test), (otherwise, int(1))]))
+    })
+}
+
+/// A parameter the expression holds linearly, with a numeric coefficient, and where the expression is 0 for it.
+pub(crate) fn parameter(e: &Expr) -> Option<(String, Expr)> {
+    e.syms().into_iter().find_map(|n| {
+        let cs = crate::poly::coeffs(e, &n)?;
+        let [c0, c1] = cs.as_slice() else { return None };
+        c1.as_num().filter(|k| !k.is_zero())?;
+        Some((n.clone(), simp(&neg(div(c0.clone(), c1.clone())))))
+    })
+}
+
+/// A condition `g ≠ 0` from [`guarded`]: the parameter and where g is 0.
+pub(crate) fn guard(condition: &Expr) -> Option<(String, Expr)> {
+    match condition {
+        Expr::Cmp(sides, rels) if rels.as_slice() == [crate::parse::Rel::Ne] && sides.len() == 2 && sides[1].is_zero() => parameter(&sides[0]),
+        _ => None,
+    }
+}
+
+/// Whether e holds a closed form from [`guarded`] whose guard is on x.
+pub(crate) fn guarded_in(e: &Expr, x: &str) -> bool {
+    e.contains(&|c| matches!(c, Expr::Cases(branches) if branches.iter().any(|(_, condition)| guard(condition).is_some_and(|(n, _)| n == x))))
+}
+
+/// Whether x = by is where a guard of e on x fails: there the other branch is the value, exactly.
+pub(crate) fn at_singularity(e: &Expr, x: &str, by: &Expr) -> bool {
+    e.contains(&|c| matches!(c, Expr::Cases(branches) if branches.iter().any(|(_, condition)| {
+        guard(condition).is_some_and(|(n, _)| n == x) && simp(&condition.subst(x, by)).as_num().is_some_and(|v| v.is_zero())
+    })))
+}
+
+/// What decides whether an expression is 0: without nonzero constant factors and positive powers (−2πi f² → f).
+fn essential(e: &Expr) -> Expr {
+    let base = |f: &Expr| match f {
+        Expr::Pow(b, k) if k.as_num().is_some_and(|k| !k.is_neg() && !k.is_zero()) => (**b).clone(),
+        f => f.clone(),
+    };
+    match simp(e) {
+        Expr::Mul(fs) => simp(&mul(fs.iter().filter(|f| !f.syms().is_empty()).map(base).collect())),
+        e => base(&e),
+    }
 }
 
 /// 0 and ±∞ fit every unit: such a bound without one takes the other bound's (integral_0^(2 s)).
@@ -58,7 +163,7 @@ pub fn antiderivative(body: &Expr, var: &str) -> Expr {
 /// Keep an unresolved primitive with its local variable and a separate evaluation point.
 /// This lets later definitions resolve the integrand before substituting a function argument.
 pub fn antiderivative_at(body: Expr, var: String, by: Expr) -> Expr {
-    match primitive(&body, &var) {
+    match primitive(&body, &var, &mut vec![]) {
         Some(f) => simp(&f.subst(&var, &by)),
         None => Expr::Antiderivative(Box::new(body), var, Box::new(by)),
     }
@@ -66,26 +171,29 @@ pub fn antiderivative_at(body: Expr, var: String, by: Expr) -> Expr {
 
 /// An antiderivative found by the rules below, or None: linearity, powers and functions of a linear argument,
 /// expanded products and integration by parts of a polynomial times a factor integrated again and again.
-fn primitive(e: &Expr, x: &str) -> Option<Expr> {
+/// What it divides by that has parameters in it goes to `nonzero`: the result holds where they aren't 0.
+fn primitive(e: &Expr, x: &str, nonzero: &mut Vec<Expr>) -> Option<Expr> {
     if !e.has(x) { return Some(mul(vec![e.clone(), sym(x)])); }
     match e {
         Expr::Sym(n) if n == x => Some(div(pow(sym(x), int(2)), int(2))),
-        Expr::Add(ts) => Some(add(ts.iter().map(|t| primitive(t, x)).collect::<Option<_>>()?)),
+        Expr::Add(ts) => Some(add(ts.iter().map(|t| primitive(t, x, nonzero)).collect::<Option<_>>()?)),
         Expr::Mul(fs) => {
             let (constant, varying): (Vec<_>, Vec<_>) = fs.iter().cloned().partition(|f| !f.has(x));
             let found = match varying.as_slice() {
-                [one] => primitive(one, x),
-                _ => expanded(e, x).or_else(|| by_parts(&varying, x)),
+                [one] => primitive(one, x, nonzero),
+                _ => expanded(e, x, nonzero).or_else(|| by_parts(&varying, x, nonzero)),
             };
             Some(mul(vec![mul(constant), found?]))
         }
         Expr::Pow(a, b) if !b.has(x) => {
             let slope = a.diff(x);
-            if slope.has(x) || slope.is_zero() { return expanded(e, x); }
+            if slope.has(x) || slope.is_zero() { return expanded(e, x, nonzero); }
+            divides(&slope, nonzero);
             let f = if b.as_num().is_some_and(|n| n.same(Num::int(-1))) {
                 func(Func::Ln, func(Func::Abs, (**a).clone()))
             } else {
                 let next = simp(&add(vec![(**b).clone(), int(1)]));
+                divides(&next, nonzero);
                 div(pow((**a).clone(), next.clone()), next)
             };
             Some(div(f, slope))
@@ -93,11 +201,15 @@ fn primitive(e: &Expr, x: &str) -> Option<Expr> {
         Expr::Pow(a, b) if !a.has(x) => {
             let slope = b.diff(x);
             if slope.has(x) || slope.is_zero() { return None; }
+            divides(&slope, nonzero);
+            // ln a is 0 at a = 1
+            divides(&sub((**a).clone(), int(1)), nonzero);
             Some(div(e.clone(), mul(vec![slope, func(Func::Ln, (**a).clone())])))
         }
         Expr::F(f, a) => {
             let slope = a.diff(x);
             if slope.has(x) || slope.is_zero() { return None; }
+            divides(&slope, nonzero);
             let a = (**a).clone();
             let result = match f {
                 Func::Exp => func(Func::Exp, a),
@@ -116,27 +228,31 @@ fn primitive(e: &Expr, x: &str) -> Option<Expr> {
     }
 }
 
+fn divides(by: &Expr, nonzero: &mut Vec<Expr>) {
+    if !by.syms().is_empty() { nonzero.push(by.clone()); }
+}
+
 /// A product or power that multiplies out into a sum: each term on its own.
-fn expanded(e: &Expr, x: &str) -> Option<Expr> {
+fn expanded(e: &Expr, x: &str, nonzero: &mut Vec<Expr>) -> Option<Expr> {
     let terms = crate::expr::expand(e);
     if !matches!(terms, Expr::Add(_)) || terms == *e { return None; }
-    primitive(&terms, x)
+    primitive(&terms, x, nonzero)
 }
 
 /// ∫ p g = p G₁ − p′ G₂ + p″ G₃ − …, for a polynomial p and a factor g whose repeated antiderivatives Gₖ are found
 /// (an exponential, sin, cos, sinh or cosh of a linear argument). The sum ends after p's degree.
-fn by_parts(factors: &[Expr], x: &str) -> Option<Expr> {
+fn by_parts(factors: &[Expr], x: &str, nonzero: &mut Vec<Expr>) -> Option<Expr> {
     let (polynomial, rest): (Vec<_>, Vec<_>) = factors.iter().cloned().partition(|f| crate::poly::coeffs(f, x).is_some());
     let [g] = rest.as_slice() else { return None };
     let mut p = simp(&mul(polynomial));
-    let mut integrated = primitive(g, x)?;
+    let mut integrated = primitive(g, x, nonzero)?;
     let mut terms = vec![];
     for k in 0..=crate::poly::coeffs(&p, x)?.len() {
         if p.is_zero() { return Some(add(terms)); }
         let term = mul(vec![p.clone(), integrated.clone()]);
         terms.push(if k % 2 == 0 { term } else { neg(term) });
         p = simp(&p.diff(x));
-        integrated = primitive(&simp(&integrated), x)?;
+        integrated = primitive(&simp(&integrated), x, nonzero)?;
     }
     None
 }

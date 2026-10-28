@@ -215,8 +215,14 @@ fn plain(v: Val) -> Val {
     Val { u: None, raw: None, ..v }
 }
 
-/// The parts of a constant: a real constant, i, a constant times i, or a sum of these. None for anything else.
+/// The parts of a constant: a real constant, i, a constant times i, or a sum of these. None for anything else,
+/// and for infinities and NaN: ∞·i has no real and imaginary part (∞·0 is NaN), so it stays a product.
 pub fn parts(e: &Expr) -> Option<CVal> {
+    let c = finite_parts(e)?;
+    (c.re.v.f().is_finite() && c.im.v.f().is_finite()).then_some(c)
+}
+
+fn finite_parts(e: &Expr) -> Option<CVal> {
     match e {
         Expr::C(v) => Some(CVal::real(v.clone())),
         Expr::I => Some(CVal { re: Val::int(0), im: Val::int(1) }),

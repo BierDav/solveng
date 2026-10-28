@@ -247,7 +247,7 @@ fn trim(mut p: Poly) -> Poly {
     p
 }
 
-fn sorted(mut v: Vec<Val>) -> Vec<Val> {
+pub(crate) fn sorted(mut v: Vec<Val>) -> Vec<Val> {
     v.sort_by(|a, b| a.v.cmp(b.v));
     v.dedup_by(|a, b| a.v.same(b.v));
     v
@@ -262,7 +262,7 @@ fn spans(points: &[Val]) -> Vec<(Option<Val>, Option<Val>)> {
 }
 
 /// A point strictly inside an interval, in dimension d.
-fn inside(lo: Option<&Val>, hi: Option<&Val>, d: Dim) -> Option<Val> {
+pub(crate) fn inside(lo: Option<&Val>, hi: Option<&Val>, d: Dim) -> Option<Val> {
     let unit = Val::new(Num::ONE, d.clone());
     match (lo, hi) {
         (Some(l), Some(h)) => Some(l.add(h)?.mul(&Val::num(Num::R(Rat::new(1, 2)?)))),
@@ -306,16 +306,11 @@ fn root(slope: &Val, intercept: &Val, level: &Val) -> Option<Val> {
     Some(difference.mul(&slope.pow(Num::int(-1))?))
 }
 
-/// Collect var's breakpoints; None where the operand isn't piecewise polynomial with numeric affine corners.
-fn breakpoints(e: &Expr, var: &str, out: &mut Vec<Val>) -> Option<()> {
+/// Collect var's breakpoints: the corners of its signals and conditions, wherever they are. None where one of them
+/// isn't affine with numeric coefficients. Whether the pieces between are polynomials is up to the caller.
+pub(crate) fn breakpoints(e: &Expr, var: &str, out: &mut Vec<Val>) -> Option<()> {
     if !e.has(var) { return Some(()); }
     match e {
-        Expr::Sym(_) => {}
-        Expr::Add(v) | Expr::Mul(v) => for x in v { breakpoints(x, var, out)?; },
-        Expr::Pow(b, x) => {
-            if !x.as_num().and_then(Num::as_int).is_some_and(|k| k >= 0) { return None; }
-            breakpoints(b, var, out)?;
-        }
         Expr::F(f @ (Func::Rect | Func::Tri | Func::Sgn | Func::Abs), a) => {
             let (slope, intercept) = affine(a, var)?;
             if slope.is_zero() { return Some(()); }
@@ -332,28 +327,22 @@ fn breakpoints(e: &Expr, var: &str, out: &mut Vec<Val>) -> Option<()> {
                 if !slope.is_zero() { out.push(root(&slope, &intercept, &Val::int(0))?); }
             }
         }
-        Expr::Cases(branches) => for (value, condition) in branches {
-            breakpoints(value, var, out)?;
-            breakpoints(condition, var, out)?;
-        },
-        _ => return None,
+        Expr::F(Func::Floor | Func::Ceil | Func::Dirac, _) | Expr::Call(..) | Expr::Derivative(..) => return None,
+        e => for x in e.children() { breakpoints(x, var, out)?; },
     }
     Some(())
 }
 
-/// The operand's polynomial on the piece around `sample` (a point that is no breakpoint).
-fn resolve(e: &Expr, var: &str, sample: &Val) -> Option<Expr> {
+/// The operand on the piece around `sample` (a point that is no breakpoint): its signals and conditions as the
+/// polynomials or constants they are there.
+pub(crate) fn resolve(e: &Expr, var: &str, sample: &Val) -> Option<Expr> {
     if !e.has(var) { return Some(e.clone()); }
     let value = |a: &Expr| match simp(&a.subst(var, &Expr::C(sample.clone()))) {
         Expr::C(v) => Some(v),
         _ => None,
     };
     Some(match e {
-        Expr::Sym(_) => e.clone(),
-        Expr::Add(v) => Expr::Add(v.iter().map(|x| resolve(x, var, sample)).collect::<Option<_>>()?),
-        Expr::Mul(v) => Expr::Mul(v.iter().map(|x| resolve(x, var, sample)).collect::<Option<_>>()?),
-        Expr::Pow(b, x) if !x.has(var) => pow(resolve(b, var, sample)?, (**x).clone()),
-        Expr::F(f, a) => {
+        Expr::F(f @ (Func::Rect | Func::Tri | Func::Sgn | Func::Abs), a) => {
             let x = value(a)?.v;
             let a = (**a).clone();
             match f {
@@ -363,8 +352,7 @@ fn resolve(e: &Expr, var: &str, sample: &Val) -> Option<Expr> {
                 Func::Tri => sub(int(1), a),
                 Func::Sgn => int(if x.is_neg() { -1 } else { 1 }),
                 Func::Abs if x.is_neg() => neg(a),
-                Func::Abs => a,
-                _ => return None,
+                _ => a,
             }
         }
         Expr::Cmp(..) => Expr::C(value(e)?),
@@ -375,7 +363,11 @@ fn resolve(e: &Expr, var: &str, sample: &Val) -> Option<Expr> {
             }
             return None;
         }
-        _ => return None,
+        e => {
+            let mut ok = true;
+            let out = e.map(&mut |x| resolve(x, var, sample).unwrap_or_else(|| { ok = false; x.clone() }));
+            ok.then_some(out)?
+        }
     })
 }
 

@@ -582,36 +582,69 @@ pub fn gauss(a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
 pub fn scan(e: &Expr, x: &str, s: f64) -> Vec<f64> {
     let d = e.diff(x);
     let f = |t: f64| eval_f(e, &|n| (n == x).then_some(t));
-    let scale = {
-        // |terms| for telling a root from rounding
-        let ts: Vec<Expr> = match e {
-            Expr::Add(ts) => ts.clone(),
-            t => vec![t.clone()],
-        };
-        move |t: f64| ts.iter().map(|u| eval_f(u, &|n| (n == x).then_some(t)).map(|v| v.abs()).unwrap_or(0.0)).sum::<f64>()
-    };
-    let ks: Vec<f64> = (-60..=60).map(|k| s * 10f64.powf(k as f64 / 4.0)).collect();
+    // the size of the parts, for telling a root from rounding
+    let scale = |t: f64| magnitude(e, x, t);
+    // a logarithmic grid over 30 decades, 4 points a decade, denser within 3 decades of the scale (32 a decade,
+    // each step split linearly), so close roots there (oscillations near the origin) don't cancel in pairs
+    let ks: Vec<f64> = (-60..60)
+        .flat_map(|q| {
+            let (lo, hi) = (s * 10f64.powf(q as f64 / 4.0), s * 10f64.powf((q + 1) as f64 / 4.0));
+            let n = if (-12..12).contains(&q) { 2 } else { 1 };
+            (0..n).flat_map(move |k| {
+                let (a, b) = (lo * (hi / lo).powf(k as f64 / n as f64), lo * (hi / lo).powf((k + 1) as f64 / n as f64));
+                let m = if n > 1 { 4 } else { 1 };
+                (0..m).map(move |j| a + (b - a) * j as f64 / m as f64)
+            })
+        })
+        .chain(std::iter::once(s * 1e15))
+        .collect();
     let mut pts: Vec<f64> = ks.iter().rev().map(|t| -t).collect();
     pts.push(0.0);
     pts.extend(ks.iter());
     let vs: Vec<Option<f64>> = pts.iter().map(|&t| f(t)).collect();
+    // a value within the rounding of its parts (which cancel near a root or a removable singularity) has no sign:
+    // sign changes are between the significant samples around it, with no undefined sample between them
+    let significant = |i: usize, v: f64| v.abs() > 1e-9 * scale(pts[i]);
     let mut rs = vec![];
+    let mut last: Option<(usize, f64)> = None;
+    // a computed 0 in rounding since the last significant value: the root if the sign changes across it
+    let mut zero: Option<usize> = None;
     for i in 0..pts.len() {
-        let Some(v) = vs[i] else { continue };
-        if v == 0.0 {
-            rs.push(pts[i]);
+        let Some(w) = vs[i] else {
+            last = None;
+            zero = None;
+            continue;
+        };
+        if !significant(i, w) {
+            // a computed 0 between significant values is a root (a touching one too: x² at 0)
+            let around = |k: Option<usize>| k.and_then(|k| Some((k, vs.get(k).copied()??))).is_some_and(|(k, u)| significant(k, u));
+            if w == 0.0 && around(i.checked_sub(1)) && around(Some(i + 1)) {
+                rs.push(pts[i]);
+                last = None;
+            } else if w == 0.0 && zero.is_none() {
+                zero = Some(i);
+            }
             continue;
         }
-        let Some(Some(w)) = vs.get(i + 1) else { continue };
-        if *w == 0.0 || (v > 0.0) == (*w > 0.0) {
+        let previous = last.replace((i, w));
+        let at_zero = zero.take();
+        let Some((j, v)) = previous else { continue };
+        if (v > 0.0) == (w > 0.0) { continue; }
+        if let Some(k) = at_zero {
+            rs.push(pts[k]);
             continue;
         }
-        let (mut a, mut b, mut fa) = (pts[i], pts[i + 1], v);
+        // Illinois false position: the bracket stays, convergence is superlinear (bisection takes ~50 steps)
+        let (mut a, mut b, mut fa, mut fb) = (pts[j], pts[i], v, w);
         let mut ok = true;
         for _ in 0..200 {
-            let m = (a + b) / 2.0;
-            if m == a || m == b {
-                break;
+            // the interpolated point, or the midpoint where it can't move strictly inside (rounding)
+            let mut m = (a * fb - b * fa) / (fb - fa);
+            if !(m > a.min(b) && m < a.max(b)) {
+                m = (a + b) / 2.0;
+                if m == a || m == b {
+                    break;
+                }
             }
             let Some(fm) = f(m) else {
                 ok = false;
@@ -622,14 +655,19 @@ pub fn scan(e: &Expr, x: &str, s: f64) -> Vec<f64> {
                 b = m;
                 break;
             }
-            if (fm > 0.0) == (fa > 0.0) {
-                a = m;
-                fa = fm;
+            if (fm > 0.0) == (fb > 0.0) {
+                fa /= 2.0;
             } else {
-                b = m;
+                a = b;
+                fa = fb;
+            }
+            b = m;
+            fb = fm;
+            if (b - a).abs() <= 4.0 * f64::EPSILON * b.abs().max(a.abs()) {
+                break;
             }
         }
-        let m = (a + b) / 2.0;
+        let m = if fa.abs() < fb.abs() { a } else { b };
         if ok {
             if let Some(fm) = f(m) {
                 if fm.abs() <= 1e-7 * scale(m).max(1e-300) {
@@ -638,11 +676,11 @@ pub fn scan(e: &Expr, x: &str, s: f64) -> Vec<f64> {
             }
         }
     }
-    // roots without a sign change: Newton from local minima of |f|
+    // roots without a sign change: Newton from local minima of |f| between significant values (not in rounding)
     let sys = NumSys { f: vec![e.clone()], j: vec![vec![d]], xs: vec![x.to_string()], scale: vec![simp(&abs_terms(e))] };
     for i in 1..pts.len() - 1 {
         let (Some(u), Some(v), Some(w)) = (vs[i - 1], vs[i], vs[i + 1]) else { continue };
-        if v.abs() > u.abs() || v.abs() > w.abs() {
+        if v.abs() > u.abs() || v.abs() > w.abs() || !significant(i - 1, u) || !significant(i + 1, w) {
             continue;
         }
         if let Some(r) = sys.newton(&[pts[i]]) {
@@ -650,6 +688,18 @@ pub fn scan(e: &Expr, x: &str, s: f64) -> Vec<f64> {
         }
     }
     uniq(rs)
+}
+
+/// How big e's parts are at x = t before they cancel: sums add their parts' sizes, products multiply them, cases
+/// take the branch that holds; the rest is the absolute value, complex parts too (e^(iπx) has size 1).
+fn magnitude(e: &Expr, x: &str, t: f64) -> f64 {
+    let vars = |n: &str| (n == x).then_some(t);
+    match e {
+        Expr::Add(ts) => ts.iter().map(|u| magnitude(u, x, t)).sum(),
+        Expr::Mul(fs) => fs.iter().map(|u| magnitude(u, x, t)).product(),
+        Expr::Cases(bs) => bs.iter().find(|(_, c)| eval_f(c, &vars).is_some_and(|v| v != 0.0)).map_or(0.0, |(v, _)| magnitude(v, x, t)),
+        e => crate::eval::sample_complex(e, &vars).map_or(0.0, |v| v.abs()),
+    }
 }
 
 fn abs_terms(e: &Expr) -> Expr {

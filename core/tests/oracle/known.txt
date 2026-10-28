@@ -17,10 +17,6 @@ constant-5	weak	not simplified to a constant
 constant-7	weak	not simplified to a constant
 polynomial-6	wrong	numeric: got [[-1.5], [0.9999999974198484], [4.0], [4.5]], want [[-1.5], [1.0], [4.0], [4.5]]
 polynomial-11	wrong	numeric: got [[-8.0], [-4.000000031830101], [-0.2], [1.75]], want [[-8.0], [-4.0], [-0.2], [1.75]]
-quadratic-in-exp-8	wrong	numeric: got [[1.6094379124341005]], want [[1.6094379124341003], [1.3862943611198906]]
-abs-9	wrong	numeric: got [[3.0]], want [[2.0], [3.0]]
-sin-line-10	wrong	numeric: got [[0.0], [2.852341894450092], [-2.852341894450092]], want [[-2.852341894450092], [-7.068174358095817], [-8.423203932360492], [0.0], [2.852341894450092], [7.068174358095817], [8.423203932360492]]
-sin-line-25	wrong	numeric: got [[0.0], [3.0204776614628805], [-3.0204776614628805], [19.76108869973216], [-19.76108869973216]], want [[-13.118794089027237], [-15.061389155299649], [-19.76108869973216], [-20.994286425802738], [-3.0204776614628805], [-6.548204920556648], [-9.05418582490448], [0.0], [13.118794089027237], [15.061389155299649], [19.76108869973216], [20.994286425802738], [3.0204776614628805], [6.548204920556648], [9.05418582490448]]
 cubic-params-0	unsupported	symbolic: this equation cannot yet be solved symbolically as a function of its parameters
 cubic-params-1	unsupported	symbolic: this equation cannot yet be solved symbolically as a function of its parameters
 cubic-params-2	unsupported	symbolic: this equation cannot yet be solved symbolically as a function of its parameters

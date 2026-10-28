@@ -524,7 +524,9 @@ impl Expr {
             Expr::Number(a, k, d, _) => mul(vec![a.d(x), pow(Expr::C(Val::new(*k, d.clone())), int(-1))]),
             Expr::Sum(..) => Expr::Derivative(Box::new(self.clone()), x.into()),
             Expr::Integral(a, v, lo, hi) => {
-                let boundary = sub(mul(vec![a.subst(v, hi), hi.d(x)]), mul(vec![a.subst(v, lo), lo.d(x)]));
+                // Leibniz: a bound that doesn't move has no term; the body at a fixed (or infinite) bound isn't needed
+                let at = |b: &Expr| if b.has(x) { mul(vec![a.subst(v, b), b.d(x)]) } else { int(0) };
+                let boundary = sub(at(hi), at(lo));
                 if v == x || !a.has(x) { boundary } else { add(vec![boundary, Expr::Integral(Box::new(a.d(x)), v.clone(), lo.clone(), hi.clone())]) }
             }
             _ => int(0),
@@ -674,7 +676,10 @@ pub fn simp(e: &Expr) -> Expr {
         Expr::Subs(body, var, by) => {
             let body = simp(body);
             let by = simp(by);
-            if body.contains(&|e| matches!(e, Expr::Derivative(..))) {
+            // a closed form guarded against a removable singularity, at a number: kept, so that the number is
+            // evaluated as the variable's value (near the singularity the closed form's parts cancel)
+            let guarded = by.syms().is_empty() && crate::calculus::guarded_in(&body, var) && !crate::calculus::at_singularity(&body, var, &by);
+            if guarded || body.contains(&|e| matches!(e, Expr::Derivative(..))) {
                 Expr::Subs(Box::new(body), var.clone(), Box::new(by))
             } else {
                 simp(&body.subst(var, &by))
@@ -813,8 +818,9 @@ fn simp_mul(v: Vec<Expr>) -> Expr {
         v.extend(fs);
         return simp_mul(v);
     }
-    // complex constants are numbers: (1 + 2i)(3 − i) is 5 + 5i, 2i·3i is −6
-    if fs.iter().any(crate::complex::is_complex) {
+    // complex constants are numbers: (1 + 2i)(3 − i) is 5 + 5i, 2i·3i is −6; not with an infinite or NaN factor
+    // (∞·i has no parts: ∞·0 is NaN, and the product would be folded again and again)
+    if coef.v.f().is_finite() && fs.iter().any(crate::complex::is_complex) {
         let mut z = crate::complex::CVal::real(coef);
         fs.retain(|f| match crate::complex::parts(f).filter(|_| crate::complex::is_complex(f)) {
             Some(p) => { z = z.mul(&p); false }

@@ -193,6 +193,8 @@ impl R<'_> {
             }
             // ℒ⁻¹{F}(t): the inverse transform of F in x, at by
             Expr::InverseLaplace(a, _, by) => (format!("cal(L)^(-1) lr({{{}}})({})", self.expr(a).0, self.expr(by).0), P_ATOM),
+            // a value put in, kept for evaluating it (see simp): shown put in
+            Expr::Subs(a, x, by) if !a.contains(&|e| matches!(e, Expr::Derivative(..))) => self.expr(&crate::expr::simp(&a.subst(x, by))),
             Expr::Subs(a, x, by) => (format!("lr(({})) limits(|)_({} = {})", self.expr(a).0, name(x), self.expr(by).0), P_PROD),
             Expr::Antiderivative(a, x, by) => {
                 let integral = format!("integral {} dif {}", wrap(self.expr(a), P_NEG), name(x));

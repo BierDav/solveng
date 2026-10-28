@@ -184,3 +184,15 @@ fn number_is_a_value_in_a_unit_and_checks_its_dimension() {
     assert!(s.run("g(x: Ω) := ⦇number⦈(x^2, Ω)").unwrap_err().contains("number: the value is in"));
     assert!(s.run("⦇number⦈(R, 0 Ω) =").unwrap_err().contains("positive"));
 }
+
+#[test]
+fn infinities_times_i_stay_products() {
+    use solveng_core::expr::{Expr, Val, mul, simp};
+    use solveng_core::num::Num;
+    // ∞·i has no real and imaginary part (∞·0 is NaN): folding it into one used to recurse forever
+    let infinite = Expr::C(Val::new(Num::F(f64::NEG_INFINITY), Default::default()));
+    let e = simp(&mul(vec![infinite.clone(), Expr::I]));
+    assert!(e.contains(&|x| *x == Expr::I), "{e:?}");
+    let e = simp(&solveng_core::expr::add(vec![Expr::C(Val::new(Num::F(f64::NAN), Default::default())), mul(vec![infinite, Expr::I])]));
+    assert!(e.contains(&|x| *x == Expr::I), "{e:?}");
+}

@@ -242,9 +242,14 @@
 ///
 /// With bounds, the bounds must have matching units (0 and ±∞ match any); the result has the integrand's unit
 /// times the variable's unit. Either bound may be infinite. Recognized antiderivatives simplify exactly where they
-/// are continuous between the bounds; remaining integrals stay symbolic with `->` and use adaptive quadrature for
-/// `=` or graphs. Affine signal arguments are split at their corners so narrow pulses are not skipped. Undefined
-/// integrands or failure to converge report an error. Complex integrands are evaluated with both components
+/// are continuous between the bounds. Signals with numeric affine arguments (rect, tri, sgn, abs, cases) are split
+/// at their corners and each piece is integrated exactly, also times an exponential, sin or cos: a Fourier
+/// integral of pulses over ±∞, `$integral_(-infinity)^infinity rect(t) #e^(-#i 2 pi f t) dif t ->$`, is a closed
+/// form. A closed form that divides by a parameter holds where that isn't 0, and the result says so:
+/// `$F(a) := integral_0^1 #e^(a t) dif t ->$` is (eᵃ − 1)/a if a ≠ 0, otherwise 1. Near such a point its parts
+/// cancel, so numbers there are the mean of the values around it (the singularity is removable). Remaining
+/// integrals stay symbolic with `->` and use adaptive quadrature for `=` or graphs, split at signal corners so
+/// narrow pulses are not skipped. Undefined integrands or failure to converge report an error. Complex integrands are evaluated with both components
 /// refined together; local integration variables keep their scope and the units inferred from the bounds.
 ///
 /// In math, `$integral_0^3 x^2 dif x =$` and `$integral x^2 dif x ->$` do the same. The differential (`dif`, not

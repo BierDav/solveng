@@ -334,7 +334,7 @@ impl<'a> Sheet<'a> {
             let Expr::Cmp(v, rs) = body else {
                 return Err("solve(…) solves an equation: use a relation such as a^2 + b^2 = c^2, or call a function containing one".into());
             };
-            if rs != [Rel::Eq] || v.len() != 2 || v.iter().any(|e| e.contains(&|e| matches!(e, Expr::Cmp(..)))) {
+            if rs != [Rel::Eq] || v.len() != 2 || v.iter().any(|e| matches!(e, Expr::Cmp(..))) {
                 return Err("solve a definition using one equality per equation; a relation function already contains =, so omit the extra = b".into());
             }
             eqs.push((v[0].clone(), v[1].clone()));
@@ -783,7 +783,7 @@ impl<'a> Sheet<'a> {
                 let Expr::Cmp(v, rs) = body else {
                     return Err(format!("'{}' isn't an equation – solve(…) needs one with =, like x^2 = 4", ast_text(a, &self.units)));
                 };
-                if rs.len() != 1 || v.len() != 2 || v.iter().any(|e| e.contains(&|e| matches!(e, Expr::Cmp(..)))) {
+                if rs.len() != 1 || v.len() != 2 || v.iter().any(|e| matches!(e, Expr::Cmp(..))) {
                     return Err("one relation per equation; a relation function already contains =".into());
                 }
                 eq_text.push(ast_text(a, &self.units));
@@ -914,6 +914,11 @@ impl<'a> Sheet<'a> {
                 // nearest to zero first: periodic functions have roots everywhere
                 let mut ts = solve::scan(&simp(&expr::sub(l.clone(), r.clone())), &xs[0], scale[0]);
                 ts.sort_by(|a, b| a.abs().total_cmp(&b.abs()).then(b.total_cmp(a)));
+                // ±r found apart differ in rounding: the positive first all the same
+                for k in 1..ts.len() {
+                    let (a, b) = (ts[k - 1], ts[k]);
+                    if a < 0.0 && b > 0.0 && (a + b).abs() <= 1e-9 * b { ts.swap(k - 1, k); }
+                }
                 ts.into_iter().map(|t| vec![t]).collect()
             } else {
                 solve::NumSys::new(&bound, xs).multi(&scale)
