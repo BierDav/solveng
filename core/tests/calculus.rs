@@ -306,7 +306,6 @@ fn indefinite_integrals_give_the_antiderivative() {
     run(&mut env, "F(x) := ∫ x^2 dif x");
     assert_eq!(run(&mut env, "F(3) =").result.as_deref(), Some(r#""9""#));
     for (source, message) in [
-        ("∫ sin(x^2) dif x ->", "no antiderivative found"),
         ("integrate(x^2, x, 1) ->", "no bounds"),
         ("∫ x ∂ x ->", "dif, not diff"),
     ] {
@@ -320,4 +319,80 @@ fn indefinite_integrals_give_the_antiderivative() {
         let shown = run(&mut Env::default(), source).result.unwrap();
         assert!(shown.starts_with("integral_"), "{source}: {shown}");
     }
+}
+
+#[test]
+fn unresolved_antiderivatives_stay_symbolic_and_resolve_later() {
+    use solveng_core::graph::{self, GraphReq, XV};
+    for integrand in ["sin(x^2)", "rect(x) * e^x", "q(x)"] {
+        let mut env = Env::default();
+        run(&mut env, &format!("F(x) := ∫ {integrand} dif x"));
+        let shown = run(&mut env, "F(x) ->").result.unwrap();
+        assert!(shown.contains("integral"), "{shown}");
+        assert_eq!(run(&mut env, "F(2) - F(2) ->").result.as_deref(), Some(r#""0""#));
+        if integrand != "q(x)" {
+            assert!(line(&mut env, "F(2) =").errors.iter().any(|e| e.contains("no antiderivative")));
+        }
+        // The fundamental theorem applies even when a primitive cannot be found.
+        assert_eq!(run(&mut env, &format!("diff(F(x), x) - ({integrand}) -> simplify")).result.as_deref(), Some(r#""0""#));
+        let err = graph::graph(&env, &GraphReq {
+            cfg: support::cfg(), curves: vec![support::curve("F(x)", &env)],
+            xrange: vec![XV::Num(-2.0), XV::Num(2.0)], yrange: vec![], marks: vec![], ymark: vec![], samples: 20,
+        }).unwrap_err();
+        assert!(err.contains(if integrand == "q(x)" { "isn't defined" } else { "no antiderivative" }), "{err}");
+    }
+    let mut env = Env::default();
+    run(&mut env, "F(u) := ∫ q(x, u) dif x");
+    run(&mut env, "H(x) := F(x)");
+    run(&mut env, "q(a, b) := a * b");
+    assert_eq!(run(&mut env, "H(2) =").result.as_deref(), Some(r#""4""#));
+    let mut env = Env::default();
+    run(&mut env, "x := 99");
+    run(&mut env, "F(u) := ∫ q(x, u) dif x");
+    run(&mut env, "q(a, b) := a * b");
+    // The integration variable stays local; the argument x stays free.
+    assert_eq!(run(&mut env, "F(2) =").result.as_deref(), Some(r#""9801""#));
+    run(&mut env, "G(x) := ∫ r(x) dif x");
+    run(&mut env, "H(y) := G(y)");
+    run(&mut env, "r(u) := u^2");
+    assert_eq!(run(&mut env, "H(3) =").result.as_deref(), Some(r#""9""#));
+}
+
+#[test]
+fn pulse_transform_definition_defers_unsupported_primitive_to_graph() {
+    use solveng_core::graph::{self, GraphReq, XV};
+    let mut env = Env::default();
+    run(&mut env, "p(t_0) := rect(t - t_0) + tri((t - t_0) * 2)");
+    run(&mut env, "s(t) := p(1.5) + p(3.5) + p(-1.5) + p(-3.5)");
+    run(&mut env, "S(f) := ∫ s(t) * e^(-#i*2*pi*f*t) dif t");
+    assert!(run(&mut env, "S(f) ->").result.unwrap().contains("integral"));
+    assert_eq!(run(&mut env, "S(f) - S(f) ->").result.as_deref(), Some(r#""0""#));
+    let err = graph::graph(&env, &GraphReq {
+        cfg: support::cfg(), curves: vec![support::curve("S(t)", &env)],
+        xrange: vec![XV::Num(-5.0), XV::Num(5.0)], yrange: vec![], marks: vec![], ymark: vec![], samples: 20,
+    }).unwrap_err();
+    assert!(err.contains("no antiderivative"), "{err}");
+}
+
+#[test]
+fn symmetric_pulse_fourier_integral_with_bounds_is_plottable() {
+    use solveng_core::graph::{self, GraphReq, XV};
+    let mut env = Env::default();
+    run(&mut env, "p(t_0) := rect(t - t_0) + tri((t - t_0) * 2)");
+    run(&mut env, "s(t) := p(1.5) + p(3.5) + p(-1.5) + p(-3.5)");
+    run(&mut env, "S(f) := integral_(-infinity)^infinity s(t) * cos(2*pi*f*t) dif t");
+    run(&mut env, "area := S(0) =");
+    assert!((value(&env.vars["area"].expr).unwrap().v.f() - 6.0).abs() < 1e-9);
+    for f in [-0.7, 0.2, 1.3] {
+        let sinc = |x: f64| (std::f64::consts::PI * x).sin() / (std::f64::consts::PI * x);
+        let expected = (sinc(f) + 0.5 * sinc(f / 2.0).powi(2))
+            * 2.0 * ((3.0 * std::f64::consts::PI * f).cos() + (7.0 * std::f64::consts::PI * f).cos());
+        run(&mut env, &format!("answer := S({f}) ="));
+        assert!((value(&env.vars["answer"].expr).unwrap().v.f() - expected).abs() < 1e-8);
+    }
+    let plot = graph::graph(&env, &GraphReq {
+        cfg: support::cfg(), curves: vec![support::curve("S(f)", &env)],
+        xrange: vec![XV::Num(-5.0), XV::Num(5.0)], yrange: vec![], marks: vec![], ymark: vec![], samples: 20,
+    }).unwrap();
+    assert!(!plot.series.is_empty());
 }

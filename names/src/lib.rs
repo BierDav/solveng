@@ -5,7 +5,7 @@ use unicode_normalization::UnicodeNormalization;
 pub const OPERATIONS: &[&str] = &[
     "sqrt", "exp", "ln", "log", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "abs",
     "arcsin", "arccos", "arctan", "diff", "integrate", "laplace", "invlaplace", "sum", "vec", "at", "rect", "tri", "sgn", "floor", "ceil", "factorial", "Re", "Im", "conj", "arg", "number", "cases",
-    "mat", "det", "tr", "norm", "rank", "identity", "rows", "cols", "convolve", "range",
+    "mat", "det", "tr", "norm", "rank", "identity", "rows", "cols", "convolve", "range", "dirac",
 ];
 
 pub const GREEK: &[(&str, char)] = &[

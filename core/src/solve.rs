@@ -783,6 +783,12 @@ fn lin(e: &Expr, xs: &[String], known: &dyn Fn(&str) -> Option<Dim>, cons: &mut 
             let d = crate::eval::dim_of(by, known)?;
             lin(body, xs, &|n| if n == var { d.clone() } else { known(n) }, cons)?
         }
+        Expr::Antiderivative(body, var, by) => {
+            let point = lin(by, xs, known, cons)?;
+            let d = crate::eval::dim_of(by, known)?;
+            let body = lin(body, xs, &|n| if n == var { d.clone() } else { known(n) }, cons)?;
+            match (point, body) { (Some(a), Some(b)) => Some(addl(&a, &b, 1.0)), _ => None }
+        }
         Expr::Derivative(body, var) => {
             let d = crate::eval::dim_of(body, known)?;
             match (d, known(var)) { (Some(a), Some(b)) => Some(k(a.mul(&b.powi(-1)))), _ => None }

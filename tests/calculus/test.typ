@@ -78,7 +78,7 @@ $ integral_0^1 (dif x)/(x + 1) -> $
 #passes()
 $ (partial^2 x^2 y^3)/(partial x partial y) -> $
 #passes()
-#result("\"6\" x y^(\"2\")")
+#result("\"6\" x dot y^(\"2\")")
 $ "charge" := integral_0^(2 #s) 3 #A dif t = $
 #passes()
 #expect("charge", 6)
@@ -95,6 +95,10 @@ $ "at1" := G(1) = $
 $ integrate(x^2, x) -> $
 $ diff(x^2 + 1, x) -> $
 $ integral sin(x^2) dif x -> $
+#passes()
+$ H(x) := integral sin(x^2) dif x $
+#passes()
+$ H(1) = $
 #fails("no antiderivative")
 // comments in math are no part of it
 $ /* a comment */ k := 2 // another

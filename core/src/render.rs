@@ -194,6 +194,11 @@ impl R<'_> {
             // ℒ⁻¹{F}(t): the inverse transform of F in x, at by
             Expr::InverseLaplace(a, _, by) => (format!("cal(L)^(-1) lr({{{}}})({})", self.expr(a).0, self.expr(by).0), P_ATOM),
             Expr::Subs(a, x, by) => (format!("lr(({})) limits(|)_({} = {})", self.expr(a).0, name(x), self.expr(by).0), P_PROD),
+            Expr::Antiderivative(a, x, by) => {
+                let integral = format!("integral {} dif {}", wrap(self.expr(a), P_NEG), name(x));
+                if **by == crate::expr::sym(x) { (integral, P_PROD) }
+                else { (format!("lr(({integral})) limits(|)_({} = {})", name(x), self.expr(by).0), P_PROD) }
+            }
             Expr::Derivative(a, x) => (format!("frac(dif, dif {}) {}", name(x), wrap(self.expr(a), P_FRAC)), P_PROD),
             Expr::Sum(a, v, lo, hi) => (format!("sum_({} = {})^({}) {}", name(v), self.expr(lo).0, self.expr(hi).0, wrap(self.expr(a), P_NEG)), P_PROD),
             Expr::Integral(a, v, lo, hi) => (format!("integral_({})^({}) {} dif {}", self.expr(lo).0, self.expr(hi).0, wrap(self.expr(a), P_NEG), name(v)), P_PROD),

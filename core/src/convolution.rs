@@ -11,6 +11,9 @@
 //! Everything else falls back to the improper integral, which the engine evaluates numerically: non-polynomial
 //! pieces (exp, sin, floor, …), non-affine arguments or conditions, breakpoints that aren't numeric constants
 //! (symbolic shifts, π, √2), divergent overlaps, breakpoints of inconsistent dimensions.
+//!
+//! Dirac distributions take a separate symbolic path: affine impulses sift the other operand at their root,
+//! with the reciprocal absolute slope as weight. Linearity covers sums and weighted impulses.
 
 use std::cmp::Ordering;
 
@@ -34,12 +37,69 @@ struct Piece {
 
 /// (f ∗ g)(at) = ∫_{−∞}^{∞} f(var) · g(at − var) d var
 pub fn continuous(f: &Expr, g: &Expr, var: &str, at: &Expr) -> Expr {
+    if has_dirac(f) || has_dirac(g) {
+        // Expand only operands containing distributions, so sums of weighted impulses
+        // use the same linear rule, including sums nested in products.
+        let f = if has_dirac(f) { crate::expr::expand(f) } else { f.clone() };
+        let g = if has_dirac(g) { crate::expr::expand(g) } else { g.clone() };
+        return distributional(&f, &g, var, at);
+    }
+    ordinary(f, g, var, at)
+}
+
+fn ordinary(f: &Expr, g: &Expr, var: &str, at: &Expr) -> Expr {
     let t = fresh("t", var, &[f, g, at]);
     match exact(f, g, var, &t, at) {
         Some(closed) if matches!(at, Expr::Sym(_)) => closed.subst(&t, at),
         Some(closed) => simp(&closed.subst(&t, at)),
         None => fallback(f, g, var, at),
     }
+}
+
+fn has_dirac(e: &Expr) -> bool {
+    e.contains(&|e| matches!(e, Expr::F(Func::Dirac, _)))
+}
+
+/// Linearity and the sifting rule, before ordinary integration can discard point support.
+fn distributional(f: &Expr, g: &Expr, var: &str, at: &Expr) -> Expr {
+    if let Expr::Add(terms) = f && has_dirac(f) {
+        return simp(&add(terms.iter().map(|f| distributional(f, g, var, at)).collect()));
+    }
+    if let Expr::Add(terms) = g && has_dirac(g) {
+        return simp(&add(terms.iter().map(|g| distributional(f, g, var, at)).collect()));
+    }
+    for (operand, other) in [(f, g), (g, f)] {
+        if let Some((position, weight)) = impulse(operand, var) {
+            // An unsupported distribution must not be sampled at a point either.
+            if has_dirac(other) && impulse(other, var).is_none() { continue; }
+            return simp(&mul(vec![weight, other.subst(var, &sub(at.clone(), position))]));
+        }
+    }
+    if has_dirac(f) || has_dirac(g) { fallback(f, g, var, at) } else { ordinary(f, g, var, at) }
+}
+
+/// w(x) δ(a x + b) = w(−b/a) δ(x + b/a) / |a|.
+/// The slope must be known, finite, real and nonzero; shifts and weights may be symbolic.
+/// Products of distributions and nonlinear impulse arguments are left unsupported.
+fn impulse(e: &Expr, var: &str) -> Option<(Expr, Expr)> {
+    let factors = match e { Expr::Mul(fs) => fs.as_slice(), _ => std::slice::from_ref(e) };
+    let mut argument = None;
+    let mut weights = vec![];
+    for f in factors {
+        match f {
+            Expr::F(Func::Dirac, a) if argument.is_none() => argument = Some(a.as_ref()),
+            _ if has_dirac(f) => return None,
+            _ => weights.push(f.clone()),
+        }
+    }
+    let cs = trim(coeffs(argument?, var)?);
+    if cs.len() != 2 { return None; }
+    let slope = crate::eval::value(&cs[1]).ok()?;
+    if slope.is_zero() || !slope.v.f().is_finite() { return None; }
+    let position = simp(&mul(vec![neg(cs[0].clone()), pow(cs[1].clone(), int(-1))]));
+    let weight = mul(weights).subst(var, &position);
+    let scale = crate::expr::func(Func::Abs, cs[1].clone());
+    Some((position, mul(vec![weight, pow(scale, int(-1))])))
 }
 
 /// The improper integral, with a capture-safe integration variable and bounds in var's dimension.

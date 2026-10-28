@@ -51,10 +51,17 @@ fn infinite(e: &Expr) -> bool {
 }
 
 /// An antiderivative of `body` in `var`, without the constant of integration.
-pub fn antiderivative(body: &Expr, var: &str) -> Result<Expr, String> {
-    primitive(&simp(body), var).map(|f| simp(&f)).ok_or_else(|| {
-        "integral: no antiderivative found for this integrand – with bounds, integral_a^b f dif x is evaluated numerically".into()
-    })
+pub fn antiderivative(body: &Expr, var: &str) -> Expr {
+    antiderivative_at(simp(body), var.to_string(), sym(var))
+}
+
+/// Keep an unresolved primitive with its local variable and a separate evaluation point.
+/// This lets later definitions resolve the integrand before substituting a function argument.
+pub fn antiderivative_at(body: Expr, var: String, by: Expr) -> Expr {
+    match primitive(&body, &var) {
+        Some(f) => simp(&f.subst(&var, &by)),
+        None => Expr::Antiderivative(Box::new(body), var, Box::new(by)),
+    }
 }
 
 /// An antiderivative found by the rules below, or None: linearity, powers and functions of a linear argument,
@@ -136,9 +143,38 @@ fn by_parts(factors: &[Expr], x: &str) -> Option<Expr> {
 
 /// Adaptive Gauss quadrature keeps samples away from improper endpoints.
 pub fn quadrature(f: &impl Fn(f64) -> Option<f64>, lo: f64, hi: f64) -> Result<f64, String> {
+    integrate(f, lo, hi)
+}
+
+trait Quad: Copy {
+    fn zero() -> Self;
+    fn add(self, rhs: Self) -> Self;
+    fn scale(self, k: f64) -> Self;
+    fn norm(self) -> f64;
+    fn finite(self) -> bool;
+    fn accepted(self, discrepancy: Self) -> Self;
+}
+impl Quad for f64 {
+    fn zero() -> Self { 0.0 }
+    fn add(self, rhs: Self) -> Self { self + rhs }
+    fn scale(self, k: f64) -> Self { self * k }
+    fn norm(self) -> f64 { self.abs() }
+    fn finite(self) -> bool { self.is_finite() }
+    fn accepted(self, _: Self) -> Self { self }
+}
+impl Quad for crate::numeric::N {
+    fn zero() -> Self { Self::real(0.0) }
+    fn add(self, rhs: Self) -> Self { self.add(rhs) }
+    fn scale(self, k: f64) -> Self { self.scale(k) }
+    fn norm(self) -> f64 { self.abs() }
+    fn finite(self) -> bool { self.is_finite() }
+    fn accepted(mut self, discrepancy: Self) -> Self { self.error.re += discrepancy.re.abs(); self.error.im += discrepancy.im.abs(); self }
+}
+
+fn integrate<T: Quad>(f: &impl Fn(f64) -> Option<T>, lo: f64, hi: f64) -> Result<T, String> {
     if lo.is_nan() || hi.is_nan() { return Err("invalid integral bounds".into()); }
-    if lo == hi { return if lo.is_finite() { Ok(0.0) } else { Err("invalid integral bounds".into()) }; }
-    if lo > hi { return quadrature(f, hi, lo).map(|v| -v); }
+    if lo == hi { return if lo.is_finite() { Ok(T::zero()) } else { Err("invalid integral bounds".into()) }; }
+    if lo > hi { return integrate(f, hi, lo).map(|v| v.scale(-1.0)); }
     let mapped = |t: f64| {
         let (x, jac) = if lo.is_finite() && hi.is_finite() {
             (lo + (hi - lo) * t, hi - lo)
@@ -150,29 +186,31 @@ pub fn quadrature(f: &impl Fn(f64) -> Option<f64>, lo: f64, hi: f64) -> Result<f
             let a = std::f64::consts::PI * (t - 0.5);
             (a.tan(), std::f64::consts::PI / a.cos().powi(2))
         };
-        let y = f(x)? * jac;
-        y.is_finite().then_some(y)
+        let y = f(x)?.scale(jac);
+        y.finite().then_some(y)
     };
-    fn gauss(f: &impl Fn(f64) -> Option<f64>, a: f64, b: f64) -> Option<f64> {
+    fn gauss<T: Quad>(f: &impl Fn(f64) -> Option<T>, a: f64, b: f64) -> Option<T> {
         let (mid, half) = ((a + b) * 0.5, (b - a) * 0.5);
-        let mut sum = 0.0;
+        let mut sum = T::zero();
         for (x, w) in [(0.1834346424956498, 0.362683783378362), (0.525532409916329, 0.3137066458778873), (0.7966664774136267, 0.2223810344533745), (0.9602898564975363, 0.1012285362903763)] {
-            sum += w * (f(mid - half * x)? + f(mid + half * x)?);
+            sum = sum.add(f(mid - half * x)?.add(f(mid + half * x)?).scale(w));
         }
-        Some(sum * half)
+        Some(sum.scale(half))
     }
-    fn adapt(f: &impl Fn(f64) -> Option<f64>, a: f64, b: f64, whole: f64, tol: f64, depth: u32, budget: &mut u32) -> Option<f64> {
+    fn adapt<T: Quad>(f: &impl Fn(f64) -> Option<T>, a: f64, b: f64, whole: T, tol: f64, depth: u32, budget: &mut u32) -> Option<T> {
         if *budget == 0 { return None; }
         *budget -= 1;
         let mid = (a + b) * 0.5;
         let (l, r) = (gauss(f, a, mid)?, gauss(f, mid, b)?);
-        if (l + r - whole).abs() <= tol { return Some(l + r); }
+        let combined = l.add(r);
+        let discrepancy = combined.add(whole.scale(-1.0));
+        if discrepancy.norm() <= tol { return Some(combined.accepted(discrepancy)); }
         if depth == 0 { return None; }
-        Some(adapt(f, a, mid, l, tol * 0.5, depth - 1, budget)? + adapt(f, mid, b, r, tol * 0.5, depth - 1, budget)?)
+        Some(adapt(f, a, mid, l, tol * 0.5, depth - 1, budget)?.add(adapt(f, mid, b, r, tol * 0.5, depth - 1, budget)?))
     }
     if mapped(0.5).is_none() { return Err("integrand is undefined inside the interval".into()); }
-    let result = gauss(&mapped, 0.0, 1.0).and_then(|whole| adapt(&mapped, 0.0, 1.0, whole, 1e-10 * whole.abs().max(1.0), 32, &mut 20000));
-    result.filter(|v| v.is_finite()).ok_or_else(|| "integral did not converge or its integrand is undefined".into())
+    let result = gauss(&mapped, 0.0, 1.0).and_then(|whole| adapt(&mapped, 0.0, 1.0, whole, 1e-10 * whole.norm().max(1.0), 32, &mut 20000));
+    result.filter(|v| v.finite()).ok_or_else(|| "integral did not converge or its integrand is undefined".into())
 }
 
 /// Split affine signal arguments at their corners so quadrature never skips a narrow pulse.
@@ -266,11 +304,17 @@ fn piecewise_degree(e: &Expr, var: &str) -> Option<u8> {
 /// Bounded numerical series evaluation, using compensated accumulation and a
 /// small absolute tail over consecutive blocks as a convergence estimate.
 pub fn series(f: &impl Fn(f64) -> Option<f64>, lo: f64, hi: f64, points: &[f64], affine: bool) -> Result<f64, String> {
+    series_estimated(&|k| f(k).map(|v| (v, 0.0)), lo, hi, points, affine).map(|v| v.0)
+}
+
+pub(crate) fn series_estimated(f: &impl Fn(f64) -> Option<(f64, f64)>, lo: f64, hi: f64, points: &[f64], affine: bool) -> Result<(f64, f64), String> {
     let integer = |x: f64| x.is_finite() && x.fract() == 0.0 && x.abs() < 9_007_199_254_740_992.0;
     if !integer(lo) || !(integer(hi) || hi == f64::INFINITY) {
         return Err("sum bounds must be unitless integers (the upper bound may be infinity)".into());
     }
-    if hi < lo { return Ok(0.0); }
+    if hi < lo { return Ok((0.0, 0.0)); }
+    let mut uncertainty = 0.0;
+    let term_at = |k| f(k).filter(|v| v.0.is_finite() && !v.1.is_nan()).ok_or("a sum term is undefined");
     // Isolate boundary values, then sum each linear interval using its first
     // and last integer values. Work depends on corners, not the index range.
     if affine {
@@ -284,40 +328,59 @@ pub fn series(f: &impl Fn(f64) -> Option<f64>, lo: f64, hi: f64, points: &[f64],
         cuts.sort_by(f64::total_cmp);
         cuts.dedup();
         let mut total = 0.0;
+        let mut magnitude = 0.0;
         for interval in cuts.windows(2) {
-            let first = f(interval[0]).filter(|v| v.is_finite()).ok_or("a sum term is undefined")?;
-            let last = f(interval[1] - 1.0).filter(|v| v.is_finite()).ok_or("a sum term is undefined")?;
+            let (first, fe) = term_at(interval[0])?;
+            let (last, le) = term_at(interval[1] - 1.0)?;
+            uncertainty += (interval[1] - interval[0]) * (fe + le) * 0.5;
+            magnitude += (interval[1] - interval[0]) * (first.abs() + last.abs()) * 0.5;
             total += (interval[1] - interval[0]) * (first * 0.5 + last * 0.5);
         }
         if hi == f64::INFINITY {
             let start = *cuts.last().unwrap();
-            if f(start) != Some(0.0) || f(start + 1.0) != Some(0.0) {
+            if term_at(start)?.0 != 0.0 || term_at(start + 1.0)?.0 != 0.0 {
                 return Err("sum did not converge: its tail is a nonzero affine function".into());
             }
         }
-        return total.is_finite().then_some(total).ok_or_else(|| "sum overflow".into());
+        return total.is_finite().then_some((total, uncertainty + 32.0 * f64::EPSILON * magnitude)).ok_or_else(|| "sum overflow".into());
     }
     let last_corner = points.last().copied().unwrap_or(f64::NEG_INFINITY);
     let (mut total, mut correction, mut tail, mut stable, mut previous_tail) = (0.0_f64, 0.0, 0.0, 0, f64::INFINITY);
+    let mut magnitude = 0.0;
     for offset in 0..100_000 {
         let k = lo + offset as f64;
-        if k > hi { return Ok(total); }
-        let term = f(k).filter(|v| v.is_finite()).ok_or("a sum term is undefined")?;
+        if k > hi { return Ok((total, uncertainty + 32.0 * f64::EPSILON * magnitude)); }
+        let (term, error) = term_at(k)?;
+        uncertainty += error;
         let adjusted = term - correction;
         let next = total + adjusted;
         correction = (next - total) - adjusted;
         total = next;
         if !total.is_finite() { return Err("sum overflow".into()); }
+        magnitude += term.abs();
         tail += term.abs();
         if offset % 32 == 31 {
             if hi == f64::INFINITY && k > last_corner && (tail == 0.0 || tail < previous_tail * 0.99) && tail <= 1e-12 * total.abs().max(1.0) {
                 stable += 1;
-                if stable == 4 { return Ok(total); }
+                if stable == 4 {
+                    let ratio = if previous_tail > 0.0 { tail / previous_tail } else { 0.0 };
+                    return Ok((total, uncertainty + 32.0 * f64::EPSILON * magnitude + tail * ratio / (1.0 - ratio)));
+                }
             } else { stable = 0; }
             previous_tail = tail;
             tail = 0.0;
         }
-        if k == hi { return Ok(total); }
+        if k == hi { return Ok((total, uncertainty + 32.0 * f64::EPSILON * magnitude)); }
     }
     Err("sum did not converge within 100000 terms".into())
+}
+
+/// Refine both components together and accumulate their error across pieces.
+pub(crate) fn complex_quadrature(f: &impl Fn(f64) -> Option<crate::numeric::N>, lo: f64, hi: f64, points: &[f64]) -> Result<crate::numeric::N, String> {
+    use crate::numeric::N;
+    if lo > hi { return complex_quadrature(f, hi, lo, points).map(|v| v.scale(-1.0)); }
+    let mut bounds = vec![lo];
+    bounds.extend(points.iter().copied().filter(|p| *p > lo && *p < hi));
+    bounds.push(hi);
+    bounds.windows(2).try_fold(N::real(0.0), |total, pair| integrate(f, pair[0], pair[1]).map(|v| total.add(v)))
 }

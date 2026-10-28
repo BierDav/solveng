@@ -26,6 +26,7 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 - [`clear`](#clear)
 - [`rect`](#rect)
 - [`tri`](#tri)
+- [`dirac`](#dirac)
 - [`sgn`](#sgn)
 - [`Re`](#re)
 - [`Im`](#im)
@@ -91,6 +92,7 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 |---|---|
 | [`rect`](#rect) | Rectangular pulse: `rect(x)` is 1 for \|x\| < ½, ½ at x = ±½, and 0 otherwise. |
 | [`tri`](#tri) | Triangular pulse: `tri(x)` is max(1 − \|x\|, 0), with height 1 at 0 and support from −1 to 1. |
+| [`dirac`](#dirac) | Dirac distribution: `dirac(x)`, with unit area and units reciprocal to x's units. |
 | [`sgn`](#sgn) | Sign function: `sgn(x)` is −1 for x < 0, 0 for x = 0, and 1 for x > 0. |
 | [`Re`](#re) | Real part of a complex number: `Re(3 + 4 #i)` is 3. |
 | [`Im`](#im) | Imaginary part of a complex number: `Im(3 + 4 #i)` is 4, a real number. |
@@ -460,6 +462,16 @@ Drawn with `@preview/lilaq:0.6.0` in the schoolbook style: axes through the orig
 
 **Ranges:** values and expressions in `xrange` / `yrange` must have the axis unit (`$f(20) #Ω$` is fine) – `xrange: ($10 #Ω$, $f(20)$)` with a unitless `f(20)` is an error, since it isn't clear what was meant. Without a range: around the marks; else around what's interesting – roots, extrema, poles, edges of the domain (√, ln) and, above all, where curves cross – rounded to nice ticks, starting at 0 when everything interesting is positive. With `ymark`, the y range is around the marked values (steep curves leave the picture). **Units** follow from what's plotted: y's from the curves (shown in the SI unit with a fitting prefix; `preferred-units` picks others), x's from the curve's parameter (`U(I: mA) = …`) or a function x is passed to whose parameter has one (`$q(I: mA) := I R$`, then `#graph($U(I) = q(I)$)` is over I in mA), else from the units in `xrange` and the marks, else from the curve and the units of the y values (`P(..) = U_0^2/R_2` with `ymark: $2 #W$`: R₂ in Ω).
 
+**Complex intermediates:** numerical samples may contain complex arithmetic, definite integrals, and sums.
+A sample is plotted when its imaginary part is zero within its estimated numerical error. The estimate
+tracks real and imaginary errors separately, including roundoff, quadrature refinement differences, and
+series truncation; a large real value does not justify dropping a small imaginary value. Otherwise that
+sample is a gap. If only complex samples (possibly with isolated real points) remain, the graph explains
+that a real projection is needed: `Re(…)`, `Im(…)`, `abs(…)`, or `arg(…)`. Ordinary domain gaps and boundaries
+continue to split curves. These are floating-point error estimates, not rigorous bounds: difficult
+oscillatory/improper integrals, unresolved narrow features, and slowly converging series can exceed the
+numerical method's limits. Supply finite bounds or explicit projections when appropriate.
+
 **Data:** a vector of values is plotted as the points through its elements, joined in index order (with a dot at each when there are at most 30): `#graph($y$)` against the zero-based index k (as in `at(y, k)`), `#graph($y(τ)$)` over the vector `tau` of the same length – or over any expression without free names that is one, `y(2 tau)`. Units come from the elements (each vector needs one unit for all its elements; every element must have a value). Function curves can go alongside: `#graph($y(τ) \ c(τ)$)` with a function `c`, or an expression in `tau` (`$2 tau$`), where `tau` stands for the x axis and the function is sampled over it; the x range is from the data's first to last x value unless `xrange` says otherwise, and the units of x and y must agree. Marks work on data too, with linear interpolation between the points: x values, `"roots"` and `"crossings"` (with data and with functions) where the values change sign, `"extrema"` as the local extreme points, and `ymark`. A vector with a free name is several curves instead, one per element (`$vec(t, t^2)$`). For measurements, `lines: none` draws the data as points alone, without the line: `#graph($y(τ) \ c(τ)$, lines: (none, auto))` shows measured points next to the curve `c`.
 
 **Piecewise functions** (`cases`) break their line where a branch changes with a jump; a value that holds at a single x – `2 & "for" x = 1`, or a point set apart from the line – is drawn as a dot. `joined: true` joins the pieces through them instead. The steps of `rect`, `sgn`, `floor` and `ceil` break the line the same way, without dots for the values right on their edges; with `joined: true` each step is joined by a vertical line.
@@ -595,6 +607,26 @@ the first derivative is piecewise constant and undefined at the three corners.
 | `x` | expression |  | Unitless position relative to the pulse center. |
 
 Returns unitless value.
+
+## `dirac`
+
+Dirac distribution: `dirac(x)`, with unit area and units reciprocal to x's units.
+
+Import `dirac` from `operations`. It is a symbolic distribution, with no pointwise value:
+numerical evaluation and plotting it directly report an error. An infinity-valued `cases`
+function is not a Dirac distribution. Derivatives stay symbolic.
+
+In convolution, `convolve(f(t), dirac(t - a), t)` gives `f(t - a)`.
+Affine arguments `dirac(b t + c)` require a known finite nonzero real b and contribute
+the factor 1/|b|. Shifts and weights can be symbolic; finite sums, weighted impulses and
+convolution of two impulses are supported. Nonlinear impulse arguments, products of
+distributions and distributional integrals outside convolution are unsupported.
+
+| parameter | type | default | |
+|---|---|---|---|
+| `x` | expression |  | Real impulse argument, optionally with units. |
+
+Returns distribution.
 
 ## `sgn`
 
@@ -732,13 +764,15 @@ gives eˣ, `$integral x^2 sin(x) dif x ->$` gives −x² cos(x) + 2x sin(x) + 2 
 constants times powers, exponentials, sin, cos, sinh, cosh, ln and tan of a linear argument; for products that
 multiply out into such terms; and by parts for a polynomial times one exponential, sin, cos, sinh or cosh of a
 linear argument. Other integrands (`sin(x^2)`, `#e^x cos(x)`, rational functions other than 1/(a x + b))
-report an error.
+stay symbolic in definitions and with `->`; numerical evaluation (`=` or graphs) reports an error if no
+antiderivative can be found.
 
 With bounds, the bounds must have matching units (0 and ±∞ match any); the result has the integrand's unit
 times the variable's unit. Either bound may be infinite. Recognized antiderivatives simplify exactly where they
 are continuous between the bounds; remaining integrals stay symbolic with `->` and use adaptive quadrature for
 `=` or graphs. Affine signal arguments are split at their corners so narrow pulses are not skipped. Undefined
-integrands or failure to converge report an error.
+integrands or failure to converge report an error. Complex integrands are evaluated with both components
+refined together; local integration variables keep their scope and the units inferred from the bounds.
 
 In math, `$integral_0^3 x^2 dif x =$` and `$integral x^2 dif x ->$` do the same. The differential (`dif`, not
 `diff`, which is ∂) ends the integrand wherever it stands: `$integral_0^1 x^2 + 1 dif x$` integrates x² + 1,
@@ -841,6 +875,8 @@ the operation. Without `at`, the result is in the variable itself: `convolve(rec
 numeric affine arguments such as `tri((τ - 2 s)/(4 s))` – convolve exactly into a piecewise polynomial;
 `$y(t) := convolve(tri(tau), tri(tau), tau, t) ->$` shows the five pieces, `$y(1/2) =$` gives 23/48.
 Other signals (exp, sin, symbolic shifts) stay the integral, evaluated numerically for `=` and graphs.
+Dirac distributions use the exact sifting rule: `convolve(f(t), dirac(t - a), t)` is `f(t - a)`.
+Finite sums and weighted impulses with affine arguments are supported; see `dirac`.
 Units multiply: the result has f's unit times g's unit (times τ's unit, or the step's).
 
 | parameter | type | default | |

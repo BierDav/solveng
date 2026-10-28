@@ -60,7 +60,7 @@
 #worksheet(errors: "document")[
   $sqrt(-4) =$ #passes() #result("\"2\" i")
   $sqrt(-4) ->$ #result("\"2\" i")
-  $ln(-1) ->$ #result("i pi")
+  $ln(-1) ->$ #result("i dot pi")
   $(-8)^(1/3) =$ #result("\"−2\"")
   $#i < 1 =$ #fails("complex numbers have no order")
 ]

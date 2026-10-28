@@ -148,6 +148,11 @@ impl Env {
                     Expr::Call(n.clone(), args)
                 }
             }
+            Expr::Antiderivative(body, var, by) => {
+                let mut local = keep.clone();
+                local.insert(var.clone());
+                crate::calculus::antiderivative_at(self.bind_(body, &local, path, units)?, var.clone(), self.bind_(by, keep, path, units)?)
+            }
             Expr::InverseLaplace(body, var, by) => {
                 let mut local = keep.clone();
                 local.insert(var.clone());
@@ -245,7 +250,7 @@ impl<'a> Lower<'a> {
                 return r;
             }
             Expr::Sym(_) | Expr::C(_) | Expr::Pi | Expr::E | Expr::I => return Ok(e.clone()),
-            Expr::Sum(_, var, ..) | Expr::Integral(_, var, ..) | Expr::Derivative(_, var) | Expr::Subs(_, var, _) | Expr::InverseLaplace(_, var, _) => Some(var.clone()),
+            Expr::Sum(_, var, ..) | Expr::Integral(_, var, ..) | Expr::Derivative(_, var) | Expr::Subs(_, var, _) | Expr::InverseLaplace(_, var, _) | Expr::Antiderivative(_, var, _) => Some(var.clone()),
             _ => None,
         };
         path.extend(local.clone());
@@ -452,7 +457,7 @@ impl<'a> Lower<'a> {
             if n == "diff" { return Ok(body.diff(var)); }
             if n == "integrate" && args.len() != 4 {
                 if args.len() == 3 { return Err("integrate: an indefinite integral has no bounds, a definite one both: integrate(f, x), integrate(f, x, a, b)".into()); }
-                return crate::calculus::antiderivative(&body, var);
+                return Ok(crate::calculus::antiderivative(&body, var));
             }
             let lo = self.raw(args[2])?;
             let hi = self.raw(args[3])?;

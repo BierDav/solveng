@@ -654,9 +654,14 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
     let yb = units.factor(&preferred_yunit.clone().unwrap_or_else(|| units.auto(&yd))).f();
     let yrv: Vec<f64> = yrv.iter().map(|v| si(v, yb)).collect();
     let ymv: Vec<f64> = ymv.iter().map(|v| si(v, yb)).collect();
+    let complex_sample = std::cell::Cell::new(false);
     let f = |c: &Curve, t: f64| match &c.data {
         Some(d) => d.at(t).first().copied(),
-        None => eval_f(&c.e, &|n| (n == x).then_some(t)),
+        None => match crate::eval::graph_sample(&c.e, &x, t, &xd) {
+            Ok(v) => Some(v),
+            Err(crate::eval::SampleError::Complex) => { complex_sample.set(true); None },
+            Err(crate::eval::SampleError::Undefined) => None,
+        },
     };
     // where the curves reach the y marks: the nearest ones must be visible
     let mut yneed = vec![];
@@ -742,6 +747,9 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         ts.dedup();
     }
     let ys: Vec<Vec<Option<f64>>> = curves.iter().map(|c| if c.data.is_some() { vec![None; ts.len()] } else { ts.iter().map(|&t| f(c, t)).collect() }).collect();
+    if data.is_empty() && complex_sample.get() && ys.iter().all(|samples| !samples.windows(2).any(|pair| pair.iter().all(Option::is_some))) {
+        return Err("the plotted result is complex in this range – use Re(…), Im(…), abs(…) or arg(…) to plot a real curve".into());
+    }
     // data within the x range, as drawn
     let clipped: Vec<Vec<Vec<(f64, f64)>>> = curves.iter().map(|c| c.data.as_ref().map_or(vec![], |d| d.clip(xa, xb))).collect();
     let dys: Vec<f64> = clipped.iter().flatten().flatten().map(|p| p.1).collect();
@@ -761,6 +769,9 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         }
         if let Some(n) = missing.first() {
             return Err(format!("function '{n}' isn't defined – define it with := before plotting, for example {n}({x}) := …"));
+        }
+        if curves.iter().any(|c| c.e.contains(&|e| matches!(e, Expr::Antiderivative(..)))) {
+            return Err("integral: no antiderivative found for this integrand – with bounds, integral_a^b f dif x is evaluated numerically".into());
         }
         return Err(format!("'{eq}' can't be evaluated in this range"));
     }

@@ -1,6 +1,6 @@
 #import "/tests/util.typ": *
 #import units: ms, s, km
-#import operations: tri, rect, convolve, range
+#import operations: tri, rect, dirac, convolve, range
 #set page(width: 18cm, height: auto)
 #show: worksheet
 
@@ -33,6 +33,18 @@ $c_h := c(1/2) =$
 #expect("c_h", 23 / 48)
 $r(t) := convolve(rect(t), rect(t), t) ->$
 #passes()
+
+// A Dirac impulse shifts the signal, including its exact boundary values.
+$s_0(t) := rect(t) + tri(2 t)$
+$s_a(t) := convolve(s_0(t), dirac(t - 3/2), t) ->$
+#passes()
+$s_p := s_a(3/2) =$ #expect("s_p", 2)
+$s_e := s_a(2) =$ #expect("s_e", 0.5)
+#graph($s_a(z)$, xrange: (-5, 5), errors: "panic")
+$d_2(t) := convolve(dirac(t - 1), dirac(t - 2), t) ->$
+#passes()
+$d_v := dirac(0) =$
+#fails("distribution")
 
 // the sampled result over the exact one (the data's unit: s, as the step's)
 $c_(s) (t) := c(t / (1 #s)) dot 1 #s$

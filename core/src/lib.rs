@@ -29,3 +29,5 @@ extern crate self as solveng_core;
 #[cfg(test)]
 #[path = "../tests/support/mod.rs"]
 mod test_support;
+
+mod numeric;

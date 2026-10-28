@@ -109,6 +109,8 @@ pub enum Func {
     Im,
     Conj,
     Arg,
+    /// Dirac distribution; never evaluated as a pointwise function.
+    Dirac,
 }
 
 impl Func {
@@ -137,6 +139,7 @@ impl Func {
             "Im" | "im" => Func::Im,
             "conj" => Func::Conj,
             "arg" => Func::Arg,
+            "dirac" => Func::Dirac,
             _ => return None,
         })
     }
@@ -165,6 +168,7 @@ impl Func {
             Func::Im => "Im",
             Func::Conj => "conj",
             Func::Arg => "arg",
+            Func::Dirac => "dirac",
         }
     }
     pub fn inverse(self) -> Option<Func> {
@@ -244,6 +248,8 @@ pub enum Expr {
     Sum(Box<Expr>, String, Box<Expr>, Box<Expr>),
     Integral(Box<Expr>, String, Box<Expr>, Box<Expr>),
     Derivative(Box<Expr>, String),
+    /// An unresolved primitive in a local variable, evaluated at the third argument.
+    Antiderivative(Box<Expr>, String, Box<Expr>),
     /// Substitute after a formal derivative has been resolved, preserving its variable.
     Subs(Box<Expr>, String, Box<Expr>),
     /// An algorithmically evaluable causal inverse, with a bound transform variable.
@@ -311,7 +317,7 @@ impl Expr {
             Expr::Cases(v) => v.iter().flat_map(|(value, condition)| [value, condition]).collect(),
             Expr::Vector(v) | Expr::Add(v) | Expr::Mul(v) | Expr::Cmp(v, _) | Expr::Call(_, v) | Expr::Op(_, v) => v.iter().collect(),
             Expr::Matrix(rs) => rs.iter().flatten().collect(),
-            Expr::Pow(a, b) | Expr::Subs(a, _, b) | Expr::InverseLaplace(a, _, b) => vec![a, b],
+            Expr::Pow(a, b) | Expr::Subs(a, _, b) | Expr::InverseLaplace(a, _, b) | Expr::Antiderivative(a, _, b) => vec![a, b],
             Expr::Integral(body, _, lo, hi) | Expr::Sum(body, _, lo, hi) => vec![body, lo, hi],
             Expr::F(_, a) | Expr::Number(a, ..) | Expr::Derivative(a, _) => vec![a],
             _ => vec![],
@@ -332,6 +338,7 @@ impl Expr {
             Expr::Derivative(a, x) => Expr::Derivative(Box::new(f(a)), x.clone()),
             Expr::Subs(a, x, by) => Expr::Subs(Box::new(f(a)), x.clone(), Box::new(f(by))),
             Expr::InverseLaplace(a, x, by) => Expr::InverseLaplace(Box::new(f(a)), x.clone(), Box::new(f(by))),
+            Expr::Antiderivative(a, x, by) => Expr::Antiderivative(Box::new(f(a)), x.clone(), Box::new(f(by))),
             Expr::Number(a, k, d, u) => Expr::Number(Box::new(f(a)), *k, d.clone(), u.clone()),
             Expr::Sum(a, v, lo, hi) => Expr::Sum(Box::new(f(a)), v.clone(), Box::new(f(lo)), Box::new(f(hi))),
             Expr::Integral(a, v, lo, hi) => Expr::Integral(Box::new(f(a)), v.clone(), Box::new(f(lo)), Box::new(f(hi))),
@@ -345,7 +352,7 @@ impl Expr {
         out
     }
     fn syms_into(&self, out: &mut Vec<String>) {
-        if let Expr::Subs(body, var, by) | Expr::InverseLaplace(body, var, by) = self {
+        if let Expr::Subs(body, var, by) | Expr::InverseLaplace(body, var, by) | Expr::Antiderivative(body, var, by) = self {
             for n in body.syms().into_iter().filter(|n| n != var).chain(by.syms()) {
                 if !out.contains(&n) { out.push(n); }
             }
@@ -368,14 +375,14 @@ impl Expr {
     }
     pub fn has(&self, x: &str) -> bool {
         match self {
-            Expr::Sum(..) | Expr::Integral(..) | Expr::Subs(..) | Expr::InverseLaplace(..) => self.syms().iter().any(|n| n == x),
+            Expr::Sum(..) | Expr::Integral(..) | Expr::Subs(..) | Expr::InverseLaplace(..) | Expr::Antiderivative(..) => self.syms().iter().any(|n| n == x),
             Expr::Sym(n) => n == x,
             _ => self.children().iter().any(|c| c.has(x)),
         }
     }
     pub fn subst(&self, x: &str, by: &Expr) -> Expr {
         match self {
-            Expr::Sum(..) | Expr::Integral(..) | Expr::Derivative(..) | Expr::Subs(..) | Expr::InverseLaplace(..) => self.subst_all(&BTreeMap::from([(x.to_string(), by.clone())])),
+            Expr::Sum(..) | Expr::Integral(..) | Expr::Derivative(..) | Expr::Subs(..) | Expr::InverseLaplace(..) | Expr::Antiderivative(..) => self.subst_all(&BTreeMap::from([(x.to_string(), by.clone())])),
             Expr::Sym(n) if n == x => by.clone(),
             _ => self.map(&mut |c| c.subst(x, by)),
         }
@@ -413,6 +420,11 @@ impl Expr {
                 let scope = Expr::Integral(Box::new(self.clone()), var.clone(), Box::new(int(0)), Box::new(int(0))).subst_all(&local);
                 let Expr::Integral(body, var, _, _) = scope else { unreachable!() };
                 Expr::Subs(body, var, Box::new(by))
+            }
+            Expr::Antiderivative(body, var, by) => {
+                let scope = Expr::Integral(body.clone(), var.clone(), Box::new(int(0)), by.clone()).subst_all(m);
+                let Expr::Integral(body, var, _, by) = scope else { unreachable!() };
+                Expr::Antiderivative(body, var, by)
             }
             Expr::InverseLaplace(body, var, by) => {
                 let scope = Expr::Integral(body.clone(), var.clone(), Box::new(int(0)), by.clone()).subst_all(m);
@@ -470,7 +482,8 @@ impl Expr {
                     mul(vec![self.clone(), add(vec![mul(vec![b.d(x), func(Func::Ln, (**a).clone())]), mul(vec![(**b).clone(), a.d(x), pow((**a).clone(), int(-1))])])])
                 }
             }
-            Expr::Call(..) | Expr::Op(..) | Expr::Cases(..) | Expr::Derivative(..) | Expr::Subs(..) | Expr::InverseLaplace(..) => return Expr::Derivative(Box::new(self.clone()), x.into()),
+            Expr::Antiderivative(body, var, by) if var == x || !body.has(x) => mul(vec![body.subst(var, by), by.d(x)]),
+            Expr::Call(..) | Expr::Op(..) | Expr::Cases(..) | Expr::Derivative(..) | Expr::Subs(..) | Expr::InverseLaplace(..) | Expr::Antiderivative(..) => return Expr::Derivative(Box::new(self.clone()), x.into()),
             Expr::F(f, a) => {
                 let a0 = (**a).clone();
                 let inner = match f {
@@ -502,7 +515,7 @@ impl Expr {
                     }
                     // linear: the part (or conjugate) of the derivative, for a real variable
                     Func::Re | Func::Im | Func::Conj => return func(*f, a.d(x)),
-                    Func::Rect | Func::Sgn | Func::Floor | Func::Ceil | Func::Factorial | Func::Arg => return Expr::Derivative(Box::new(self.clone()), x.into()),
+                    Func::Rect | Func::Sgn | Func::Floor | Func::Ceil | Func::Factorial | Func::Arg | Func::Dirac => return Expr::Derivative(Box::new(self.clone()), x.into()),
                     Func::Abs => mul(vec![a0.clone(), pow(func(Func::Abs, a0), int(-1))]),
                 };
                 mul(vec![inner, a.d(x)])
@@ -670,6 +683,7 @@ pub fn simp(e: &Expr) -> Expr {
         Expr::Call(n, v) => Expr::Call(n.clone(), v.iter().map(simp).collect()),
         Expr::Derivative(a, x) => Expr::Derivative(Box::new(simp(a)), x.clone()),
         Expr::InverseLaplace(a, x, by) => Expr::InverseLaplace(Box::new(simp(a)), x.clone(), Box::new(simp(by))),
+        Expr::Antiderivative(a, x, by) => crate::calculus::antiderivative_at(simp(a), x.clone(), simp(by)),
         Expr::Sum(a, v, lo, hi) => crate::calculus::sum(simp(a), v.clone(), simp(lo), simp(hi)),
         Expr::Integral(a, v, lo, hi) => crate::calculus::integral(simp(a), v.clone(), simp(lo), simp(hi)),
         Expr::Vector(v) => Expr::Vector(v.iter().map(simp).collect()),

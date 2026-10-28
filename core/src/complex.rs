@@ -3,7 +3,7 @@
 //!
 //! Values are calculated in the complex numbers. Operations keep their real value whenever they have one
 //! ((−8)^(1/3) is −2) and take their principal complex value where the real one is missing (√−4 is 2i,
-//! ln(−1) is iπ). Where only real values work (graphs, ordering, numeric solving), a complex one is an error.
+//! ln(−1) is iπ). Graphs and numeric solving accept real results with complex intermediates; ordering still requires real operands.
 
 use crate::dim::Dim;
 use crate::expr::{Expr, Val, simp};

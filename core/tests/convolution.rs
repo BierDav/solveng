@@ -204,3 +204,99 @@ fn the_evaluation_point_may_be_the_variable_itself() {
     let e = continuous(&g, &f, "x", &sym("x"));
     assert!((closed_at(&e.subst("x", &sym("t")), 0.5) - numeric(&g, &f, "x", 0.5, -0.5, 1.5)).abs() < 1e-8);
 }
+
+#[test]
+fn dirac_shifts_any_signal_in_either_operand() {
+    let mut env = Env::default();
+    for source in ["rect(x) + tri(2 x)", "exp(-x^2)", "sin(x)"] {
+        let f = body(&mut env, &format!("f(x) := {source}"));
+        let d = body(&mut env, "d(x) := dirac(x - 3/2)");
+        let expected = simp(&f.subst("x", &sub(sym("t"), rat(3, 2))));
+        assert_eq!(continuous(&f, &d, "x", &sym("t")), expected);
+        assert_eq!(continuous(&d, &f, "x", &sym("t")), expected);
+        assert_eq!(continuous(&f, &d, "x", &sym("x")), expected.subst("t", &sym("x")));
+    }
+    // Exercise the worksheet's local convolution variable and a defined signal.
+    support::run(&mut env, "s_0(t) := rect(t) + tri(2 t)");
+    support::run(&mut env, "s_a(t) := convolve(s_0(t), dirac(t - 3/2), t) ->");
+    assert_eq!(support::result(&mut env, "s_a(3/2) ="), "\"2\"");
+}
+
+#[test]
+fn scaled_weighted_impulses_and_symbolic_shifts() {
+    let mut env = Env::default();
+    let f = body(&mut env, "f(x) := x^2 + 1");
+    for (argument, position, factor) in [("2 x - 3", rat(3, 2), rat(1, 2)), ("-2 x + 3", rat(3, 2), rat(1, 2))] {
+        let d = body(&mut env, &format!("d(x) := (x + 1) dirac({argument})"));
+        let expected = simp(&mul(vec![
+            factor, solveng_core::expr::add(vec![position.clone(), rat(1, 1)]),
+            f.subst("x", &sub(sym("t"), position)),
+        ]));
+        let result = continuous(&f, &d, "x", &sym("t"));
+        for n in -8..=8 {
+            assert_eq!(exact_at(&result, rat(n, 2)), exact_at(&expected, rat(n, 2)));
+        }
+    }
+    let d = body(&mut env, "d(x) := a dirac(x - c)");
+    let expected = simp(&mul(vec![sym("a"), f.subst("x", &sub(sym("t"), sym("c")))]));
+    assert_eq!(continuous(&f, &d, "x", &sym("t")), expected);
+}
+
+#[test]
+fn impulse_sums_mixed_signals_and_two_impulses() {
+    let mut env = Env::default();
+    let f = body(&mut env, "f(x) := tri(x)");
+    let d = body(&mut env, "d(x) := 3 (dirac(x - 1) + 2 dirac(x + 2))");
+    let e = continuous(&f, &d, "x", &sym("t"));
+    assert_eq!(exact_at(&e, rat(1, 1)), Num::int(3));
+    assert_eq!(exact_at(&e, rat(-2, 1)), Num::int(6));
+    let mixed = body(&mut env, "m(x) := dirac(x) + rect(x)");
+    let pulse = body(&mut env, "p(x) := rect(x)");
+    let e = continuous(&mixed, &pulse, "x", &sym("t"));
+    assert_eq!(exact_at(&e, rat(0, 1)), Num::int(2));
+    assert_eq!(exact_at(&e, rat(3, 4)), r(1, 4));
+    let a = body(&mut env, "a(x) := 2 dirac(x - 1)");
+    let b = body(&mut env, "b(x) := 3 dirac(x - 2)");
+    let expected = body(&mut env, "expected(t) := 6 dirac(t - 3)");
+    assert_eq!(continuous(&a, &b, "x", &sym("t")), simp(&expected));
+    assert_eq!(continuous(&b, &a, "x", &sym("t")), simp(&expected));
+
+    // Compose two scaled impulses, then sift a smooth signal with the result.
+    let a = body(&mut env, "a(x) := dirac(-2 x + 4)");
+    let b = body(&mut env, "b(x) := dirac(3 x - 9)");
+    let signal = body(&mut env, "signal(t) := t^2");
+    for (a, b) in [(&a, &b), (&b, &a)] {
+        let kernel = continuous(a, b, "x", &sym("t"));
+        let result = continuous(&signal, &kernel, "t", &sym("t"));
+        assert_eq!(exact_at(&result, rat(7, 1)), r(2, 3)); // (7 − 2 − 3)² / 6
+    }
+}
+
+#[test]
+fn dirac_units_and_unsupported_distributions() {
+    use solveng_core::{dim::Dim, eval::dim_of, expr::{Val, int}};
+    let mut env = Env::default();
+    let f = body(&mut env, "f(x) := 3 V * tri(x/(1 s))");
+    let d = body(&mut env, "d(x) := dirac((2 x - 3 s)/(1 s))");
+    let seconds = |n| Expr::C(Val::new(Num::int(n), Dim::base(2)));
+    let v = value(&continuous(&f, &d, "x", &seconds(2))).unwrap();
+    assert_eq!(v.v, r(3, 4));
+    assert_eq!(v.d, Dim::si([2, 1, -2, -1, 0, 0, 0])); // V s
+    let unitful = body(&mut env, "u(x) := dirac(x - 1 s)");
+    assert_eq!(dim_of(&unitful, &|n| (n == "x").then(|| Dim::base(2))).unwrap(), Some(Dim::base(2).powi(-1)));
+    let v = value(&continuous(&f, &unitful, "x", &seconds(1))).unwrap();
+    assert_eq!(v.v, Num::int(3));
+    assert_eq!(v.d, Dim::si([2, 1, -3, -1, 0, 0, 0])); // V
+    for source in ["dirac(x^2 - 1)", "dirac(x)^2", "dirac(0)", "dirac(a x)"] {
+        let d = body(&mut env, &format!("d(x) := {source}"));
+        let e = continuous(&f, &d, "x", &seconds(2));
+        assert!(matches!(e, Expr::Integral(..)), "{source}: {e:?}");
+        assert!(value(&e).is_err(), "{source}: {e:?}");
+    }
+    let d = body(&mut env, "d(x) := dirac(x)");
+    for x in [int(0), int(1)] {
+        let e = simp(&d.subst("x", &x));
+        assert!(value(&e).unwrap_err().message().contains("distribution"));
+        assert!(eval_f(&e, &|_| None).is_none());
+    }
+}

@@ -57,7 +57,7 @@ const fn sig(name: &'static str, positional: &'static [Param], named: &'static [
 pub const BUILTINS: &[Builtin] = &[
     one("sqrt"), one("exp"), one("ln"), one("log"), one("sin"), one("cos"), one("tan"), one("arcsin"), one("arccos"),
     one("arctan"), one("sinh"), one("cosh"), one("tanh"), one("abs"), one("rect"), one("tri"), one("sgn"), one("floor"),
-    one("ceil"), one("factorial"), one("Re"), one("Im"), one("conj"), one("arg"),
+    one("ceil"), one("factorial"), one("Re"), one("Im"), one("conj"), one("arg"), one("dirac"),
     sig("number", &[req("value"), req("unit")], &[]),
     matrix("det"), matrix("tr"), matrix("rank"), one("norm"), sig("identity", &[req("n")], &[]), matrix("rows"), matrix("cols"),
     sig("at", &[req("v"), req("i"), opt("j")], &[]),

@@ -108,6 +108,22 @@
 /// -> unitless value
 #let tri = [#math.op("tri")<solveng-builtin-operation>]
 
+/// Dirac distribution: `dirac(x)`, with unit area and units reciprocal to x's units.
+///
+/// Import `dirac` from `operations`. It is a symbolic distribution, with no pointwise value:
+/// numerical evaluation and plotting it directly report an error. An infinity-valued `cases`
+/// function is not a Dirac distribution. Derivatives stay symbolic.
+///
+/// In convolution, `convolve(f(t), dirac(t - a), t)` gives `f(t - a)`.
+/// Affine arguments `dirac(b t + c)` require a known finite nonzero real b and contribute
+/// the factor 1/|b|. Shifts and weights can be symbolic; finite sums, weighted impulses and
+/// convolution of two impulses are supported. Nonlinear impulse arguments, products of
+/// distributions and distributional integrals outside convolution are unsupported.
+///
+/// - x (expression): Real impulse argument, optionally with units.
+/// -> distribution
+#let dirac = [#math.op("dirac")<solveng-builtin-operation>]
+
 /// Greatest integer less than or equal to x: `floor(x)`.
 ///
 /// The argument and result are unitless. Used for finite time-delay sums.
@@ -206,13 +222,15 @@
 /// constants times powers, exponentials, sin, cos, sinh, cosh, ln and tan of a linear argument; for products that
 /// multiply out into such terms; and by parts for a polynomial times one exponential, sin, cos, sinh or cosh of a
 /// linear argument. Other integrands (`sin(x^2)`, `#e^x cos(x)`, rational functions other than 1/(a x + b))
-/// report an error.
+/// stay symbolic in definitions and with `->`; numerical evaluation (`=` or graphs) reports an error if no
+/// antiderivative can be found.
 ///
 /// With bounds, the bounds must have matching units (0 and ±∞ match any); the result has the integrand's unit
 /// times the variable's unit. Either bound may be infinite. Recognized antiderivatives simplify exactly where they
 /// are continuous between the bounds; remaining integrals stay symbolic with `->` and use adaptive quadrature for
 /// `=` or graphs. Affine signal arguments are split at their corners so narrow pulses are not skipped. Undefined
-/// integrands or failure to converge report an error.
+/// integrands or failure to converge report an error. Complex integrands are evaluated with both components
+/// refined together; local integration variables keep their scope and the units inferred from the bounds.
 ///
 /// In math, `$integral_0^3 x^2 dif x =$` and `$integral x^2 dif x ->$` do the same. The differential (`dif`, not
 /// `diff`, which is ∂) ends the integrand wherever it stands: `$integral_0^1 x^2 + 1 dif x$` integrates x² + 1,
@@ -238,6 +256,8 @@
 /// numeric affine arguments such as `tri((τ - 2 s)/(4 s))` – convolve exactly into a piecewise polynomial;
 /// `$y(t) := convolve(tri(tau), tri(tau), tau, t) ->$` shows the five pieces, `$y(1/2) =$` gives 23/48.
 /// Other signals (exp, sin, symbolic shifts) stay the integral, evaluated numerically for `=` and graphs.
+/// Dirac distributions use the exact sifting rule: `convolve(f(t), dirac(t - a), t)` is `f(t - a)`.
+/// Finite sums and weighted impulses with affine arguments are supported; see `dirac`.
 /// Units multiply: the result has f's unit times g's unit (times τ's unit, or the step's).
 ///
 /// - f (expression): A sequence (vector), or a function of the variable.
