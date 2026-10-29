@@ -241,7 +241,7 @@ pub(crate) fn callee(node: &SyntaxNode) -> Option<String> {
 
 /// Options whose values are unit expressions in math: `preferred-units: ($#m / #s$,)`, `unit: $#W$`,
 /// `units: (U: $#V$)`.
-const UNIT_OPTIONS: &[&str] = &["preferred-units", "unit", "units"];
+const UNIT_OPTIONS: &[&str] = &["preferred-units", "unit", "units", "result-unit", "parameters", "x-unit", "y-unit"];
 
 fn role(function: &str, param: Option<&str>, index: usize) -> Option<Role> {
     let Some(param) = param else {
@@ -252,8 +252,8 @@ fn role(function: &str, param: Option<&str>, index: usize) -> Option<Role> {
         };
     };
     Some(match param {
-        "guess" | "xrange" | "yrange" | "ymark" => return None,
-        "unknown" => Role::Name,
+        "guess" | "x-range" | "y-range" | "x-include" | "ymark" => return None,
+        "unknown" | "variable" => Role::Name,
         "mark" | "xmark" => Role::Mark,
         _ => {
             let f = params::function(function)?;
@@ -406,7 +406,7 @@ impl Reader<'_> {
                     call.named.push(Named { name: pname, name_start, name_end });
                 }
                 _ => {
-                    if arg.kind() == SyntaxKind::Equation && (function.name == "worksheet" || index == 0 && matches!(function.name.as_str(), "value" | "graph" | "lambdify" | "unit") || function.name == "constant") {
+                    if arg.kind() == SyntaxKind::Equation && (matches!(function.name.as_str(), "worksheet" | "calculate") || index == 0 && matches!(function.name.as_str(), "value" | "graph" | "lambdify" | "compile" | "unit") || function.name == "constant") {
                         let (s, e) = self.chars(&arg);
                         call.maths.push((s, e));
                     }

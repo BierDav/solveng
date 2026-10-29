@@ -9,7 +9,7 @@
   #worksheet[
     $Q_0 := 3450 mAh$, $I := 30 mA$
 
-    $t := Q_0 / I = #h$
+    $t := Q_0 / I => #h$
 
     $Q_0/2 = I t -> solve(t)$
   ]
@@ -21,13 +21,13 @@
   #import constants: pi, e, c
   #import operations: tri
   #worksheet[
-    $P := 2 pi =$
+    $P := 2 pi =>$
 
-    $"velocity" := #c =$
+    $"velocity" := #c =>$
 
     $f(x) := #e^x$
 
-    $tri(1/4) =$
+    $tri(1/4) =>$
   ]
 ]
 
@@ -45,10 +45,10 @@
   #import units: m, s, kg
   #let g0 = constant("standard-gravity", $9.80665 #m / #s^2$)
   #let triangle = operation("tri", display: () => math.op("triangle"))
-  #worksheet(constants: ("standard-gravity": $g_0$))[
-    $F := 2 kg #g0 =$
+  #worksheet(constant-displays: ("standard-gravity": $g_0$))[
+    $F := 2 kg #g0 =>$
 
-    $triangle(1/2) =$
+    $triangle(1/2) =>$
   ]
 ]
 
@@ -57,10 +57,10 @@
   #import units: Ω, Hz, mH
   #import constants: pi, i
   #import operations: Re, Im
-  #worksheet(constants: (imaginary: $j$))[
-    $Z := 100 #Ω + #i 2 pi 50 Hz dot 300 mH =$
+  #worksheet(constant-displays: (imaginary: $j$))[
+    $Z := 100 #Ω + #i 2 pi 50 Hz dot 300 mH =>$
 
-    $abs(Z) =$, $arg(Z) =$, $Im(Z) =$
+    $abs(Z) =>$, $arg(Z) =>$, $Im(Z) =>$
 
     $#i -> substitute(#i)$
   ]
@@ -72,15 +72,15 @@
   #worksheet(digits: 3)[
     $U := 12 #V$, $R := 100 #Ω$
 
-    #worksheet(scope: "shared")[$I := U/R = mA$]
+    #worksheet(scope: "shared")[$I := U/R => mA$]
 
-    #worksheet($I/3 =$, form: "fraction")
+    #calculate($I/3 =>$, number-form: "fraction")
 
     #worksheet(evaluate: false)[Equations like $E = m c^2$ stay as written.]
 
-    The current is #value($I = mA$).
+    The current is #value($I => mA$).
 
-    #worksheet(preferred-units: ($#m / #s$,), scope: "inherit")[$v := 36 #m / (2 #s) =$]
+    #worksheet(preferred-units: ($#m / #s$,), scope: "inherit")[$v := 36 #m / (2 #s) =>$]
 
     #clear("R")
 

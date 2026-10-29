@@ -176,7 +176,7 @@ impl<'a> Sheet<'a> {
         match s {
             Stmt::Def { head: Head::Fn { name, params, rest }, rhs, src } => {
                 if trail == Some(Trail::Eval) {
-                    return Err(format!("a function has no value of its own – evaluate a call, {name}(2) ="));
+                    return Err(format!("a function has no value of its own – evaluate a call, {name}(2) =>"));
                 }
                 self.define_fn(name, params, *rest, rhs, src, trail == Some(Trail::Sym), clause, cfg)
             }
@@ -271,7 +271,7 @@ impl<'a> Sheet<'a> {
         match trail {
             Some(Trail::Eval) => {
                 let (m, _) = self.eval_markup(&stored, unit.as_ref(), cfg).map_err(|e| self.no_value(e, n))?;
-                self.show("=", m);
+                self.show("=>", m);
             }
             Some(Trail::Sym) => {
                 let m = self.sym_markup(&stored, unit.as_ref(), cfg)?;
@@ -303,7 +303,7 @@ impl<'a> Sheet<'a> {
         match trail {
             Some(Trail::Eval) => {
                 let (m, _) = self.eval_markup(&stored, unit.as_ref(), cfg).map_err(|e| self.no_value(e, n))?;
-                self.show("=", m);
+                self.show("=>", m);
             }
             Some(Trail::Sym) => {
                 let m = self.sym_markup(shown.as_ref().unwrap_or(&stored), unit.as_ref(), cfg)?;
@@ -387,6 +387,26 @@ impl<'a> Sheet<'a> {
                 lo.inferred.insert(p.name.clone(), t.clone());
             }
         }
+        fn restrictions(ast: &Ast, lo: &mut Lower<'_>, out: &mut Vec<Expr>) -> Result<(), String> {
+            match ast {
+                Ast::Div(a, b) => { out.push(lo.expr(b)?); restrictions(a, lo, out)?; restrictions(b, lo, out)?; }
+                Ast::Pow(a, b) => {
+                    if simp(&lo.expr(b)?).as_num().is_some_and(|n| n.is_neg()) { out.push(lo.expr(a)?); }
+                    restrictions(a, lo, out)?; restrictions(b, lo, out)?;
+                }
+                Ast::Neg(a) | Ast::Qty(a, _) | Ast::Abs(a) | Ast::Arg(_, a) => restrictions(a, lo, out)?,
+                Ast::Add(xs) => { for (_, a) in xs { restrictions(a, lo, out)?; } }
+                Ast::Mul(xs) => { for (_, a) in xs { restrictions(a, lo, out)?; } }
+                Ast::Call(_, xs) => { for a in xs { restrictions(a, lo, out)?; } }
+                Ast::Matrix(rows) => { for a in rows.iter().flatten() { restrictions(a, lo, out)?; } }
+                // Calculus operations have local variables and generate guarded closed forms.
+                // Their denominators must be handled within those local scopes.
+                _ => {}
+            }
+            Ok(())
+        }
+        let mut denominators = Vec::new();
+        if clause.solve.is_none() { restrictions(rhs, &mut lo, &mut denominators)?; }
         let body = if let Some(xs) = &clause.solve {
             lo.params.extend(xs.iter().cloned());
             let _ = lo.expr(rhs)?;
@@ -436,7 +456,7 @@ impl<'a> Sheet<'a> {
         } else {
             None
         };
-        let f = Fun { params: ps.clone(), body: body.clone(), written, ast: if clause.solve.is_some() { None } else { Some(rhs.clone()) }, src: match &clause.solve { Some(xs) => format!("{src} -> solve({})", xs.join(", ")), None => src.to_string() }, ret, defaults };
+        let f = Fun { params: ps.clone(), body: body.clone(), written, ast: if clause.solve.is_some() { None } else { Some(rhs.clone()) }, src: match &clause.solve { Some(xs) => format!("{src} -> solve({})", xs.join(", ")), None => src.to_string() }, ret, defaults, denominators };
         self.env.define_fun(n, f, self.listed);
         self.out.defined.push(n.to_string());
         if sym {
@@ -586,7 +606,7 @@ impl<'a> Sheet<'a> {
         };
         let want = clause.unit.clone().or(unit);
         let (m, _) = self.eval_markup(&e, want.as_ref(), cfg).map_err(|e| self.no_value(e, &ast_text(a, &self.units)))?;
-        self.show("=", m);
+        self.show("=>", m);
         Ok(())
     }
 
@@ -616,6 +636,11 @@ impl<'a> Sheet<'a> {
     /// true, false). With steps, the forms on the way, a line each in a block: the equation with the definitions put
     /// in, one side zero, in factors, where it holds.
     fn sym_result(&self, e: &Expr, clause: &Clause, cfg: &Cfg) -> Result<String, String> {
+        if let Expr::Cmp(values, _) = e {
+            let dims = values.iter().map(|v| dim_of(v, &|_| None)).collect::<Result<Vec<_>, _>>()?;
+            let known: Vec<_> = dims.iter().flatten().collect();
+            if known.windows(2).any(|pair| pair[0] != pair[1]) { return Err("equation sides must have matching units".into()); }
+        }
         let names: BTreeSet<_> = clause.real.iter().cloned().collect();
         for n in &names {
             if self.env.funs.contains_key(n) {
@@ -844,7 +869,7 @@ impl<'a> Sheet<'a> {
                     return Err(format!("'{}' isn't an equation – solve(…) needs one with =, like x^2 = 4", ast_text(a, &self.units)));
                 };
                 if rs.len() != 1 || v.len() != 2 || v.iter().any(|e| matches!(e, Expr::Cmp(..))) {
-                    return Err("one relation per equation; a relation function already contains =".into());
+                    return Err("one relation per equation; a relation function already contains =>".into());
                 }
                 eq_text.push(ast_text(a, &self.units));
                 eqs.push((v[0].clone(), v[1].clone(), rs[0]));
@@ -1022,24 +1047,6 @@ impl<'a> Sheet<'a> {
             rel = Some(if slope > 0.0 { r0 } else { r0.flip() });
         }
         self.out.solutions = sols.iter().map(|s| s.iter().map(|(_, sol)| match sol { Sol::Value(z) if z.is_real() => z.re.v.f(), _ => f64::NAN }).collect()).collect();
-        // which solution is kept: the only all-positive one, else the first
-        let pick_i = {
-            let pos: Vec<usize> = (0..sols.len())
-                .filter(|&i| sols[i].iter().all(|(_, s)| matches!(s, Sol::Value(z) if z.is_real() && z.re.v.f() > 0.0)))
-                .collect();
-            if pos.len() == 1 { Some(pos[0]) } else if sols.is_empty() { None } else { Some(0) }
-        };
-        if let Some(i) = pick_i {
-            for (j, x) in xs.iter().enumerate() {
-                if let Sol::Value(z) = &sols[i][j].1 {
-                    let unit = if xs.len() == 1 { clause.unit.clone() } else { None };
-                    let plain = |v: &Val| Val { u: None, raw: None, ..v.clone() };
-                    let var = Var { expr: crate::complex::expr(CVal { re: plain(&z.re), im: plain(&z.im) }), ast: None, unit, rel };
-                    self.env.define_var(x, var, Kind::Computed, self.listed);
-                    self.out.defined.push(x.clone());
-                }
-            }
-        }
         // what's shown: x = …, the solutions of one unknown in a row, those of several each in its own line
         let rel_m = rel.map(render::rel).unwrap_or("=");
         let n = cfg.max_solutions.max(1);
@@ -1308,11 +1315,11 @@ mod tests {
         assert_eq!(o.result.as_deref(), Some("x = -frac(\"3\", y^(\"2\") + \"1\")"));
         let o = t.math("f(y_2) = q(x_2, y_2)");
         assert!(o.errors.iter().any(|e| e.contains("f isn't defined")));
-        let o = t.ok("M ≔ 1 = 2 =");
+        let o = t.ok("M ≔ 1 = 2 =>");
         assert_eq!(o.result.as_deref(), Some("\"0\""));
         let o = t.ok("M ≔ 1 #A = 2 #V →");
         assert_eq!(o.result.as_deref(), Some("\"0\""));
-        let o = t.ok("M =");
+        let o = t.ok("M =>");
         assert_eq!(o.result.as_deref(), Some("\"0\""));
     }
 
@@ -1325,7 +1332,7 @@ mod tests {
         assert_eq!(o.result.as_deref(), Some("a dot x thin upright(\"m\")"));
         let o = t.ok("h(x: m) ≔ frac(U(x), a) →");
         assert_eq!(o.result.as_deref(), Some("x thin upright(\"m\")"));
-        let o = t.ok("y ≔ h(2 #m) =");
+        let o = t.ok("y ≔ h(2 #m) =>");
         assert_eq!(o.result.as_deref(), Some("\"2\" thin upright(\"m\")^(2)"));
     }
 
@@ -1333,10 +1340,10 @@ mod tests {
     fn late_binding() {
         let mut t = T::new();
         t.ok("h ≔ 5 z");
-        let o = t.math("h =");
+        let o = t.math("h =>");
         assert!(o.errors[0].contains("'z'"), "{:?}", o.errors);
         t.ok("z ≔ 2");
-        let o = t.ok("h =");
+        let o = t.ok("h =>");
         assert_eq!(o.result.as_deref(), Some("\"10\""));
     }
 
@@ -1349,10 +1356,11 @@ mod tests {
         assert_eq!(o.result.as_deref(), Some("\"115\" thin upright(\"h\")"));
         let o = t.ok("frac(Q_0, 2) = I t → ⦅solve(t)⦆");
         assert_eq!(o.result.as_deref(), Some("t = \"57.5\" thin upright(\"h\")"));
-        assert!((t.val("t") - 207000.0).abs() < 1e-6);
+        assert!((o.solutions[0][0] - 207000.0).abs() < 1e-6);
+        assert_eq!(t.val("t"), 414000.0);
         let o = t.ok("x^(2) + 2x - 3 = 0 → ⦅solve(x)⦆");
         assert!(o.result.unwrap().contains("x_(1) = \"−3\""));
-        assert_eq!(t.val("x"), 1.0);
+        assert!(!t.env.vars.contains_key("x"));
         t.ok("U ≔ 5 #V");
         let o = t.ok("R ≤ frac(U, I) → ⦅solve(R)⦆");
         assert!(o.result.unwrap().starts_with("R <= \"166.7\""));
@@ -1360,7 +1368,7 @@ mod tests {
         assert_eq!(o.result.as_deref(), Some("frac(\"1\", \"3\")"));
         let o = t.ok("a + b = 3, a - b = 1 → ⦅solve(a, b)⦆");
         assert!(o.errors.is_empty());
-        assert_eq!(t.val("a"), 2.0);
+        assert_eq!(o.solutions[0], vec![2.0, 1.0]);
         // a check that fails
         let o = t.math("U = 6 #V");
         assert!(o.errors[0].contains("another value"));
@@ -1374,7 +1382,7 @@ mod tests {
     fn typed_parameters() {
         let mut t = T::new();
         t.ok("U(x: A) := x · 2 Ω");
-        t.ok("z := U(3 A) =");
+        t.ok("z := U(3 A) =>");
         assert_eq!(t.val("z"), 6.0);
         let o = t.math("w := U(2 V)");
         assert!(o.errors[0].contains("takes x in A, got V"), "{:?}", o.errors);

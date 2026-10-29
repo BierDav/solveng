@@ -407,7 +407,7 @@ pub(crate) fn minimize(f: &impl Fn(f64) -> Option<f64>, lo: f64, hi: f64) -> Res
     let (mut c, mut d) = (b - ratio * (b - a), a + ratio * (b - a));
     let (mut fc, mut fd) = (sample(c)?, sample(d)?);
     for _ in 0..256 {
-        if (b - a).abs() <= 1e-12 * (lo.abs().max(hi.abs()).max(hi - lo)) {
+        if (b - a).abs() <= (1e-12 * (hi - lo)).max(2.0 * f64::EPSILON * a.abs().max(b.abs())) {
             break;
         }
         if fc < fd {
@@ -453,7 +453,7 @@ pub(crate) fn ode(f: &impl Fn(f64, f64) -> Option<f64>, initial: f64, start: f64
         next.is_finite().then_some(next)
     };
     let sign = (end - start).signum();
-    let (mut t, mut y, mut h) = (start, initial, (end - start) / 32.0);
+    let (mut t, mut y, mut h) = (start, initial, (end - start) / 31.0);
     for _ in 0..100_000 {
         if sign * (t + h - end) > 0.0 {
             h = end - t;
@@ -474,6 +474,7 @@ pub(crate) fn ode(f: &impl Fn(f64, f64) -> Option<f64>, initial: f64, start: f64
             }
         }
         h *= if error == 0.0 { 4.0 } else { (0.9 * (tolerance / error).powf(0.2)).clamp(0.1, 4.0) };
+        h = sign * h.abs().min((end - start).abs() / 31.0);
     }
     Err("odesolve: step limit exceeded (100000); the problem may be stiff".into())
 }

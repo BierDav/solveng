@@ -129,7 +129,7 @@ fn assignments(s: &str) -> Vec<(String, String)> {
 fn value_case(f: &[&str]) -> Outcome {
     let (src, want, tol) = (f[0], parse_value(f[1]), if f.get(2).is_none_or(|t| *t == "-") { 1e-9 } else { number(f[2]) });
     let mut env = Env::default();
-    if let Some(e) = errors(&run(&mut env, &format!("v := {src} ="))) {
+    if let Some(e) = errors(&run(&mut env, &format!("v := {src} =>"))) {
         return Outcome::new(Status::Unsupported, e);
     }
     match got(&env, "v") {
@@ -218,7 +218,7 @@ fn solve_case(f: &[&str]) -> Outcome {
             Some(e) => Outcome::new(Status::Unsupported, format!("symbolic: {e}")),
             None => {
                 let args: Vec<&str> = params.iter().map(|(_, v)| v.as_str()).collect();
-                match errors(&run(&mut env, &format!("v := F({}) =", args.join(", ")))).map(Err).unwrap_or_else(|| got(&env, "v")) {
+                match errors(&run(&mut env, &format!("v := F({}) =>", args.join(", ")))).map(Err).unwrap_or_else(|| got(&env, "v")) {
                     Err(e) => Outcome::new(Status::Unsupported, format!("symbolic: {e}")),
                     Ok(g) => {
                         // one solution of one unknown is a number, several a vector; for several unknowns a

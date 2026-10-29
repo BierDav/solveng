@@ -83,8 +83,8 @@ impl Op {
             "median" => Op::Median,
             "variance" => Op::Variance,
             "stdev" => Op::Stdev,
-            "normalcdf" => Op::NormalCdf,
-            "normalquantile" => Op::NormalQuantile,
+            "pnorm" => Op::NormalCdf,
+            "qnorm" => Op::NormalQuantile,
             "linterp" => Op::Interpolate,
             "linfit" => Op::LinearFit,
             "dft" => Op::Dft,
@@ -136,8 +136,8 @@ impl Op {
             Op::Median => "median",
             Op::Variance => "variance",
             Op::Stdev => "stdev",
-            Op::NormalCdf => "normalcdf",
-            Op::NormalQuantile => "normalquantile",
+            Op::NormalCdf => "pnorm",
+            Op::NormalQuantile => "qnorm",
             Op::Interpolate => "linterp",
             Op::LinearFit => "linfit",
             Op::Dft => "dft",
@@ -426,13 +426,32 @@ fn eval(op: Op, args: &[Expr]) -> Result<Option<Expr>, String> {
     if !op.arity().contains(&args.len()) {
         return Err(op.usage());
     }
+    if op == Op::Norm {
+        if let Some(a) = Array::of(&args[0]) {
+            let values = a.a.iter().map(crate::eval::complex_value).collect::<Result<Vec<_>, _>>();
+            if let Ok(values) = values {
+                if values.iter().any(|v| !v.re.v.is_exact() || !v.im.v.is_exact() || v.z().abs() > 1e150 || (v.z().abs() > 0.0 && v.z().abs() < 1e-150)) {
+                    let d = values.iter().find(|v| v.z().abs() != 0.0).map(|v| v.d().clone()).unwrap_or(crate::dim::Dim::ONE);
+                    if values.iter().any(|v| *v.d() != d && !(v.z().abs() == 0.0 && v.d().is_one())) { return Err("norm: entries must have matching units".into()); }
+                    let norm = values.iter().fold(0.0_f64, |acc, v| acc.hypot(v.re.v.f()).hypot(v.im.v.f()));
+                    if !norm.is_finite() { return Err("norm: result is outside finite range".into()); }
+                    return Ok(Some(Expr::C(Val::new(crate::num::Num::F(norm), d))));
+                }
+            }
+        }
+    }
     if matches!(op, Op::Lsolve | Op::Eigenvals | Op::SingularValues | Op::Condition | Op::Median | Op::Variance | Op::Stdev | Op::NormalCdf | Op::NormalQuantile | Op::Interpolate | Op::LinearFit | Op::Dft | Op::Idft | Op::Gamma | Op::Erf | Op::BesselJ | Op::Celsius | Op::Fahrenheit | Op::Polyroots) {
         if args.iter().any(|e| !e.syms().is_empty()) { return Ok(None); }
         return crate::numerics::operation(op, args).map(Some);
     }
     if matches!(op, Op::Atan2 | Op::Min | Op::Max | Op::Mean) {
         if args.iter().any(|e| !e.syms().is_empty()) { return Ok(None); }
-        let entries = if op == Op::Mean {
+        let reduction;
+        let entries = if matches!(op, Op::Min | Op::Max) && args.len() == 1 && Array::of(&args[0]).is_some() {
+            reduction = Array::of(&args[0]).filter(Array::vector).ok_or("extrema require a vector")?.a;
+            if reduction.is_empty() { return Err("extrema require a nonempty vector".into()); }
+            &reduction
+        } else if op == Op::Mean {
             let a = Array::of(&args[0]).filter(Array::vector).ok_or("mean takes a vector")?;
             if a.a.is_empty() { return Err("mean takes a nonempty vector".into()); }
             return Ok(Some(simp(&expr::div(expr::add(a.a.clone()), int(a.a.len() as i128)))));

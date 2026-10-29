@@ -4,15 +4,15 @@
 //   #import modifiers: solve
 //   #show: worksheet                       // the math in the document is calculated:
 //   $I := 30 mA$, $Q_0 := 3450 mAh$        //   := defines
-//   $t := Q_0 / I = #h$                    //   a trailing = shows the value (bold), in hours
+//   $t := Q_0 / I => #h$                    //   a trailing = shows the value (bold), in hours
 //   $x^2 = 4 -> solve(x)$                  //   -> the symbolic result, or solves
 
-#import "src/api.typ": worksheet
+#import "src/api.typ": worksheet, calculate
 #import "src/core.typ": clear
 #import "src/keywords.typ": any
 #import "src/defined.typ": defined
 #import "src/graph.typ": graph
-#import "src/lambdify.typ": lambdify
+#import "src/lambdify.typ": compile, lambdify
 #import "src/value.typ": value
 #import "src/operation.typ": base-unit, unit, constant, operation
 // bindings only where imported, never through `*`: #import units: km, mA, s, #import operations: tri, sgn,

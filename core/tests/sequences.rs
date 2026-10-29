@@ -188,7 +188,7 @@ fn named_parameters() {
 fn explicit_operations_and_plain_names() {
     let mut env = Env::default();
     // a plain name is no operation: only an explicit reference reaches one
-    assert!(!support::line_raw(&mut env, "a ≔ tri(0) =").errors.is_empty());
+    assert!(!support::line_raw(&mut env, "a ≔ tri(0) =>").errors.is_empty());
     assert!(support::line_raw(&mut env, "b ≔ ⦇tri⦈(1/2)").errors.is_empty());
     assert_eq!(num(&env, "b"), 0.5);
     for name in ["tri", "sin", "rect"] {

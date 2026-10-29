@@ -305,7 +305,7 @@ pub fn src(text: &str, env: &Env) -> String {
                 i += 1;
             }
             '≔' if depth == 0 && def_at.is_none() => def_at = Some(i),
-            '-' if depth == 0 && cs.get(i + 1) == Some(&'>') => {
+            '-' | '=' if depth == 0 && cs.get(i + 1) == Some(&'>') => {
                 clause_at = Some(i + 2);
                 arrow = true;
                 i += 1;

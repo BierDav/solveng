@@ -3,7 +3,7 @@ use solveng_core::{env::Env, graph::{self, GraphOut, GraphReq, XV}, eval::{compl
 use support::{run, curve, cfg};
 
 fn plot(env: &Env, source: &str, a: f64, b: f64) -> Result<GraphOut, String> {
-    graph::graph(env, &GraphReq { cfg: cfg(), curves: vec![curve(source, env)], xrange: vec![XV::Num(a), XV::Num(b)], yrange: vec![], marks: vec![], ymark: vec![], samples: 80 })
+    graph::graph(env, &GraphReq { axes: Default::default(), cfg: cfg(), curves: vec![curve(source, env)], xrange: vec![XV::Num(a), XV::Num(b)], yrange: vec![], marks: vec![], ymark: vec![], samples: 80 })
 }
 fn check(g: &GraphOut, f: impl Fn(f64) -> f64, tol: f64) {
     let points: Vec<_> = g.series.iter().filter(|s| !s.beyond).flat_map(|s| &s.points).collect();
@@ -30,7 +30,7 @@ fn analytic(f: f64) -> f64 {
 fn fourier_graph_agrees_with_independent_analytic_expression() {
     let mut env = fourier_env();
     for f in [0.0, 0.2, -0.37, 1.0, 2.3] {
-        run(&mut env, &format!("answer := S({f}) ="));
+        run(&mut env, &format!("answer := S({f}) =>"));
         let value = complex_value(&env.vars["answer"].expr).unwrap();
         assert!((value.re.v.f() - analytic(f)).abs() < 2e-9, "f={f}: {value:?}");
         assert!(value.im.v.f().abs() < 2e-9);
@@ -115,7 +115,7 @@ fn fourier_transform_of_pulses_is_closed_and_solvable() {
         assert!((value - analytic(f)).abs() < 1e-9, "f={f}: {value}");
     }
     // a number put in close to 0, directly or through a variable
-    for source in ["answer := S(10^(-9)) =", "answer := S(-10^(-13)) + 0 =", "answer := S(2 x) ="] {
+    for source in ["answer := S(10^(-9)) =>", "answer := S(-10^(-13)) + 0 =>", "answer := S(2 x) =>"] {
         run(&mut env, "x := 10^(-10)");
         run(&mut env, source);
         let value = complex_value(&env.vars["answer"].expr).unwrap();

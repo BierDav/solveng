@@ -1,7 +1,7 @@
 //! Desired behavior for the 50 findings in docs/gap-audit-50.md.
 //!
 //! Known failures are opt-in: cargo test -p solveng-core --test gap_audit_50 -- --ignored
-//! Every test must currently FAIL when enabled. Remove its ignore when fixing that finding.
+//! Resolved findings run in normal CI; pending features remain opt-in.
 //! Explicit operation tokens in feature tests specify proposed APIs, not existing promises.
 mod support;
 
@@ -86,7 +86,6 @@ fn lambda(source: &str, params: &[&str]) -> LamReq {
 }
 
 #[test]
-#[ignore = "B01: complex square root erases a resolvable small component"]
 fn b01_square_root_retains_small_imaginary_part() {
     for epsilon in [1e-12, 1e-20, -1e-20] {
         let got = Z::new(1.0, epsilon).sqrt();
@@ -97,7 +96,6 @@ fn b01_square_root_retains_small_imaginary_part() {
 }
 
 #[test]
-#[ignore = "B02: complex square root overflows its finite intermediate sum"]
 fn b02_square_root_scales_large_components() {
     let got = Z::new(1e308, 1e308).sqrt();
     let root_two = 2.0_f64.sqrt();
@@ -106,7 +104,6 @@ fn b02_square_root_scales_large_components() {
 }
 
 #[test]
-#[ignore = "B03: scaled complex division still overflows its numerator"]
 fn b03_dividing_large_complex_number_by_itself_is_one() {
     for sign in [1.0, -1.0] {
         let z = Z::new(1e308, sign * 1e308);
@@ -117,7 +114,6 @@ fn b03_dividing_large_complex_number_by_itself_is_one() {
 }
 
 #[test]
-#[ignore = "B04: inverse trig continuation overflows although its result is finite"]
 fn b04_inverse_sine_accepts_large_real_complex_continuation() {
     // asin(x) = pi/2 - i*acosh(x); acosh(1e300) differs negligibly from ln(2e300).
     let got = evaluated(&mut Env::default(), "arcsin(10^300)");
@@ -126,7 +122,6 @@ fn b04_inverse_sine_accepts_large_real_complex_continuation() {
 }
 
 #[test]
-#[ignore = "B05: complex tangent forms overflowing sinh/cosh intermediates"]
 fn b05_tangent_of_large_imaginary_argument_is_finite() {
     // tan(i*y) = i*tanh(y), which rounds to i here.
     let got = evaluated(&mut Env::default(), "tan(1000 #i)");
@@ -135,7 +130,6 @@ fn b05_tangent_of_large_imaginary_argument_is_finite() {
 }
 
 #[test]
-#[ignore = "B06: norm squares overflow or underflow before taking the root"]
 fn b06_vector_norm_scales_before_squaring() {
     for exponent in [300, -300] {
         let got = evaluated(
@@ -152,7 +146,6 @@ fn b06_vector_norm_scales_before_squaring() {
 }
 
 #[test]
-#[ignore = "B07: rational ordering falls back to indistinguishable floats"]
 fn b07_rational_order_is_consistent_with_exact_equality() {
     let n = 10_i128.pow(30);
     let a = Rat::new(n + 1, n).unwrap();
@@ -163,14 +156,12 @@ fn b07_rational_order_is_consistent_with_exact_equality() {
 }
 
 #[test]
-#[ignore = "B08: exact rational root checks only three float-derived candidates"]
 fn b08_large_perfect_square_has_exact_rational_root() {
     let root = 1_234_567_890_123_456_789_i128;
     assert_eq!(Rat::int(root * root).root(2), Some(Rat::int(root)));
 }
 
 #[test]
-#[ignore = "B09: rational construction panics at the minimum signed numerator"]
 fn b09_minimum_i128_is_a_valid_rational_numerator() {
     // A panic is a failing test; do not turn it into an expected panic.
     let r = Rat::new(i128::MIN, 1).expect("representable numerator and positive denominator");
@@ -178,13 +169,11 @@ fn b09_minimum_i128_is_a_valid_rational_numerator() {
 }
 
 #[test]
-#[ignore = "B10: odd rational powers outside the exact fast path become complex"]
 fn b10_odd_denominator_above_sixty_four_keeps_real_root() {
     real("(-8)^(1/65)", -8.0_f64.powf(1.0 / 65.0), 1e-12);
 }
 
 #[test]
-#[ignore = "B11: modulus differentiation uses z/abs(z) for complex z"]
 fn b11_modulus_derivative_along_real_parameter_is_real() {
     let mut env = Env::default();
     support::run(&mut env, "f(x) := diff(abs(x+#i),x)");
@@ -192,7 +181,6 @@ fn b11_modulus_derivative_along_real_parameter_is_real() {
 }
 
 #[test]
-#[ignore = "B12: a smooth composite of abs receives an artificial pole"]
 fn b12_modulus_of_square_is_differentiable_at_zero() {
     let mut env = Env::default();
     support::run(&mut env, "f(x) := diff(abs(x^2),x)");
@@ -200,7 +188,6 @@ fn b12_modulus_of_square_is_differentiable_at_zero() {
 }
 
 #[test]
-#[ignore = "B13: lambdify accepts duplicate normalized parameter names"]
 fn b13_lambdify_rejects_duplicate_parameters() {
     for params in [["x", "x"], ["alpha", "α"]] {
         let req = lambda(params[0], &params);
@@ -212,7 +199,6 @@ fn b13_lambdify_rejects_duplicate_parameters() {
 }
 
 #[test]
-#[ignore = "B14: lambdify skips dimensional validation without an output unit"]
 fn b14_lambdify_checks_known_parameter_dimensions() {
     for source in ["x + 1 s", "sin(x)"] {
         let mut req = lambda(source, &["x"]);
@@ -225,7 +211,6 @@ fn b14_lambdify_checks_known_parameter_dimensions() {
 }
 
 #[test]
-#[ignore = "B15: symbolic equation proof erases dimensions of zero operands"]
 fn b15_zero_quantities_with_different_units_are_not_an_identity() {
     let out = support::line(&mut Env::default(), "0 m = 0 s ->");
     assert!(
@@ -235,14 +220,12 @@ fn b15_zero_quantities_with_different_units_are_not_an_identity() {
 }
 
 #[test]
-#[ignore = "B16: RK step doubling accepts an aliased oscillatory right side"]
 fn b16_ode_resolves_periodic_forcing_instead_of_false_convergence() {
     // Exact solution sin(256*pi*t)/(256*pi), zero at both endpoints.
     real("odesolve(cos(256*pi*t),y,t,0,0,1)", 0.0, 1e-8);
 }
 
 #[test]
-#[ignore = "B17: translating a unimodal quadratic loses its minimizer"]
 fn b17_minimizer_retains_local_resolution_at_large_coordinate_offset() {
     real(
         "minimize((x-1000000000000.25)^2,x,1000000000000,1000000000001)",
@@ -252,32 +235,28 @@ fn b17_minimizer_retains_local_resolution_at_large_coordinate_offset() {
 }
 
 #[test]
-#[ignore = "B18: cancellation in a function discards its excluded zero input"]
 fn b18_function_quotient_retains_its_original_domain() {
     let mut env = Env::default();
     support::run(&mut env, "f(x) := x/x");
-    let out = support::line(&mut env, "f(0) =");
+    let out = support::line(&mut env, "f(0) =>");
     assert!(!out.errors.is_empty(), "x/x is undefined at zero: {out:?}");
 }
 
 #[test]
-#[ignore = "B19: zero to a purely imaginary exponent returns zero"]
 fn b19_zero_to_purely_imaginary_power_is_undefined() {
-    for source in ["0^#i =", "0^(-#i) ="] {
+    for source in ["0^#i =>", "0^(-#i) =>"] {
         rejects(source);
     }
 }
 
 #[test]
-#[ignore = "B20: tangent at an exact pi pole returns a huge finite number"]
 fn b20_tangent_rejects_exact_symbolic_poles() {
-    for source in ["tan(pi/2) =", "tan(3*pi/2) =", "tanc(pi/2) ="] {
+    for source in ["tan(pi/2) =>", "tan(3*pi/2) =>", "tanc(pi/2) =>"] {
         rejects(source);
     }
 }
 
 #[test]
-#[ignore = "B21: flattening an odd inner power changes the square root branch"]
 fn b21_nested_power_preserves_the_principal_square_root() {
     let mut env = Env::default();
     support::run(&mut env, "f(x) := sqrt(x^3)");
@@ -287,7 +266,6 @@ fn b21_nested_power_preserves_the_principal_square_root() {
 }
 
 #[test]
-#[ignore = "B22: nested power unwraps an integer outside as_int's range"]
 fn b22_large_symbolic_exponent_does_not_panic() {
     let out = support::line(&mut Env::default(), "(x^10000000000000000)^(1/2) ->");
     assert!(
@@ -298,14 +276,12 @@ fn b22_large_symbolic_exponent_does_not_panic() {
 }
 
 #[test]
-#[ignore = "F23: min and max do not accept a vector reduction"]
 fn f23_vector_extrema_reductions() {
     real("min(vec(3,-2,7))", -2.0, 0.0);
     real("max(vec(3,-2,7))", 7.0, 0.0);
 }
 
 #[test]
-#[ignore = "F24: ordinary piecewise derivatives remain unevaluated"]
 fn f24_differentiate_piecewise_function_away_from_boundaries() {
     let mut env = Env::default();
     support::run(&mut env, "f(x) := diff(cases(x^2,x<0,x^3),x)");
@@ -314,7 +290,6 @@ fn f24_differentiate_piecewise_function_away_from_boundaries() {
 }
 
 #[test]
-#[ignore = "F25: erf has a numerical value but no derivative rule"]
 fn f25_error_function_derivative() {
     let mut env = Env::default();
     support::run(&mut env, "f(x) := diff(erf(x),x)");
@@ -329,7 +304,6 @@ fn f26_digamma_recurrence() {
 }
 
 #[test]
-#[ignore = "F27: besselj has no derivative rule"]
 fn f27_bessel_derivative_recurrence() {
     let mut env = Env::default();
     support::run(&mut env, "f(x) := diff(besselj(0,x),x) + besselj(1,x)");
@@ -390,13 +364,11 @@ fn f32_removable_singularity_limit() {
 }
 
 #[test]
-#[ignore = "F33: Taylor polynomial operation is absent (proposed API)"]
 fn f33_taylor_polynomial_through_requested_degree() {
     identity("⦇taylor⦈(exp(x),x,0,4) = 1+x+x^2/2+x^3/6+x^4/24 ->");
 }
 
 #[test]
-#[ignore = "F34: Jacobian operation is absent (proposed API)"]
 fn f34_vector_function_jacobian() {
     let mut env = Env::default();
     support::run(&mut env, "J(x,y) := ⦇jacobian⦈(vec(x*y,x+y),vec(x,y))");
@@ -408,7 +380,6 @@ fn f34_vector_function_jacobian() {
 }
 
 #[test]
-#[ignore = "F35: Hessian operation is absent (proposed API)"]
 fn f35_multivariate_hessian() {
     array(
         "⦇hessian⦈(x^2+x*y+3*y^2,vec(x,y))",
@@ -540,7 +511,6 @@ fn f49_polynomial_roots_with_dimensioned_coefficients() {
 }
 
 #[test]
-#[ignore = "F50: branch-safe inverse-trig compositions are not proved symbolically"]
 fn f50_sine_of_arcsine_symbolic_identity() {
     // This direction is valid on the principal complex continuation, unlike asin(sin(x)).
     identity("sin(arcsin(x)) = x ->");

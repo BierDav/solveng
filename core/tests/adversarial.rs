@@ -41,22 +41,22 @@ fn rejects(source: &str) {
 
 #[test]
 fn zero_divided_by_zero_is_undefined() {
-    rejects("0/0 =");
+    rejects("0/0 =>");
 }
 
 #[test]
 fn multiplying_by_zero_preserves_domain_errors() {
-    rejects("0 * (1/0) =");
+    rejects("0 * (1/0) =>");
 }
 
 #[test]
 fn power_zero_preserves_domain_errors() {
-    rejects("(1/0)^0 =");
+    rejects("(1/0)^0 =>");
 }
 
 #[test]
 fn reciprocal_preserves_domain_errors() {
-    rejects("1/(1/0) =");
+    rejects("1/(1/0) =>");
 }
 
 #[test]
@@ -79,12 +79,12 @@ fn negative_square_root_target_has_no_solution() {
 
 #[test]
 fn divergent_integral_at_midpoint_is_rejected() {
-    rejects("integrate(1/x^2, x, -1, 1) =");
+    rejects("integrate(1/x^2, x, -1, 1) =>");
 }
 
 #[test]
 fn divergent_integral_away_from_midpoint_is_rejected() {
-    rejects("integrate(1/(x - 1/3)^2, x, 0, 1) =");
+    rejects("integrate(1/(x - 1/3)^2, x, 0, 1) =>");
 }
 
 #[test]
@@ -102,14 +102,14 @@ fn complex_matrix_norm_is_positive_definite() {
 fn simplified_log_exp_matches_direct_complex_evaluation() {
     let mut env = Env::default();
     support::run(&mut env, "f(x) := ln(exp(x)) ->");
-    let direct = support::result(&mut env, "ln(exp(4 pi #i)) =");
+    let direct = support::result(&mut env, "ln(exp(4 pi #i)) =>");
     assert_eq!(direct, "\"0\"");
-    assert_eq!(support::result(&mut env, "f(4 pi #i) ="), direct);
+    assert_eq!(support::result(&mut env, "f(4 pi #i) =>"), direct);
 }
 
 #[test]
 fn zero_with_a_unit_cannot_be_added_to_a_different_dimension() {
-    rejects("0 [m] + 1 [s] =");
+    rejects("0 [m] + 1 [s] =>");
 }
 
 // Explicit operation tokens express the proposed public operation contract without relying
@@ -197,9 +197,9 @@ fn resource_worker() {
     };
     let mut env = Env::default();
     let source = match case.as_str() {
-        "nesting" => format!("{}1{} =", "(".repeat(2000), ")".repeat(2000)),
-        "unary" => format!("{}1 =", "-".repeat(2000)),
-        "powers" => format!("{}1 =", "1^".repeat(2000)),
+        "nesting" => format!("{}1{} =>", "(".repeat(2000), ")".repeat(2000)),
+        "unary" => format!("{}1 =>", "-".repeat(2000)),
+        "powers" => format!("{}1 =>", "1^".repeat(2000)),
         "convolution" => "answer := convolve(range(50000), range(50000))".into(),
         _ => panic!("unknown worker {case}"),
     };
@@ -241,7 +241,7 @@ fn resource_worker() {
 
 #[test]
 fn undefined_operands_survive_cancellation_and_function_identities() {
-    for source in ["1/0 - 1/0 =", "0 * ln(0) =", "ln(0)^0 =", "exp(ln(0)) =", "0 * (1/0)^2 ="] {
+    for source in ["1/0 - 1/0 =>", "0 * ln(0) =>", "ln(0)^0 =>", "exp(ln(0)) =>", "0 * (1/0)^2 =>"] {
         rejects(source);
     }
 }
@@ -250,11 +250,11 @@ fn undefined_operands_survive_cancellation_and_function_identities() {
 fn complex_norms_and_dimensioned_zeros() {
     near("norm(vec(3 + 4 #i, 12))", 13.0);
     near("norm(mat(3 #i, 4; 0, 12))", 13.0);
-    for source in ["0 [m] + 0 [s] =", "(1 [m] - 1 [m]) + 1 [s] =", "0 [m] + #i [s] ="] {
+    for source in ["0 [m] + 0 [s] =>", "(1 [m] - 1 [m]) + 1 [s] =>", "0 [m] + #i [s] =>"] {
         rejects(source);
     }
     let mut env = Env::default();
-    for source in ["0 [m] + 1 [m] =", "0 + 1 [m] =", "0 [m] * 1 [s] ="] {
+    for source in ["0 [m] + 1 [m] =>", "0 + 1 [m] =>", "0 [m] * 1 [s] =>"] {
         support::run(&mut env, source);
     }
 }
@@ -269,23 +269,23 @@ fn aggregate_operations_validate_arguments_and_keep_local_indices() {
     near("⦇prod⦈(k, k, -3, -1)", -6.0);
     near("log(1/8, 2)", -3.0);
     for source in [
-        "⦇atan2⦈(0, 0) =", "⦇atan2⦈(1 [m], 1 [s]) =", "⦇atan2⦈(#i, 1) =",
-        "⦇min⦈() =", "⦇max⦈(1, #i) =", "⦇min⦈(0 [m], 1 [s]) =",
-        "⦇mean⦈(vec()) =", "⦇mean⦈(3) =", "⦇mean⦈(vec(1 [m], 1 [s])) =",
-        "log(8, 1) =", "log(8, 0) =", "⦇prod⦈(k, k, 1, 3/2) =",
-        "⦇prod⦈(k, k, 1 [m], 3 [m]) =", "⦇prod⦈(k, k, 1, 10001) =",
+        "⦇atan2⦈(0, 0) =>", "⦇atan2⦈(1 [m], 1 [s]) =>", "⦇atan2⦈(#i, 1) =>",
+        "⦇min⦈() =>", "⦇max⦈(1, #i) =>", "⦇min⦈(0 [m], 1 [s]) =>",
+        "⦇mean⦈(vec()) =>", "⦇mean⦈(3) =>", "⦇mean⦈(vec(1 [m], 1 [s])) =>",
+        "log(8, 1) =>", "log(8, 0) =>", "⦇prod⦈(k, k, 1, 3/2) =>",
+        "⦇prod⦈(k, k, 1 [m], 3 [m]) =>", "⦇prod⦈(k, k, 1, 10001) =>",
     ] {
         rejects(source);
     }
     let mut env = Env::default();
     support::run(&mut env, "k := 99");
-    assert_eq!(support::result(&mut env, "⦇prod⦈(k, k, 1, 5) ="), "\"120\"");
-    assert_eq!(support::result(&mut env, "k ="), "\"99\"");
+    assert_eq!(support::result(&mut env, "⦇prod⦈(k, k, 1, 5) =>"), "\"120\"");
+    assert_eq!(support::result(&mut env, "k =>"), "\"99\"");
 }
 
 #[test]
 fn pole_detection_preserves_convergent_improper_integrals() {
     near("integrate(x^(-1/2), x, 0, 1)", 2.0);
     near("integrate(1/(x - 2)^2, x, 0, 1)", 0.5);
-    rejects("integrate(1/(x^2 - 1/9)^2, x, -1, 1) =");
+    rejects("integrate(1/(x^2 - 1/9)^2, x, -1, 1) =>");
 }

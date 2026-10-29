@@ -8,9 +8,9 @@
 
 #worksheet[
   // Mathcad's =: a comparison, 1 or 0; different units are never equal
-  $M := 1 = 2 =$ #expect("M", 0) #result("\"0\"")
+  $M := 1 = 2 =>$ #expect("M", 0) #result("\"0\"")
   $M := 1 #A = 2 #V ->$ #expect("M", 0) #result("\"0\"")
-  $M =$ #result("\"0\"")
+  $M =>$ #result("\"0\"")
   $N := 2 #A = 2000 mA$ #expect("N", 1)
   $Z := 3 #A < 4 #A$ #expect("Z", 1)
   #def($c_s := 2 #A != 2 #V$) #expect("c_s", 1)
@@ -23,13 +23,13 @@
 
   // definitions are symbolic: put in when defined, names without a value stay
   $h := 5 z$ $z := 20 cm$
-  $h =$ #result("\"1\" thin m")
+  $h =>$ #result("\"1\" thin m")
   $U(x: #m) := h*x*a ->$ #result("a dot x thin m")
   $h(x: #m) := U(x)/a ->$ #result("x thin m")
-  $y_h := h(3#m) =$ #expect("y_h", 3)
+  $y_h := h(3#m) =>$ #expect("y_h", 3)
   // a name used before it's defined is looked up when the value is needed
-  $k_l := 2 w_l$ $w_l := 4$ $k_l =$ #expect("k_l", 8)
-  $p_u := r_u + 1 =$ #fails("'r_u' in 'p_u' isn't defined")
+  $k_l := 2 w_l$ $w_l := 4$ $k_l =>$ #expect("k_l", 8)
+  $p_u := r_u + 1 =>$ #fails("'r_u' in 'p_u' isn't defined")
 ]
 
 // solving: isolating, polynomials, systems, inequalities, numerically
@@ -74,15 +74,15 @@
 // a value's number in a unit: divide by the unit, or number(e, u), checked; a unit put on a number re-attaches it
 #worksheet[
   $U := 5 #V$
-  $n_V := U / #V =$ #expect("n_V", 5, u: "")
-  $I := (U / #V) #A =$ #expect("I", 5, u: "A")
-  $J := (U / #V) mA =$ #expect("J", 0.005, u: "mA")
-  $n := 2 dot U / #V =$ #expect("n", 10)
-  $K := (2 U / #V) mA =$ #expect("K", 0.01)
-  $L := (U^2 / #V^2) #V =$ #expect("L", 25, u: "V")
-  $n_m := number(U, mV) =$ #expect("n_m", 5000, u: "")
-  $n_2 := number(U^2 / (5 #Ω), #W) =$ #expect("n_2", 5)
-  #worksheet(errors: "document", scope: "inherit")[$n_A := number(U, #A) =$ #fails("number: the value is in V, not in A")]
+  $n_V := U / #V =>$ #expect("n_V", 5, u: "")
+  $I := (U / #V) #A =>$ #expect("I", 5, u: "A")
+  $J := (U / #V) mA =>$ #expect("J", 0.005, u: "mA")
+  $n := 2 dot U / #V =>$ #expect("n", 10)
+  $K := (2 U / #V) mA =>$ #expect("K", 0.01)
+  $L := (U^2 / #V^2) #V =>$ #expect("L", 25, u: "V")
+  $n_m := number(U, mV) =>$ #expect("n_m", 5000, u: "")
+  $n_2 := number(U^2 / (5 #Ω), #W) =>$ #expect("n_2", 5)
+  #worksheet(errors: "document", scope: "inherit")[$n_A := number(U, #A) =>$ #fails("number: the value is in V, not in A")]
 ]
 
 // := assigns, the last assignment wins; a variable takes no type, a function returns what its body gives
@@ -97,7 +97,7 @@
 #worksheet[
   $"Q0" := 3450 mAh, I := 30 mA$
 $t := "Q0"/I = #units.h, digits(3)$
-$"Q0"/I =$
+$"Q0"/I =>$
 $x^2 = 9 -> solve(x)$
 $a + b = 3, a - b = 1 -> solve(a, b)$
   #expect("t", 414000, u: "h") #expect("x", 3) #expect("a", 2) #expect("b", 1)
@@ -111,14 +111,14 @@ $a + b = 3, a - b = 1 -> solve(a, b)$
   ```
   #undefined("x") #undefined("y") #undefined("z")
   $y := 2 #m$
-  $w := y 2 = cm$
+  $w := y 2 => cm$
   #expect("y", 2) #expect("w", 4, u: "cm")
 ]
 // evaluate: false leaves the worksheet's math alone, not its calls, and isn't inherited
 #worksheet[
-  #worksheet(evaluate: false, scope: "inherit")[$d := 2$ #worksheet($e := 3$)
+  #worksheet(evaluate: false, scope: "inherit")[$d := 2$ #calculate($e := 3$)
   #expect("e", 3) #undefined("d")
-  #worksheet($d_e := e + 1$) #expect("d_e", 4)
+  #calculate($d_e := e + 1$) #expect("d_e", 4)
   #worksheet(scope: "inherit")[$f_e := 6$ #expect("f_e", 6)]
   ]
   $g := 5$ #expect("g", 5)
@@ -143,8 +143,8 @@ v_c := 4 m / t_c
 }
 // and what went wrong: per problem its message, source and element (none passed to worksheet)
 // (content of a single equation is that equation, [$…$] is $…$, so the worksheet gets some text too)
-#worksheet[Voltage and time: $e_1 := 2 #V + 1 #s =$]
-#worksheet($e_3 := e_4 + 1 =$)
+#worksheet[Voltage and time: $e_1 := 2 #V + 1 #s =>$]
+#calculate($e_3 := e_4 + 1 =>$)
 #context {
   let r = query(<solveng>).map(it => it.value).filter(x => x.kind == "error")
   assert(r.any(x => type(x.element) == location and x.source.contains("e_1") and x.message.contains("units")), message: "math error reported")
@@ -164,10 +164,10 @@ v_c := 4 m / t_c
 #undefined("o")
 
 // calls: equations where they stand, hidden ones silently, options for them only
-#worksheet($Delta_R := 5 cm$, $g_2 := 2 #m$)
+#calculate($Delta_R := 5 cm$, $g_2 := 2 #m$)
 #expect("Δ_R", 0.05) #expect("g_2", 2)
-#worksheet($n_h := 7$, hidden: true) #expect("n_h", 7)
-#worksheet[$n_i := 1$ #worksheet($n_j := n_i + 1$) #expect("n_j", 2)]
+#calculate($n_h := 7$, hidden: true) #expect("n_h", 7)
+#worksheet[$n_i := 1$ #calculate($n_j := n_i + 1$) #expect("n_j", 2)]
 
 // clear: the names given (a value and a function share a name), or all: back to how the worksheet started
 #worksheet[
@@ -189,26 +189,26 @@ v_c := 4 m / t_c
 #worksheet[
   $a_w := 2$
   #let hid = worksheet(hidden: true, scope: "inherit")[
-    $b_w := 3 a_w =$
+    $b_w := 3 a_w =>$
     $c_w := 4 #m$
-    #worksheet($d_w := b_w + 1 =$)
+    #calculate($d_w := b_w + 1 =>$)
     #expect("d_w", 7)
   ]
   #hid
   #context {
-    let empty = measure(worksheet(hidden: true)[$e_w := 1 =$ $f_w := 2$])
+    let empty = measure(worksheet(hidden: true)[$e_w := 1 =>$ $f_w := 2$])
     assert.eq(empty.height, 0pt, message: "hidden math and code shown")
     assert(measure(worksheet(hidden: true)[text $E = m c^2$]).width > 0pt, message: "hidden text and prose not shown")
-    assert(measure(worksheet(hidden: true)[#worksheet($g_w := 1 =$)]).width > 0pt, message: "nested worksheet hidden")
+    assert(measure(worksheet(hidden: true)[#calculate($g_w := 1 =>$)]).width > 0pt, message: "nested worksheet hidden")
   }
   // content is isolated by default, equations are shared; scope: "isolated" calculates them on their own, and what
   // they define ends with them
   #worksheet[$a_w := 5$ #expect("a_w", 5)]
   #expect("a_w", 2) #undefined("b_w")
-  #worksheet($k_w := a_w + 1$) #expect("k_w", 3)
+  #calculate($k_w := a_w + 1$) #expect("k_w", 3)
   #worksheet($m_w := 7$, scope: "isolated") #undefined("m_w")
-  #worksheet($n_w := a_w =$, scope: "isolated") #fails("'a_w' in 'n_w' isn't defined")
-  #worksheet($o_w := a_w + 1 =$, scope: "inherit") #undefined("o_w") #expect("a_w", 2)
+  #worksheet($n_w := a_w =>$, scope: "isolated") #fails("'a_w' in 'n_w' isn't defined")
+  #worksheet($o_w := a_w + 1 =>$, scope: "inherit") #undefined("o_w") #expect("a_w", 2)
   #worksheet(hidden: true)[$a_w := 9$ #undefined("k_w")]
   #worksheet(hidden: true, scope: "inherit")[#expect("k_w", 3)]
 ]
@@ -237,7 +237,7 @@ v_c := 4 m / t_c
     assert(w($U_v$) > 0pt, message: "value shown")
     assert.eq(w($U_v$), w($U_v$), message: "value from math")
     assert.eq(w($f_v(2)$), w($2 dot 2$), message: "a call's value")
-    assert(w($U_v = mV$) > w($U_v$), message: "value in another unit")
+    assert(w($U_v => mV$) > w($U_v$), message: "value in another unit")
   }
   #value($z_v := 2$) #undefined("z_v")
   #value($q_v + 1$)

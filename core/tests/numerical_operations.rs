@@ -39,11 +39,11 @@ fn descriptive_statistics_keep_dimensions_and_handle_offsets() {
     scalar(&mut env, "stdev(vec(2 m, 4 m, 6 m))", 2.0, Dim::base(0), 1e-12);
     scalar(&mut env, "variance(vec(7, 7, 7, 7))", 0.0, Dim::ONE, 0.0);
     for input in [
-        "median(vec()) =",
-        "median(mat(1,2;3,4)) =",
-        "variance(vec(1)) =",
-        "stdev(vec(1 m,2 s)) =",
-        "median(vec(1,#i)) =",
+        "median(vec()) =>",
+        "median(mat(1,2;3,4)) =>",
+        "variance(vec(1)) =>",
+        "stdev(vec(1 m,2 s)) =>",
+        "median(vec(1,#i)) =>",
     ] {
         fails(&mut env, input);
     }
@@ -69,12 +69,12 @@ fn matrix_spectra_and_least_squares_cover_complex_and_physical_data() {
     assert!(coefficients[1].z().sub(Z::real(2.0)).abs() < 1e-12);
     scalar(&mut env, "cond(mat(0,2;1,0))", 2.0, Dim::ONE, 1e-12);
     for input in [
-        "eigenvals(mat(1,2,3;4,5,6)) =",
-        "singularvals(mat(1 m,1 s;0,1 m)) =",
-        "cond(mat(1,1;2,2)) =",
-        "lsolve(mat(1,1;2,2;3,3),vec(1,2,3)) =",
-        "lsolve(mat(1,2),vec(1)) =",
-        "lsolve(mat(1;2),vec(1,2,3)) =",
+        "eigenvals(mat(1,2,3;4,5,6)) =>",
+        "singularvals(mat(1 m,1 s;0,1 m)) =>",
+        "cond(mat(1,1;2,2)) =>",
+        "lsolve(mat(1,1;2,2;3,3),vec(1,2,3)) =>",
+        "lsolve(mat(1,2),vec(1)) =>",
+        "lsolve(mat(1;2),vec(1,2,3)) =>",
     ] {
         fails(&mut env, input);
     }
@@ -91,12 +91,12 @@ fn measured_data_validate_knots_and_fit_in_physical_units() {
     let fit = values(&mut env, "linfit(vec(1000000000000,1000000000001,1000000000002),vec(1,3,5))");
     assert!((fit[1].re.v.f() - 2.0).abs() < 1e-12);
     for input in [
-        "linterp(vec(0,0),vec(1,2),0) =",
-        "linterp(vec(1,0),vec(1,2),0) =",
-        "linterp(vec(0,1),vec(1,2),2) =",
-        "linterp(vec(0,1),vec(1),0) =",
-        "linterp(vec(0 s,1 s),vec(1,2),1 m) =",
-        "linfit(vec(2,2),vec(1,2)) =",
+        "linterp(vec(0,0),vec(1,2),0) =>",
+        "linterp(vec(1,0),vec(1,2),0) =>",
+        "linterp(vec(0,1),vec(1,2),2) =>",
+        "linterp(vec(0,1),vec(1),0) =>",
+        "linterp(vec(0 s,1 s),vec(1,2),1 m) =>",
+        "linfit(vec(2,2),vec(1,2)) =>",
     ] {
         fails(&mut env, input);
     }
@@ -119,7 +119,7 @@ fn transforms_have_explicit_phase_normalization_and_resolvable_small_parts() {
     }
     let tiny = values(&mut env, "dft(vec(1 + #i/1000000000000000000))");
     assert!((tiny[0].im.v.f() - 1e-18).abs() < 1e-30);
-    for input in ["dft(vec()) =", "idft(mat(1,2;3,4)) =", "dft(vec(1 m,2 s)) ="] {
+    for input in ["dft(vec()) =>", "idft(mat(1,2;3,4)) =>", "dft(vec(1 m,2 s)) =>"] {
         fails(&mut env, input);
     }
 }
@@ -136,14 +136,14 @@ fn probability_and_special_functions_cover_tails_symmetry_and_domains() {
     // Scalar operation dimensions are available inside numerical calculus too.
     scalar(&mut env, "integrate(erf(t),t,0,1)", 0.4860649581122559, Dim::ONE, 1e-10);
     for input in [
-        "normalcdf(0,0,-1) =",
-        "normalquantile(0,0,1) =",
-        "normalquantile(1,0,1) =",
-        "normalcdf(1 m,0 s,1 s) =",
-        "gamma(0) =",
-        "gamma(-2) =",
-        "erf(1 m) =",
-        "besselj(1/2,1) =",
+        "normalcdf(0,0,-1) =>",
+        "normalquantile(0,0,1) =>",
+        "normalquantile(1,0,1) =>",
+        "normalcdf(1 m,0 s,1 s) =>",
+        "gamma(0) =>",
+        "gamma(-2) =>",
+        "erf(1 m) =>",
+        "besselj(1/2,1) =>",
     ] {
         fails(&mut env, input);
     }
@@ -165,11 +165,11 @@ fn bounded_minimization_and_ode_scopes_survive_calls_and_substitution() {
     scalar(&mut env, "odesolve(0,y,t,2 m,0 s,1 s)", 2.0, Dim::base(0), 0.0);
     assert_eq!(solveng_core::eval::value(&env.vars["t"].expr).unwrap().v.f(), 40.0);
     for input in [
-        "minimize(x,x,2,1) =",
-        "minimize(x,x,0,infinity) =",
-        "minimize(x,x,1 m,2 s) =",
-        "odesolve(y,y,y,1,0,1) =",
-        "odesolve(y,y,t,1 m,0 s,1 s) =",
+        "minimize(x,x,2,1) =>",
+        "minimize(x,x,0,infinity) =>",
+        "minimize(x,x,1 m,2 s) =>",
+        "odesolve(y,y,y,1,0,1) =>",
+        "odesolve(y,y,t,1 m,0 s,1 s) =>",
     ] {
         fails(&mut env, input);
     }
@@ -184,7 +184,7 @@ fn absolute_temperatures_do_not_redefine_difference_units() {
     scalar(&mut env, "number(celsius(-273.15),[K])", 0.0, Dim::ONE, 1e-12);
     scalar(&mut env, "number(fahrenheit(-459.67),[K])", 0.0, Dim::ONE, 0.0);
     scalar(&mut env, "number(celsius(15)-celsius(-5),[K])", 20.0, Dim::ONE, 1e-12);
-    for input in ["celsius(-274) =", "fahrenheit(-460) =", "celsius(1 K) =", "fahrenheit(#i) ="] {
+    for input in ["celsius(-274) =>", "fahrenheit(-460) =>", "celsius(1 K) =>", "fahrenheit(#i) =>"] {
         fails(&mut env, input);
     }
 }
@@ -255,7 +255,7 @@ fn parameterized_polynomial_solutions_and_partial_cancellation_are_general() {
     run(&mut env, "reduced := answer -> simplify");
     let (_, den) = solveng_core::poly::together(&env.vars["reduced"].expr);
     assert!(!den.has("x") && !den.has("y"), "{den:?}");
-    for input in ["polyroots(vec(1,2,0)) =", "polyroots(vec(1 m,2 m)) ="] {
+    for input in ["polyroots(vec(1,2,0)) =>", "polyroots(vec(1 m,2 m)) =>"] {
         fails(&mut env, input);
     }
 }
@@ -266,7 +266,7 @@ fn series_acceleration_handles_noninteger_tails_and_rejects_divergence() {
     scalar(&mut env, "sum(1/k^(3/2),k,1,infinity)", 2.612375348685488, Dim::ONE, 1e-8);
     scalar(&mut env, "sum((-1)^k/(k+3),k,0,infinity)", 2.0_f64.ln() - 0.5, Dim::ONE, 1e-10);
     scalar(&mut env, "sum((-1)^(k+1)/k^2,k,1,infinity)", std::f64::consts::PI.powi(2) / 12.0, Dim::ONE, 1e-10);
-    for input in ["sum(1/k,k,1,infinity) =", "sum((-1)^k,k,0,infinity) =", "sum(2^k,k,0,infinity) ="] {
+    for input in ["sum(1/k,k,1,infinity) =>", "sum((-1)^k,k,0,infinity) =>", "sum(2^k,k,0,infinity) =>"] {
         fails(&mut env, input);
     }
 }
@@ -374,7 +374,7 @@ fn atan2_exact_symbolic_values_and_algebra() {
     assert_eq!(expression(&mut env, "atan2(0 m, 2 m)"), int(0));
 
     // undefined at (0, 0)
-    fails(&mut env, "atan2(0, 0) =");
+    fails(&mut env, "atan2(0, 0) =>");
 
     // symbolic differentiation
     let theta = Expr::Op(Op::Atan2, vec![sym("y"), sym("x")]);
@@ -437,7 +437,7 @@ fn exact_special_values_preserve_argument_validation() {
         assert_eq!(simp(&original), original, "invalid arguments must survive simplification");
     }
     let mut env = Env::default();
-    for source in ["erf(0 m) =", "besselj(0, 0 m) =", "besselj(10001, 0) ="] {
+    for source in ["erf(0 m) =>", "besselj(0, 0 m) =>", "besselj(10001, 0) =>"] {
         fails(&mut env, source);
     }
 }

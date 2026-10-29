@@ -14,7 +14,7 @@
 /// #let triangle = operation("tri", display: "triangle")
 /// #let step = operation("sgn", display: $op(sigma)$)
 /// #show: worksheet
-/// $triangle(1/2) =$, $step(-2) =$
+/// $triangle(1/2) =>$, $step(-2) =>$
 /// ```
 ///
 /// - name (str): The operation, e.g. `"tri"` or `"convolve"`.
@@ -114,7 +114,7 @@
 /// #let rpm = unit($1/min$, display: $"rpm"$)
 /// #let inch = unit($2.54 #cm$)
 /// #show: worksheet
-/// $p := 3 bar$, $n := 3000 rpm$, $p = kPa$, $l := 2 #inch = inch$
+/// $p := 3 bar$, $n := 3000 rpm$, $p => kPa$, $l := 2 #inch = inch$
 /// ```
 ///
 /// - expression (content): The unit's value as math.
@@ -126,7 +126,7 @@
 /// Defines a constant: an identity and the math expression it stands for, which can carry units.
 ///
 /// The identity says what the constant is and how it is shown: worksheets show it as their option `constants`
-/// says, `#show: worksheet.with(constants: (imaginary: $j$))`, with built-in displays for `"pi"`, `"euler"`,
+/// says, `#show: worksheet.with(constant-displays: (imaginary: $j$))`, with built-in displays for `"pi"`, `"euler"`,
 /// `"imaginary"` and `"speed-of-light"`; an identity without a display is shown as its expression. The engine
 /// calculates exactly with the identities it knows – `"pi"` (π), `"euler"` (e) and `"imaginary"` (i) – once the
 /// expression has that value: `$#calc.pi$`, `$sqrt(-1)$`. Any other identity is kept by it in exact results
@@ -138,8 +138,8 @@
 /// #import units: m, s, kg
 /// #let c0 = constant("speed-of-light", $299792458 #m / #s$)
 /// #let g0 = constant("standard-gravity", $9.80665 #m / #s^2$)
-/// #show: worksheet.with(constants: ("standard-gravity": $g_0$))
-/// $F := 2 kg #g0 =$
+/// #show: worksheet.with(constant-displays: ("standard-gravity": $g_0$))
+/// $F := 2 kg #g0 =>$
 /// ```
 ///
 /// - identity (str): What the constant is, the same in every file and worksheet.

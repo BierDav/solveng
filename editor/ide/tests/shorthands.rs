@@ -23,7 +23,7 @@ const SOLVENG: &str = "#import \"@preview/solveng:1.0.0\": *\n";
 
 #[test]
 fn imported_names_are_coloured_and_renamed_module_names_are_not() {
-    let doc = format!("{SOLVENG}#import units: km, s as test\n#import constants: pi\n#import operations: tri\n#import modifiers: solve as löse\n#show: worksheet\n$x := 2 km = #test$ $y := pi tri(x)$ $x^2 = 4 -> löse(x)$");
+    let doc = format!("{SOLVENG}#import units: km, s as test\n#import constants: pi\n#import operations: tri\n#import modifiers: solve as löse\n#show: worksheet\n$x := 2 km => #test$ $y := pi tri(x)$ $x^2 = 4 -> löse(x)$");
     let tokens = document_tokens(&doc, &Context::default());
     let kind = |offset: u32| tokens.iter().find(|t| t.start == offset).map(|t| t.kind);
     assert_eq!(kind(at(&doc, "km,")), Some(TokenKind::UNIT));
@@ -34,7 +34,7 @@ fn imported_names_are_coloured_and_renamed_module_names_are_not() {
     assert_eq!(kind(at(&doc, "solve as")), Some(TokenKind::FUNCTION_CALL));
     assert_eq!(kind(at(&doc, "löse(x)")), Some(TokenKind::KEYWORD));
     assert_eq!(kind(at(&doc, "tri\n")), Some(TokenKind::BUILTIN_FUNCTION));
-    assert_eq!(kind(at(&doc, "km =")), Some(TokenKind::UNIT));
+    assert_eq!(kind(at(&doc, "km =>")), Some(TokenKind::UNIT));
     assert_eq!(kind(at(&doc, "test$")), Some(TokenKind::UNIT));
     assert_eq!(kind(at(&doc, "pi tri")), Some(TokenKind::CONSTANT));
     assert_eq!(kind(at(&doc, "tri(x)")), Some(TokenKind::BUILTIN_FUNCTION));
@@ -118,7 +118,7 @@ fn the_documents_own_bindings_hover_where_math_uses_them() {
     assert!(md("time$").contains("base unit of the dimension `time`"), "{}", md("time$"));
     assert_eq!(md("i$"), "`i`: constant: `sqrt(-1)`, identity `imaginary`");
     // where they're made, Typst's language server answers
-    assert!(hover(doc, &Context::default(), at(doc, "minute =")).is_none());
+    assert!(hover(doc, &Context::default(), at(doc, "#let minute")).is_none());
 }
 
 #[test]

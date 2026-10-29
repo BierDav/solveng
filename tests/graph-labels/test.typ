@@ -20,11 +20,11 @@ $q(t: ms) := t / (1 ms) * 1 #V$
 }
 #labels-only[
   #graph($f(t)$)
-  #graph($q(t) \ -q(t)$, width: 12cm, height: 7cm, xrange: (-2, 2), mark: (0.5, "crossings"))
+  #graph($q(t) \ -q(t)$, width: 12cm, height: 7cm, x-range: (-2, 2), mark: (0.5, "crossings"))
 ]
 
 // Measuring graphs must leave subsequent calculations and definitions intact.
-$"sample" := f(0) =$
+$"sample" := f(0) =>$
 #passes() #expect("sample", 2)
-$"voltage" := q(2 ms) =$
+$"voltage" := q(2 ms) =>$
 #passes() #expect("voltage", 2)

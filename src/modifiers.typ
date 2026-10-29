@@ -13,7 +13,7 @@
 
 /// ## Modifiers
 ///
-/// The clause after a trailing `=` or `->` takes a unit and modifiers, separated by commas: `$t = #h, digits(2)$`,
+/// The clause after a trailing `=` or `->` takes a unit and modifiers, separated by commas: `$t => #h, digits(2)$`,
 /// `$x^2 = 4 -> solve(x)$`. Modifiers are Typst bindings of solveng's `modifiers` module, and importing them is the
 /// only way to use them: `#import modifiers: solve, simplify` (or `#import modifiers: *`). Like any import, it holds
 /// only where it's written; `#import "@preview/solveng:1.0.0": *` brings none. Renamed imports
@@ -27,13 +27,13 @@
 /// #show: worksheet
 /// $I := 30 mA$, $Q := 3450 mAh$
 /// $Q/2 = I t -> solve(t)$
-/// $t = #h, digits(3)$
-/// $I = sci$
+/// $t => #h, digits(3)$
+/// $I => sci$
 /// ```
 
 #import "keywords.typ": _key
 
-/// Solves an equation for these names (and defines them): `$x^2 - 4 = 0 -> solve(x)$`.
+/// Returns solutions for these names without changing definitions: `$x^2 - 4 = 0 -> solve(x)$`.
 ///
 /// - ..names (content): What to solve for.
 /// -> content
@@ -67,6 +67,7 @@
 /// - ..conditions (content): Real scalar or sign assumptions, for example `a in RR, x > 0`.
 /// -> content
 #let assume(..conditions) = _key("assume", ..conditions.pos())
+/// Optional explicit spelling of the default symbolic result; bare `->` is preferred.
 /// The symbolic result, what `->` shows anyway: `$f := (x^2 - 1)/(x - 1) -> simplify$`. Of an equation, where it
 /// holds: one side brought to zero and split into factors, each factor zero – `$x^2 = x -> simplify$` is
 /// x = 0 ∨ x = 1; true when it always holds, false when never.
@@ -79,16 +80,16 @@
 #let factor = _key("factor")
 /// The way to what `->` shows, a line each: `$F(a p) = a F(p) -> steps$` shows the equation with the definitions
 /// put in, one side zero, in factors, and where it holds; an expression goes from the definitions put in to its
-/// simplified form. Not with `solve`.
+/// simplified number-form. Not with `solve`.
 #let steps = _key("steps")
-/// Decimals with n significant digits: `$t = #h, digits(2)$`.
+/// Decimals with n significant digits: `$t => #h, digits(2)$`.
 ///
 /// - n (int, content): The digits, 1…15.
 /// -> content
 #let digits(n) = _key("digits", n)
-/// Scientific notation: `$C = sci$` → 2.2 · 10⁻⁶ F.
+/// Scientific notation: `$C => sci$` → 2.2 · 10⁻⁶ F.
 #let sci = _key("sci")
-/// Engineering notation, exponents in steps of 3: `$f = eng$`.
+/// Engineering notation, exponents in steps of 3: `$f => eng$`.
 #let eng = _key("eng")
-/// Exact fractions: `$I / 3 = fraction$` → ⅙ A.
+/// Exact fraction-style: `$I / 3 => fraction$` → ⅙ A.
 #let fraction = _key("frac")

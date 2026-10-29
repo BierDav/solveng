@@ -219,7 +219,7 @@ fn dirac_shifts_any_signal_in_either_operand() {
     // Exercise the worksheet's local convolution variable and a defined signal.
     support::run(&mut env, "s_0(t) := rect(t) + tri(2 t)");
     support::run(&mut env, "s_a(t) := convolve(s_0(t), dirac(t - 3/2), t) ->");
-    assert_eq!(support::result(&mut env, "s_a(3/2) ="), "\"2\"");
+    assert_eq!(support::result(&mut env, "s_a(3/2) =>"), "\"2\"");
 }
 
 #[test]

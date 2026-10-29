@@ -273,11 +273,11 @@ fn offers_imports_of_solvengs_names_where_calculated() {
 #[test]
 fn backslashes_separate_definitions_and_result_markers() {
     for doc in [
-        "#worksheet($ t := 1 \\ g := t + 2 \\ g = $)",
-        "#show: worksheet\n$ t := 1 \\ g := t + 2 \\ g = $",
+        "#worksheet($ t := 1 \\ g := t + 2 \\ g => $)",
+        "#show: worksheet\n$ t := 1 \\ g := t + 2 \\ g => $",
     ] {
         let context = Context::default();
-        let at = doc.rfind("g =").unwrap();
+        let at = doc.rfind("g =>").unwrap();
         let target = definition(doc, &context, doc[..at].encode_utf16().count() as u32).expect(doc);
         assert_eq!(text_at(doc, target.start, target.end), "g", "{doc}");
         assert_eq!(target.start, u16_at(doc, "g :="), "{doc}");

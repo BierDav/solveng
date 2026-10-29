@@ -10,13 +10,13 @@
   #let gallon = unit($4.54609 #l$, display: () => math.upright("gal"))
   #let speed = unit($frac(2 #m, 4 #s)$, display: () => math.upright("speed"))
   #let test = s
-  $x := 1 yard = #m$ #expect("x", 0.9144, u: "m")
+  $x := 1 yard => #m$ #expect("x", 0.9144, u: "m")
   $x_2 := 1 inch$ #expect("x_2", 0.0254, u: "in")
   $t := 1 test$ #expect("t", 1, u: "s")
   $y := tri(0)$ #expect("y", 1)
-  $v := 2 speed =$ #expect("v", 1)
-  $M := 2 pound = kg$ #expect("M", 0.907184)
-  $V := 1 gallon = #l$ #expect("V", 0.00454609)
-  #value($x_2 = cm$)
+  $v := 2 speed =>$ #expect("v", 1)
+  $M := 2 pound => kg$ #expect("M", 0.907184)
+  $V := 1 gallon => #l$ #expect("V", 0.00454609)
+  #value($x_2 => cm$)
   #context assert.eq(lambdify($x_2 + a$, "a", unit: $#m$, units: (a: $#m$))(1), 1.0254)
 ]

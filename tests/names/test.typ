@@ -43,16 +43,16 @@ $y := "test"_"testΔ" dot x_"in"$
 // Quotes transport names; digits stay in the identifier and only underscores make subscripts.
 #worksheet[
   $"Delta2tau" := 7$
-  $a := "Δ2τ" =$
+  $a := "Δ2τ" =>$
   #passes() #expect("a", 7)
   #def($b := "Δ2τ"$, $c := "Δ2τ"$)
   #expect("b", 7) #expect("c", 7)
   $Delta""tau := 8$
-  $d := "Delta\"\"tau" =$
+  $d := "Delta\"\"tau" =>$
   #passes() #expect("d", 8)
   $t""2 := 3$
   $t_2 := 5$
-  $q := "t2" + t_2 =$
+  $q := "t2" + t_2 =>$
   #passes() #expect("q", 8)
   $"😅2Delta_🫠" := 9$
   #def($"emoji" := "😅2Δ"_"🫠"$)
@@ -66,19 +66,19 @@ $y := "test"_"testΔ" dot x_"in"$
   $x´´ := 5$
   $´x := 7$
   $x´_2 := 11$
-  $a := x + x´ + x´´ + ´x + x´_2 =$
+  $a := x + x´ + x´´ + ´x + x´_2 =>$
   #passes() #expect("a", 28)
   $f´(t´) := x´ t´$
-  $b := f´(4) =$
+  $b := f´(4) =>$
   #passes() #expect("b", 12)
-  $c := "x´" + "x´´" =$
+  $c := "x´" + "x´´" =>$
   #passes() #expect("c", 8)
 ]
 
 #worksheet[
   $r := 2$
   $r` := 3$
-  $a := r + r` =$
+  $a := r + r` =>$
   #passes() #expect("a", 5)
 ]
 
@@ -87,9 +87,9 @@ $y := "test"_"testΔ" dot x_"in"$
   $x := 3$
   $2""x := 7$
   #passes() #expect("2x", 7)
-  $a := 2""x =$
+  $a := 2""x =>$
   #passes() #expect("a", 7)
-  $b := 2x =$
+  $b := 2x =>$
   #passes() #expect("b", 6)
   #def($c := 2""x$)
   #passes() #expect("c", 7)

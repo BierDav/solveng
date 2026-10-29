@@ -12,13 +12,10 @@ pub struct Rat {
     d: i128,
 }
 
-fn gcd(mut a: i128, mut b: i128) -> i128 {
-    a = a.abs();
-    b = b.abs();
-    while b != 0 {
-        (a, b) = (b, a % b);
-    }
-    a
+fn gcd(a: i128, b: i128) -> i128 {
+    let (mut a, mut b) = (a.unsigned_abs(), b.unsigned_abs());
+    while b != 0 { (a, b) = (b, a % b); }
+    a as i128
 }
 
 impl Rat {
@@ -30,6 +27,9 @@ impl Rat {
             return None;
         }
         let g = gcd(n, d);
+        if g == i128::MIN {
+            return Some(if n == d { Rat::ONE } else { Rat::ZERO });
+        }
         let g = if g == 0 { 1 } else { g };
         let (mut n, mut d) = (n / g, d / g);
         if d < 0 {
@@ -112,13 +112,16 @@ impl Rat {
         if self.n < 0 && k % 2 == 0 {
             return None;
         }
+        if k == 0 { return None; }
         let r = |x: i128| -> Option<i128> {
-            let neg = x < 0;
-            let x = x.abs();
-            let g = (x as f64).powf(1.0 / k as f64).round() as i128;
-            for c in [g - 1, g, g + 1] {
-                if c >= 0 && c.checked_pow(k) == Some(x) {
-                    return Some(if neg { -c } else { c });
+            let target = x.unsigned_abs();
+            let (mut lo, mut hi) = (0u128, target);
+            while lo <= hi {
+                let mid = lo + (hi - lo) / 2;
+                match mid.checked_pow(k).map(|v| v.cmp(&target)).unwrap_or(Ordering::Greater) {
+                    Ordering::Equal => return if x < 0 { (mid as i128).checked_neg().or((mid == 1u128 << 127).then_some(i128::MIN)) } else { i128::try_from(mid).ok() },
+                    Ordering::Less => lo = mid + 1,
+                    Ordering::Greater => { if mid == 0 { break; } hi = mid - 1; }
                 }
             }
             None
@@ -197,7 +200,21 @@ impl Ord for Rat {
     fn cmp(&self, o: &Rat) -> Ordering {
         match (self.n.checked_mul(o.d), o.n.checked_mul(self.d)) {
             (Some(a), Some(b)) => a.cmp(&b),
-            _ => self.to_f64().total_cmp(&o.to_f64()),
+            _ => {
+                let sign = self.n.signum().cmp(&o.n.signum());
+                if sign != Ordering::Equal { return sign; }
+                let (mut a, mut b, mut c, mut d) = (self.n.unsigned_abs(), self.d as u128, o.n.unsigned_abs(), o.d as u128);
+                let mut reverse = self.n < 0;
+                loop {
+                    let order = (a / b).cmp(&(c / d));
+                    let (r, t) = (a % b, c % d);
+                    let result = if order != Ordering::Equal { Some(order) }
+                        else if r == 0 || t == 0 { Some(r.cmp(&t)) } else { None };
+                    if let Some(result) = result { return if reverse { result.reverse() } else { result }; }
+                    (a, b, c, d) = (b, r, d, t);
+                    reverse = !reverse;
+                }
+            },
         }
     }
 }
@@ -268,7 +285,7 @@ impl Num {
     }
     pub fn as_int(self) -> Option<i64> {
         match self {
-            Num::R(r) if r.is_int() && r.numer().abs() < (1 << 53) => Some(r.numer() as i64),
+            Num::R(r) if r.is_int() && r.numer().unsigned_abs() < (1 << 53) => Some(r.numer() as i64),
             Num::F(x) if x.fract() == 0.0 && x.abs() < 9e15 => Some(x as i64),
             _ => None,
         }
@@ -309,7 +326,7 @@ impl Num {
     /// self^e, exactly when it is a rational: 4^(1/2) = 2, 8^(-2/3) = 1/4; None where it isn't real.
     pub fn pow(self, e: Num) -> Option<Num> {
         if let (Num::R(b), Num::R(x)) = (self, e) {
-            if x.denom() <= 64 && x.numer().abs() <= 4096 {
+            if x.denom() <= 64 && x.numer().unsigned_abs() <= 4096 {
                 if b.is_zero() && x.is_neg() {
                     return None;
                 }
@@ -324,6 +341,12 @@ impl Num {
                     let v = (-b.to_f64()).powf(x.to_f64());
                     return Some(Num::F(if x.numer() % 2 == 0 { v } else { -v }));
                 }
+            }
+        }
+        if let Num::R(x) = e {
+            if self.is_neg() && x.denom() % 2 == 1 {
+                let v = (-self.f()).powf(x.to_f64());
+                return Some(Num::F(if x.numer() % 2 == 0 { v } else { -v }));
             }
         }
         let (b, x) = (self.f(), e.f());

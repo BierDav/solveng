@@ -9,12 +9,12 @@
 // ---------- configuration: #worksheet(..) / #show: worksheet.with(..), or per call ----------
 #let _DEF = (
   // numbers
-  digits: 4, trailing-zeros: false, separator: auto, grouping: none, scientific: (-3, 6), engineering: false, multiplication: "dot",
-  form: "auto", max-denominator: 1000, fractions: "stacked",
+  digits: 4, trailing-zeros: false, decimal-separator: auto, grouping: none, notation-thresholds: (-3, 6), notation: "auto", multiplication: "dot",
+  number-form: "auto", max-denominator: 1000, fraction-style: "stacked",
   // units
   prefixes: "all", show-si: false, preferred-units: (),
   // output
-  approximate: true, block: true, max-solutions: 6,
+  show-approximation: true, block: true, max-solutions: 6,
   // output of defined
   defined-style: "grid",
   // problems: shown in the document, or stop the compilation
@@ -22,10 +22,10 @@
   // types (f(x: #A)) in what solveng shows, the equations as written included: left out, as plain math or as chips
   show-types: "chip",
   // how they look: the word for any-unit types (a German text might want beliebig), the chips' colours or a
-  // function drawing them, and units: a function given each shown unit, the separator between units
+  // function drawing them, and units: a function given each shown unit, the decimal-separator between units
   words: (any: "any"), chips: auto, unit-style: auto, unit-separator: auto,
   // how constants are shown, by identity, over the built-in displays: (imaginary: $j$)
-  constants: (:),
+  constant-displays: (:),
   // graphs: per curve, repeating – Petroff's ten colors (apart for color-blind readers, lilaq's default too), the
   // line styles of scientific plotting tools, and dot shapes that tell curves apart without color too
   graph-colors: (rgb("#3f90da"), rgb("#ffa90e"), rgb("#bd1f01"), rgb("#94a4a2"), rgb("#832db6"), rgb("#a96b59"), rgb("#e76300"), rgb("#b9ac70"), rgb("#717581"), rgb("#92dadd")),
@@ -41,7 +41,7 @@
   prefixes: ("all", "a", "f", "p", "n", "u", "µ", "m", "c", "d", "k", "M", "G", "T"),
   mark: ("crossings", "roots", "extrema"),
   // any string; these are the usual ones
-  separator: (".", ","),
+  decimal-separator: (".", ","),
 )
 #let _DOTS = _VALUES.graph-dots
 #let _DASHES = _VALUES.graph-lines
@@ -82,21 +82,22 @@
   out
 }
 #let _CH = (
-  form: ("auto", "decimal", "fraction", "input"), multiplication: ("dot", "times"), fractions: ("stacked", "slash"),
+  notation: ("auto", "plain", "scientific", "engineering"),
+  number-form: ("auto", "decimal", "fraction", "input"), multiplication: ("dot", "times"), fraction-style: ("stacked", "slash"),
   errors: ("document", "panic"),
-  show-types: ("no", "plain", "chip"), defined-style: ("grid", "column", "inline", "list"),
+  show-types: ("none", "plain", "chip"), defined-style: ("grid", "column", "inline", "list"),
   // worksheet's scope, not an option
   scope: ("isolated", "inherit", "shared"),
 )
 // allowed types per option
 #let _TY = (
-  digits: (int,), trailing-zeros: (bool,), separator: (type(auto), str), grouping: (type(none), str, symbol, content), scientific: (type(none), array), engineering: (bool,),
-  multiplication: (str,), form: (str,), max-denominator: (int,), fractions: (str,), prefixes: (str, type(none), array), show-si: (bool,),
+  digits: (int,), trailing-zeros: (bool,), decimal-separator: (type(auto), str), grouping: (type(none), str, symbol, content), notation-thresholds: (type(none), array), notation: (str,),
+  multiplication: (str,), number-form: (str,), max-denominator: (int,), fraction-style: (str,), prefixes: (str, type(none), array), show-si: (bool,),
   preferred-units: (array, content),
-  approximate: (bool,), block: (bool,),
+  show-approximation: (bool,), block: (bool,),
   max-solutions: (int,), defined-style: (str,), errors: (str,), show-types: (str,),
   words: (dictionary,), chips: (type(auto), dictionary, function), unit-style: (type(auto), function), unit-separator: (type(auto), content, str, symbol),
-  constants: (dictionary,),
+  constant-displays: (dictionary,),
   graph-colors: (array, color, gradient, content), graph-lines: (array, str, dictionary, type(none), content), graph-dots: (array, str, type(none), content), graph-joined: (array, bool, content),
 )
 // the colours of a kind of chip: fill, mark and ink, and the ones a dark page takes in `dark`
@@ -115,12 +116,12 @@
   if "digits" in o and (o.digits < 1 or o.digits > 15) { return (err: "digits must be 1…15") }
   if "max-denominator" in o and o.max-denominator < 1 { return (err: "max-denominator must be ≥ 1") }
   if "max-solutions" in o and o.max-solutions < 1 { return (err: "max-solutions must be ≥ 1") }
-  if "scientific" in o and o.scientific != none and (o.scientific.len() != 2 or o.scientific.any(x => type(x) != int)) { return (err: "scientific must be (low, high) with integers, or none") }
+  if "notation-thresholds" in o and o.notation-thresholds != none and (o.notation-thresholds.len() != 2 or o.notation-thresholds.any(x => type(x) != int)) { return (err: "notation-thresholds must be (low, high) with integers, or none") }
   if "prefixes" in o and type(o.prefixes) == str and o.prefixes != "all" { return (err: "prefixes: \"all\", none or an array like (\"m\", \"k\")") }
   if "prefixes" in o and type(o.prefixes) == array and o.prefixes.any(p => type(p) != str) { return (err: "prefixes: the array must hold strings like \"m\"") }
   if "words" in o and o.words.keys().any(k => k != "any") { return (err: "words: the word shown for any-unit types, (any: \"beliebig\")") }
   if "chips" in o and type(o.chips) == dictionary and o.chips.pairs().any(((k, v)) => k != "type" or not _chip-colours(v)) { return (err: "chips: the colours of type chips, (type: (fill: …, mark: …, ink: …, dark: (fill: …, mark: …, ink: …))), or a function (kind, mark, unit) => content") }
-  if "constants" in o and o.constants.values().any(v => type(v) not in (content, symbol)) { return (err: "constants: how constants are shown, by identity: (imaginary: $j$)") }
+  if "constant-displays" in o and o.constant-displays.values().any(v => type(v) not in (content, symbol)) { return (err: "constant-displays: how constants are shown, by identity: (imaginary: $j$)") }
   for k in _GRAPH {
     if k in o { let v = _graph-style(k, o.at(k)); if _E(v) { return v }; o.insert(k, v) }
   }

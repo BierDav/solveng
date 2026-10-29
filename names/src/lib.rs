@@ -3,7 +3,7 @@ use unicode_normalization::UnicodeNormalization;
 
 /// Built-in operation names for editor completion.
 pub const OPERATIONS: &[&str] = &[
-    "lsolve", "eigenvals", "singularvals", "svds", "cond", "median", "variance", "stdev", "normalcdf", "pnorm", "normalquantile", "qnorm", "linterp", "linfit", "dft", "idft", "gamma", "erf", "besselj", "celsius", "fahrenheit", "polyroots", "minimize", "odesolve",
+    "jacobian", "hessian", "taylor", "lsolve", "eigenvals", "singularvals", "svds", "cond", "median", "variance", "stdev", "normalcdf", "pnorm", "normalquantile", "qnorm", "linterp", "linfit", "dft", "idft", "gamma", "erf", "besselj", "celsius", "fahrenheit", "polyroots", "minimize", "odesolve",
     "atan2", "min", "max", "mean", "prod", "sqrt", "exp", "ln", "log", "sin", "cos", "tan", "sinc", "cosc", "tanc", "asin", "acos", "atan", "sinh", "cosh", "tanh", "abs",
     "arcsin", "arccos", "arctan", "diff", "integrate", "laplace", "invlaplace", "sum", "vec", "at", "rect", "tri", "sgn", "floor", "ceil", "factorial", "Re", "Im", "conj", "arg", "number", "cases",
     "mat", "det", "tr", "norm", "rank", "identity", "rows", "cols", "convolve", "range", "dirac",

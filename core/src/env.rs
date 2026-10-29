@@ -54,6 +54,9 @@ pub struct Fun {
     /// The values of the named parameters, as they were when the function was defined.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub defaults: BTreeMap<String, Expr>,
+    /// Original denominator restrictions survive algebraic cancellation.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub denominators: Vec<Expr>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -482,6 +485,51 @@ impl<'a> Lower<'a> {
             if added { self.params.remove(&input); }
             return crate::transforms::transform(&body?, &input, &output, inverse);
         }
+        if n == "jacobian" || n == "hessian" {
+            let vars = match args[1] {
+                Ast::Builtin(name, vars) if name == "vec" => vars,
+                _ => return Err(format!("{n}: variables must be a nonempty vector of names")),
+            };
+            let names = vars.iter().map(|v| match v {
+                Ast::Name(name) => Ok(name.clone()),
+                _ => Err(format!("{n}: variables must be names")),
+            }).collect::<Result<Vec<_>, _>>()?;
+            if names.is_empty() || names.len() > 32 || names.iter().enumerate().any(|(i, v)| names[..i].contains(v)) {
+                return Err(format!("{n}: supply 1 to 32 distinct variables"));
+            }
+            let old = self.params.clone();
+            self.params.extend(names.iter().cloned());
+            let body = self.expr(args[0]);
+            self.params = old;
+            let body = body?;
+            let components = if n == "hessian" {
+                if body.contains(&crate::linalg::is_array) { return Err("hessian: expression must be scalar".into()); }
+                names.iter().map(|v| body.diff(v)).collect()
+            } else {
+                crate::linalg::Array::of(&body).filter(crate::linalg::Array::vector)
+                    .ok_or("jacobian: expression must be a column vector")?.a
+            };
+            return Ok(Expr::Matrix(components.iter().map(|e| names.iter().map(|v| e.diff(v)).collect()).collect()));
+        }
+        if n == "taylor" {
+            let Ast::Name(var) = args[1] else { return Err("taylor: variable must be a name".into()); };
+            let center = self.expr(args[2])?;
+            if center.has(var) { return Err("taylor: center must be independent of its variable".into()); }
+            let degree_expr = self.raw(args[3])?;
+            let degree = self.known(&degree_expr, "taylor: degree")?;
+            let degree = degree.d.is_one().then(|| degree.v.as_int()).flatten().filter(|n| (0..=32).contains(n)).ok_or("taylor: degree must be an integer from 0 to 32")?;
+            let mut derivative = self.local(var, args[0])?;
+            let mut terms = Vec::new();
+            let mut factorial = 1i128;
+            for k in 0..=degree {
+                if k > 0 { factorial *= k as i128; }
+                let coefficient = simp(&derivative.subst(var, &center));
+                if coefficient.contains(&|e| matches!(e, Expr::Derivative(..))) { return Err("taylor: derivative is unsupported".into()); }
+                terms.push(expr::div(expr::mul(vec![coefficient, expr::pow(expr::sub(Expr::Sym(var.clone()), center.clone()), expr::int(k as i128))]), expr::int(factorial)));
+                derivative = derivative.diff(var);
+            }
+            return Ok(simp(&expr::add(terms)));
+        }
         if n == "diff" || n == "integrate" || n == "sum" || n == "prod" {
             let Ast::Name(var) = args[1] else { return Err("the calculus variable must be a name".into()); };
             let body = self.local(var, args[0])?;
@@ -651,6 +699,12 @@ impl<'a> Lower<'a> {
         for (p, mut x) in f.params.iter().zip(args) {
             if let Some(ParamType::Unit(u)) = &p.ty { x = self.typed(x, u, n, &p.name)?; }
             m.insert(p.name.clone(), x);
+        }
+        for denominator in &f.denominators {
+            let bound = denominator.subst_all(&m);
+            if crate::eval::complex_value(&bound).is_ok_and(|v| v.z() == crate::complex::Z::real(0.0)) {
+                return Err(format!("{n}: division by zero in the original function"));
+            }
         }
         let body = match &f.written {
             Some(w) if arrays => w,

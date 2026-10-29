@@ -23,6 +23,16 @@ pub struct Src {
     pub label: Option<String>,
 }
 
+/// Explicit graph controls; omitted fields retain inference.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct AxisOptions {
+    pub variable: Option<String>,
+    pub xunit: Option<String>,
+    pub yunit: Option<String>,
+    #[serde(default)]
+    pub include: Vec<XV>,
+}
+
 /// A value for a range or a mark: a plain number (in the axis unit) or an expression.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -41,6 +51,8 @@ pub enum Mark {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GraphReq {
+    #[serde(default)]
+    pub axes: AxisOptions,
     pub cfg: Cfg,
     pub curves: Vec<Src>,
     pub xrange: Vec<XV>,
@@ -548,16 +560,31 @@ pub fn defines(env: &Env, req: &GraphReq) -> Result<Vec<Src>, String> {
 }
 
 pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
+    let mut local = env.clone();
+    if let Some(x) = &req.axes.variable { local.clear(&parse::greek(x)); }
+    let env = &local;
     let source = serde_json::to_string(req).map_err(|e| e.to_string())?;
     let units = Units::lexical(&req.cfg, env, &source)?;
-    let cfg = &req.cfg;
+    let mut config = req.cfg.clone();
+    if let Some(u) = &req.axes.yunit { config.preferred_units.insert(0, u.clone()); }
+    let cfg = &config;
     if req.curves.is_empty() {
         return Err("nothing to plot – pass an equation like \"P = U^2/R\"".into());
     }
     if req.samples < 2 {
         return Err("samples: an integer ≥ 2".into());
     }
-    let Read { curves, x, xlabel, xunit_typed, eq, .. } = read(env, req, &units)?;
+    let Read { curves, x, xlabel, mut xunit_typed, eq, .. } = read(env, req, &units)?;
+    if let Some(want) = &req.axes.variable {
+        if parse::greek(want) != x { return Err(format!("variable: expected {want}, but the curves vary in {x}")); }
+    }
+    if let Some(u) = &req.axes.xunit {
+        let explicit = units.parse(u, false)?.u;
+        if let Some(typed) = &xunit_typed {
+            if units.dim(typed) != units.dim(&explicit) { return Err("x-unit does not match the curve parameter's dimension".into()); }
+        }
+        xunit_typed = Some(explicit);
+    }
     let data: Vec<&Data> = curves.iter().filter_map(|c| c.data.as_ref()).collect();
     let utext = |d: &Dim| if d.is_one() { "no unit".to_string() } else { units.text(&units.auto(d)) };
     if let Some(d) = data.iter().find(|d| d.xd != data[0].xd) {
@@ -583,6 +610,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         }
     };
     let rvs: Vec<V> = req.xrange.iter().map(xv).collect::<Result<_, _>>()?;
+    let includes: Vec<V> = req.axes.include.iter().map(xv).collect::<Result<_, _>>()?;
     let mvs: Vec<(V, bool)> = req
         .marks
         .iter()
@@ -595,7 +623,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
     let ymv: Vec<V> = req.ymark.iter().map(xv).collect::<Result<_, _>>()?;
     // x's unit: given with it (U(x: A)), by a function it's passed to (q(I: mA)), else from the range and marks
     let withu: Vec<(Dim, String)> = rvs
-        .iter()
+        .iter().chain(includes.iter())
         .chain(mvs.iter().map(|m| &m.0))
         .filter_map(|v| match v {
             V::Q(_, d, u, _) if !d.is_one() => Some((d.clone(), u.clone())),
@@ -650,7 +678,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         };
         format!("'{src}' is {shown}, but {axis}{} – plain numbers count in the axis unit", if u.is_empty() { " has no unit".to_string() } else { format!(" is in {u}") })
     };
-    if let Some(bad) = rvs.iter().chain(mvs.iter().map(|m| &m.0)).find(|v| matches!(v, V::Q(_, d, ..) if *d != xd)) {
+    if let Some(bad) = rvs.iter().chain(includes.iter()).chain(mvs.iter().map(|m| &m.0)).find(|v| matches!(v, V::Q(_, d, ..) if *d != xd)) {
         return Err(misfit(bad, &x, &units.text(&xunit)));
     }
     let si = |v: &V, f: f64| match v {
@@ -668,6 +696,9 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
     };
     let cdim = |c: &Curve| match &c.data { Some(d) => Ok(Some(d.yd.clone())), None => dim_of(&c.e, &known) };
     let yd = cdim(&curves[0])?.unwrap_or(Dim::ONE);
+    if let Some(u) = &req.axes.yunit {
+        if units.parse(u, false)?.d != yd { return Err("y-unit does not match the curves' dimension".into()); }
+    }
     for c in &curves[1..] {
         if let Ok(Some(d)) = cdim(c) {
             // a unitless function next to others may be a scale; data has the unit it has
@@ -759,12 +790,12 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         autorange(&curves, &x, xf)
     };
     // a single range value and marked values widen the range; marks get a little room
-    for v in &rv {
-        xa = xa.min(*v);
-        xb = xb.max(*v);
+    for v in rv.iter().copied().chain(includes.iter().map(|v| si(v, xf))) {
+        xa = xa.min(v);
+        xb = xb.max(v);
     }
     let w = xb - xa;
-    for v in &need {
+    for v in need.iter().filter(|_| dedup_rv.len() < 2) {
         if *v < xa {
             xa = v - 0.05 * w;
         } else if *v > xb {
@@ -885,7 +916,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         (if y0 == 0.0 { 0.0 } else { y0 - pad }, if y1 == 0.0 { 0.0 } else { y1 + pad })
     };
     // marked y values beyond an exact y range still show
-    for v in &ymv {
+    for v in ymv.iter().filter(|_| dedup_y.len() < 2) {
         let w = y1 - y0;
         if v / yf < y0 {
             y0 = v / yf - 0.05 * w;
@@ -1464,7 +1495,7 @@ mod tests {
         }
         let range = |src: &str| {
             let curves = vec![crate::test_support::curve(src, &env)];
-            let req = GraphReq { cfg: Cfg::default(), curves, xrange: vec![], yrange: vec![], marks: vec![], ymark: vec![], samples: 50 };
+            let req = GraphReq { axes: Default::default(), cfg: Cfg::default(), curves, xrange: vec![], yrange: vec![], marks: vec![], ymark: vec![], samples: 50 };
             let g = graph(&env, &req).unwrap_or_else(|e| panic!("{src}: {e}"));
             (g.x0, g.x1)
         };
@@ -1482,7 +1513,7 @@ mod tests {
 
     #[test]
     fn graph_axes_respect_constants_and_calculus_scope() {
-        let req = |src: &str| GraphReq {
+        let req = |src: &str| GraphReq { axes: Default::default(),
             cfg: Cfg::default(), curves: vec![crate::test_support::curve(src, &Env::default())],
             xrange: vec![XV::Num(-1.0), XV::Num(1.0)], yrange: vec![],
             marks: vec![], ymark: vec![], samples: 20,
@@ -1521,7 +1552,7 @@ mod tests {
 
     #[test]
     fn ticks_terminate_for_explicit_ranges_one_ulp_wide() {
-        let plot = graph(&Env::default(), &GraphReq {
+        let plot = graph(&Env::default(), &GraphReq { axes: Default::default(),
             cfg: Cfg::default(), curves: vec![crate::test_support::curve("x", &Env::default())],
             xrange: vec![XV::Num(1.0), XV::Num(1.0 + f64::EPSILON)],
             yrange: vec![XV::Num(1.0), XV::Num(1.0 + f64::EPSILON)],
@@ -1539,7 +1570,7 @@ mod tests {
             let o = { let r = crate::test_support::req(s, &env); line(&mut env, &r) };
             assert!(o.errors.is_empty());
         }
-        let req = |curves: Vec<&str>, ymark: Vec<&str>| GraphReq {
+        let req = |curves: Vec<&str>, ymark: Vec<&str>| GraphReq { axes: Default::default(),
             cfg: Cfg::default(),
             curves: curves.into_iter().map(|c| crate::test_support::curve(c, &Env::default())).collect(),
             xrange: vec![],
@@ -1564,7 +1595,7 @@ mod tests {
         let mut env = Env::default();
         let run = |env: &mut Env, s: &str| { let r = crate::test_support::req(s, env); line(env, &r) };
         assert!(run(&mut env, "X(x) := x^2 + 1").errors.is_empty());
-        let req = |c: &str| GraphReq { cfg: Cfg::default(), curves: vec![crate::test_support::curve(c, &Env::default())], xrange: vec![], yrange: vec![], marks: vec![], ymark: vec![], samples: 50 };
+        let req = |c: &str| GraphReq { axes: Default::default(), cfg: Cfg::default(), curves: vec![crate::test_support::curve(c, &Env::default())], xrange: vec![], yrange: vec![], marks: vec![], ymark: vec![], samples: 50 };
         // y := X(x): plotted over x, and as a line it defines y with x left free
         graph(&env, &req("y := X(x)")).unwrap();
         assert_eq!(defines(&env, &req("y := X(x)")).unwrap().len(), 1);
@@ -1599,7 +1630,7 @@ mod tests {
             let r = crate::test_support::req(s, &env);
             assert!(line(&mut env, &r).errors.is_empty(), "{s}");
         }
-        let plot = |c: &str| graph(&env, &GraphReq {
+        let plot = |c: &str| graph(&env, &GraphReq { axes: Default::default(),
             cfg: Cfg::default(), curves: vec![crate::test_support::curve(c, &env)],
             xrange: vec![XV::Num(-2.0), XV::Num(4.0)], yrange: vec![], marks: vec![], ymark: vec![], samples: 100,
         }).unwrap();
@@ -1613,7 +1644,7 @@ mod tests {
         assert!(dots("h(x)").is_empty());
         // beyond what the graph shows, for joins out of it: g's single point above it, and the nearest piece ends
         // past both edges, where g has no value
-        let g = graph(&env, &GraphReq {
+        let g = graph(&env, &GraphReq { axes: Default::default(),
             cfg: Cfg::default(), curves: vec![crate::test_support::curve("g(x)", &env)],
             xrange: vec![XV::Num(0.5), XV::Num(1.8)], yrange: vec![XV::Num(0.0), XV::Num(1.5)], marks: vec![], ymark: vec![], samples: 100,
         }).unwrap();
@@ -1622,7 +1653,7 @@ mod tests {
         assert_eq!(beyond.len(), 3, "{beyond:?}");
         assert!((beyond[0].0.abs() < 1e-6 && beyond[0].1.abs() < 1e-6) && beyond[1] == (1.0, 2.0) && (beyond[2].0 - 2.0).abs() < 1e-6 && (beyond[2].1 - 2.0).abs() < 1e-6, "{beyond:?}");
         // a piece ending right on the edge (x < 0 in a graph from 0): its end is joined to
-        let g = graph(&env, &GraphReq {
+        let g = graph(&env, &GraphReq { axes: Default::default(),
             cfg: Cfg::default(), curves: vec![crate::test_support::curve("g(x)", &env)],
             xrange: vec![XV::Num(0.0), XV::Num(1.8)], yrange: vec![], marks: vec![], ymark: vec![], samples: 100,
         }).unwrap();
@@ -1639,7 +1670,7 @@ mod tests {
     }
 
     fn data_req(curves: &[&str], marks: Vec<Mark>) -> GraphReq {
-        GraphReq {
+        GraphReq { axes: Default::default(),
             cfg: Cfg::default(),
             curves: curves.iter().map(|c| crate::test_support::curve(c, &Env::default())).collect(),
             xrange: vec![], yrange: vec![],
@@ -1810,7 +1841,7 @@ mod jump_tests {
 
     fn plot(c: &str, a: f64, b: f64) -> GraphOut {
         let env = Env::default();
-        graph(&env, &GraphReq {
+        graph(&env, &GraphReq { axes: Default::default(),
             cfg: Cfg::default(), curves: vec![crate::test_support::curve(c, &env)],
             xrange: vec![XV::Num(a), XV::Num(b)], yrange: vec![], marks: vec![], ymark: vec![], samples: 100,
         }).unwrap()
@@ -1857,7 +1888,7 @@ mod jump_tests {
         let mut env = Env::default();
         let r = crate::test_support::req("g(x) := ⦇cases⦈(2x, 0 ≤ x ∧ x ≤ 1, 4 - 2x, 1 < x ∧ x ≤ 2, 0, 1)", &env);
         assert!(crate::api::line(&mut env, &r).errors.is_empty());
-        let plot = |cs: &[&str]| graph(&env, &GraphReq {
+        let plot = |cs: &[&str]| graph(&env, &GraphReq { axes: Default::default(),
             cfg: Cfg::default(), curves: cs.iter().map(|c| crate::test_support::curve(c, &env)).collect(),
             xrange: vec![XV::Num(-0.5), XV::Num(2.8)], yrange: vec![], marks: vec![], ymark: vec![], samples: 100,
         }).unwrap();

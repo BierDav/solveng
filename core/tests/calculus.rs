@@ -21,14 +21,14 @@ fn calculus_agrees() {
     run(&mut env, "f(x) := e^x");
     let out = run(&mut env, "dif / (dif t) f(t) ->");
     assert_eq!(out.result.as_deref(), Some("#svconst(\"euler\")^(t)"));
-    run(&mut env, "a := integral_(0)^(1) x^2 dif x =");
+    run(&mut env, "a := integral_(0)^(1) x^2 dif x =>");
     assert!((value(&env.vars["a"].expr).unwrap().v.f() - 1.0 / 3.0).abs() < 1e-12);
-    run(&mut env, "b := integral_(0)^(1) exp(-x^2) dif x =");
+    run(&mut env, "b := integral_(0)^(1) exp(-x^2) dif x =>");
     assert!((value(&env.vars["b"].expr).unwrap().v.f() - 0.746824132812427).abs() < 1e-10);
-    run(&mut env, "c := integral_(-infinity)^(0) e^x dif x =");
+    run(&mut env, "c := integral_(-infinity)^(0) e^x dif x =>");
     assert!((value(&env.vars["c"].expr).unwrap().v.f() - 1.0).abs() < 1e-9, "{:?}", env.vars["c"].expr);
     run(&mut env, "x := 25");
-    run(&mut env, "d := integrate(exp(-x^2), x, 0, 1) =");
+    run(&mut env, "d := integrate(exp(-x^2), x, 0, 1) =>");
     assert!((value(&env.vars["d"].expr).unwrap().v.f() - 0.746824132812427).abs() < 1e-10);
     run(&mut env, "sigma(tau) := e^tau");
     run(&mut env, "F(t) := integral_(-infinity)^(t) sigma(tau) dif tau");
@@ -38,7 +38,7 @@ fn calculus_agrees() {
 
 #[test]
 fn numerical_integrals_validate_domains_and_units() {
-    for source in ["integral_(-1)^(1) 1/x dif x =", "integrate(exp(-x^2), x, [1 m], [2 s]) =", "integral_(0)^(infinity) 1 dif x ="] {
+    for source in ["integral_(-1)^(1) 1/x dif x =>", "integrate(exp(-x^2), x, [1 m], [2 s]) =>", "integral_(0)^(infinity) 1 dif x =>"] {
         let out = line(&mut Env::default(), source);
         assert!(!out.errors.is_empty(), "{source}: {out:?}");
     }
@@ -67,14 +67,14 @@ fn unspecified_functions_stay_symbolic_and_resolve_later() {
     assert_eq!(out.result.as_deref(), Some("σ(t)"));
     let out = run(&mut env, "f(t) ->");
     assert!(out.result.unwrap().contains("σ(τ)"));
-    for src in ["f(0) =", "sigma(0) ="] {
+    for src in ["f(0) =>", "sigma(0) =>"] {
         let out = line(&mut env, src);
         assert!(out.errors.iter().any(|e| e.contains("σ isn't defined")), "{out:?}");
     }
     run(&mut env, "sigma(u) := e^u");
-    let out = run(&mut env, "f(0) =");
+    let out = run(&mut env, "f(0) =>");
     assert!(out.result.is_some());
-    run(&mut env, "answer := f(0) =");
+    run(&mut env, "answer := f(0) =>");
     assert!((value(&env.vars["answer"].expr).unwrap().v.f() - 1.0).abs() < 1e-9);
     assert_eq!(run(&mut env, "dif / (dif t) f(t) ->").result.as_deref(), Some("#svconst(\"euler\")^(t)"));
 }
@@ -86,12 +86,12 @@ fn unspecified_calls_support_substitution_cancellation_and_multiple_arguments() 
     assert_eq!(env.funs["g"].params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["x", "y"]);
     assert_eq!(run(&mut env, "g(2, 3) ->").result.as_deref(), Some(r#"q("2", "3")"#));
     run(&mut env, "a := q(2, 3)");
-    assert_eq!(run(&mut env, "q(x, y) - q(x, y) =").result.as_deref(), Some(r#""0""#));
+    assert_eq!(run(&mut env, "q(x, y) - q(x, y) =>").result.as_deref(), Some(r#""0""#));
     assert!(run(&mut env, "diff(q(x), x) ->").result.unwrap().contains("dif"));
     run(&mut env, "q(u, v) := u + v");
-    run(&mut env, "answer := a =");
+    run(&mut env, "answer := a =>");
     assert_eq!(value(&env.vars["answer"].expr).unwrap().v.f(), 5.0);
-    assert_eq!(run(&mut env, "g(2, 3) =").result.as_deref(), Some(r#""5""#));
+    assert_eq!(run(&mut env, "g(2, 3) =>").result.as_deref(), Some(r#""5""#));
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn deferred_calls_still_validate_arity_recursion_and_units() {
     let mut env = Env::default();
     run(&mut env, "f(x) := q(x)");
     run(&mut env, "q(x, y) := x + y");
-    let bad = line(&mut env, "f(2) =");
+    let bad = line(&mut env, "f(2) =>");
     assert!(bad.errors.iter().any(|e| e.contains("takes 2 arguments")), "{bad:?}");
     let bad = line(&mut Env::default(), "f(x) := f(x)");
     assert!(!bad.errors.is_empty());
@@ -108,9 +108,9 @@ fn deferred_calls_still_validate_arity_recursion_and_units() {
     let bad = line(&mut env, "q(x) := f(x)");
     assert!(!bad.errors.is_empty());
     run(&mut env, "q(x: m) := x");
-    run(&mut env, "answer := f(2 m) =");
+    run(&mut env, "answer := f(2 m) =>");
     assert_eq!(value(&env.vars["answer"].expr).unwrap().d, support::dim("m"));
-    let bad = line(&mut env, "f(2 s) =");
+    let bad = line(&mut env, "f(2 s) =>");
     assert!(bad.errors.iter().any(|e| e.contains("takes x in")), "{bad:?}");
 }
 
@@ -120,7 +120,7 @@ fn deferred_derivatives_differentiate_before_substituting_arguments() {
     run(&mut env, "g(x) := diff(q(x), x)");
     run(&mut env, "a := g(2)");
     run(&mut env, "q(t) := t^2");
-    for src in ["answer := a =", "answer := g(2) ="] {
+    for src in ["answer := a =>", "answer := g(2) =>"] {
         run(&mut env, src);
         assert_eq!(value(&env.vars["answer"].expr).unwrap().v.f(), 4.0);
     }
@@ -136,7 +136,7 @@ fn deferred_calls_use_custom_parameter_units_in_values_and_reports() {
     let metre = construct("base-unit", String::new(), Some("length"));
     let span = construct("unit", format!("2 {metre}"), None);
     let mut env = Env::default();
-    for src in ["f(x) := q(x)".to_string(), format!("a := f(3 {span})"), format!("q(x: {span}) := x"), "answer := a =".to_string()] {
+    for src in ["f(x) := q(x)".to_string(), format!("a := f(3 {span})"), format!("q(x: {span}) := x"), "answer := a =>".to_string()] {
         run(&mut env, &src);
     }
     assert_eq!(value(&env.vars["answer"].expr).unwrap().v.f(), 6.0);
@@ -148,24 +148,24 @@ fn deferred_calls_use_custom_parameter_units_in_values_and_reports() {
 fn typed_function_arguments_require_explicit_dimensions() {
     let mut env = Env::default();
     run(&mut env, "f(x: A) := x");
-    for source in ["f(1) =", "f(1 + 2) =", "f(1 s) ="] {
+    for source in ["f(1) =>", "f(1 + 2) =>", "f(1 s) =>"] {
         let out = line(&mut env, source);
         assert!(out.errors.iter().any(|error| error.contains("takes x in A")), "{source}: {out:?}");
     }
-    let out = run(&mut env, "answer := f(1 A) =");
+    let out = run(&mut env, "answer := f(1 A) =>");
     assert_eq!(out.result.as_deref(), Some("\"1\" thin upright(\"A\")"));
     let answer = value(&env.vars["answer"].expr).unwrap();
     assert_eq!(answer.v.f(), 1.0);
     assert_eq!(answer.d, support::dim("A"));
     run(&mut env, "g(y) := f(y)");
-    run(&mut env, "answer := g(2 A) =");
+    run(&mut env, "answer := g(2 A) =>");
     // a plain letter after a number is a name: A, not the ampere
     let mut env = Env::default();
     run(&mut env, "f(x: A) := x");
-    let out = line_raw(&mut env, "f(1A) =");
+    let out = line_raw(&mut env, "f(1A) =>");
     assert!(out.errors.iter().any(|error| error.contains("A")), "{out:?}");
     line_raw(&mut env, &format!("A := 2{}", unit("A")));
-    let out = line_raw(&mut env, "answer := f(1A) =");
+    let out = line_raw(&mut env, "answer := f(1A) =>");
     assert!(out.errors.is_empty(), "{out:?}");
     assert_eq!(value(&env.vars["answer"].expr).unwrap().v.f(), 2.0);
 }
@@ -253,19 +253,19 @@ fn derivatives_in_leibniz_notation() {
 /// 0 and ±∞ fit every unit, so the other bound gives the variable its unit; ∞ shows as ∞.
 #[test]
 fn integral_bounds_of_zero_and_infinity_take_the_other_unit() {
-    for source in ["integral_(0)^(2 s) 3 A dif t =", "integral_(0)^(2 s) 3 A dif t ->", "integral_(0 s)^(2 s) 3 A dif t ="] {
+    for source in ["integral_(0)^(2 s) 3 A dif t =>", "integral_(0)^(2 s) 3 A dif t ->", "integral_(0 s)^(2 s) 3 A dif t =>"] {
         assert_eq!(run(&mut Env::default(), source).result.as_deref(), Some(r#""6" thin upright("C")"#), "{source}");
     }
-    assert_eq!(run(&mut Env::default(), "integral_(2 s)^(0) 3 A dif t =").result.as_deref(), Some(r#""−6" thin upright("C")"#));
+    assert_eq!(run(&mut Env::default(), "integral_(2 s)^(0) 3 A dif t =>").result.as_deref(), Some(r#""−6" thin upright("C")"#));
     let mut env = Env::default();
     run(&mut env, "q(T) := integral_(0)^(T) 3 A dif t");
-    assert_eq!(run(&mut env, "q(2 s) =").result.as_deref(), Some(r#""6" thin upright("C")"#));
-    assert_eq!(run(&mut Env::default(), "integral_(0 s)^(infinity) e^(-t/[1 s]) dif t =").result.as_deref(), Some(r#""1" thin upright("s")"#));
-    assert_eq!(run(&mut Env::default(), "integral_(-infinity)^(0 s) e^(t/[1 s]) dif t =").result.as_deref(), Some(r#""1" thin upright("s")"#));
+    assert_eq!(run(&mut env, "q(2 s) =>").result.as_deref(), Some(r#""6" thin upright("C")"#));
+    assert_eq!(run(&mut Env::default(), "integral_(0 s)^(infinity) e^(-t/[1 s]) dif t =>").result.as_deref(), Some(r#""1" thin upright("s")"#));
+    assert_eq!(run(&mut Env::default(), "integral_(-infinity)^(0 s) e^(t/[1 s]) dif t =>").result.as_deref(), Some(r#""1" thin upright("s")"#));
     // only 0 and ∞ adapt; with both, the variable has no unit
-    let out = line(&mut Env::default(), "integral_(1)^(2 s) 3 A dif t =");
+    let out = line(&mut Env::default(), "integral_(1)^(2 s) 3 A dif t =>");
     assert!(out.errors.iter().any(|e| e.contains("different units")), "{out:?}");
-    let out = line(&mut Env::default(), "integral_(0)^(infinity) e^(-t/[1 s]) dif t =");
+    let out = line(&mut Env::default(), "integral_(0)^(infinity) e^(-t/[1 s]) dif t =>");
     assert!(out.errors.iter().any(|e| e.contains("write it on a bound")), "{out:?}");
     let shown = run(&mut Env::default(), "integral_(0)^(infinity) e^(-t) dif t ->").result.unwrap();
     assert!(shown.contains("^(infinity)") && !shown.contains("inf\""), "{shown}");
@@ -304,7 +304,7 @@ fn indefinite_integrals_give_the_antiderivative() {
     }
     let mut env = Env::default();
     run(&mut env, "F(x) := ∫ x^2 dif x");
-    assert_eq!(run(&mut env, "F(3) =").result.as_deref(), Some(r#""9""#));
+    assert_eq!(run(&mut env, "F(3) =>").result.as_deref(), Some(r#""9""#));
     for (source, message) in [
         ("integrate(x^2, x, 1) ->", "no bounds"),
         ("∫ x ∂ x ->", "dif, not diff"),
@@ -331,11 +331,11 @@ fn unresolved_antiderivatives_stay_symbolic_and_resolve_later() {
         assert!(shown.contains("integral"), "{shown}");
         assert_eq!(run(&mut env, "F(2) - F(2) ->").result.as_deref(), Some(r#""0""#));
         if integrand != "q(x)" {
-            assert!(line(&mut env, "F(2) =").errors.iter().any(|e| e.contains("no antiderivative")));
+            assert!(line(&mut env, "F(2) =>").errors.iter().any(|e| e.contains("no antiderivative")));
         }
         // The fundamental theorem applies even when a primitive cannot be found.
         assert_eq!(run(&mut env, &format!("diff(F(x), x) - ({integrand}) -> simplify")).result.as_deref(), Some(r#""0""#));
-        let err = graph::graph(&env, &GraphReq {
+        let err = graph::graph(&env, &GraphReq { axes: Default::default(),
             cfg: support::cfg(), curves: vec![support::curve("F(x)", &env)],
             xrange: vec![XV::Num(-2.0), XV::Num(2.0)], yrange: vec![], marks: vec![], ymark: vec![], samples: 20,
         }).unwrap_err();
@@ -345,17 +345,17 @@ fn unresolved_antiderivatives_stay_symbolic_and_resolve_later() {
     run(&mut env, "F(u) := ∫ q(x, u) dif x");
     run(&mut env, "H(x) := F(x)");
     run(&mut env, "q(a, b) := a * b");
-    assert_eq!(run(&mut env, "H(2) =").result.as_deref(), Some(r#""4""#));
+    assert_eq!(run(&mut env, "H(2) =>").result.as_deref(), Some(r#""4""#));
     let mut env = Env::default();
     run(&mut env, "x := 99");
     run(&mut env, "F(u) := ∫ q(x, u) dif x");
     run(&mut env, "q(a, b) := a * b");
     // The integration variable stays local; the argument x stays free.
-    assert_eq!(run(&mut env, "F(2) =").result.as_deref(), Some(r#""9801""#));
+    assert_eq!(run(&mut env, "F(2) =>").result.as_deref(), Some(r#""9801""#));
     run(&mut env, "G(x) := ∫ r(x) dif x");
     run(&mut env, "H(y) := G(y)");
     run(&mut env, "r(u) := u^2");
-    assert_eq!(run(&mut env, "H(3) =").result.as_deref(), Some(r#""9""#));
+    assert_eq!(run(&mut env, "H(3) =>").result.as_deref(), Some(r#""9""#));
 }
 
 #[test]
@@ -367,7 +367,7 @@ fn pulse_transform_definition_defers_unsupported_primitive_to_graph() {
     run(&mut env, "S(f) := ∫ s(t) * e^(-#i*2*pi*f*t) dif t");
     assert!(run(&mut env, "S(f) ->").result.unwrap().contains("integral"));
     assert_eq!(run(&mut env, "S(f) - S(f) ->").result.as_deref(), Some(r#""0""#));
-    let err = graph::graph(&env, &GraphReq {
+    let err = graph::graph(&env, &GraphReq { axes: Default::default(),
         cfg: support::cfg(), curves: vec![support::curve("S(t)", &env)],
         xrange: vec![XV::Num(-5.0), XV::Num(5.0)], yrange: vec![], marks: vec![], ymark: vec![], samples: 20,
     }).unwrap_err();
@@ -381,16 +381,16 @@ fn symmetric_pulse_fourier_integral_with_bounds_is_plottable() {
     run(&mut env, "p(t_0) := rect(t - t_0) + tri((t - t_0) * 2)");
     run(&mut env, "s(t) := p(1.5) + p(3.5) + p(-1.5) + p(-3.5)");
     run(&mut env, "S(f) := integral_(-infinity)^infinity s(t) * cos(2*pi*f*t) dif t");
-    run(&mut env, "area := S(0) =");
+    run(&mut env, "area := S(0) =>");
     assert!((value(&env.vars["area"].expr).unwrap().v.f() - 6.0).abs() < 1e-9);
     for f in [-0.7, 0.2, 1.3] {
         let sinc = |x: f64| (std::f64::consts::PI * x).sin() / (std::f64::consts::PI * x);
         let expected = (sinc(f) + 0.5 * sinc(f / 2.0).powi(2))
             * 2.0 * ((3.0 * std::f64::consts::PI * f).cos() + (7.0 * std::f64::consts::PI * f).cos());
-        run(&mut env, &format!("answer := S({f}) ="));
+        run(&mut env, &format!("answer := S({f}) =>"));
         assert!((value(&env.vars["answer"].expr).unwrap().v.f() - expected).abs() < 1e-8);
     }
-    let plot = graph::graph(&env, &GraphReq {
+    let plot = graph::graph(&env, &GraphReq { axes: Default::default(),
         cfg: support::cfg(), curves: vec![support::curve("S(f)", &env)],
         xrange: vec![XV::Num(-5.0), XV::Num(5.0)], yrange: vec![], marks: vec![], ymark: vec![], samples: 20,
     }).unwrap();
@@ -404,15 +404,15 @@ fn closed_forms_hold_where_their_divisor_vanishes() {
     run(&mut env, "F(a) := integral_0^1 e^(a t) dif t ->");
     // near a = 0 the parts of (e^a − 1)/a cancel: a number put in is still exact to rounding
     for (a, expected) in [("0", 1.0), ("1", std::f64::consts::E - 1.0), ("-2", (1.0 - (-2.0f64).exp()) / 2.0), ("10^(-12)", 1.0 + 0.5e-12)] {
-        run(&mut env, &format!("y := F({a}) ="));
+        run(&mut env, &format!("y := F({a}) =>"));
         assert!((value(&env.vars["y"].expr).unwrap().v.f() - expected).abs() < 1e-12, "F({a})");
     }
     // t^(n + 1)/(n + 1) except at n = −1
     run(&mut env, "G(n) := integral_1^2 t^n dif t ->");
-    run(&mut env, "y := G(-1) =");
+    run(&mut env, "y := G(-1) =>");
     assert!((value(&env.vars["y"].expr).unwrap().v.f() - 2f64.ln()).abs() < 1e-12);
     assert_eq!(run(&mut env, "F(1) ->").result.as_deref(), Some("#svconst(\"euler\") - \"1\""));
-    run(&mut env, "y := G(2) =");
+    run(&mut env, "y := G(2) =>");
     assert!((value(&env.vars["y"].expr).unwrap().v.f() - 7.0 / 3.0).abs() < 1e-12);
 }
 
@@ -427,10 +427,10 @@ fn signal_integrals_are_exact_piecewise() {
     ] {
         assert_eq!(run(&mut env, source).result.as_deref(), Some(expected), "{source}");
     }
-    run(&mut env, "y := integral_0^infinity rect(t) e^(-t) dif t =");
+    run(&mut env, "y := integral_0^infinity rect(t) e^(-t) dif t =>");
     assert!((value(&env.vars["y"].expr).unwrap().v.f() - (1.0 - (-0.5f64).exp())).abs() < 1e-12);
     // unbounded support stays an integral (and diverges numerically)
-    assert!(!line(&mut Env::default(), "integral_0^infinity sgn(t) dif t =").errors.is_empty());
+    assert!(!line(&mut Env::default(), "integral_0^infinity sgn(t) dif t =>").errors.is_empty());
 }
 
 #[test]

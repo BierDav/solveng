@@ -15,13 +15,13 @@ fn every_carrier_uses_the_same_identifier() {
         run(&mut env, &format!("{spelling} := 7"));
         assert_eq!(env.vars.len(), 1);
         for reference in ["Delta2tau", "\"Delta2tau\"", "Δ2τ"] {
-            assert_eq!(run(&mut env, &format!("{reference} =")).result.as_deref(), Some("\"7\""));
+            assert_eq!(run(&mut env, &format!("{reference} =>")).result.as_deref(), Some("\"7\""));
         }
     }
     for spelling in ["Delta\"\"tau", "\"Delta\\\"\\\"tau\"", "\"Δτ\""] {
         run(&mut env, &format!("{spelling} := 8"));
         assert!(env.vars.contains_key("Δτ"));
-        assert_eq!(run(&mut env, "Δτ =").result.as_deref(), Some("\"8\""));
+        assert_eq!(run(&mut env, "Δτ =>").result.as_deref(), Some("\"8\""));
     }
     run(&mut env, "😅2Delta_🫠 := 9");
     assert_eq!(run(&mut env, "\"😅2Δ_🫠\" =").result.as_deref(), Some("\"9\""));
@@ -43,9 +43,9 @@ fn digits_belong_to_names_and_explicit_subscripts_stay_distinct() {
 fn quoted_function_names_and_parameters_are_normalized() {
     let mut env = Env::default();
     run(&mut env, "\"Delta2tau\"(\"alpha2beta\") := 2 alpha2beta");
-    assert_eq!(run(&mut env, "Δ2τ(3) =").result.as_deref(), Some("\"6\""));
+    assert_eq!(run(&mut env, "Δ2τ(3) =>").result.as_deref(), Some("\"6\""));
     run(&mut env, "x_tau := 4");
-    assert_eq!(run(&mut env, "x_τ =").result.as_deref(), Some("\"4\""));
+    assert_eq!(run(&mut env, "x_τ =>").result.as_deref(), Some("\"4\""));
 }
 
 #[test]
@@ -62,11 +62,11 @@ fn acute_accents_are_unescaped_name_characters() {
     for definition in ["x := 2", "x´ := 3", "x´´ := 5", "´x := 7", "x´_2 := 11"] {
         run(&mut env, definition);
     }
-    run(&mut env, "answer := x + x´ + x´´ + ´x + x´_2 =");
+    run(&mut env, "answer := x + x´ + x´´ + ´x + x´_2 =>");
     assert_eq!(value(&env.vars["answer"].expr).unwrap().v.f(), 28.0);
     assert_eq!(run(&mut env, "\"x´\" =").result.as_deref(), Some("\"3\""));
     run(&mut env, "f´(t´) := x´ t´");
-    assert_eq!(run(&mut env, "f´(4) =").result.as_deref(), Some("\"12\""));
+    assert_eq!(run(&mut env, "f´(4) =>").result.as_deref(), Some("\"12\""));
 }
 
 #[test]
@@ -74,7 +74,7 @@ fn backticks_are_literal_name_characters() {
     let mut env = Env::default();
     run(&mut env, "r := 2");
     run(&mut env, "r` := 3");
-    assert_eq!(run(&mut env, "r` + r =").result.as_deref(), Some("\"5\""));
+    assert_eq!(run(&mut env, "r` + r =>").result.as_deref(), Some("\"5\""));
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn numeric_names_need_an_explicit_join_and_do_not_change_coefficients() {
     run(&mut env, "2\"\"x := 7");
     assert_eq!(value(&env.vars["2x"].expr).unwrap().v.f(), 7.0);
     assert_eq!(run(&mut env, "2\"\"x =").result.as_deref(), Some("\"7\""));
-    assert_eq!(run(&mut env, "2x =").result.as_deref(), Some("\"6\""));
+    assert_eq!(run(&mut env, "2x =>").result.as_deref(), Some("\"6\""));
     run(&mut env, "2\"\"f(t) := t + 1");
     assert_eq!(run(&mut env, "2\"\"f(3) =").result.as_deref(), Some("\"4\""));
     run(&mut env, &format!("length := 2{}", support::unit("m")));

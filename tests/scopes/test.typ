@@ -9,7 +9,7 @@
 
 // auto: equations are shared, content is isolated
 $x := 10$
-#worksheet($a := x+1$)
+#calculate($a := x+1$)
 #expect("a", 11)
 #worksheet[#undefined("x") $x := 99$ $"local" := 1$]
 #expect("x", 10) #undefined("local")
@@ -27,7 +27,7 @@ $x := 10$
 #worksheet(scope: "isolated")[#undefined("x") $x := 30$ #expect("x", 30)]
 #expect("x", 12)
 #worksheet($x := 50$, $"iso" := 2$, scope: "isolated") #expect("x", 12) #undefined("iso")
-#worksheet($z_i := x =$, scope: "isolated") #fails("'x' in 'z_i' isn't defined")
+#worksheet($z_i := x =>$, scope: "isolated") #fails("'x' in 'z_i' isn't defined")
 
 // shared keeps functions, solved values, code and graph definitions as well as variables
 #worksheet(scope: "shared", hidden: true)[
@@ -36,11 +36,11 @@ $x := 10$
   $U = I R -> solve(I)$
   $f(t) := t^2+1$
   $"coded" := 8$
-  #graph($g(t) := t+2$, xrange: (0, 1))
+  #graph($g(t) := t+2$, x-range: (0, 1))
 ]
 #expect("I", 0.12) #expect("coded", 8)
-$y := f(3) =$ #expect("y", 10)
-$z := g(3) =$ #expect("z", 5)
+$y := f(3) =>$ #expect("y", 10)
+$z := g(3) =>$ #expect("z", 5)
 
 // shared reaches only the immediate parent; nested worksheets have their own defaults
 #worksheet[
@@ -76,7 +76,7 @@ $z := g(3) =$ #expect("z", 5)
 
 // a shared definition can change a name from a variable to a function and back
 #worksheet(scope: "shared")[$x(t) := 2t$]
-$"function_value" := x(3) =$ #expect("function_value", 6)
+$"function_value" := x(3) =>$ #expect("function_value", 6)
 #worksheet(scope: "shared")[$x := 60$]
 #expect("x", 60)
 
@@ -116,7 +116,7 @@ $"function_value" := x(3) =$ #expect("function_value", 6)
 // what was replaced or isn't a scope
 #worksheet(inherit: true)[]
 #reported("inherit was replaced by scope: \"isolated\" | \"inherit\" | \"shared\"")
-#worksheet($e_x := 1$, export: false)
+#calculate($e_x := 1$, export: false)
 #reported("export was replaced by scope")
 #undefined("e_x")
 #worksheet(scope: "local")[]

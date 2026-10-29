@@ -36,7 +36,7 @@ const PIECES: &[&str] = &[
     "#let i = constant(\"imaginary\", $sqrt(-1)$)\n#let triangle = operation(\"tri\")\n",
     "#show: worksheet.with(preferred-units: ($#m / #s$,), evaluate: false)\n",
     "$U := 5 V$ ",
-    "$I := U / (2 kΩ) = mA$ ",
+    "$I := U / (2 kΩ) => mA$ ",
     "$R_\"load\"(x: kΩ) := 2 x$ ",
     "$m_2() := 3$ $m() := 2$ $a := m() + m_2()$\n",
     "$x^2 - 4 = 0 -> solve(x)$\n",

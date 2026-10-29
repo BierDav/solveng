@@ -7,13 +7,13 @@
 #show: worksheet
 
 // sampled data: a signal over a time axis, and a vector against its index
-#worksheet($tau := vec(0, 1, 2, 3, 4, 5, 6) * 1 ms$, $y := vec(0, 1.5, 2.5, 2, 0.5, -1, -0.5) * 1 #V$, $c(t: #units.s) := 0.4 #V/ms dot t$, hidden: true)
+#calculate($tau := vec(0, 1, 2, 3, 4, 5, 6) * 1 ms$, $y := vec(0, 1.5, 2.5, 2, 0.5, -1, -0.5) * 1 #V$, $c(t: #units.s) := 0.4 #V/ms dot t$, hidden: true)
 
 // what the engine gives the graph: the data's points, in its units
 #context {
   let g = _call(_p.graph, _env(_st.get()), (
     cfg: _req-cfg(_cf.get()), curves: ((src: "y(tau)", mode: "code", label: none),),
-    xrange: (), yrange: (), marks: (("roots", true), ("extrema", true)), ymark: (), samples: 100,
+    x-range: (), y-range: (), marks: (("roots", true), ("extrema", true)), ymark: (), samples: 100,
   ))
   assert("err" not in g, message: repr(g))
   assert.eq(g.series.at(0).points.len(), 7)
@@ -29,7 +29,7 @@
 #graph($y(τ)$, mark: ("roots", "extrema"), errors: "panic")
 #graph($y(tau) \ c(tau)$, mark: "crossings", errors: "panic")
 #graph($y \ 1 #V$, errors: "panic")
-#graph($y(τ) \ 2 #V dot sin(τ / (1 ms))$, xrange: (-1, 8), mark: (3.5, "crossings"), errors: "panic")
+#graph($y(τ) \ 2 #V dot sin(τ / (1 ms))$, x-range: (-1, 8), mark: (3.5, "crossings"), errors: "panic")
 
 // a long vector: a line without dots
 #worksheet(eval("$n := vec(" + range(200).map(k => str(calc.round(calc.sin(k / 10) * calc.exp(-k / 80), digits: 4))).join(", ") + ")$"), hidden: true)
@@ -37,7 +37,7 @@
 
 // data as points alone, next to joined data and a function; custom dashes
 #graph($y(τ) \ c(τ)$, lines: (none, auto), mark: "crossings", errors: "panic")
-#worksheet($z := vec(1, 2, 1.8, 0.9, 0, -0.4, 0.2) * 1 #V$, hidden: true)
+#calculate($z := vec(1, 2, 1.8, 0.9, 0, -0.4, 0.2) * 1 #V$, hidden: true)
 #graph($y(τ) \ z(τ) \ c(τ)$, lines: ("dotted", none, (4pt, 2pt)), errors: "panic")
 #graph($y$, lines: none, errors: "panic")
 
@@ -46,12 +46,12 @@
 #worksheet(scope: "inherit", graph-dots: "hexagon", graph-colors: blue, graph-lines: "dashed", graph-joined: true)[
   #graph($y(τ) \ z(τ)$, errors: "panic")
 ]
-#worksheet($p(x) := cases(2 & "for" x = 1, x & "for" x < 0 or x > 2)$, hidden: true)
-#graph($p(x)$, xrange: (-2, 4), lines: none, errors: "panic")
+#calculate($p(x) := cases(2 & "for" x = 1, x & "for" x < 0 or x > 2)$, hidden: true)
+#graph($p(x)$, x-range: (-2, 4), lines: none, errors: "panic")
 // joined: a function's pieces joined through its single points, every mode, and joins to points beyond the graph
-#for l in (auto, none) { for d in (auto, none) { for j in (false, true) { if l != none or d != none { graph($p(x)$, xrange: (-2, 4), lines: l, dots: d, joined: j, errors: "panic") } } } }
+#for l in (auto, none) { for d in (auto, none) { for j in (false, true) { if l != none or d != none { graph($p(x)$, x-range: (-2, 4), lines: l, dots: d, joined: j, errors: "panic") } } } }
 #graph($y(τ) \ p(τ)$, joined: (auto, true), errors: "panic")
-#graph($p(x)$, xrange: (0.5, 1.8), yrange: (0, 3), dots: none, joined: true, errors: "panic")
+#graph($p(x)$, x-range: (0.5, 1.8), y-range: (0, 3), dots: none, joined: true, errors: "panic")
 // auto keeps the worksheet's, curve by curve, through nested worksheets
 #worksheet(scope: "inherit", graph-dots: (auto, "star"), graph-lines: ("dotted", auto))[
   #context assert.eq(_cf.get().graph-dots, ("circle", "star", "triangle", "star"))

@@ -64,7 +64,7 @@ impl Z {
         let s = o.re.abs().max(o.im.abs());
         let (a, b) = (o.re / s, o.im / s);
         let d = a * a + b * b;
-        Z::new((self.re * a + self.im * b) / d / s, (self.im * a - self.re * b) / d / s)
+        Z::new(((self.re / s) * a + (self.im / s) * b) / d, ((self.im / s) * a - (self.re / s) * b) / d)
     }
     pub fn conj(self) -> Z {
         Z::new(self.re, -self.im)
@@ -91,10 +91,15 @@ impl Z {
         if self.im == 0.0 {
             return if self.re >= 0.0 { Z::real(self.re.sqrt()) } else { Z::new(0.0, (-self.re).sqrt()) };
         }
-        let m = self.abs();
-        let re = ((m + self.re) / 2.0).sqrt();
-        let im = ((m - self.re) / 2.0).sqrt();
-        Z::new(re, if self.im < 0.0 { -im } else { im })
+        if self.re == 0.0 && self.im == 0.0 { return self; }
+        let scale = self.re.abs().max(self.im.abs());
+        let z = Z::new(self.re / scale, self.im / scale);
+        let t = (z.abs() * 0.5 + z.re.abs() * 0.5).sqrt() * scale.sqrt();
+        if self.re >= 0.0 {
+            Z::new(t, (self.im / t) * 0.5)
+        } else {
+            Z::new((self.im.abs() / t) * 0.5, t.copysign(self.im))
+        }
     }
     /// The principal power; whole exponents by repeated multiplication, so that i² is exactly −1.
     pub fn pow(self, w: Z) -> Z {
@@ -106,7 +111,7 @@ impl Z {
             return if w.re < 0.0 { Z::real(1.0).div(r) } else { r };
         }
         if self.re == 0.0 && self.im == 0.0 {
-            return Z::real(0.0);
+            return if w.is_real() && w.re > 0.0 { Z::real(0.0) } else { Z::real(f64::NAN) };
         }
         if w.is_real() && w.re == 0.5 {
             return self.sqrt();
@@ -119,6 +124,13 @@ impl Z {
     pub fn cos(self) -> Z {
         Z::new(self.re.cos() * self.im.cosh(), -self.re.sin() * self.im.sinh())
     }
+    pub fn tan(self) -> Z {
+        if self.im.abs() > 20.0 {
+            let q = (-2.0 * self.im.abs()).exp();
+            let d = 1.0 + q*q + 2.0*q*(2.0*self.re).cos();
+            Z::new(2.0*q*(2.0*self.re).sin()/d, ((1.0-q*q)/d).copysign(self.im))
+        } else { self.sin().div(self.cos()) }
+    }
     pub fn sinh(self) -> Z {
         Z::new(self.re.sinh() * self.im.cos(), self.re.cosh() * self.im.sin())
     }
@@ -127,6 +139,9 @@ impl Z {
     }
     /// asin z = −i ln(iz + √(1 − z²))
     pub fn asin(self) -> Z {
+        if self.im == 0.0 && self.re.abs() > 1.0 {
+            return Z::new(std::f64::consts::FRAC_PI_2.copysign(self.re), -self.re.abs().acosh().copysign(self.re));
+        }
         let root = Z::real(1.0).sub(self.mul(self)).sqrt();
         Z::I.mul(self).add(root).ln().mul(Z::I).neg()
     }

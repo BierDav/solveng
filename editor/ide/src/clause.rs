@@ -90,6 +90,11 @@ pub(crate) fn marker(text: &[char], unit: &dyn Fn(&str) -> bool, modifier: Modif
             depth += 1;
         } else if ")]}".contains(c) {
             depth -= 1;
+        } else if depth == 0 && c == '=' && text.get(i + 1) == Some(&'>') {
+            equals = Some((i, i + 2));
+            i += 1;
+        } else if depth == 0 && c == '⇒' {
+            equals = Some((i, i + 1));
         } else if depth == 0 && c == '-' && text.get(i + 1) == Some(&'>') {
             arrow = Some((i, i + 2));
             i += 1;
@@ -227,9 +232,9 @@ pub(crate) fn names_call(line: &str, modifier: Modifiers) -> Option<(usize, Stri
             depth += 1;
         } else if ")]}".contains(ch) {
             depth -= 1;
-        } else if depth == 0 && ch == '→' {
+        } else if depth == 0 && matches!(ch, '→' | '⇒') {
             marker = Some((i, i + 1));
-        } else if depth == 0 && ch == '>' && i > 0 && c[i - 1] == '-' {
+        } else if depth == 0 && ch == '>' && i > 0 && matches!(c[i - 1], '-' | '=') {
             marker = Some((i - 1, i + 1));
         } else if depth == 0 && ch == '=' && !":<>!=".contains(if i > 0 { c[i - 1] } else { ' ' }) && c.get(i + 1) != Some(&'=') {
             marker = Some((i, i + 1));
@@ -257,7 +262,7 @@ pub(crate) fn at_clause(line: &str, modifier: Modifiers) -> Option<(bool, bool, 
             depth += 1;
         } else if ")]}".contains(ch) {
             depth -= 1;
-        } else if depth == 0 && (ch == '→' || (ch == '>' && i > 0 && c[i - 1] == '-')) {
+        } else if depth == 0 && (matches!(ch, '→' | '⇒') || (ch == '>' && i > 0 && matches!(c[i - 1], '-' | '='))) {
             found = Some((i + 1, true));
         } else if depth == 0 && ch == '=' && !":<>!=".contains(if i > 0 { c[i - 1] } else { ' ' }) && c.get(i + 1) != Some(&'=') {
             found = Some((i + 1, false));

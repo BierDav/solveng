@@ -149,13 +149,13 @@ fn finite_exponential_moments_include_zero_frequency_and_reversed_bounds() {
 fn pulse_transform_units_and_complex_frequencies_are_preserved() {
     let mut env = Env::default();
     run(&mut env, "F(w: Hz) := integral_(-infinity)^infinity rect(t/(2 s)-3/2)*exp(-#i*w*t) dif t");
-    run(&mut env, "answer := F(0 Hz) =");
+    run(&mut env, "answer := F(0 Hz) =>");
     let value = complex_value(&env.vars["answer"].expr).unwrap();
     assert_eq!(value.re.v.f(), 2.0);
     assert_eq!(value.re.d, solveng_core::dim::Dim::named("time"));
     run(&mut env, "Q(z) := integral_(-infinity)^infinity tri(2*(t-1))*exp(z*t) dif t");
     for z in ["0", "1/2", "1/2 + 3/4*#i"] {
-        run(&mut env, &format!("answer := Q({z}) ="));
+        run(&mut env, &format!("answer := Q({z}) =>"));
         let actual = complex_value(&env.vars["answer"].expr).unwrap();
         let (re, im) = if z == "0" { (0.0, 0.0) } else if z == "1/2" { (0.5, 0.0) } else { (0.5, 0.75) };
         let base = |t: f64| (1.0-2.0*(t-1.0).abs())*(re*t).exp();
@@ -191,7 +191,7 @@ fn weighted_moments_stay_stable_near_zero_in_calls_and_graph_samples() {
             let mut env = Env::default();
             run(&mut env, &format!("F(w) := integral_(-infinity)^infinity t^{degree}*rect(t-({centre}))*exp(-#i*w*t) dif t"));
             for w in [1e-10_f64, -1e-9, 1e-6] {
-                run(&mut env, &format!("answer := F({w}) ="));
+                run(&mut env, &format!("answer := F({w}) =>"));
                 let actual = complex_value(&env.vars["answer"].expr).unwrap();
                 let expected_re = simpson(|t| t.powi(degree)*(w*t).cos(), centre-0.5, centre+0.5);
                 let expected_im = -simpson(|t| t.powi(degree)*(w*t).sin(), centre-0.5, centre+0.5);

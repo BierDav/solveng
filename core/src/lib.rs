@@ -34,3 +34,7 @@ mod test_support;
 
 mod numeric;
 pub mod numerics;
+
+/// The supported high-level worksheet API.
+pub mod worksheet;
+pub use worksheet::{Worksheet, Diagnostic};

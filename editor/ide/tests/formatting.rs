@@ -76,5 +76,5 @@ fn joins_numbers_only_to_unit_bindings() {
 fn leaves_strings_of_calls_alone() {
     check(r#"#worksheet("x:=f( a :V,b ) + 2 s")"#,
           r#"#worksheet("x:=f( a :V,b ) + 2 s")"#);
-    check(r#"#let prose = "x:=f( a,b )""#, r#"#let prose = "x:=f( a,b )""#);
+    check(r#"#let prose => "x:=f( a,b )""#, r#"#let prose => "x:=f( a,b )""#);
 }

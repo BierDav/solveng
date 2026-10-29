@@ -1,7 +1,7 @@
 // value: a result alone, in the text.
 #import "api.typ": *
 
-/// The result of an expression alone, where the text needs it: what `$U =$` shows
+/// The result of an expression alone, where the text needs it: what `$U =>$` shows
 /// after its `=`. Calculated with the worksheet's definitions at this point, which
 /// it leaves as they are.
 ///
@@ -9,14 +9,14 @@
 /// #show: worksheet
 /// #import units: kΩ, mA, mV, Ω
 /// $R := 4.7 kΩ$, $I := 2 mA$, $U := R I$, $f(x: #Ω) := 2 x$
-/// The voltage is #value($U$) (#value($U = mV$)), and #value($f(3 #Ω)$) for 3 Ω.
+/// The voltage is #value($U$) (#value($U => mV$)), and #value($f(3 #Ω)$) for 3 Ω.
 /// ```
 ///
-/// A clause picks the unit or form as after `=`: `#value($U = mV, digits(2)$)`; a
+/// A clause picks the unit or number-form as after `=`: `#value($U => mV, digits(2)$)`; a
 /// trailing `->` shows the symbolic result. A function's name alone shows its body.
 /// It shows one expression and defines nothing: definitions go in the worksheet.
 ///
-/// - expr (content): The expression as math: `$U$`, `$f(2)$` or `$U / 2 = mV$`.
+/// - expr (content): The expression as math: `$U$`, `$f(2)$` or `$U / 2 => mV$`.
 /// -> content
 #let value(expr) = context {
   let cf = _cf.get() + (block: false)

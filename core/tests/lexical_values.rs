@@ -22,9 +22,9 @@ fn base_identities_survive_aliases_order_and_worksheet_serialization() {
     let mut bytes = Vec::new();
     ciborium::into_writer(&env, &mut bytes).unwrap();
     let mut env: Env = ciborium::from_reader(&bytes[..]).unwrap();
-    run(&mut env, &format!("u := t + 3 {} =", token(&other_second)));
+    run(&mut env, &format!("u := t + 3 {} =>", token(&other_second)));
     assert_eq!(value(&env.vars["u"].expr).unwrap().v.f(), 123.0);
-    let out = api::line(&mut env, &LineReq { src: format!("t + {} =", token(&metre)), cfg: cfg(), listed: true });
+    let out = api::line(&mut env, &LineReq { src: format!("t + {} =>", token(&metre)), cfg: cfg(), listed: true });
     assert!(!out.errors.is_empty());
     assert!(api::defined(&env, &DefinedReq { cfg: cfg() }).unwrap().iter().all(|r| !r.plain.contains("sv")));
 }
@@ -36,7 +36,7 @@ fn constants_carry_units_and_stable_identities_without_name_lookup() {
     assert_eq!(light.identity.as_deref(), Some("speed-of-light"));
     assert_eq!(Binding::decode(&light.encode().unwrap()).unwrap().identity, light.identity);
     let mut env = Env::default();
-    run(&mut env, &format!("v := {} =", token(&light)));
+    run(&mut env, &format!("v := {} =>", token(&light)));
     assert_eq!(value(&env.vars["v"].expr).unwrap().v.f(), 299792458.0);
     let out = run(&mut env, "e + pi ->");
     assert!(out.result.unwrap().contains('e'));
@@ -75,14 +75,14 @@ fn units_shown_as_their_expression_are_one_factor() {
     // after a number: a dot, never a space (1 2.54 cm reads as 12.54 cm)
     let out = run(&mut env, &format!("1 {i} = {i}"));
     assert!(out.result.as_deref().unwrap().starts_with("\"1\" dot #svref("), "{out:?}");
-    let out = run(&mut env, &format!("x := 3 {i} ="));
+    let out = run(&mut env, &format!("x := 3 {i} =>"));
     assert!(out.result.as_deref().unwrap().contains(" dot #svref("), "{out:?}");
     // under a power, after a slash or next to another unit: parenthesized
     let out = run(&mut env, &format!("{i}^2 = {i}^2"));
     assert!(out.result.as_deref().unwrap().contains("lr((#svref(") && out.result.as_deref().unwrap().contains("))^(2)"), "{out:?}");
-    let out = run(&mut env, &format!("2 {} / {i} =", token(&second)));
+    let out = run(&mut env, &format!("2 {} / {i} =>", token(&second)));
     assert!(out.result.as_deref().unwrap().contains("\\/lr((#svref("), "{out:?}");
-    let out = run(&mut env, &format!("5 {i} {} =", token(&second)));
+    let out = run(&mut env, &format!("5 {i} {} =>", token(&second)));
     assert!(out.result.as_deref().unwrap().contains("lr((#svref("), "{out:?}");
     // the formula as written joins it the same way
     let out = run(&mut env, &format!("y := 2 {i} ->"));
@@ -98,7 +98,7 @@ fn units_shown_as_their_expression_are_one_factor() {
 
 #[test]
 fn definitions_require_closed_values_and_positive_unit_scales() {
-    for source in ["x", "x := 2", "1 =", "0", "-3"] {
+    for source in ["x", "x := 2", "1 =>", "0", "-3"] {
         assert!(bindings::construct(BindingReq { kind: "unit".into(), src: source.into(), identity: None, presentation: String::new(), description: String::new(), auto: false }).is_err(), "{source}");
     }
     let a = binding("base-unit", "", Some("alpha"), "alpha");

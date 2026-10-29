@@ -25,7 +25,7 @@ pub enum Tok {
 
 const OPS: &[(&str, &str)] = &[
     ("∈", "∈"),
-    (":=", ":="), ("≔", ":="), ("->", "->"), ("→", "->"), ("<=", "≤"), (">=", "≥"), ("!=", "≠"), ("≤", "≤"), ("≥", "≥"),
+    ("=>", "=>"), ("⇒", "=>"), (":=", ":="), ("≔", ":="), ("->", "->"), ("→", "->"), ("<=", "≤"), (">=", "≥"), ("!=", "≠"), ("≤", "≤"), ("≥", "≥"),
     ("≠", "≠"), ("=", "="), ("<", "<"), (">", ">"), ("+", "+"), ("-", "-"), ("−", "-"), ("*", "*"), ("∗", "*"),
     ("·", "·"), ("⋅", "·"), ("×", "×"), ("/", "/"), ("^", "^"), ("(", "("), (")", ")"), ("[", "("), ("]", ")"),
     (",", ","), (";", ";"), (":", ":"), ("..", ".."), ("…", ".."), ("|", "|"), ("‖", "‖"), ("±", "±"),
@@ -1164,7 +1164,7 @@ fn split_trail(t: &[Tok], c: &Ctx) -> Result<(usize, Option<(Trail, Clause)>), S
             Tok::Op("(" | "[") => depth += 1,
             Tok::Op(")" | "]") => depth -= 1,
             Tok::Op("->") if depth == 0 => arrow = Some(i),
-            Tok::Op("=") if depth == 0 => eq = Some(i),
+            Tok::Op("=" | "=>") if depth == 0 => eq = Some(i),
             _ => {}
         }
     }
@@ -1181,6 +1181,9 @@ fn split_trail(t: &[Tok], c: &Ctx) -> Result<(usize, Option<(Trail, Clause)>), S
         return Ok((i, Some((Trail::Sym, cl))));
     }
     if let Some(i) = eq {
+        if t[i] == Tok::Op("=>") && clause(&t[i + 1..], c)?.is_none() {
+            return Err("after => use a unit and result modifiers, not a value".into());
+        }
         // = followed by more than a unit and keywords is a comparison
         if let Some(cl) = clause(&t[i + 1..], c)? {
             return Ok((i, Some((Trail::Eval, cl))));
@@ -1468,7 +1471,7 @@ fn src_text(t: &[Tok]) -> String {
 pub fn meant(src: &str, c: &Ctx) -> bool {
     // a bare trailing = or -> asks for a result, also of what can't be lexed
     let end = src.trim_end();
-    if end.ends_with("->") || end.ends_with('→') || (end.ends_with('=') && !end.ends_with("<=") && !end.ends_with(">=") && !end.ends_with("!=")) { return true; }
+    if end.ends_with("=>") || end.ends_with('⇒') || end.ends_with("->") || end.ends_with('→') || (end.ends_with('=') && !end.ends_with("<=") && !end.ends_with(">=") && !end.ends_with("!=")) { return true; }
     let Ok(t) = visible_tokens(src) else { return false };
     let mut depth = 0i32;
     let mut arrow = None;
@@ -1618,10 +1621,10 @@ mod tests {
     fn math() {
         assert_eq!(line("t ≔ Q_0/I = 1 #h").trail.as_ref().unwrap().0, Trail::Eval);
         assert_eq!(clause_unit("t ≔ Q_0/I = 1 #h").as_deref(), Some("h"));
-        assert_eq!(clause_unit("v = km/#h").as_deref(), Some("km/h"));
+        assert_eq!(clause_unit("v => km/#h").as_deref(), Some("km/h"));
         // a name alone is a variable: t = V compares
         assert!(line("t = V").trail.is_none());
-        assert!(matches!(&line("M ≔ 1 = 2 =").stmts[0], Stmt::Def { rhs: Ast::Cmp(..), .. }));
+        assert!(matches!(&line("M ≔ 1 = 2 =>").stmts[0], Stmt::Def { rhs: Ast::Cmp(..), .. }));
         assert!(matches!(&line("x ≔ 5 V + 3 mA").stmts[0], Stmt::Def { rhs: Ast::Add(..), .. }));
         assert_eq!(line("0 = 1 + frac(3, x) + y^(2) → solve(x)").trail.unwrap().1.solve, Some(vec!["x".to_string()]));
         let (l, u) = read("q(x: A, ..) ≔ 1 + frac(3, 3)x + y^(2) → simplify").unwrap();
@@ -1657,7 +1660,7 @@ mod tests {
             Stmt::Def { rhs: Ast::Matrix(rs), .. } => assert_eq!((rs.len(), rs[1].len()), (2, 2)),
             s => panic!("{s:?}"),
         }
-        assert_eq!(line("t = min, digits(2)").trail.unwrap().1.digits, Some(2));
+        assert_eq!(line("t => min, digits(2)").trail.unwrap().1.digits, Some(2));
         assert_eq!(line("x + y = 3, x - y = 1 → solve(x, y)").stmts.len(), 2);
         assert!(line("V ≔ 2 A = 2000 mA").trail.is_none());
         assert!(matches!(&line("Δr_R ≔ 2").stmts[0], Stmt::Def { head: Head::Var(n), .. } if n == "Δr_R"));

@@ -60,7 +60,7 @@ fn definitions_custom_variables_and_local_input() {
         run(&mut env, "G := laplace(g(x), x, p)");
         equal(&mut env, "G", "1/(p+1)");
         run(&mut env, "f(u) := invlaplace(1/(p+1), p, u)");
-        run(&mut env, "answer := f(2) =");
+        run(&mut env, "answer := f(2) =>");
         assert!((value(&env.vars["answer"].expr).unwrap().v.f() - (-2.0_f64).exp()).abs() < 1e-12);
         assert_eq!(value(&env.vars["t"].expr).unwrap().v.f(), 7.0);
         equal(&mut env, "laplace(x^2, x, p)", "2/p^3");
@@ -76,7 +76,7 @@ fn invalid_and_unsupported_transforms_are_errors() {
     // A transform result can be evaluated as an ordinary worksheet function.
     let mut env = Env::default();
     run(&mut env, "F(p) := laplace(t^2, t, p)");
-    run(&mut env, "answer := F(2) =");
+    run(&mut env, "answer := F(2) =>");
     assert_eq!(value(&env.vars["answer"].expr).unwrap().v.f(), 0.25);
     assert!(matches!(simp(&env.vars["answer"].expr), Expr::C(_)));
 }
@@ -122,7 +122,7 @@ fn signal_transforms_and_transfer_function() {
         run(&mut env, "g(t) := Lambda(2*t)");
         run(&mut env, "H(s) := laplace(s(t), t, s) / laplace(g(t), t, s) ->");
         equal(&mut env, "H(p)", "p*(1-exp(-p/2))/(p-2+2*exp(-p/2))");
-        run(&mut env, "answer := H(2) =");
+        run(&mut env, "answer := H(2) =>");
         assert!((value(&env.vars["answer"].expr).unwrap().v.f() - (std::f64::consts::E-1.0)).abs() < 1e-12);
     }
 }
@@ -172,7 +172,7 @@ fn delayed_feedback_step_response() {
                         / (1..=k).fold(1.0, |a, b| a * b as f64)
                 }).sum::<f64>()
             };
-            run(&mut env, &format!("actual := s_2({t}) ="));
+            run(&mut env, &format!("actual := s_2({t}) =>"));
             let actual = value(&env.vars["actual"].expr).unwrap().v.f();
             let expected = base(t) - base(t-0.5);
             assert!((actual-expected).abs() < 1e-10, "t={t}: {actual} != {expected}");
@@ -211,7 +211,7 @@ fn delay_series_scaling_scoping_and_numeric_helpers() {
             let actual = eval_f(&env.funs["response"].body, &|n| (n == "k").then_some(t)).unwrap();
             assert!((actual-kernel(t)-kernel(t-2.0)).abs() < 1e-12);
         }
-        for unsupported in ["invlaplace(1/(s+exp(s))) ->", "factorial(-1) =", "factorial(1/2) ="] {
+        for unsupported in ["invlaplace(1/(s+exp(s))) ->", "factorial(-1) =>", "factorial(1/2) =>"] {
             let out = support::line(&mut env, unsupported);
             assert!(!out.errors.is_empty(), "{unsupported}");
         }
@@ -310,17 +310,17 @@ fn algorithmic_inverse_scopes_survive_binding_substitution_and_serialization() {
         run(&mut env, "s := 7");
         run(&mut env, "response(x) := invlaplace(1/((p^2+1)*(p^2+a)), p, x)");
         run(&mut env, "a := 4");
-        run(&mut env, "actual := response(1) =");
+        run(&mut env, "actual := response(1) =>");
         let expected = 1.0_f64.sin()/3.0-2.0_f64.sin()/6.0;
         assert!((value(&env.vars["actual"].expr).unwrap().v.f()-expected).abs() < 1e-12);
         // Substitution introduces the same spelling as the bound transform variable.
         run(&mut env, "identity(p) := response(p)");
-        run(&mut env, "actual := identity(1) =");
+        run(&mut env, "actual := identity(1) =>");
         assert!((value(&env.vars["actual"].expr).unwrap().v.f()-expected).abs() < 1e-12);
         let mut bytes = vec![];
         ciborium::into_writer(&env, &mut bytes).unwrap();
         let mut restored: Env = ciborium::from_reader(bytes.as_slice()).unwrap();
-        run(&mut restored, "actual := response(1) =");
+        run(&mut restored, "actual := response(1) =>");
         assert!((value(&restored.vars["actual"].expr).unwrap().v.f()-expected).abs() < 1e-12);
     }
 }

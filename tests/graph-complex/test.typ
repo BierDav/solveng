@@ -8,9 +8,9 @@ $s(t) := p(1.5) + p(3.5) + p(-1.5) + p(-3.5)$
 $S(f) := integral_(-infinity)^infinity
   s(t) * #e^(-#i * 2 #pi * f * t) dif t$
 
-$S(0.2) =$
-#graph($S(f)$, xrange: (-5, 5))
+$S(0.2) =>$
+#graph($S(f)$, x-range: (-5, 5))
 
 $T(f) := integral_(-infinity)^infinity
   rect(t - 1.5) * #e^(-#i * 2 #pi * f * t) dif t$
-#graph($Re(T(f)) \\ Im(T(f)) \\ abs(T(f)) \\ arg(T(f))$, xrange: (0.1, 0.3))
+#graph($Re(T(f)) \\ Im(T(f)) \\ abs(T(f)) \\ arg(T(f))$, x-range: (0.1, 0.3))

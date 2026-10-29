@@ -45,12 +45,12 @@ const SOLVENG: &str = "#import \"@preview/solveng:1.0.0\": *\n";
 #[test]
 fn highlights_values_units_and_variables() {
     let ws = "#import units: h, mA, m, s, kΩ\n#import modifiers: solve, digits, sci\n#show: worksheet\n";
-    let found = tokens_of(&format!("{ws}$t := Q0 / (2 I) = #h$"));
+    let found = tokens_of(&format!("{ws}$t := Q0 / (2 I) => #h$"));
     assert_eq!(
         found,
         vec![
             t("t", TokenKind::VARIABLE), t(":=", TokenKind::OPERATOR), t("Q0", TokenKind::VARIABLE), t("2", TokenKind::NUMBER),
-            t("I", TokenKind::VARIABLE), t("=", TokenKind::EVALUATE), t("#", TokenKind::UNIT_REFERENCE), t("h", TokenKind::UNIT),
+            t("I", TokenKind::VARIABLE), t("=>", TokenKind::EVALUATE), t("#", TokenKind::UNIT_REFERENCE), t("h", TokenKind::UNIT),
         ]
     );
     // the clause: modifiers, the names solve takes
@@ -64,7 +64,7 @@ fn highlights_values_units_and_variables() {
     );
     // = followed by a value is a step, not a result; a unit binding after it a result
     assert!(tokens_of(&format!("{ws}$V := 2 #s = 2000 mA$")).contains(&t("=", TokenKind::OPERATOR)));
-    assert!(tokens_of(&format!("{ws}$Q0/I = mA, sci$")).contains(&t("=", TokenKind::EVALUATE)));
+    assert!(tokens_of(&format!("{ws}$Q0/I => mA, sci$")).contains(&t("=>", TokenKind::EVALUATE)));
     assert_eq!(
         tokens_of(&format!("{ws}$g = 9.81 #m/#s^2, x = 3 kΩ$")),
         vec![
@@ -253,7 +253,7 @@ fn completes_clauses() {
     // min is also an operation now; the minute unit still belongs only in a unit clause.
     assert!(!c.items.iter().any(|i| name(&i.label) == "min" && i.kind == ItemKind::UNIT));
     assert!(c.items.iter().any(|i| name(&i.label) == "min" && i.kind == ItemKind::FUNCTION));
-    let c = complete_at(&format!("{ws}$v := 3$\n$v = #min, |$")).unwrap();
+    let c = complete_at(&format!("{ws}$v := 3$\n$v => #min, |$")).unwrap();
     assert!(c.exclusive && has(&c, "digits") && !has(&c, "v"));
     // after -> only the clause follows
     let c = complete_at(&format!("{ws}$y_\"a1\"(t) := t^2$\n$y_1(t) -> |$")).unwrap();
@@ -283,13 +283,13 @@ fn completes_in_math() {
 
 #[test]
 fn colors_math_with_its_bindings() {
-    let doc = "#import units: mA, A\n#show: worksheet\n$I := 30 mA dot R_\"load\" + sqrt(x) = 1 #A$";
+    let doc = "#import units: mA, A\n#show: worksheet\n$I := 30 mA dot R_\"load\" + sqrt(x) => 1 #A$";
     assert_eq!(
         tokens_of(doc),
         vec![
             t("I", TokenKind::VARIABLE), t(":=", TokenKind::OPERATOR), t("30", TokenKind::NUMBER), t("mA", TokenKind::UNIT),
             t("dot", TokenKind::OPERATOR), t("R", TokenKind::VARIABLE), t("\"load\"", TokenKind::VARIABLE), t("sqrt", TokenKind::BUILTIN_FUNCTION),
-            t("x", TokenKind::VARIABLE), t("=", TokenKind::EVALUATE), t("1", TokenKind::NUMBER), t("#", TokenKind::UNIT_REFERENCE), t("A", TokenKind::UNIT),
+            t("x", TokenKind::VARIABLE), t("=>", TokenKind::EVALUATE), t("1", TokenKind::NUMBER), t("#", TokenKind::UNIT_REFERENCE), t("A", TokenKind::UNIT),
         ]
     );
     // a letter alone after = is a variable: t = A compares

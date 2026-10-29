@@ -23,32 +23,40 @@
 ///
 /// `included` / `excluded` take `"all"`, a kind (`"given"`: plain values, `"computed"`, `"function"`), a name, a regex, a function `name => bool` or an array of these; `excluded` wins. (`include` is a Typst keyword, hence the names.)
 ///
-/// - included (str, regex, function, array): What to list. Default `"all"`.
+/// - names (str, regex, function, array): Definition names to show; strings match names literally, except "all".
+/// - kinds (str, array): given, computed or function; all three by default.
+/// - where (function): Additional predicate on each definition name.
+/// - included (str, regex, function, array): Deprecated combined kind/name filter; prefer names and kinds.
 /// - excluded (none, str, regex, function, array): What to leave out.
 /// - style (auto, str): `"grid"`, `"column"`, `"inline"` or `"list"`, see above. `auto`: the option `defined-style` (default `"grid"`).
 /// - show-si (auto, bool): Also show the SI value: `Q₀ = 3450 mAh = 12420 C`.
-/// - digits, separator, form, … (auto): Every option of `worksheet` works here too, for this call only.
+/// - digits, decimal-separator, number-form, … (auto): Every option of `worksheet` works here too, for this call only.
 /// -> content
 #let defined(
-  included: "all", excluded: none, style: auto,
-  digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto,
-  max-denominator: auto, fractions: auto, prefixes: auto, show-si: auto, preferred-units: auto,
-  approximate: auto, block: auto, max-solutions: auto, errors: auto, show-types: auto,
+  names: "all", kinds: ("given", "computed", "function"), where: name => true,
+  included: auto, excluded: none, style: auto,
+  digits: auto, trailing-zeros: auto, decimal-separator: auto, grouping: auto, notation-thresholds: auto, notation: auto, multiplication: auto, number-form: auto,
+  max-denominator: auto, fraction-style: auto, prefixes: auto, show-si: auto, preferred-units: auto,
+  show-approximation: auto, block: auto, max-solutions: auto, errors: auto, show-types: auto,
   words: auto, chips: auto, unit-style: auto, unit-separator: auto,
 ) = _mine(context {
-  let lc = _check(_given((defined-style: style, digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions, prefixes: prefixes, show-si: show-si, preferred-units: preferred-units, approximate: approximate, block: block, max-solutions: max-solutions, errors: errors, show-types: show-types, words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator)))
+  let lc = _check(_given((defined-style: style, digits: digits, trailing-zeros: trailing-zeros, decimal-separator: decimal-separator, grouping: grouping, notation-thresholds: notation-thresholds, notation: notation, multiplication: multiplication, number-form: number-form, max-denominator: max-denominator, fraction-style: fraction-style, prefixes: prefixes, show-si: show-si, preferred-units: preferred-units, show-approximation: show-approximation, block: block, max-solutions: max-solutions, errors: errors, show-types: show-types, words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator)))
   if _E(lc) { return _errc(lc.err, _cf.get(), wide: true) }
   let cf0 = _cf.get() + lc
+  if type(kinds) == str { kinds = (kinds,) }
+  if type(kinds) != array or kinds.any(k => k not in ("given", "computed", "function")) { return _errc("kinds: given, computed or function", cf0, wide: true) }
+  if type(where) != function { return _errc("where: a predicate on a definition name", cf0, wide: true) }
   let ok(p) = p == none or type(p) in (str, regex, function) or (type(p) == array and p.all(ok))
-  if not ok(included) or not ok(excluded) { return _errc("included/excluded: use \"all\", a kind, names, a regex or a function", cf0, wide: true) }
+  if not ok(names) or (included != auto and not ok(included)) or not ok(excluded) { return _errc("included/excluded: use \"all\", a kind, names, a regex or a function", cf0, wide: true) }
   let hit(e, p) = if p == none { false }
     else if type(p) == str { if p == "all" { true } else if p in ("given", "computed", "function") { e.kind == p } else { e.name == p } }
     else if type(p) == array { p.any(x => hit(e, x)) }
     else if type(p) == regex { e.name.match(p) != none }
     else { p(e.name) }
-  let es = _rows(_st.get(), cf0).filter(e => e.listed and hit(e, included) and not hit(e, excluded))
+  let named(e, p) = if type(p) == str { p == "all" or e.name == p } else if type(p) == array { p.any(x => named(e, x)) } else if type(p) == regex { e.name.match(p) != none } else if p == none { false } else { p(e.name) }
+  let es = _rows(_st.get(), cf0).filter(e => e.listed and e.kind in kinds and named(e, names) and where(e.name) and (included == auto or hit(e, included)) and not named(e, excluded))
   if es.len() == 0 { return }
-  let rows = es.map(e => ($#_m(e.lhs, cf0)$, e.values.map(v => _m(v, cf0)), if e.rel == "=" { $=$ } else { _m(e.rel, cf0) }))
+  let rows = es.map(e => ($#_m(e.lhs, cf0)$, e.values.map(v => _m(v, cf0)), if e.rel == "=" { $=>$ } else { _m(e.rel, cf0) }))
   let style = cf0.defined-style
   let eqs = rows.map(((nm, vs, r0)) => (nm, vs.enumerate().map(((i, v)) => if i == 0 { $#r0 #v$ } else { $= #v$ }).join()))
   if style == "list" { std.list(..eqs.map(((nm, v)) => $#nm #v$)) }
@@ -59,7 +67,7 @@
     let td(c, al) = html.elem("td", attrs: (style: "text-align: " + al), c)
     let n = calc.max(..rows.map(r => r.at(1).len()))
     html.elem("table", attrs: (class: "solveng-list"),
-      rows.map(((nm, vs, r0)) => html.elem("tr", td($#nm$, "right") + range(n).map(i => if i < vs.len() { td(if i == 0 { $#r0$ } else { $=$ }, "center") + td($#vs.at(i)$, "left") } else { td([], "left") + td([], "left") }).join())).join())
+      rows.map(((nm, vs, r0)) => html.elem("tr", td($#nm$, "right") + range(n).map(i => if i < vs.len() { td(if i == 0 { $#r0$ } else { $=>$ }, "center") + td($#vs.at(i)$, "left") } else { td([], "left") + td([], "left") }).join())).join())
   } else if _target() == "html" {
     // CSS columns flow top to bottom and reflow with the width; sizes measured with Typst's fonts, plus slack for the browser's
     _css()

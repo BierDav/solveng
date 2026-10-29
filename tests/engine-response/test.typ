@@ -44,33 +44,33 @@
 #assert(_calculation-out((last: (errors: (), result: none)), source).errors.first().contains("prose"))
 
 #show: worksheet.with(errors: "panic")
-$x := 3$, $x + 2 =$ #result("\"5\"")
+$x := 3$, $x + 2 =>$ #result("\"5\"")
 #clear("x")
 #context {
   assert.eq(_st.get().last.operation, "clear")
   assert.eq(_st.get().last.prose, false)
   assert.eq(_st.get().last.result, none)
-  assert.eq(measure(worksheet(hidden: true, errors: "panic")[$z := 1 =$]).height, 0pt)
+  assert.eq(measure(worksheet(hidden: true, errors: "panic")[$z := 1 =>$]).height, 0pt)
 }
-$x := 4$, $x^2 =$ #result("\"16\"")
-#graph($x t$, xrange: (0, 1), samples: 30)
+$x := 4$, $x^2 =>$ #result("\"16\"")
+#graph($x t$, x-range: (0, 1), samples: 30)
 #context {
   assert.eq(_st.get().last.operation, "graph")
   assert.eq(_st.get().last.prose, false)
   assert.eq(_st.get().last.result, none)
-  assert.eq(measure(worksheet(hidden: true, errors: "panic")[$z := 1 =$]).height, 0pt)
+  assert.eq(measure(worksheet(hidden: true, errors: "panic")[$z := 1 =>$]).height, 0pt)
 }
-$x + 1 =$ #passes() #result("\"5\"")
+$x + 1 =>$ #passes() #result("\"5\"")
 #worksheet(scope: "inherit", clear-at: heading)[
   = First
-  $y := 2 x =$ #expect("y", 8)
+  $y := 2 x =>$ #expect("y", 8)
   = Next
-  $y := 3 x =$ #expect("y", 12)
+  $y := 3 x =>$ #expect("y", 12)
 ]
-$x =$ #result("\"4\"")
+$x =>$ #result("\"4\"")
 #context {
   // Measurement evaluates equation contexts but discards their state updates.
   // It must not read the graph/clear result that preceded the measured content.
-  let hidden = measure(worksheet(hidden: true, errors: "panic")[$z := 1 =$ $w := 2$])
+  let hidden = measure(worksheet(hidden: true, errors: "panic")[$z := 1 =>$ $w := 2$])
   assert.eq(hidden.height, 0pt)
 }

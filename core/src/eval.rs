@@ -143,7 +143,7 @@ pub(crate) fn cardinal(f: Func, z: Z) -> (Z, Z) {
     let value = match f {
         Func::Sinc => z.sin().div(z),
         Func::Cosc => z.scale(0.5).sin().mul(z.scale(0.5).sin()).scale(2.0).div(z),
-        Func::Tanc => z.sin().div(z.cos()).div(z),
+        Func::Tanc => z.tan().div(z),
         _ => unreachable!(),
     };
     let leading = match f {
@@ -163,7 +163,7 @@ fn complex_f(f: Func, z: Z) -> Option<Z> {
         Func::Log => z.ln().scale(1.0 / std::f64::consts::LN_10),
         Func::Sin => z.sin(),
         Func::Cos => z.cos(),
-        Func::Tan => z.sin().div(z.cos()),
+        Func::Tan => z.tan(),
         Func::Sinh => z.sinh(),
         Func::Cosh => z.cosh(),
         Func::Tanh => z.sinh().div(z.cosh()),
@@ -285,7 +285,7 @@ fn evaluate<const WITH_UNITS: bool>(e: &Expr, dom: Domain, vars: &dyn Fn(&str) -
                     Err(m) => return Err(m),
                 }
             } else {
-                if bv.z == Z::real(0.0) && xv.re < 0.0 {
+                if bv.z == Z::real(0.0) && (xv.re < 0.0 || !xv.is_real()) {
                     return Err("division by zero".into());
                 }
                 (bv.pow(xv), d)

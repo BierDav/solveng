@@ -35,7 +35,7 @@ pub fn line(env: &mut Env, req: &LineReq) -> Out {
 }
 
 /// `#value("…")`: the result of an expression alone, as markup, against the worksheet so far, which it leaves as
-/// it is. An expression is shown like `… =` (a clause of its own picks the unit or form: `"t = min"`), a
+/// it is. An expression is shown like `… =` (a clause of its own picks the unit or form: `"t => min"`), a
 /// function's name alone like its body. Nothing can be defined here.
 pub fn show_value(env: &Env, req: &LineReq) -> Result<String, String> {
     let src = req.src.trim();
@@ -50,12 +50,12 @@ pub fn show_value(env: &Env, req: &LineReq) -> Result<String, String> {
     let run = |src: &str| line(&mut env.clone(), &LineReq { src: src.into(), listed: false, ..req.clone() });
     // as written when it shows a result (t = min, x ->), else its value
     let written = run(src);
-    // with a trailing = or -> of its own, its problems are its own: "U = mV" with U unknown is about U, not a
+    // with a trailing = or -> of its own, its problems are its own: "U => mV" with U unknown is about U, not a
     // comparison with a variable mV
     let units = Units::lexical(&req.cfg, env, src)?;
     let ctx = Ctx { units: &units, is_fn: &|n| env.funs.contains_key(n), is_var: &|n| env.vars.contains_key(n) };
     let trailing = parse::parse_line(src, &ctx).is_ok_and(|l| l.trail.is_some());
-    let out = if written.mark.is_some() || !written.defined.is_empty() || trailing { written } else { run(&format!("{src} =")) };
+    let out = if written.mark.is_some() || !written.defined.is_empty() || trailing { written } else { run(&format!("{src} =>")) };
     if !out.defined.is_empty() {
         let n = &out.defined[0];
         return Err(format!("nothing can be defined here – define {n} in the worksheet with :=, then #value(\"{n}\") shows it"));
@@ -226,6 +226,9 @@ pub fn lambdify(env: &Env, req: &LamReq) -> Result<Lam, String> {
     let line = parse::parse_line(&req.src, &ctx)?;
     let [parse::Stmt::Expr(a)] = line.stmts.as_slice() else { return Err("an expression, like \"U^2/R\"".into()) };
     let ps: Vec<String> = req.params.iter().map(|p| parse::greek(p)).collect();
+    if ps.iter().enumerate().any(|(i, p)| ps[..i].contains(p)) {
+        return Err("duplicate parameter names after normalization".into());
+    }
     let mut lo = Lower::new(env, &units);
     lo.params = ps.iter().cloned().collect();
     let e = simp(&lo.expr(a)?);
@@ -254,6 +257,8 @@ pub fn lambdify(env: &Env, req: &LamReq) -> Result<Lam, String> {
             return Err(format!("units: '{k}' is not a parameter (parameters: {})", ps.join(", ")));
         }
     }
+    let pd = |n: &str| ps.iter().position(|p| p == n).and_then(|i| dims[i].clone());
+    dim_of(&e, &pd)?;
     let mut out = 1.0;
     if let Some(u) = &req.unit {
         let pu = units.parse(u, false).map_err(|e| format!("unit: {e}"))?;

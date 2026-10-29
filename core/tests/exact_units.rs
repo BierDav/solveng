@@ -18,8 +18,8 @@ fn exact_results_in_a_unit_keep_their_constants() {
         assert_eq!(got, want, "{line}");
     }
     // values stay values, and = is numeric
-    assert_eq!(result(&mut env, "3 cm -> #m"), result(&mut env, "3 cm = #m"));
-    assert!(!result(&mut env, "2 cm pi = #m").contains("svconst"));
+    assert_eq!(result(&mut env, "3 cm -> #m"), result(&mut env, "3 cm => #m"));
+    assert!(!result(&mut env, "2 cm pi => #m").contains("svconst"));
     // the wrong unit is still an error
     assert!(fails(&mut env, "2 cm pi -> #s").contains("unit"));
 }

@@ -7,25 +7,25 @@
 #show: worksheet
 $f(x) := sqrt(2)$
 #passes()
-$ a := f(3) = $
+$ a := f(3) => $
 #expect("a", calc.sqrt(2))
 $f(x) := sqrt(x)$
 #passes()
-$ b := f(9) = $
+$ b := f(9) => $
 #expect("b", 3)
 $f(x) := sqrt(x^2) ->$
 #passes()
-$ c := f(-3) = $
+$ c := f(-3) => $
 #expect("c", 3)
 $g(x) := root(3, x)$
 #passes()
-$ d := g(8) = $
+$ d := g(8) => $
 #expect("d", 2)
 $h(x) := sqrt(1 + sqrt(x))$
 #passes()
-$ k := h(9) = $
+$ k := h(9) => $
 #expect("k", 2)
-#worksheet($f(x) := sqrt(x^2) ->$)
+#calculate($f(x) := sqrt(x^2) ->$)
 #passes()
-#worksheet($m := f(-4) =$)
+#calculate($m := f(-4) =>$)
 #expect("m", 4)

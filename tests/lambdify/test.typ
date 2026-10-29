@@ -2,7 +2,7 @@
 #import "/tests/util.typ": *
 #import units: V, W, mV, mW, Ω
 
-#worksheet($R := 50 #Ω$, hidden: true)
+#calculate($R := 50 #Ω$, hidden: true)
 #context {
   let P = lambdify($U^2/R$, "U", unit: $#W$, units: (U: $#V$))
   assert.eq(P(10), 2.0)

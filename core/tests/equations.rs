@@ -99,7 +99,7 @@ fn expand_multiplies_out_and_factor_splits() {
     assert_eq!(result(&mut env, "f(x) := (x + 1)^2 -> expand"), "x^(\"2\") + \"2\" x + \"1\"");
     assert_eq!(result(&mut env, "x^3 - x -> factor, steps"), "& x^(\"3\") - x \\ & = x dot lr((x - \"1\")) dot lr((x + \"1\"))");
     assert!(fails(&mut env, "x^2 = 1 -> expand, factor").contains("one of them"));
-    assert!(fails(&mut env, "(x + 1)^2 = expand").contains("after ->"));
+    assert!(fails(&mut env, "(x + 1)^2 => expand").contains("after ->"));
 }
 
 /// After -> come modifiers and a unit; a calculation followed by anything else is a mistake, not prose.
@@ -131,5 +131,5 @@ fn a_statement_with_an_undefined_function_is_prose() {
     }
     assert!(fails(&mut env, "f(2) = y_1(t)").contains("f isn't defined"));
     // evaluating still asks for it
-    assert!(fails(&mut env, "y_1(1) =").contains("isn't defined"));
+    assert!(fails(&mut env, "y_1(1) =>").contains("isn't defined"));
 }

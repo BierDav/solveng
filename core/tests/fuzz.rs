@@ -91,7 +91,7 @@ fn fuzz_arithmetic() {
     for i in 0..n() {
         let (src, v) = random_expr(&mut r, 4, None);
         let mut env = Env::default();
-        let out = run(&mut env, &format!("y := {src} ="));
+        let out = run(&mut env, &format!("y := {src} =>"));
         match v {
             Some(v) if v.abs() < 1e12 => {
                 let got = val(&env, "y");
@@ -123,13 +123,13 @@ fn fuzz_solve1() {
         }
         tried += 1;
         // what was found must solve it
-        let Some(x) = val(&env, "x") else {
+        let Some(x) = out.solutions.iter().filter_map(|s| s.first().copied()).find(|x| x.is_finite()) else {
             missed.push(format!("#{i} {src} = {c}: {:?} {:?}", out.result, out.errors));
             continue;
         };
         let mut e2 = Env::default();
         run(&mut e2, &format!("x := {x}"));
-        let o = run(&mut e2, &format!("y := {src} ="));
+        let o = run(&mut e2, &format!("y := {src} =>"));
         let y = val(&e2, "y");
         if !y.is_some_and(|y| close(y, c, 1e-6) || (y - c).abs() < 1e-9) {
             missed.push(format!("#{i} {src} = {c}: x = {x} gives {y:?} {:?}", o.errors));
@@ -195,7 +195,7 @@ fn fuzz_system() {
         let src = format!("{} -> solve({})", eqs.join("; "), names[..k].join(", "));
         let out = run(&mut env, &src);
         for (j, s) in sol.iter().enumerate() {
-            let g = val(&env, names[j]);
+            let g = out.solutions.first().and_then(|s| s.get(j)).copied();
             assert!(g.is_some_and(|g| (g - *s as f64).abs() < 1e-7), "#{i} {src}: {} = {g:?}, want {s} {:?}", names[j], out.errors);
         }
     }
@@ -210,7 +210,7 @@ fn fuzz_units() {
         let (pi, fi) = *r.pick(&pre);
         let (u, iv) = (r.int(1, 999) as f64, r.int(1, 999) as f64);
         let mut env = Env::default();
-        let src = [format!("U := {u} {pu}V"), format!("I := {iv} {pi}A"), "P := U I =".into(), "R := U/I =".into()];
+        let src = [format!("U := {u} {pu}V"), format!("I := {iv} {pi}A"), "P := U I =>".into(), "R := U/I =>".into()];
         for s in &src {
             let o = run(&mut env, s);
             assert!(o.errors.is_empty(), "#{i} {s}: {:?}", o.errors);
@@ -220,7 +220,7 @@ fn fuzz_units() {
         // and back through solving
         let o = run(&mut env, "P = U I_2 -> solve(I_2)");
         assert!(o.errors.is_empty(), "#{i}: {:?}", o.errors);
-        assert!(close(val(&env, "I_2").unwrap(), iv * fi, 1e-9), "#{i} I_2");
+        assert!(close(o.solutions[0][0], iv * fi, 1e-9), "#{i} I_2");
     }
 }
 
@@ -267,7 +267,7 @@ fn fuzz_hostile() {
         let a = eval_f(&simp(&f.body.subst_all(&m)), &|_| None);
         let mut e2 = Env::default();
         run(&mut e2, "x := 0.7");
-        run(&mut e2, &format!("y := ({src}) ="));
+        run(&mut e2, &format!("y := ({src}) =>"));
         let b = val(&e2, "y");
         if let (Some(a), Some(b)) = (a, b) {
             assert!(close(a, b, 1e-7) || (a - b).abs() < 1e-12, "#{i} {src}: simplified {a}, direct {b}");

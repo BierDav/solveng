@@ -61,14 +61,17 @@ pub const BUILTINS: &[Builtin] = &[
     sig("number", &[req("value"), req("unit")], &[]),
     matrix("det"), matrix("tr"), matrix("rank"), one("norm"), sig("identity", &[req("n")], &[]), matrix("rows"), matrix("cols"),
     sig("at", &[req("v"), req("i"), opt("j")], &[]),
+    sig("jacobian", &[req("expression"), req("variables")], &[]),
+    sig("hessian", &[req("expression"), req("variables")], &[]),
+    sig("taylor", &[req("expression"), req("variable"), req("center"), req("degree")], &[]),
     sig("diff", &[req("expression"), req("variable")], &[]),
     sig("integrate", &[req("expression"), req("variable"), opt("lower"), opt("upper")], &[]),
     sig("atan2", &[req("y"), req("x")], &[]),
     sig("lsolve", &[req("A"), req("b")], &[]),
     matrix("eigenvals"), matrix("singularvals"), matrix("cond"),
     one("median"), one("variance"), one("stdev"),
-    sig("normalcdf", &[req("x"), req("mean"), req("sigma")], &[]),
-    sig("normalquantile", &[req("probability"), req("mean"), req("sigma")], &[]),
+    sig("pnorm", &[req("x"), req("mean"), req("sigma")], &[]),
+    sig("qnorm", &[req("probability"), req("mean"), req("sigma")], &[]),
     sig("linterp", &[req("x"), req("y"), req("at")], &[]),
     sig("linfit", &[req("x"), req("y")], &[]),
     one("dft"), one("idft"), one("gamma"), one("erf"),
@@ -90,11 +93,16 @@ pub const BUILTINS: &[Builtin] = &[
 ];
 
 /// Other spellings of operations.
-const ALIASES: &[(&str, &str)] = &[("svds", "singularvals"), ("pnorm", "normalcdf"), ("qnorm", "normalquantile"), ("γ", "gamma"), ("asin", "arcsin"), ("acos", "arccos"), ("atan", "arctan"), ("re", "Re"), ("im", "Im")];
+const ALIASES: &[(&str, &str)] = &[("svds", "singularvals"), ("normalcdf", "pnorm"), ("normalquantile", "qnorm"), ("γ", "gamma"), ("asin", "arcsin"), ("acos", "arccos"), ("atan", "arctan"), ("re", "Re"), ("im", "Im")];
+
+/// Return the canonical spelling for an operation name.
+pub fn canonical(name: &str) -> &str {
+    ALIASES.iter().find(|(alias, _)| *alias == name).map_or(name, |(_, canonical)| canonical)
+}
 
 /// The operation of a name, without overlays.
 pub fn builtin(name: &str) -> Option<&'static Builtin> {
-    let name = ALIASES.iter().find(|(a, _)| *a == name).map_or(name, |(_, n)| n);
+    let name = canonical(name);
     BUILTINS.iter().find(|b| b.name == name)
 }
 

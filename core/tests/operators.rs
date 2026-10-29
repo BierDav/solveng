@@ -20,9 +20,9 @@ fn standard_operations_and_user_functions_work_without_configuration() {
     let mut env = Env::default();
     run(&mut env, "Lambda(t) := tri(t)");
     run(&mut env, "g(t) := sum_(k=0)^infinity Lambda(t-k+1/2) ->");
-    run(&mut env, "answer := g(0) =");
+    run(&mut env, "answer := g(0) =>");
     assert_eq!(value(&env.vars["answer"].expr).unwrap().v.f(), 1.0);
-    let plot = graph::graph(&env, &GraphReq {
+    let plot = graph::graph(&env, &GraphReq { axes: Default::default(),
         cfg: support::cfg(), curves: vec![support::curve("Lambda(t)", &env)],
         xrange: vec![XV::Num(-2.0), XV::Num(2.0)], yrange: vec![], marks: vec![], ymark: vec![], samples: 30,
     }).unwrap();

@@ -59,15 +59,15 @@
 ///
 /// ```typ
 /// #import units: Ω, W, V
-/// #worksheet($R := 50 #Ω$, $P_0 := 2 #W$, hidden: true)
+/// #calculate($R := 50 #Ω$, $P_0 := 2 #W$, hidden: true)
 /// #graph($P(U: #V) = U^2/R$, ymark: $P_0$)
 /// #graph($cos(w) \ w$, mark: auto)
-/// #graph($y(x) = x^2 \ y(x) = 2x + 3$, xrange: (-3, 5))
+/// #graph($y(x) = x^2 \ y(x) = 2x + 3$, x-range: (-3, 5))
 /// ```
 ///
-/// Drawn with `@preview/lilaq:0.6.0` in the schoolbook style: axes through the origin with arrows, a faint grid at the regular ticks. Ticks use the document's decimal separator, axis labels read `U / V`; curves of the same unit share one graph, with a legend in the corner the curves leave emptiest. In HTML export the graph is drawn in the browser instead, in the same style: the curves draw themselves in when the graph comes into view, and the pointer shows the values of every curve with their units. The static picture stays in the page for readers without scripts.
+/// Drawn with `@preview/lilaq:0.6.0` in the schoolbook style: axes through the origin with arrows, a faint grid at the regular ticks. Ticks use the document's decimal decimal-separator, axis labels read `U / V`; curves of the same unit share one graph, with a legend in the corner the curves leave emptiest. In HTML export the graph is drawn in the browser instead, in the same style: the curves draw themselves in when the graph comes into view, and the pointer shows the values of every curve with their units. The static picture stays in the page for readers without scripts.
 ///
-/// **Ranges:** values and expressions in `xrange` / `yrange` must have the axis unit (`$f(20) #Ω$` is fine) – `xrange: ($10 #Ω$, $f(20)$)` with a unitless `f(20)` is an error, since it isn't clear what was meant. Without a range: around the marks; else around what's interesting – roots, extrema, poles, edges of the domain (√, ln) and, above all, where curves cross – rounded to nice ticks, starting at 0 when everything interesting is positive. A curve with none of these away from 0 is shown over its own scale: halfway from its value at 0 to the one it settles at (`$1/sqrt(1 + (f/f_0)^2)$` with f₀ = 1 kHz: a few kHz), or, if it grows without settling, where it has changed by its value at 0 (`$e^(t/tau)$`: around τ); a curve without a scale (`$x^2$`) is shown from −1 to 1. With `ymark`, the y range is around the marked values (steep curves leave the picture). **Units** follow from what's plotted: y's from the curves (shown in the SI unit with a fitting prefix; `preferred-units` picks others), x's from the curve's parameter (`U(I: mA) = …`) or a function x is passed to whose parameter has one (`$q(I: mA) := I R$`, then `#graph($U(I) = q(I)$)` is over I in mA), else from the units in `xrange` and the marks, else from the curve and the units of the y values (`P(..) = U_0^2/R_2` with `ymark: $2 #W$`: R₂ in Ω).
+/// **Ranges:** values and expressions in `x-range` / `y-range` must have the axis unit (`$f(20) #Ω$` is fine) – `x-range: ($10 #Ω$, $f(20)$)` with a unitless `f(20)` is an error, since it isn't clear what was meant. Without a range: around the marks; else around what's interesting – roots, extrema, poles, edges of the domain (√, ln) and, above all, where curves cross – rounded to nice ticks, starting at 0 when everything interesting is positive. A curve with none of these away from 0 is shown over its own scale: halfway from its value at 0 to the one it settles at (`$1/sqrt(1 + (f/f_0)^2)$` with f₀ = 1 kHz: a few kHz), or, if it grows without settling, where it has changed by its value at 0 (`$e^(t/tau)$`: around τ); a curve without a scale (`$x^2$`) is shown from −1 to 1. With `ymark`, the y range is around the marked values (steep curves leave the picture). **Units** follow from what's plotted: y's from the curves (shown in the SI unit with a fitting prefix; `preferred-units` picks others), x's from the curve's parameter (`U(I: mA) = …`) or a function x is passed to whose parameter has one (`$q(I: mA) := I R$`, then `#graph($U(I) = q(I)$)` is over I in mA), else from the units in `x-range` and the marks, else from the curve and the units of the y values (`P(..) = U_0^2/R_2` with `ymark: $2 #W$`: R₂ in Ω).
 ///
 /// **Complex intermediates:** numerical samples may contain complex arithmetic, definite integrals, and sums.
 /// A sample is plotted when its imaginary part is zero within its estimated numerical error. The estimate
@@ -79,7 +79,7 @@
 /// oscillatory/improper integrals, unresolved narrow features, and slowly converging series can exceed the
 /// numerical method's limits. Supply finite bounds or explicit projections when appropriate.
 ///
-/// **Data:** a vector of values is plotted as the points through its elements, joined in index order (with a dot at each when there are at most 30): `#graph($y$)` against the zero-based index k (as in `at(y, k)`), `#graph($y(τ)$)` over the vector `tau` of the same length – or over any expression without free names that is one, `y(2 tau)`. Units come from the elements (each vector needs one unit for all its elements; every element must have a value). Function curves can go alongside: `#graph($y(τ) \ c(τ)$)` with a function `c`, or an expression in `tau` (`$2 tau$`), where `tau` stands for the x axis and the function is sampled over it; the x range is from the data's first to last x value unless `xrange` says otherwise, and the units of x and y must agree. Marks work on data too, with linear interpolation between the points: x values, `"roots"` and `"crossings"` (with data and with functions) where the values change sign, `"extrema"` as the local extreme points, and `ymark`. A vector with a free name is several curves instead, one per element (`$vec(t, t^2)$`). For measurements, `lines: none` draws the data as points alone, without the line: `#graph($y(τ) \ c(τ)$, lines: (none, auto))` shows measured points next to the curve `c`.
+/// **Data:** a vector of values is plotted as the points through its elements, joined in index order (with a dot at each when there are at most 30): `#graph($y$)` against the zero-based index k (as in `at(y, k)`), `#graph($y(τ)$)` over the vector `tau` of the same length – or over any expression without free names that is one, `y(2 tau)`. Units come from the elements (each vector needs one unit for all its elements; every element must have a value). Function curves can go alongside: `#graph($y(τ) \ c(τ)$)` with a function `c`, or an expression in `tau` (`$2 tau$`), where `tau` stands for the x axis and the function is sampled over it; the x range is from the data's first to last x value unless `x-range` says otherwise, and the units of x and y must agree. Marks work on data too, with linear interpolation between the points: x values, `"roots"` and `"crossings"` (with data and with functions) where the values change sign, `"extrema"` as the local extreme points, and `ymark`. A vector with a free name is several curves instead, one per element (`$vec(t, t^2)$`). For measurements, `lines: none` draws the data as points alone, without the line: `#graph($y(τ) \ c(τ)$, lines: (none, auto))` shows measured points next to the curve `c`.
 ///
 /// **Piecewise functions** (`cases`) break their line where a branch changes with a jump; a value that holds at a single x – `2 & "for" x = 1`, or a point set apart from the line – is drawn as a dot. `joined: true` joins the pieces through them instead. The steps of `rect`, `sgn`, `floor` and `ceil` break the line the same way, without dots for the values right on their edges; with `joined: true` each step is joined by a vertical line.
 ///
@@ -89,13 +89,17 @@
 ///
 /// **Size:** `width` / `height` are the whole graph, labels included; `auto` makes the plot area 8 × 5 cm. Any other named argument goes straight to lilaq's `diagram` (e.g. `title: [Load]`, `grid: none`); it shapes the printed graph, not the one drawn in HTML. For full control, plot with lilaq directly.
 ///
-/// - equation (content): Math curves separated by a backslash.
+/// - variable (auto, str, content): Explicit independent name; shadows a worksheet definition for plotting.
+/// - x-unit, y-unit (auto, content): Explicit axis unit expressions, checked against curve dimensions.
+/// - x-include (array, content, int, float): Values to include in an automatic x range, without drawing marks.
+/// - curves (array): Advanced curves: dictionaries with expression, color, line, dot and joined.
+/// - equation (none, content): Math curves separated by a backslash.
 /// - ..args (any): Named options passed on to lilaq's `diagram` (e.g. `title: [Load]`).
-/// - xrange (auto, array, content, int, float): x values that must be visible: numbers in the x axis's unit (`(1, 2)`), values (`($10 #Ω$, $1 kΩ$)`) or expressions of defined variables (`(0, $2 R$)`). Two or more give the range from the smallest to the largest; a single one widens the picked range. `auto`: around the marked x values, else picked from the curves.
-/// - yrange (auto, array, content, int, float): y values that must be visible, like `xrange` (numbers in the y axis's SI unit). Two or more give the exact y range. `auto`: fitted to the curves.
-/// - mark (none, auto, array, content, int, float): What to mark, with both coordinates written on the axes: x values like `xrange` (`$R$`, `2`, `$5 #V$`; a point with guide lines on every curve, the range grows to show it), `"crossings"`, `"roots"`, `"extrema"` (searched within the range) and `auto`: where two curves cross. An array combines them: `(auto, $R_1$)`. `()` or `none` (default): no marks.
+/// - x-range (auto, array, content, int, float): x values that must be visible: numbers in the x axis's unit (`(1, 2)`), values (`($10 #Ω$, $1 kΩ$)`) or expressions of defined variables (`(0, $2 R$)`). Two or more give the range from the smallest to the largest; a single one widens the picked range. `auto`: around the marked x values, else picked from the curves.
+/// - y-range (auto, array, content, int, float): y values that must be visible, like `x-range` (numbers in the y axis's SI unit). Two or more give the exact y range. `auto`: fitted to the curves.
+/// - mark (none, auto, array, content, int, float): What to mark, with both coordinates written on the axes: x values like `x-range` (`$R$`, `2`, `$5 #V$`; a point with guide lines on every curve, the range grows to show it), `"crossings"`, `"roots"`, `"extrema"` (searched within the range) and `auto`: where two curves cross. An array combines them: `(auto, $R_1$)`. `()` or `none` (default): no marks.
 /// - xmark (none, array, str, content, int, float): Like `mark`, but only the x value is written on the axis.
-/// - ymark (none, array, content, int, float): y values to mark, like `yrange`: every point where a curve reaches one, with guide lines; the value is written on the y axis.
+/// - ymark (none, array, content, int, float): y values to mark, like `y-range`: every point where a curve reaches one, with guide lines; the value is written on the y axis.
 /// - samples (int): Number of sample points.
 /// - width (auto, length, ratio, relative, fraction): Width of the whole graph, labels included: `12cm`, `300pt` or a share like `100%`. `1fr` is the container's width – in a grid, the column's. `auto`: a plot area of 8 cm.
 /// - height (auto, length, ratio, relative, fraction): Like `width`; `auto`: a plot area of 5 cm. A share is of the container's height, or of the width when the page grows with its content.
@@ -103,34 +107,52 @@
 /// - lines (auto, array, str, dictionary, none): The curves' lines, like `colors`: Typst dash patterns such as `"solid"`, `"dashed"`, `"dotted"`, `"dash-dotted"`, `"densely-dashed"`, `"loosely-dotted"`, or an array of lengths like `(4pt, 2pt)`, so curves can be told apart without color (color-blind readers, grayscale prints); `none` draws no line – data as points alone (a scatter plot), a function as its single points. `auto`: the worksheet's `graph-lines`, by default `("solid", "dashed", "dotted", "dash-dotted")`, the order of scientific plotting tools.
 /// - dots (auto, array, str, none): The curves' dots, like `colors`: `"circle"`, `"square"`, `"triangle"`, `"triangle-down"`, `"diamond"`, `"pentagon"`, `"hexagon"`, `"star"`, `"cross"`, `"plus"`; `none` draws no dots. `auto`: the worksheet's `graph-dots`, by default `("circle", "square", "triangle", "diamond")`, so curves can be told apart without color too. Dots are drawn for data's points (with at most 30 points, or without a line) and a function's single points (`2 & "for" x = 1` in `cases`).
 /// - joined (auto, bool, array): Whether everything a curve draws is joined with a line, like `colors`: a function's pieces, from the end of one to its single point and on to the start of the next, as data's points are (with `lines: none`: data's dots joined). Joins to points beyond the graph leave it; the pointer doesn't read them. `auto`: the worksheet's `graph-joined`, by default `false`. A curve with nothing to draw is an error.
-/// - digits, separator, form, … (auto): Every option of `worksheet` works here too, for this call only.
+/// - digits, decimal-separator, number-form, … (auto): Every option of `worksheet` works here too, for this call only.
 /// -> content
 #let graph(
-  equation, ..args, xrange: auto, yrange: auto, mark: none, xmark: (), ymark: (), samples: 400,
+  equation: none, ..args, x-range: auto, y-range: auto, x-include: (), variable: auto, x-unit: auto, y-unit: auto, curves: (), mark: none, xmark: (), ymark: (), samples: 400,
   width: auto, height: auto, colors: auto, lines: auto, dots: auto, joined: auto,
-  digits: auto, trailing-zeros: auto, separator: auto, grouping: auto, scientific: auto, engineering: auto, multiplication: auto, form: auto,
-  max-denominator: auto, fractions: auto, prefixes: auto, show-si: auto, preferred-units: auto,
-  approximate: auto, block: auto, max-solutions: auto, defined-style: auto, errors: auto, show-types: auto,
+  digits: auto, trailing-zeros: auto, decimal-separator: auto, grouping: auto, notation-thresholds: auto, notation: auto, multiplication: auto, number-form: auto,
+  max-denominator: auto, fraction-style: auto, prefixes: auto, show-si: auto, preferred-units: auto,
+  show-approximation: auto, block: auto, max-solutions: auto, defined-style: auto, errors: auto, show-types: auto,
   words: auto, chips: auto, unit-style: auto, unit-separator: auto,
 ) = _mine(context {
-  let lc = _check(_given((digits: digits, trailing-zeros: trailing-zeros, separator: separator, grouping: grouping, scientific: scientific, engineering: engineering, multiplication: multiplication, form: form, max-denominator: max-denominator, fractions: fractions, prefixes: prefixes, show-si: show-si, preferred-units: preferred-units, approximate: approximate, block: block, max-solutions: max-solutions, defined-style: defined-style, errors: errors, show-types: show-types, words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator)) + _given((graph-colors: colors, graph-lines: lines, graph-dots: dots, graph-joined: joined)).pairs().map(((k, v)) => (k, _graph-style(k, v))).filter(((k, v)) => not _E(v)).to-dict())
+  let lc = _check(_given((digits: digits, trailing-zeros: trailing-zeros, decimal-separator: decimal-separator, grouping: grouping, notation-thresholds: notation-thresholds, notation: notation, multiplication: multiplication, number-form: number-form, max-denominator: max-denominator, fraction-style: fraction-style, prefixes: prefixes, show-si: show-si, preferred-units: preferred-units, show-approximation: show-approximation, block: block, max-solutions: max-solutions, defined-style: defined-style, errors: errors, show-types: show-types, words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator)) + _given((graph-colors: colors, graph-lines: lines, graph-dots: dots, graph-joined: joined)).pairs().map(((k, v)) => (k, _graph-style(k, v))).filter(((k, v)) => not _E(v)).to-dict())
   if _E(lc) { return _errc("graph: " + lc.err, _cf.get(), wide: true) }
   let cf = _merge(_cf.get(), lc)
   // shown, and reported as a problem of the document, as a worksheet's are
   let fail(m) = _errc("graph: " + m, cf, wide: true) + [#metadata((kind: "error", element: none, message: "graph: " + m, source: ""))<solveng>]
   // types
   if args.pos().len() > 0 { return fail("pass curves in one equation, separated by a backslash") }
-  if type(equation) != content or equation.func() != math.equation { return fail("pass curves as math equations") }
-  let eqs = (equation,)
-  if args.pos().any(a => type(a) == array) { return fail("the x range is named: xrange: " + repr(args.pos().find(a => type(a) == array))) }
+  if type(curves) != array or curves.any(c => type(c) != dictionary) { return fail("curves: an array of dictionaries with expression, color, line, dot and joined") }
+  let advanced = curves.len() > 0 and curves.any(c => "expression" in c)
+  if advanced and equation != none { return fail("pass either equation or curves with expressions") }
+  if advanced and curves.any(c => "expression" not in c) { return fail("every curve needs an expression") }
+  let eqs = if advanced { curves.map(c => c.expression) } else { (equation,) }
+  if eqs.any(e => type(e) != content or e.func() != math.equation) { return fail("pass curves as math equations") }
+  if args.pos().any(a => type(a) == array) { return fail("the x range is named: x-range: " + repr(args.pos().find(a => type(a) == array))) }
   // options graph had: what replaces them
-  let gone = (x: "x is the one variable of the curves that isn't defined", xunit: "x's unit comes from a function parameter with a unit (q(I: mA)), xrange or the marks", yunit: "y's unit comes from the curves; preferred-units: (\"mW\",) picks another", builtin-units: "units are Typst bindings: #import units: …", units: "units are Typst bindings: #import units: …, or unit($…$)", dashes: "lines: the line style per curve, like (\"solid\", \"dashed\"); none draws no line", draw: "lines: none (only dots), dots: none (only lines) and joined: true (everything joined with a line), per curve")
+  let gone = (xrange: "use x-range", yrange: "use y-range", x: "x is the one variable of the curves that isn't defined", xunit: "x's unit comes from a function parameter with a unit (q(I: mA)), x-range or the marks", yunit: "y's unit comes from the curves; preferred-units: (\"mW\",) picks another", builtin-units: "units are Typst bindings: #import units: …", units: "units are Typst bindings: #import units: …, or unit($…$)", dashes: "lines: the line style per curve, like (\"solid\", \"dashed\"); none draws no line", draw: "lines: none (only dots), dots: none (only lines) and joined: true (everything joined with a line), per curve")
   let old = args.named().keys().find(k => k in gone)
   if old != none { return fail(old + ": is gone – " + gone.at(old)) }
+  for (name, u) in (("x-unit", x-unit), ("y-unit", y-unit)) {
+    if u != auto and (type(u) != content or u.func() != math.equation) { return fail(name + ": a math unit expression") }
+  }
+  if variable != auto and type(variable) != str and (type(variable) != content or variable.func() != math.equation) { return fail("variable: a name as a string or math") }
+  for c in curves {
+    if c.keys().any(k => k not in ("expression", "color", "line", "dot", "joined")) { return fail("curve: unknown field") }
+    for (key, value) in c {
+      if key != "expression" { let checked = _graph-style((color: "colors", line: "lines", dot: "dots", joined: "joined").at(key), value); if _E(checked) { return fail(checked.err) } }
+    }
+  }
   let XV = (content, int, float)
   let list(v) = if v == auto or v == none { () } else if type(v) == array { v } else { (v,) }
-  let (rng, yrng) = (list(xrange), list(yrange))
-  for (n, r) in (xrange: rng, yrange: yrng) { if r.any(v => type(v) not in XV) { return fail(n + ": values to show, like (1, 2), (\"10 Ω\", \"1 kΩ\") or (0, \"2 R\")") } }
+  let (rng, yrng) = (list(x-range), list(y-range))
+  for (name, bounds) in (("x-range", rng), ("y-range", yrng)) {
+    if bounds.len() not in (0, 2) { return fail(name + ": exactly two bounds; use x-include to widen an automatic x range") }
+  }
+  if list(x-include).any(v => type(v) not in XV) { return fail("x-include: numbers or math quantities") }
+  for (n, r) in (x-range: rng, y-range: yrng) { if r.any(v => type(v) not in XV) { return fail(n + ": values to show, like (1, 2), (\"10 Ω\", \"1 kΩ\") or (0, \"2 R\")") } }
   let ymk = list(ymark)
   if ymk.any(v => type(v) not in XV) { return fail("ymark: y values like \"P0\" or 2, or an array of these") }
   // marks: x values, keywords, auto; (item, y labelled): mark writes x and y on the axes, xmark only x
@@ -158,6 +180,9 @@
   let v(a) = if type(a) in (int, float) { float(a) } else { src(a) }
   let mk(m) = if m == auto { "auto" } else if type(m) == str and m in KW { m } else { v(m) }
   let req = (
+    axes: (variable: if variable == auto { none } else if type(variable) == str { variable } else { _src(variable.body) },
+      xunit: if x-unit == auto { none } else { _unit-src(x-unit.body) },
+      yunit: if y-unit == auto { none } else { _unit-src(y-unit.body) }, "include": list(x-include).map(v)),
     cfg: _req-cfg(cf), curves: eqs.map(src).map(q => {
       let labels = if q.label == none or _E(q.label) { () } else { _call(_p.statements, q.label) }
       _call(_p.statements, q.src).enumerate().map(((i, s)) => (src: s, label: labels.at(i, default: none)))
@@ -173,7 +198,11 @@
     // Mark every generated equation so worksheet rules never calculate it.
     let M(s) = math.equation(_OWN + _m(s, cf))
     // a color, a dash and a dot shape per curve: curves stay apart without color too
-    let style(i) = { let at(a) = a.at(calc.rem(i, a.len())); (color: at(cf.graph-colors), dash: at(cf.graph-lines), shape: at(cf.graph-dots), joined: at(cf.graph-joined)) }
+    let style(i) = {
+      let at(a) = a.at(calc.rem(i, a.len()))
+      let c = curves.at(i, default: (:))
+      (color: c.at("color", default: at(cf.graph-colors)), dash: c.at("line", default: at(cf.graph-lines)), shape: c.at("dot", default: at(cf.graph-dots)), joined: c.at("joined", default: at(cf.graph-joined)))
+    }
     // the legend goes to the corner the curves leave emptiest
     let (gw, gh) = (g.x1 - g.x0, g.y1 - g.y0)
     let uv = (g.series.map(s => s.points).join() + g.points.map(p => (p.x, p.y))).map(((x, y)) => ((x - g.x0) / gw, (y - g.y0) / gh))
@@ -334,7 +363,7 @@
       // what each series draws, as on paper: its line, and its dots (x, y, how many dots of other curves lie below)
       series: series.enumerate().map(((k, s)) => (p: s.points, c: s.curve, data: s.at("data", default: false), bridge: s.at("bridge", default: false), beyond: s.at("beyond", default: false), line: layers.at(k).line, d: layers.at(k).dots, size: layers.at(k).size.pt())),
       curves: range(ncurves).map(i => { let st = style(i); (color: hex(st.color), dash: svg-dash(st.dash), corners: _dot-corners(st.shape), legend: legend-of(i), named: i in named) }),
-      points: g.points, legend: if outside { "outside" } else { (if corner.y == top { "top-" } else { "bottom-" }) + (if corner.x == left { "left" } else { "right" }) }, sep: rc.separator, digits: rc.digits, em: text.size.to-absolute().pt(), size: { let m = measure(sized); (w: m.width.pt(), h: m.height.pt()) },
+      points: g.points, legend: if outside { "outside" } else { (if corner.y == top { "top-" } else { "bottom-" }) + (if corner.x == left { "left" } else { "right" }) }, sep: rc.decimal-separator, digits: rc.digits, em: text.size.to-absolute().pt(), size: { let m = measure(sized); (w: m.width.pt(), h: m.height.pt()) },
     )
     let lab(k, body) = html.elem("span", attrs: ("data-k": k), body)
     let labels = (

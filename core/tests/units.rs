@@ -23,7 +23,7 @@ fn a_single_letter_after_the_arrow_is_a_name() {
     let out = line(&mut env.clone(), "x -> q");
     assert!(!out.errors.is_empty() || out.prose, "{out:?}");
     // after =, a single letter stays a variable: a statement
-    let out = line(&mut env, "x = m");
+    let out = line(&mut env, "x => m");
     assert!(out.mark.is_none(), "{out:?}");
 }
 
@@ -31,17 +31,17 @@ fn a_single_letter_after_the_arrow_is_a_name() {
 fn quoted_math_names_do_not_substitute_units_or_operations() {
     let mut env = Env::default();
     ok(&mut env, "x := 2 \"s\"");
-    let out = line(&mut env, "x =");
+    let out = line(&mut env, "x =>");
     assert!(out.errors.iter().any(|e| e.contains("'s'")), "{out:?}");
     ok(&mut env, &format!("t := 2 {}", unit("s")));
     assert_eq!(value(&env.vars["t"].expr).unwrap().v.f(), 2.0);
     let out = line(&mut env, "\"tri\"(0) =");
     assert!(out.errors.iter().any(|e| e.contains("tri isn't defined")), "{out:?}");
-    let out = line_raw(&mut env, "⦇tri⦈(0) =");
+    let out = line_raw(&mut env, "⦇tri⦈(0) =>");
     assert!(out.errors.is_empty(), "{out:?}");
     assert_eq!(out.result.as_deref(), Some("\"1\""));
     // a plain name is no operation either
-    let out = line_raw(&mut env, "tri(0) =");
+    let out = line_raw(&mut env, "tri(0) =>");
     assert!(out.errors.iter().any(|e| e.contains("tri isn't defined")), "{out:?}");
     ok(&mut env, "\"s\" := 3");
     ok(&mut env, "y := 2 \"s\"");

@@ -16,7 +16,7 @@ fn finite_sums_are_exact_and_indices_are_local() {
             ("sum_(k=1)^3 (k+1) + 5", 14.0),
             ("sum_(k=1)^2 (sum_(j=1)^k j)", 4.0),
         ] {
-            run(&mut env, &format!("answer := {source} ="));
+            run(&mut env, &format!("answer := {source} =>"));
             assert_eq!(value(&env.vars["answer"].expr).unwrap().v.f(), expected, "{source}");
         }
         assert_eq!(value(&env.vars["k"].expr).unwrap().v.f(), 42.0);
@@ -35,10 +35,10 @@ fn infinite_signal_sums_resolve_late_and_plot() {
         assert_eq!(env.funs["s_2"].body.syms(), ["t"]);
         run(&mut env, "sigma(t) := cases(0, t < 0, 1, t >= 0)");
         for (t, expected) in [(-2.0, 0.0), (-0.750001, 0.0), (-0.75, 1.0), (0.0, 1.0), (0.25, 2.0), (2.0, 3.0), (200.0, 201.0), (1_000_000.0, 1_000_001.0)] {
-            run(&mut env, &format!("answer := s_2({t}) ="));
+            run(&mut env, &format!("answer := s_2({t}) =>"));
             assert_eq!(value(&env.vars["answer"].expr).unwrap().v.f(), expected);
         }
-        let plot = graph::graph(&env, &GraphReq {
+        let plot = graph::graph(&env, &GraphReq { axes: Default::default(),
             cfg: support::cfg(), curves: vec![support::curve("s_2(t)", &env)],
             xrange: vec![XV::Num(-2.0), XV::Num(3.0)], yrange: vec![], marks: vec![], ymark: vec![], samples: 40,
         }).unwrap();
@@ -53,7 +53,7 @@ fn infinite_signal_sums_resolve_late_and_plot() {
 #[test]
 fn numerical_sums_validate_bounds_units_and_convergence() {
     let mut env = Env::default();
-    run(&mut env, "answer := sum_(k=0)^infinity (1/2)^k =");
+    run(&mut env, "answer := sum_(k=0)^infinity (1/2)^k =>");
     assert!((value(&env.vars["answer"].expr).unwrap().v.f() - 2.0).abs() < 1e-10);
     for (expression, expected) in [
         ("sum_(k=0)^infinity rect(k-200000)", 1.0),
@@ -61,12 +61,12 @@ fn numerical_sums_validate_bounds_units_and_convergence() {
         ("sum_(k=0)^1000 (k < 500)", 500.0),
         ("sum_(k=0)^1000 (k <= 500)", 501.0),
     ] {
-        run(&mut env, &format!("answer := {expression} ="));
+        run(&mut env, &format!("answer := {expression} =>"));
         assert_eq!(value(&env.vars["answer"].expr).unwrap().v.f(), expected);
     }
-    run(&mut env, "answer := sum_(k=1)^3 [2 m] =");
+    run(&mut env, "answer := sum_(k=1)^3 [2 m] =>");
     assert_eq!(value(&env.vars["answer"].expr).unwrap().v.f(), 6.0);
-    for source in ["sum_(k=0)^infinity k =", "sum_(k=0)^infinity 1 =", "sum_(k=0)^infinity 10^(-20) =", "sum_(k=0)^infinity (-1)^k =", "sum_(k=0.5)^4 k =", "sum(k, k, [1 m], 4) ="] {
+    for source in ["sum_(k=0)^infinity k =>", "sum_(k=0)^infinity 1 =>", "sum_(k=0)^infinity 10^(-20) =>", "sum_(k=0)^infinity (-1)^k =>", "sum_(k=0.5)^4 k =>", "sum(k, k, [1 m], 4) =>"] {
         let out = support::line(&mut env, source);
         assert!(!out.errors.is_empty(), "{source}: {out:?}");
     }
@@ -88,7 +88,7 @@ fn plotting_an_undefined_function_explains_the_definition_marker() {
     run(&mut env, "sigma(t) := cases(0, t < 0, 1, t >= 0)");
     // An equality leaves g_2 undefined, even when its right side is a valid sum.
     let _ = support::line(&mut env, "g_2(t) = sum_(k=0)^infinity sigma(t-k+3/4) ->");
-    let error = graph::graph(&env, &GraphReq {
+    let error = graph::graph(&env, &GraphReq { axes: Default::default(),
         cfg: support::cfg(), curves: vec![support::curve("g_2(t)", &env)],
         xrange: vec![], yrange: vec![], marks: vec![], ymark: vec![], samples: 40,
     }).unwrap_err();
@@ -105,10 +105,10 @@ fn triangular_signal_sums_skip_zero_prefixes_and_sum_linear_intervals() {
         assert!(out.errors.is_empty(), "{out:?}");
         assert!(out.result.unwrap().contains("sum_"));
         for (t, expected) in [("-2", 0.0), ("-3/2", 0.0), ("-1", 0.5), ("-1/2", 1.0), ("0", 1.0), ("1000000", 1.0)] {
-            run(&mut env, &format!("answer := g_2({t}) ="));
+            run(&mut env, &format!("answer := g_2({t}) =>"));
             assert_eq!(value(&env.vars["answer"].expr).unwrap().v.f(), expected);
         }
-        let plot = graph::graph(&env, &GraphReq {
+        let plot = graph::graph(&env, &GraphReq { axes: Default::default(),
             cfg: support::cfg(), curves: vec![support::curve("g_2(t)", &env)],
             xrange: vec![XV::Num(1_000_000.0), XV::Num(1_000_003.0)], yrange: vec![], marks: vec![], ymark: vec![], samples: 40,
         }).unwrap();
@@ -125,7 +125,7 @@ fn triangular_signal_sums_skip_zero_prefixes_and_sum_linear_intervals() {
         // Products of varying linear pieces must still use the general evaluator.
         ("sum_(k=0)^1000 tri((k-500)/500)^2", 333.334),
     ] {
-        run(&mut env, &format!("answer := {source} ="));
+        run(&mut env, &format!("answer := {source} =>"));
         assert!((value(&env.vars["answer"].expr).unwrap().v.f() - expected).abs() < 1e-8, "{source}");
     }
 }
@@ -146,7 +146,7 @@ fn triangular_sum_graph_accepts_a_different_parameter_on_a_flat_range() {
     use solveng_core::graph::{self, GraphReq, XV};
     let mut env = Env::default();
     run(&mut env, "g_2(t) := sum_(k=0)^infinity tri(t-k+1/2) ->");
-    let plot = graph::graph(&env, &GraphReq {
+    let plot = graph::graph(&env, &GraphReq { axes: Default::default(),
         cfg: support::cfg(), curves: vec![support::curve("g_2(x)", &env)],
         xrange: vec![XV::Num(0.0), XV::Num(1.0)], yrange: vec![], marks: vec![], ymark: vec![], samples: 400,
     }).unwrap();

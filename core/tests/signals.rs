@@ -11,14 +11,13 @@ fn signal_operations_and_their_boundaries() {
             ("tri(0)", 1.0), ("tri(-0.5)", 0.5), ("tri(1)", 0.0), ("tri(2)", 0.0),
             ("sgn(-2)", -1.0), ("sgn(0)", 0.0), ("sgn(2)", 1.0), ("rect(0.25) * tri(0.25) * sgn(0.25)", 0.75),
         ] {
-            run(&mut env, &format!("answer := {expression} ="));
+            run(&mut env, &format!("answer := {expression} =>"));
             assert_eq!(value(&env.vars["answer"].expr).unwrap().v.f(), expected, "{expression}");
         }
         let out = run(&mut env, "rect(t) + 2 rect(t) ->");
         assert!(out.result.unwrap().contains("rect(t)"));
-        run(&mut env, "a*rect(0) + b*tri(0) = 5; a*rect(1) + b*tri(0.5) = 1 -> solve(a,b)");
-        assert_eq!(value(&env.vars["a"].expr).unwrap().v.f(), 3.0);
-        assert_eq!(value(&env.vars["b"].expr).unwrap().v.f(), 2.0);
+        let out = run(&mut env, "a*rect(0) + b*tri(0) = 5; a*rect(1) + b*tri(0.5) = 1 -> solve(a,b)");
+        assert_eq!(out.solutions[0], vec![3.0, 2.0]);
     }
 }
 
@@ -26,12 +25,12 @@ fn signal_operations_and_their_boundaries() {
 fn signal_integrals_and_derivatives_keep_their_meaning() {
     let mut env = Env::default();
     for expression in ["integrate(rect(t), t, -2, 2)", "integrate(tri(t), t, -2, 2)"] {
-        run(&mut env, &format!("answer := {expression} ="));
+        run(&mut env, &format!("answer := {expression} =>"));
         assert!((value(&env.vars["answer"].expr).unwrap().v.f() - 1.0).abs() < 1e-9);
     }
     let result = run(&mut env, "diff(sgn(t), t) ->").result.unwrap();
     assert!(result.contains("dif"), "{result}");
-    let out = support::line(&mut env, "rect([1 m]) =");
+    let out = support::line(&mut env, "rect([1 m]) =>");
     assert!(out.errors.iter().any(|e| e.contains("unitless")));
 }
 
@@ -41,7 +40,7 @@ fn triangular_derivatives_plot_without_assigning_values_at_corners() {
     {
         let env = Env::default();
         for source in ["dif / (dif t) tri(t)", "diff(tri(t), t)"] {
-            let plot = graph::graph(&env, &GraphReq {
+            let plot = graph::graph(&env, &GraphReq { axes: Default::default(),
                 cfg: support::cfg(), curves: vec![support::curve(source, &env)],
                 xrange: vec![XV::Num(-2.0), XV::Num(2.0)], yrange: vec![],
                 marks: vec![], ymark: vec![], samples: 80,
@@ -90,7 +89,7 @@ fn shifted_and_narrow_pulses_integrate_over_infinite_bounds() {
         ("integrate(tri(t - 0.3), t, -infinity, infinity)", 1.0),
         ("integrate(2*rect(t - 0.3) + 3*tri(t + 2.7), t, -infinity, infinity)", 5.0),
     ] {
-        run(&mut env, &format!("answer := {expression} ="));
+        run(&mut env, &format!("answer := {expression} =>"));
         let actual = value(&env.vars["answer"].expr).unwrap().v.f();
         assert!((actual - expected).abs() < 1e-9, "{expression}: {actual}");
     }

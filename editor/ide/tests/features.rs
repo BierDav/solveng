@@ -33,7 +33,7 @@ const SOLVENG: &str = "#import \"@preview/solveng:1.0.0\": *\n";
 #[test]
 fn reads_the_package_signatures() {
     let ws = params::functions().iter().find(|f| f.name == "worksheet").unwrap();
-    let form = ws.named.iter().find(|p| p.name == "form").unwrap();
+    let form = ws.named.iter().find(|p| p.name == "number-form").unwrap();
     assert_eq!(form.values, vec!["auto", "decimal", "fraction", "input"]);
     assert_eq!(ws.positional[0].name, "body");
     // The unit table and automatic lookups are gone.
@@ -54,7 +54,7 @@ fn reads_the_package_signatures() {
 
 #[test]
 fn highlights_the_strings_of_calls() {
-    let doc = "#import units: kΩ, kPa\n#worksheet($R := 7.2 kΩ$, form: \"fraction\") #graph($P(..) = U^2/R$, mark: \"extrema\") #worksheet[$p := 3 kPa$]";
+    let doc = "#import units: kΩ, kPa\n#worksheet($R := 7.2 kΩ$, number-form: \"fraction\") #graph($P(..) = U^2/R$, mark: \"extrema\") #worksheet[$p := 3 kPa$]";
     let t = found(doc);
     for want in [
         format!("R:{}", TokenKind::VARIABLE),
@@ -80,9 +80,9 @@ fn completes_in_the_strings_of_calls() {
     let names = labels("#worksheet($R := 7.2$)\n#worksheet($U := |$)");
     assert!(names.contains(&"R".into()) && names.contains(&"sqrt".into()));
     assert!(labels("#import units: mA\n#worksheet($I := 30 m|$)").contains(&"mA".into()));
-    let c = complete_at("#worksheet($x =$, form: \"f|\")", &Context::default()).unwrap();
+    let c = complete_at("#worksheet($x =>$, number-form: \"f|\")", &Context::default()).unwrap();
     assert!(c.exclusive);
-    assert_eq!(labels("#worksheet($x =$, form: \"f|\")"), vec!["auto", "decimal", "fraction", "input"]);
+    assert_eq!(labels("#worksheet($x =>$, number-form: \"f|\")"), vec!["auto", "decimal", "fraction", "input"]);
     assert!(labels("#graph($y$, mark: \"|\")").contains(&"extrema".into()));
     assert!(labels("#import units: kΩ\n#worksheet[$p := 3 k|$]").contains(&"kΩ".into()));
     // Strings of `worksheet` aren't calculated.
@@ -91,15 +91,15 @@ fn completes_in_the_strings_of_calls() {
 
 #[test]
 fn completes_options_of_calls() {
-    let c = complete_at("#worksheet($x =$, fo|)", &Context::default()).unwrap();
+    let c = complete_at("#worksheet($x =>$, fo|)", &Context::default()).unwrap();
     assert!(!c.exclusive);
-    let form = c.items.iter().find(|i| i.label == "form").unwrap();
-    assert_eq!(form.insert, "form: ");
+    let form = c.items.iter().find(|i| i.label == "number-form").unwrap();
+    assert_eq!(form.insert, "number-form: ");
     assert_eq!(form.kind, ItemKind::PARAMETER);
     assert!(form.documentation.as_deref().unwrap().contains("How values are written"));
     // Given ones aren't offered again.
-    assert!(!labels("#worksheet($x =$, digits: 2, |)").contains(&"digits".into()));
-    assert_eq!(labels("#worksheet($x =$, form: |)"), vec!["\"auto\"", "\"decimal\"", "\"fraction\"", "\"input\"", "auto"]);
+    assert!(!labels("#worksheet($x =>$, digits: 2, |)").contains(&"digits".into()));
+    assert_eq!(labels("#worksheet($x =>$, number-form: |)"), vec!["\"auto\"", "\"decimal\"", "\"fraction\"", "\"input\"", "auto"]);
     assert!(labels("#worksheet(|)").contains(&"evaluate".into()));
     assert!(!labels("#worksheet(|)").contains(&"units".into()));
     assert!(labels("#defined(style: \"|\")").contains(&"grid".into()));
@@ -108,8 +108,8 @@ fn completes_options_of_calls() {
 #[test]
 fn completes_every_value_an_option_takes() {
     // keywords as the types allow: auto, none, true, false
-    assert_eq!(labels("#worksheet($x =$, approximate: |)"), vec!["auto", "true", "false"]);
-    assert_eq!(labels("#worksheet($x =$, grouping: |)"), vec!["auto", "none"]);
+    assert_eq!(labels("#worksheet($x =>$, show-approximation: |)"), vec!["auto", "true", "false"]);
+    assert_eq!(labels("#worksheet($x =>$, grouping: |)"), vec!["auto", "none"]);
     assert_eq!(labels("#graph($x^2$, joined: |)"), vec!["auto", "true", "false"]);
     assert_eq!(labels("#graph($x^2$, joined: (true, |)"), vec!["auto", "true", "false"]);
     assert_eq!(labels("#show: worksheet.with(graph-joined: |)"), vec!["auto", "true", "false"]);
@@ -128,8 +128,8 @@ fn completes_every_value_an_option_takes() {
     // marks and prefixes
     assert!(labels("#graph($x^2$, mark: |)").contains(&"\"extrema\"".into()));
     assert!(labels("#graph($x^2$, xmark: |)").contains(&"\"roots\"".into()));
-    assert!(labels("#worksheet($x =$, prefixes: (\"|\"))").contains(&"k".into()));
-    assert!(labels("#worksheet($x =$, prefixes: |)").contains(&"\"all\"".into()));
+    assert!(labels("#worksheet($x =>$, prefixes: (\"|\"))").contains(&"k".into()));
+    assert!(labels("#worksheet($x =>$, prefixes: |)").contains(&"\"all\"".into()));
 }
 
 #[test]
@@ -191,20 +191,20 @@ fn imports_the_modules_names_math_uses_unimported() {
     assert!(fix(&format!("{SOLVENG}$x := 2 km$"), "km$").is_none());
     assert!(fix("#show: worksheet\n$x := 2 km$", "km$").is_none());
     // Keywords of a clause are no names to import, and nothing is wrong there.
-    assert!(diagnostics("#import units: h\n#show: worksheet\n$x^2 = 4 -> solve(x)$\n$t = #h, digits(2), sci$", &Context::default()).is_empty());
+    assert!(diagnostics("#import units: h\n#show: worksheet\n$x^2 = 4 -> solve(x)$\n$t => #h, digits(2), sci$", &Context::default()).is_empty());
 }
 
 #[test]
 fn hovers_names_units_and_options() {
-    let doc = "#import units: kΩ\n#worksheet($R := 7.2 kΩ$)\n#worksheet($U := R I$, form: \"fraction\")";
+    let doc = "#import units: kΩ\n#worksheet($R := 7.2 kΩ$)\n#worksheet($U := R I$, number-form: \"fraction\")";
     let at = |w: &str| u16len(&doc[..doc.rfind(w).unwrap()]) + 1;
     assert_eq!(hover(doc, &Context::default(), at("R I")).unwrap().markdown, "```text\nR: kΩ = 7.2 kΩ\n```");
-    assert!(hover(doc, &Context::default(), at("form")).unwrap().markdown.starts_with("`form` (auto, str)"));
+    assert!(hover(doc, &Context::default(), at("number-form")).unwrap().markdown.starts_with("`number-form` (auto, str)"));
     let unit = hover(doc, &Context::default(), at("kΩ$")).unwrap().markdown;
     assert!(unit.contains("`kΩ` kiloohm · built-in unit\n\n`kΩ = 10³ Ω` · `Ω = V/A = kg·m²·s⁻³·A⁻²`"), "{unit}");
     assert!(hover("text R here", &Context::default(), 6).is_none());
     // the modifiers of a clause
-    let doc = "#import units: h, min\n#import modifiers: digits\n#show: worksheet\n$t := 3 #h$ $t = min, digits(2)$";
+    let doc = "#import units: h, min\n#import modifiers: digits\n#show: worksheet\n$t := 3 #h$ $t => min, digits(2)$";
     let md = hover(doc, &Context::default(), u16len(&doc[..doc.rfind("digits").unwrap()]) + 1).unwrap().markdown;
     assert!(md.contains("`digits` (solveng)") && md.contains("modifiers"), "{md}");
 }
@@ -303,7 +303,7 @@ fn hovers_base_units_and_derived_ones() {
     assert_eq!(md("dozen$"), "`dozen`: unit: `12`");
     assert_eq!(md("klux$"), "`klux`: unit: `1000 lux`");
     // the binding itself is Typst's
-    assert!(hover(doc, &Context::default(), at("klux =")).is_none());
+    assert!(hover(doc, &Context::default(), at("#let klux")).is_none());
     assert!(found(doc).contains(&"lux:9".to_string()) && found(doc).contains(&"dozen:9".to_string()));
     assert!(diagnostics(doc, &Context::default()).is_empty());
 }
@@ -538,9 +538,9 @@ fn reads_no_exponent_notation() {
 #[test]
 fn modifiers_are_bindings_of_their_module() {
     // renamed, a modifier is still one: highlighted, solving defines, hover reaches its docs
-    let doc = format!("{SOLVENG}#import modifiers: solve as löse, digits\n#show: worksheet\n$2 w = 6 -> löse(w)$\n$v := w + 1$\n$w = digits(2)$");
+    let doc = format!("{SOLVENG}#import modifiers: solve as löse, digits\n#show: worksheet\n$2 w = 6 -> löse(w)$\n$v := w + 1$\n$w => digits(2)$");
     let toks = found(&doc);
-    for want in ["löse:0", "digits:0", "->:11", "=:11"] { assert!(toks.contains(&want.to_string()), "{want}: {toks:?}"); }
+    for want in ["löse:0", "digits:0", "->:11", "=>:11"] { assert!(toks.contains(&want.to_string()), "{want}: {toks:?}"); }
     let at = u16len(&doc[..doc.rfind("w + 1").unwrap()]);
     assert_eq!(definition(&doc, &Context::default(), at).unwrap().start, u16len(&doc[..doc.rfind("(w)").unwrap()]) + 1);
     let at = u16len(&doc[..doc.rfind("löse(").unwrap()]) + 1;
@@ -573,8 +573,8 @@ fn comments_in_math_are_comments() {
     let ts = tokens("#show: worksheet\n$y := 3 /* a $ b /* nested */ */ + x$\n");
     assert!(ts.contains(&c("/* a $ b /* nested */ */")) && ts.contains(&("x".into(), TokenKind::VARIABLE)), "{ts:?}");
     // a line comment ends at the line break; the result marker before a comment still shows a result
-    let ts = tokens("#show: worksheet\n$x := 2 // x = 3\n$\n$x = /* c */$\n");
-    assert!(ts.contains(&c("// x = 3")) && ts.contains(&("=".into(), TokenKind::EVALUATE)), "{ts:?}");
+    let ts = tokens("#show: worksheet\n$x := 2 // x = 3\n$\n$x => /* c */$\n");
+    assert!(ts.contains(&c("// x = 3")) && ts.contains(&("=>".into(), TokenKind::EVALUATE)), "{ts:?}");
     // quoted text isn't a comment
     assert!(tokens("#show: worksheet\n$\"a//b\" := 1$\n").iter().all(|t| t.1 != TokenKind::COMMENT));
 }

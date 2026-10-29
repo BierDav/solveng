@@ -530,7 +530,15 @@ impl Expr {
                 ]);
                 div(num, den)
             }
-            Expr::Numerical(..) | Expr::Call(..) | Expr::Op(..) | Expr::Cases(..) | Expr::Derivative(..) | Expr::Subs(..) | Expr::InverseLaplace(..) | Expr::Antiderivative(..) => return Expr::Derivative(Box::new(self.clone()), x.into()),
+            Expr::Cases(branches) => {
+                if branches.iter().all(|(value, _)| !value.has(x)) {
+                    return Expr::Derivative(Box::new(self.clone()), x.into());
+                }
+                Expr::Cases(branches.iter().map(|(value, guard)| (value.d(x), guard.clone())).collect())
+            },
+            Expr::Op(crate::linalg::Op::BesselJ, args) if !args[0].has(x) => mul(vec![rat(1,2), sub(Expr::Op(crate::linalg::Op::BesselJ, vec![sub(args[0].clone(), int(1)), args[1].clone()]), Expr::Op(crate::linalg::Op::BesselJ, vec![add(vec![args[0].clone(), int(1)]), args[1].clone()])), args[1].d(x)]),
+            Expr::Op(crate::linalg::Op::Erf, args) => mul(vec![div(int(2), sqrt(Expr::Pi)), func(Func::Exp, neg(pow(args[0].clone(), int(2)))), args[0].d(x)]),
+            Expr::Numerical(..) | Expr::Call(..) | Expr::Op(..) | Expr::Derivative(..) | Expr::Subs(..) | Expr::InverseLaplace(..) | Expr::Antiderivative(..) => return Expr::Derivative(Box::new(self.clone()), x.into()),
             Expr::F(f, a) => {
                 let a0 = (**a).clone();
                 let inner = match f {
@@ -574,7 +582,20 @@ impl Expr {
                     // linear: the part (or conjugate) of the derivative, for a real variable
                     Func::Re | Func::Im | Func::Conj => return func(*f, a.d(x)),
                     Func::Rect | Func::Sgn | Func::Floor | Func::Ceil | Func::Factorial | Func::Arg | Func::Dirac => return Expr::Derivative(Box::new(self.clone()), x.into()),
-                    Func::Abs => mul(vec![a0.clone(), pow(func(Func::Abs, a0), int(-1))]),
+                    Func::Abs => {
+                        // A real parameter differentiates |z| through its real and imaginary parts.
+                        let names = [x.to_string()].into_iter().collect();
+                        let re = crate::complex::assuming_real(&func(Func::Re, a0.clone()), &names);
+                        let im = crate::complex::assuming_real(&func(Func::Im, a0.clone()), &names);
+                        if im.is_zero() {
+                            if let Expr::Pow(_, exponent) = &a0 {
+                                if exponent.as_num().and_then(Num::as_int).is_some_and(|n| n > 0 && n % 2 == 0) {
+                                    return a.d(x);
+                                }
+                            }
+                        }
+                        return div(add(vec![mul(vec![re.clone(), re.d(x)]), mul(vec![im.clone(), im.d(x)])]), func(Func::Abs, a0));
+                    },
                 };
                 mul(vec![inner, a.d(x)])
             }
@@ -974,7 +995,7 @@ fn simp_pow(b: Expr, x: Expr) -> Expr {
         }
         // exact, or a float base: the value; a rational base to a non-exact power stays (√2)
         if let Some(r) = bv.pow(xn) {
-            if r.v.is_exact() || !bv.v.is_exact() || !xn.is_exact() {
+            if r.v.is_exact() || !bv.v.is_exact() || !xn.is_exact() || (bv.v.is_neg() && xn.rat().is_some_and(|r| r.denom() % 2 == 1)) {
                 return Expr::C(r);
             }
         }
@@ -1001,7 +1022,7 @@ fn simp_pow(b: Expr, x: Expr) -> Expr {
     }
     match b {
         // (x^a)^b = x^(ab) for whole b, or when a·b keeps the sign (√(x²) is |x|, left alone)
-        Expr::Pow(bb, a) if x.as_num().is_some_and(|n| n.is_int()) || a.as_num().is_some_and(|n| n.is_int() && n.as_int().unwrap() % 2 == 1) => {
+        Expr::Pow(bb, a) if x.as_num().is_some_and(|n| n.is_int()) => {
             simp_pow(*bb, simp_mul(vec![*a, x]))
         }
         // (a b)^n = a^n b^n for whole n
@@ -1016,12 +1037,18 @@ fn simp_f(f: Func, a: Expr) -> Expr {
     if linalg::is_array(&a) {
         return linalg::func(f, a);
     }
+    if let Expr::F(Func::Asin, inner) = &a {
+        if f == Func::Sin { return (**inner).clone(); }
+    }
     if f == Func::Exp {
         if let Some(z) = euler(&a) {
             return z;
         }
     }
     if let Some(q) = pi_multiple(&a) {
+        if matches!(f, Func::Tan | Func::Tanc) && q.denom() == 2 {
+            return div(int(1), int(0));
+        }
         if matches!(f, Func::Sin | Func::Cos | Func::Tan) {
             if let Some(v) = unit_circle(f, q) {
                 return v;

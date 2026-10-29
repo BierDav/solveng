@@ -13,7 +13,7 @@
 /// ```typ
 /// #import operations: tri, sgn
 /// #show: worksheet
-/// $f(t) := tri(t) sgn(t)$, $f(1/2) =$
+/// $f(t) := tri(t) sgn(t)$, $f(1/2) =>$
 /// ```
 
 /// ## Built-in operations
@@ -40,8 +40,8 @@
 /// #show: worksheet
 /// #let triangle = math.op("tri")
 /// #let conv = operation("convolve", display: () => math.op("conv"))
-/// $a := triangle(1/2) =$
-/// $y := conv(vec(1, 2), vec(1, 1), step: 2) =$
+/// $a := triangle(1/2) =>$
+/// $y := conv(vec(1, 2), vec(1, 1), step: 2) =>$
 /// ```
 ///
 /// The following operations use Typst's existing math names or syntax:
@@ -70,9 +70,9 @@
 /// #import "@preview/solveng:1.0.0": *
 /// #import units: m
 /// #show: worksheet
-/// $a := sqrt(9 #m^2) =$
-/// $b := sum_(k=0)^3 k^2 =$
-/// $c := cases(0 & b < 0, b & "otherwise") =$
+/// $a := sqrt(9 #m^2) =>$
+/// $b := sum_(k=0)^3 k^2 =>$
+/// $c := cases(0 & b < 0, b & "otherwise") =>$
 /// ```
 
 // math.op(name) followed by its arguments, as Typst writes a call: what the worksheet reads as an explicit
@@ -92,7 +92,7 @@
 ///
 /// The argument and result are unitless. Shift and scale the argument to place a pulse:
 /// `$p(t) := rect((t-2)/4)$` has width 4 and is centered at 2.
-/// `$rect(1/2) =$` gives ½. Integrals split at the pulse boundaries; derivatives stay symbolic.
+/// `$rect(1/2) =>$` gives ½. Integrals split at the pulse boundaries; derivatives stay symbolic.
 ///
 /// - x (expression): Unitless position relative to the pulse center.
 /// -> unitless value
@@ -101,7 +101,7 @@
 /// Triangular pulse: `tri(x)` is max(1 − |x|, 0), with height 1 at 0 and support from −1 to 1.
 ///
 /// The argument and result are unitless. `$p(t) := tri((t-2)/4)$` is centered at 2 and
-/// reaches zero at −2 and 6. `$tri(1/4) =$` gives ¾. Integrals split at its corners;
+/// reaches zero at −2 and 6. `$tri(1/4) =>$` gives ¾. Integrals split at its corners;
 /// the first derivative is piecewise constant and undefined at the three corners.
 ///
 /// - x (expression): Unitless position relative to the pulse center.
@@ -180,7 +180,7 @@
 
 /// Sign function: `sgn(x)` is −1 for x < 0, 0 for x = 0, and 1 for x > 0.
 ///
-/// The argument and result are unitless. `$sgn(-3) =$` gives −1.
+/// The argument and result are unitless. `$sgn(-3) =>$` gives −1.
 /// Its distributional derivative stays symbolic.
 ///
 /// - x (expression): Unitless value whose sign to take.
@@ -256,7 +256,7 @@
 /// Integral: `integrate(expression, variable)` is the antiderivative, `integrate(expression, variable, lower, upper)`
 /// the definite integral.
 ///
-/// `$integrate(x^2, x, 0, 3) =$` gives 9, `$integrate(x^2, x) ->$` gives x³/3. The variable is local to the
+/// `$integrate(x^2, x, 0, 3) =>$` gives 9, `$integrate(x^2, x) ->$` gives x³/3. The variable is local to the
 /// operation.
 ///
 /// Without bounds the result is an antiderivative, without a constant of integration: `$integral #e^x dif x ->$`
@@ -276,7 +276,7 @@
 /// cosine and hyperbolic kernels. Whole-line affine Dirac integrals use sifting with the scale factor.
 /// Polynomial weights use derivatives of the pulse's moment-generating function, within a size budget.
 /// Opposite exponential phases combine into cosine or sine, and common envelopes factor out.
-/// Finite-interval exponential moments use the same cardinal form; for example
+/// Finite-interval exponential moments use the same cardinal number-form; for example
 /// `$F(a) := integral_0^1 #e^(a t) dif t ->$` is e^(a/2) sinc(ia/2), including F(0) = 1.
 /// Other closed forms that divide by a parameter keep the exceptional case explicitly. Near such a point their parts
 /// cancel, so numbers there are the mean of the values around it (the singularity is removable). Remaining
@@ -290,7 +290,7 @@
 /// intervals without convergence report an error. Complex integrands are evaluated with both components
 /// refined together; local integration variables keep their scope and the units inferred from the bounds.
 ///
-/// In math, `$integral_0^3 x^2 dif x =$` and `$integral x^2 dif x ->$` do the same. The differential (`dif`, not
+/// In math, `$integral_0^3 x^2 dif x =>$` and `$integral x^2 dif x ->$` do the same. The differential (`dif`, not
 /// `diff`, which is ∂) ends the integrand wherever it stands: `$integral_0^1 x^2 + 1 dif x$` integrates x² + 1,
 /// `$integral_0^1 (x dif x) + 1$` adds 1 to the integral, `$integral_0^1 (dif x)/(1 + x^2)$` and
 /// `$integral_0^1 dif x$` are integrals too. A bound of 0 or ±∞ takes the other bound's unit
@@ -312,7 +312,7 @@
 /// the operation. Without `at`, the result is in the variable itself: `convolve(rect(t), rect(t), t)` is
 /// `tri(t)`. Piecewise polynomial signals – `rect`, `tri`, `sgn`, `abs`, `cases` steps, polynomials, with
 /// numeric affine arguments such as `tri((τ - 2 s)/(4 s))` – convolve exactly into a piecewise polynomial;
-/// `$y(t) := convolve(tri(tau), tri(tau), tau, t) ->$` shows the five pieces, `$y(1/2) =$` gives 23/48.
+/// `$y(t) := convolve(tri(tau), tri(tau), tau, t) ->$` shows the five pieces, `$y(1/2) =>$` gives 23/48.
 /// Other signals (exp, sin, symbolic shifts) stay the integral, evaluated numerically for `=` and graphs.
 /// Dirac distributions use the exact sifting rule: `convolve(f(t), dirac(t - a), t)` is `f(t - a)`.
 /// Finite sums and weighted impulses with affine arguments are supported; see `dirac`.
@@ -344,7 +344,7 @@
 /// Selects a vector component with a zero-based index: `at(vector, index)`, or a matrix
 /// element: `at(matrix, row, column)`.
 ///
-/// `$at(vec(3, 5), 0) =$` gives 3. The index must be a nonnegative integer smaller
+/// `$at(vec(3, 5), 0) =>$` gives 3. The index must be a nonnegative integer smaller
 /// than the number of components. This also selects a solution from a function that
 /// returns several solutions as a vector. The selected component keeps its unit.
 ///
@@ -357,7 +357,7 @@
 /// Inverse sine, also spelled `arcsin`: `asin(x)` returns an angle in radians from −π/2 to π/2.
 ///
 /// The argument is unitless; outside [−1, 1] the result is the principal complex value (`asin(2)` is
-/// 1.571 − 1.317i). `$asin(1) =$` gives π/2.
+/// 1.571 − 1.317i). `$asin(1) =>$` gives π/2.
 ///
 /// - x (expression): Unitless sine value.
 /// -> unitless angle in radians
@@ -366,7 +366,7 @@
 /// Inverse cosine, also spelled `arccos`: `acos(x)` returns an angle in radians from 0 to π.
 ///
 /// The argument is unitless; outside [−1, 1] the result is the principal complex value.
-/// `$acos(1) =$` gives 0.
+/// `$acos(1) =>$` gives 0.
 ///
 /// - x (expression): Unitless cosine value.
 /// -> unitless angle in radians
@@ -374,7 +374,7 @@
 
 /// Inverse tangent, also spelled `arctan`: `atan(x)` returns an angle in radians between −π/2 and π/2.
 ///
-/// The argument and result are unitless. `$atan(1) =$` gives π/4.
+/// The argument and result are unitless. `$atan(1) =>$` gives π/4.
 ///
 /// - x (expression): Unitless tangent value.
 /// -> unitless angle in radians
@@ -488,7 +488,7 @@
 /// Unilateral Laplace transform: `laplace(expression, variable, result-variable)`.
 ///
 /// The variables default to t and s: `$laplace(t^2) ->$`, `$F(p) := laplace(exp(-x), x, p)$`.
-/// (The keyword form `-> laplace` was removed; it's an error pointing here.)
+/// (The keyword number-form `-> laplace` was removed; it's an error pointing here.)
 /// A worksheet shows the call as ℒ{f}, with the result variable as ℒ{f}(p) when it's given; `invlaplace` as ℒ⁻¹{F}.
 /// The input variable is local, so a worksheet value for it is ignored.
 /// Supports constants, polynomials through degree 33, affine exponentials,
@@ -513,9 +513,9 @@
 /// Inverse unilateral Laplace transform: `invlaplace(expression, variable, result-variable)`.
 ///
 /// The variables default to s and t: `$invlaplace(1/s^2) ->$`, `$f(x) := invlaplace(1/(p+1), p, x)$`.
-/// (The keyword form `-> invlaplace` was removed; it's an error pointing here.)
+/// (The keyword number-form `-> invlaplace` was removed; it's an error pointing here.)
 /// Proper rational functions are inverted symbolically using repeated poles,
-/// quadratic factors and exact partial fractions where available. The general
+/// quadratic factors and exact partial fraction-style where available. The general
 /// numerical evaluator uses a state-space matrix exponential, including complex
 /// poles and repeated irreducible factors; it does not require numerical roots.
 ///
@@ -527,7 +527,7 @@
 /// denominator coefficient may have higher degree. Polynomial parts requiring
 /// Dirac distributions remain unsupported.
 ///
-/// Separable delay denominators use generating-function partial fractions to
+/// Separable delay denominators use generating-function partial fraction-style to
 /// produce exact finite sums when their delay poles can be determined exactly.
 /// Other supported inverses remain written as `invlaplace(...)` and can be
 /// evaluated or graphed. Numerical evaluation uses at most 256 delay intervals
@@ -664,7 +664,7 @@
 /// -> vector
 #let singularvals = [#math.op("singularvals")<solveng-builtin-operation>]
 
-/// Alias for `singularvals(A)`; returns all singular values, not a truncated decomposition.
+/// Deprecated alias for `singularvals(A)`; returns all singular values, not a truncated decomposition.
 /// - A (expression): Matrix with matching entry units.
 #let svds = [#math.op("singularvals")<solveng-builtin-operation>]
 
@@ -696,7 +696,7 @@
 /// - mean (expression): Distribution mean.
 /// - sigma (expression): Positive standard deviation.
 /// -> unitless probability
-#let normalcdf = [#math.op("normalcdf")<solveng-builtin-operation>]
+#let pnorm = [#math.op("pnorm")<solveng-builtin-operation>]
 
 /// Inverse normal cumulative probability. Probability is unitless and strictly
 /// between 0 and 1; mean and positive sigma have matching units. The result
@@ -704,19 +704,19 @@
 /// - probability (expression): Probability strictly between 0 and 1.
 /// - mean (expression): Distribution mean.
 /// - sigma (expression): Positive standard deviation.
-#let normalquantile = [#math.op("normalquantile")<solveng-builtin-operation>]
+#let qnorm = [#math.op("qnorm")<solveng-builtin-operation>]
 
-/// Alias for `normalcdf(x, mean, sigma)`.
+/// Deprecated alias for `pnorm(x, mean, sigma)`.
 /// - x (expression): Real observation.
 /// - mean (expression): Distribution mean.
 /// - sigma (expression): Positive standard deviation.
-#let pnorm = [#math.op("normalcdf")<solveng-builtin-operation>]
+#let normalcdf = [#math.op("pnorm")<solveng-builtin-operation>]
 
-/// Alias for `normalquantile(probability, mean, sigma)`.
+/// Deprecated alias for `qnorm(probability, mean, sigma)`.
 /// - probability (expression): Probability strictly between 0 and 1.
 /// - mean (expression): Distribution mean.
 /// - sigma (expression): Positive standard deviation.
-#let qnorm = [#math.op("normalquantile")<solveng-builtin-operation>]
+#let normalquantile = [#math.op("qnorm")<solveng-builtin-operation>]
 
 /// Linear interpolation of measured data: `linterp(x, y, at)`.
 /// x and y are equally sized real vectors with at least two entries. x knots
@@ -817,3 +817,31 @@
 /// - coefficients (expression): Vector of 2 to 61 unitless coefficients.
 /// -> complex vector
 #let polyroots = [#math.op("polyroots")<solveng-builtin-operation>]
+
+/// Jacobian matrix; output components are rows and variables are columns.
+/// - expression (expression): Column vector of differentiable expressions.
+/// - variables (expression): Nonempty vector of distinct variable names.
+/// -> matrix
+#let jacobian = [#math.op("jacobian")<solveng-builtin-operation>]
+
+/// Hessian matrix in the supplied variable order.
+/// - expression (expression): Scalar differentiable expression.
+/// - variables (expression): Nonempty vector of distinct variable names.
+/// -> matrix
+#let hessian = [#math.op("hessian")<solveng-builtin-operation>]
+
+/// Taylor polynomial about a finite center, through the requested degree (0–32).
+/// Derivatives at the center must exist; this does not claim convergence.
+/// - expression (expression): Differentiable expression.
+/// - variable (expression): Local variable name.
+/// - center (expression): Expansion center.
+/// - degree (integer): Highest retained power, from 0 to 32.
+/// -> expression
+#let taylor = [#math.op("taylor")<solveng-builtin-operation>]
+
+/// Solves a linear system or rectangular least-squares problem.
+#let linear-solve = (..args) => _op-call("lsolve", args)
+/// Linearly interpolates samples x, y at a position.
+#let linear-interpolate = (..args) => _op-call("linterp", args)
+/// Fits a straight line to samples x, y by least squares.
+#let linear-fit = (..args) => _op-call("linfit", args)

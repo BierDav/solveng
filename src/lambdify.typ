@@ -1,13 +1,14 @@
-// lambdify: an expression as a plain Typst function.
+// compile: an expression as a plain Typst function (with lambdify compatibility).
 #import "api.typ": *
 
+/// Deprecated: use `compile(expr, parameters: (U: $#V$), result-unit: $#W$)`.
 /// Turns an expression into a plain Typst function of numbers, for value tables,
 /// other plotting packages (lilaq, cetz-plot, simple-plot) or your own calculations.
 /// Defined variables and functions are used with their current values. Needs `context`.
 ///
 /// ```typ
 /// #import units: Ω, W, V
-/// #worksheet($R := 50 #Ω$, hidden: true)
+/// #calculate($R := 50 #Ω$, hidden: true)
 /// #context {
 ///   let P = lambdify($U^2/R$, "U", unit: $#W$, units: (U: $#V$))
 ///   table(columns: 2, ..range(1, 6).map(u => ([#u V], [#P(u) W])).flatten())
@@ -40,7 +41,7 @@
   let src = _src(expr.body)
   if _E(src) { fail("can't read the expression") }
   let r = _call(_p.lambdify, _env(_st.get()), (
-    cfg: _req-cfg(cf + (separator: ".")), src: src, params: ps,
+    cfg: _req-cfg(cf + (decimal-separator: ".")), src: src, params: ps,
     unit: if unit == none { none } else { _unit-src(unit.body) }, units: units.pairs().map(((k, v)) => (k, _unit-src(v.body))).to-dict(),
   ))
   if "err" in r { fail(r.err) }
@@ -52,4 +53,16 @@
     if type(y) == dictionary { panic("solveng: lambdify: " + y.err) }
     y
   }
+}
+
+/// Compiles a snapshot of an expression into a numeric Typst function. Needs context.
+/// Parameters are ordered; auto means numbers use SI units. With no parameters, free names are inferred.
+/// - expr (content): A math expression.
+/// - parameters (dictionary): Names mapped to unit expressions or auto, in argument order.
+/// - result-unit (none, content): Unit of the returned number; none means SI.
+/// -> function
+#let compile(expr, parameters: (:), result-unit: none) = {
+  assert(type(parameters) == dictionary, message: "compile: parameters must be an ordered dictionary")
+  let units = parameters.pairs().filter(((name, unit)) => unit != auto).to-dict()
+  lambdify(expr, ..parameters.keys(), unit: result-unit, units: units)
 }

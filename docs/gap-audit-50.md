@@ -3,33 +3,38 @@
 Audited on 2026-10-29. There are **22 reproduced bugs (B01–B22)** and
 **28 feature gaps (F23–F50)**. The feature entries describe proposed behavior,
 including extensions to documented limitations; they do not claim that the
-current documentation promises those features or spellings. No application
-code was changed.
+current documentation promises those features or spellings. The original audit made no application changes; see the implementation status below.
 
 Each entry has one independently selectable test in
 [`core/tests/gap_audit_50.rs`](../core/tests/gap_audit_50.rs). Test names start
 with the lowercased finding ID. Related input variations share one test rather
 than being counted as additional findings.
 
+## Implementation status
+
+The repair pass resolves B01–B22 and F23–F25, F27, F33–F35, F50.
+Their 30 acceptance cases now run in normal CI. The remaining 20 feature cases
+stay explicitly ignored until implemented; the original observations below are
+retained as the audit record, rather than descriptions of the repaired version.
+
+Remaining: F26, F28–F32, F36–F49. These include special-function continuations,
+limits, matrix decompositions, bivariate statistics, splines, extended ODE and
+optimization APIs, solve assumptions, and dimensioned polynomial coefficients.
+
+Function definitions retain explicit division and negative-power restrictions
+through simplification. Calculus-generated closed forms retain their existing
+local guards. Piecewise differentiation remains conservative for piecewise
+constant expressions, whose derivatives can require distributions.
+
 ## Running the cases
 
 ```sh
-# Compile and register the cases; known failures are ignored by default.
+# Run resolved cases in ordinary CI.
 cargo test -p solveng-core --test gap_audit_50
 
-# Run all desired-behavior assertions. Expected CURRENT result: 50 failures.
+# Exercise proposed capabilities that are still pending (expected to fail).
 cargo test -p solveng-core --test gap_audit_50 -- --ignored
-
-# Reproduce just one finding, including its failure detail.
-cargo test -p solveng-core --test gap_audit_50 b21_ -- --ignored --nocapture
 ```
-
-All 50 tests were enabled and failed individually in the audit run: **0 passed,
-50 failed**. Failure details were checked for the reported behavior, including
-the two panics. These tests assert correct results or requested capabilities;
-they do not pass by asserting today's incorrect answer, expecting a panic, or
-merely checking that an operation name is missing. Remove an entry's `ignore`
-attribute when implementing it, so the corrected behavior joins normal CI.
 
 Examples below use the readable worksheet syntax supported by the existing test
 harness: `#i` is the imaginary constant and unit names are explicit bindings.
@@ -110,7 +115,16 @@ operation or a test-harness translation issue.
 | F49 | Physical polynomial coefficients: `polyroots(vec(-4 m^2,0,1))` | Two real roots `-2 m`, `2 m`, with length dimension on each. | Explicitly accepts only unitless coefficients. This proposes dimension inference across coefficient powers. [Polynomial roots](../core/src/numerics.rs). |
 | F50 | Branch-safe inverse-trig composition: `sin(arcsin(x))=x ->` | Prove `true` for the principal complex continuation; do not infer the invalid reverse identity `arcsin(sin(x))=x`. | Leaves a symbolic equation instead of proving this identity. [Function simplification](../core/src/expr.rs), [identity prover](../core/src/identity.rs). |
 
-## Scope of verification
+## Repair verification
+
+`cargo test --workspace`: **559 passed, 0 failed, 21 ignored**. The ignored
+cases are the 20 pending feature proposals and the existing subprocess worker.
+Three additional validation tests cover derivative binders, Taylor degrees,
+and negative-power domain restrictions. The WebAssembly plugin was rebuilt;
+the new calculus APIs compile through Typst, all documented examples compile,
+and generated unit exports pass their consistency check.
+
+## Original audit verification
 
 `cargo test --workspace` passed: **526 passed, 0 failed, 51 ignored** across
 the workspace's test binaries and doc tests. The ignored count includes these
