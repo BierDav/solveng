@@ -14,7 +14,7 @@ type Point = (String, Expr);
 /// Failure means unknown, never false. Numeric sampling is deliberately not a proof rule.
 pub(crate) fn proves(l: &Expr, r: &Expr) -> bool {
     if l.size() + r.size() > MAX_NODES { return false; }
-    let relevant = |e: &Expr| matches!(e, Expr::F(Func::Sin | Func::Cos | Func::Sinh | Func::Cosh | Func::Sinc | Func::Exp, _) | Expr::Cases(_))
+    let relevant = |e: &Expr| matches!(e, Expr::F(Func::Sin | Func::Cos | Func::Tan | Func::Sinh | Func::Cosh | Func::Tanh | Func::Sinc | Func::Exp, _) | Expr::Cases(_))
         || matches!(e, Expr::Pow(b, _) if **b == Expr::E);
     if !l.contains(&relevant) && !r.contains(&relevant) { return false; }
     let unsupported = |e: &Expr| matches!(e,
@@ -124,8 +124,10 @@ fn exponential_form(e: &Expr, excluded: &[Point]) -> Option<Expr> {
     Some(simp(&match e {
         Expr::F(Func::Sin, a) => trig(a, false),
         Expr::F(Func::Cos, a) => trig(a, true),
+        Expr::F(Func::Tan, a) => div(trig(a, false), trig(a, true)),
         Expr::F(Func::Sinh, a) => mul(vec![rat(1, 2), sub(exp((**a).clone()), exp(neg((**a).clone())))]),
         Expr::F(Func::Cosh, a) => mul(vec![rat(1, 2), add(vec![exp((**a).clone()), exp(neg((**a).clone()))])]),
+        Expr::F(Func::Tanh, a) => div(sub(exp((**a).clone()), exp(neg((**a).clone()))), add(vec![exp((**a).clone()), exp(neg((**a).clone()))])),
         Expr::F(Func::Sinc, a) if nonzero(a) || root(a).is_some_and(|p| excluded.contains(&p)) => div(trig(a, false), (**a).clone()),
         Expr::F(Func::Exp, a) => exp((**a).clone()),
         Expr::Add(_) | Expr::Mul(_) => map(e, |a| exponential_form(a, excluded))?,

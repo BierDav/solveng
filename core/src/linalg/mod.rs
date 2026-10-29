@@ -14,7 +14,7 @@ use std::ops::RangeInclusive;
 use serde::{Deserialize, Serialize};
 
 use crate::dim::Dim;
-use crate::expr::{self, Expr, Func, Val, int, simp};
+use crate::expr::{self, Expr, Func, Val, int, rat, simp};
 use crate::num::Num;
 use crate::poly::simplify;
 use eliminate::Mat;
@@ -441,8 +441,28 @@ fn eval(op: Op, args: &[Expr]) -> Result<Option<Expr>, String> {
         let d = &values[0].d;
         if values.iter().any(|v| v.d != *d) { return Err(format!("{}: arguments must have matching units", op.name())); }
         if op == Op::Atan2 {
+            if values[0].v.is_zero() && values[1].v.is_zero() {
+                return Err("atan2 is undefined at (0, 0)".into());
+            }
+            if let (Some(yr), Some(xr)) = (values[0].v.rat(), values[1].v.rat()) {
+                if yr.is_zero() {
+                    return Ok(Some(if !xr.is_neg() { int(0) } else { Expr::Pi }));
+                }
+                if xr.is_zero() {
+                    return Ok(Some(simp(&expr::mul(vec![rat(if !yr.is_neg() { 1 } else { -1 }, 2), Expr::Pi]))));
+                }
+                if yr.abs() == xr.abs() {
+                    let (y_pos, x_pos) = (!yr.is_neg(), !xr.is_neg());
+                    let q = match (y_pos, x_pos) {
+                        (true, true) => rat(1, 4),
+                        (true, false) => rat(3, 4),
+                        (false, true) => rat(-1, 4),
+                        (false, false) => rat(-3, 4),
+                    };
+                    return Ok(Some(simp(&expr::mul(vec![q, Expr::Pi]))));
+                }
+            }
             let (y, x) = (values[0].v.f(), values[1].v.f());
-            if x == 0.0 && y == 0.0 { return Err("atan2 is undefined at (0, 0)".into()); }
             return Ok(Some(expr::c(Num::F(y.atan2(x)))));
         }
         let selected = values.iter().reduce(|a, b| {

@@ -295,3 +295,149 @@ fn numerical_operations_do_not_project_complex_samples_onto_the_real_axis() {
     let error = fails(&mut env, "minimize(x^2,x,0,2) -> substitute(x)");
     assert!(error.contains("doesn't occur"), "{error}");
 }
+
+
+#[test]
+fn inverse_trigonometric_exact_values_and_simplification() {
+    let mut env = Env::default();
+    use solveng_core::expr::{int, mul, rat};
+
+    // asin
+    assert_eq!(expression(&mut env, "asin(0)"), int(0));
+    assert_eq!(expression(&mut env, "asin(1)"), simp(&mul(vec![rat(1, 2), Expr::Pi])));
+    assert_eq!(expression(&mut env, "asin(-1)"), simp(&mul(vec![rat(-1, 2), Expr::Pi])));
+    assert_eq!(expression(&mut env, "asin(1/2)"), simp(&mul(vec![rat(1, 6), Expr::Pi])));
+    assert_eq!(expression(&mut env, "asin(-1/2)"), simp(&mul(vec![rat(-1, 6), Expr::Pi])));
+
+    // acos
+    assert_eq!(expression(&mut env, "acos(1)"), int(0));
+    assert_eq!(expression(&mut env, "acos(0)"), simp(&mul(vec![rat(1, 2), Expr::Pi])));
+    assert_eq!(expression(&mut env, "acos(-1)"), Expr::Pi);
+    assert_eq!(expression(&mut env, "acos(1/2)"), simp(&mul(vec![rat(1, 3), Expr::Pi])));
+    assert_eq!(expression(&mut env, "acos(-1/2)"), simp(&mul(vec![rat(2, 3), Expr::Pi])));
+
+    // atan
+    assert_eq!(expression(&mut env, "atan(0)"), int(0));
+    assert_eq!(expression(&mut env, "atan(1)"), simp(&mul(vec![rat(1, 4), Expr::Pi])));
+    assert_eq!(expression(&mut env, "atan(-1)"), simp(&mul(vec![rat(-1, 4), Expr::Pi])));
+
+    // Symbolic evaluation ->
+    assert_eq!(result(&mut env, "asin(1) = pi/2 ->"), r#""true""#);
+    assert_eq!(result(&mut env, "acos(0) = pi/2 ->"), r#""true""#);
+    assert_eq!(result(&mut env, "atan(1) = pi/4 ->"), r#""true""#);
+}
+
+#[test]
+fn cardinal_functions_exact_evaluation() {
+    let mut env = Env::default();
+    use solveng_core::expr::{div, int};
+
+    // sinc
+    assert_eq!(expression(&mut env, "sinc(0)"), int(1));
+    assert_eq!(expression(&mut env, "sinc(pi)"), int(0));
+    assert_eq!(expression(&mut env, "sinc(2*pi)"), int(0));
+    assert_eq!(expression(&mut env, "sinc(-pi)"), int(0));
+    assert_eq!(expression(&mut env, "sinc(-3*pi)"), int(0));
+    assert_eq!(expression(&mut env, "sinc(pi/2)"), simp(&div(int(2), Expr::Pi)));
+    assert_eq!(expression(&mut env, "sinc(-pi/2)"), simp(&div(int(2), Expr::Pi)));
+
+    // cosc
+    assert_eq!(expression(&mut env, "cosc(0)"), int(0));
+
+    // tanc
+    assert_eq!(expression(&mut env, "tanc(0)"), int(1));
+    assert_eq!(expression(&mut env, "tanc(pi)"), int(0));
+    assert_eq!(expression(&mut env, "tanc(2*pi)"), int(0));
+    assert_eq!(expression(&mut env, "tanc(-pi)"), int(0));
+    assert_eq!(expression(&mut env, "tanc(-4*pi)"), int(0));
+}
+
+#[test]
+fn atan2_exact_symbolic_values_and_algebra() {
+    let mut env = Env::default();
+    use solveng_core::expr::{add, div, int, mul, neg, pow, rat, sym};
+    use solveng_core::linalg::Op;
+
+    // exact values
+    assert_eq!(expression(&mut env, "atan2(0, 5)"), int(0));
+    assert_eq!(expression(&mut env, "atan2(0, -3)"), Expr::Pi);
+    assert_eq!(expression(&mut env, "atan2(2, 0)"), simp(&mul(vec![rat(1, 2), Expr::Pi])));
+    assert_eq!(expression(&mut env, "atan2(-2, 0)"), simp(&mul(vec![rat(-1, 2), Expr::Pi])));
+
+    assert_eq!(expression(&mut env, "atan2(3, 3)"), simp(&mul(vec![rat(1, 4), Expr::Pi])));
+    assert_eq!(expression(&mut env, "atan2(4, -4)"), simp(&mul(vec![rat(3, 4), Expr::Pi])));
+    assert_eq!(expression(&mut env, "atan2(-5, 5)"), simp(&mul(vec![rat(-1, 4), Expr::Pi])));
+    assert_eq!(expression(&mut env, "atan2(-6, -6)"), simp(&mul(vec![rat(-3, 4), Expr::Pi])));
+
+    // matching units
+    assert_eq!(expression(&mut env, "atan2(1 m, 1 m)"), simp(&mul(vec![rat(1, 4), Expr::Pi])));
+    assert_eq!(expression(&mut env, "atan2(0 m, 2 m)"), int(0));
+
+    // undefined at (0, 0)
+    fails(&mut env, "atan2(0, 0) =");
+
+    // symbolic differentiation
+    let theta = Expr::Op(Op::Atan2, vec![sym("y"), sym("x")]);
+    let d_dx = theta.diff("x");
+    let expected_dx = simp(&div(neg(sym("y")), add(vec![pow(sym("x"), int(2)), pow(sym("y"), int(2))])));
+    assert_eq!(d_dx, expected_dx);
+
+    let d_dy = theta.diff("y");
+    let expected_dy = simp(&div(sym("x"), add(vec![pow(sym("x"), int(2)), pow(sym("y"), int(2))])));
+    assert_eq!(d_dy, expected_dy);
+
+    let atan_x = Expr::Op(Op::Atan2, vec![sym("x"), int(1)]);
+    let expected_atan = simp(&div(int(1), add(vec![int(1), pow(sym("x"), int(2))])));
+    assert_eq!(atan_x.diff("x"), expected_atan);
+}
+
+#[test]
+fn special_functions_exact_values_and_symmetries() {
+    let mut env = Env::default();
+    use solveng_core::expr::{int, sqrt};
+
+    // erf
+    assert_eq!(expression(&mut env, "erf(0)"), int(0));
+    assert_eq!(result(&mut env, "erf(0) ->"), r#""0""#);
+
+    // gamma
+    assert_eq!(expression(&mut env, "gamma(1)"), int(1));
+    assert_eq!(expression(&mut env, "gamma(2)"), int(1));
+    assert_eq!(expression(&mut env, "gamma(3)"), int(2));
+    assert_eq!(expression(&mut env, "gamma(1/2)"), simp(&sqrt(Expr::Pi)));
+    assert_eq!(result(&mut env, "gamma(1/2) = sqrt(pi) ->"), r#""true""#);
+
+    // besselj
+    assert_eq!(expression(&mut env, "besselj(0, 0)"), int(1));
+    assert_eq!(expression(&mut env, "besselj(1, 0)"), int(0));
+    assert_eq!(expression(&mut env, "besselj(2, 0)"), int(0));
+    assert_eq!(expression(&mut env, "besselj(-1, 0)"), int(0));
+    assert_eq!(expression(&mut env, "besselj(-3, 0)"), int(0));
+}
+
+#[test]
+fn trigonometric_and_hyperbolic_identity_simplification() {
+    let mut env = Env::default();
+    assert_eq!(result(&mut env, "cos(x)*tan(x) = sin(x) ->"), r#""true""#);
+    assert_eq!(result(&mut env, "tan(x) = sin(x)/cos(x) ->"), r#""true""#);
+    assert_eq!(result(&mut env, "1 - tanh(x)^2 = 1/cosh(x)^2 ->"), r#""true""#);
+    assert_eq!(result(&mut env, "tanh(x) = sinh(x)/cosh(x) ->"), r#""true""#);
+}
+
+#[test]
+fn exact_special_values_preserve_argument_validation() {
+    use solveng_core::{expr::{Val, int}, linalg::Op, num::Num};
+    let dimensioned_zero = Expr::C(Val::new(Num::ZERO, Dim::base(0)));
+    for (op, args) in [
+        (Op::Erf, vec![dimensioned_zero.clone()]),
+        (Op::BesselJ, vec![int(0), dimensioned_zero]),
+        (Op::BesselJ, vec![int(10001), int(0)]),
+    ] {
+        let original = Expr::Op(op, args);
+        assert_eq!(simp(&original), original, "invalid arguments must survive simplification");
+    }
+    let mut env = Env::default();
+    for source in ["erf(0 m) =", "besselj(0, 0 m) =", "besselj(10001, 0) ="] {
+        fails(&mut env, source);
+    }
+}

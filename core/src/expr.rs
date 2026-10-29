@@ -518,6 +518,18 @@ impl Expr {
                 }
             }
             Expr::Antiderivative(body, var, by) if var == x || !body.has(x) => mul(vec![body.subst(var, by), by.d(x)]),
+            Expr::Op(crate::linalg::Op::Atan2, args) if args.len() == 2 => {
+                let (y, x_arg) = (&args[0], &args[1]);
+                let num = add(vec![
+                    mul(vec![neg(y.clone()), x_arg.d(x)]),
+                    mul(vec![x_arg.clone(), y.d(x)]),
+                ]);
+                let den = add(vec![
+                    pow(x_arg.clone(), int(2)),
+                    pow(y.clone(), int(2)),
+                ]);
+                div(num, den)
+            }
             Expr::Numerical(..) | Expr::Call(..) | Expr::Op(..) | Expr::Cases(..) | Expr::Derivative(..) | Expr::Subs(..) | Expr::InverseLaplace(..) | Expr::Antiderivative(..) => return Expr::Derivative(Box::new(self.clone()), x.into()),
             Expr::F(f, a) => {
                 let a0 = (**a).clone();
@@ -1009,9 +1021,32 @@ fn simp_f(f: Func, a: Expr) -> Expr {
             return z;
         }
     }
-    if let (Func::Sin | Func::Cos | Func::Tan, Some(q)) = (f, pi_multiple(&a)) {
-        if let Some(v) = unit_circle(f, q) {
-            return v;
+    if let Some(q) = pi_multiple(&a) {
+        if matches!(f, Func::Sin | Func::Cos | Func::Tan) {
+            if let Some(v) = unit_circle(f, q) {
+                return v;
+            }
+        }
+        match f {
+            Func::Sinc => {
+                if q.is_int() && !q.is_zero() {
+                    return int(0);
+                }
+                if q == Rat::new(1, 2).unwrap() || q == Rat::new(-1, 2).unwrap() {
+                    return simp(&div(int(2), Expr::Pi));
+                }
+            }
+            Func::Tanc => {
+                if q.is_int() {
+                    return if q.is_zero() { int(1) } else { int(0) };
+                }
+            }
+            Func::Cosc => {
+                if q.is_zero() {
+                    return int(0);
+                }
+            }
+            _ => {}
         }
     }
     // parts of constants, exactly: Re(1 + 2i) = 1, |3 + 4i| = 5, arg(−2) = π
@@ -1071,6 +1106,26 @@ fn simp_f(f: Func, a: Expr) -> Expr {
     }
     if let Some(n) = a.as_num() {
         let exact = |r: Num| Expr::C(Val::num(r));
+        if let Some(r) = n.rat() {
+            match (f, r.numer(), r.denom()) {
+                (Func::Asin, 0, 1) => return exact(Num::ZERO),
+                (Func::Asin, 1, 1) => return simp(&mul(vec![rat(1, 2), Expr::Pi])),
+                (Func::Asin, -1, 1) => return simp(&mul(vec![rat(-1, 2), Expr::Pi])),
+                (Func::Asin, 1, 2) => return simp(&mul(vec![rat(1, 6), Expr::Pi])),
+                (Func::Asin, -1, 2) => return simp(&mul(vec![rat(-1, 6), Expr::Pi])),
+
+                (Func::Acos, 1, 1) => return exact(Num::ZERO),
+                (Func::Acos, 0, 1) => return simp(&mul(vec![rat(1, 2), Expr::Pi])),
+                (Func::Acos, -1, 1) => return Expr::Pi,
+                (Func::Acos, 1, 2) => return simp(&mul(vec![rat(1, 3), Expr::Pi])),
+                (Func::Acos, -1, 2) => return simp(&mul(vec![rat(2, 3), Expr::Pi])),
+
+                (Func::Atan, 0, 1) => return exact(Num::ZERO),
+                (Func::Atan, 1, 1) => return simp(&mul(vec![rat(1, 4), Expr::Pi])),
+                (Func::Atan, -1, 1) => return simp(&mul(vec![rat(-1, 4), Expr::Pi])),
+                _ => {}
+            }
+        }
         match (f, n) {
             (Func::Cosc | Func::Sin | Func::Tan | Func::Asin | Func::Atan | Func::Sinh | Func::Tanh, x) if x.is_zero() => return exact(Num::ZERO),
             (Func::Sinc | Func::Tanc | Func::Cos | Func::Cosh | Func::Exp, x) if x.is_zero() => return exact(Num::ONE),

@@ -1,6 +1,5 @@
 # cases of core/tests/oracle that the engine can't do yet (unsupported), gets wrong, or doesn't simplify
 # fully (weak); written by ORACLE_BLESS=1 cargo test --test oracle
 constant-4	weak	not simplified to a constant
-constant-5	weak	not simplified to a constant
 constant-7	weak	not simplified to a constant
 rational-12	unsupported	numeric: 'x' does not appear in '"1" = "−3"'

@@ -3,7 +3,7 @@
 use crate::{
     complex::CVal,
     dim::Dim,
-    expr::{Expr, Val},
+    expr::{Expr, Val, int, simp, sqrt},
     linalg::{Array, Op},
     num::{Num, Rat},
 };
@@ -139,7 +139,22 @@ pub(crate) fn operation(op: Op, args: &[Expr]) -> Result<Expr, String> {
             Ok(Expr::C(Val::new(kelvin, Dim::base(4))))
         }
         Op::Gamma | Op::Erf | Op::BesselJ => {
-            let x = unitless(&real(args.last().unwrap())?)?;
+            let x_val = real(args.last().unwrap())?;
+            let x = unitless(&x_val)?;
+            if op == Op::Erf && x_val.v.is_exact() && x_val.v.is_zero() {
+                return Ok(int(0));
+            }
+            if op == Op::Gamma && x_val.v.is_exact() {
+                if let Some(r) = x_val.v.rat() {
+                    if r == Rat::ONE || r == Rat::int(2) {
+                        return Ok(int(1));
+                    } else if r == Rat::int(3) {
+                        return Ok(int(2));
+                    } else if r == Rat::new(1, 2).unwrap() {
+                        return Ok(simp(&sqrt(Expr::Pi)));
+                    }
+                }
+            }
             let y = match op {
                 Op::Gamma => {
                     if x <= 0.0 && x.fract() == 0.0 {
@@ -152,6 +167,9 @@ pub(crate) fn operation(op: Op, args: &[Expr]) -> Result<Expr, String> {
                     let n = unitless(&real(&args[0])?)?;
                     if n.fract() != 0.0 || n.abs() > 10_000.0 {
                         return Err("Bessel order must be an integer between -10000 and 10000".into());
+                    }
+                    if x_val.v.is_exact() && x_val.v.is_zero() {
+                        return Ok(int(if n == 0.0 { 1 } else { 0 }));
                     }
                     libm::jn(n as i32, x)
                 }
