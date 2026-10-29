@@ -175,7 +175,7 @@
 ///
 /// ```typ
 /// // my-defaults.typ
-/// #import "@preview/solveng:1.0.0": *
+/// #import "@preview/solveng:2.0.0": *
 /// #let setup = worksheet.with(digits: 3, multiplication: "times", constant-displays: (imaginary: $j$))
 ///
 /// // in a document

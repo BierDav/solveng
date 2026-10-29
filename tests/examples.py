@@ -7,7 +7,7 @@ import os, re, subprocess, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TYPST = os.environ.get("TYPST", "typst")
-IMPORT = '#import "@preview/solveng:1.0.0": *'
+IMPORT = '#import "@preview/solveng:2.0.0": *'
 
 def fatal(doc):
     """Problems stop the compilation: add errors: "panic" to the example's worksheet, or wrap it."""

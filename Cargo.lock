@@ -592,7 +592,7 @@ checksum = "5b3dc8af474f516a851ff4bd12db780f948b9250ad37211e4eec0bccea54e01b"
 
 [[package]]
 name = "solveng-core"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "blake3",
  "ciborium",
@@ -606,7 +606,7 @@ dependencies = [
 
 [[package]]
 name = "solveng-ide"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "regex",
  "serde",
@@ -617,7 +617,7 @@ dependencies = [
 
 [[package]]
 name = "solveng-lsp"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "lsp-server",
  "serde_json",
@@ -626,7 +626,7 @@ dependencies = [
 
 [[package]]
 name = "solveng-names"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "unicode-general-category",
  "unicode-normalization",
@@ -634,7 +634,7 @@ dependencies = [
 
 [[package]]
 name = "solveng-plugin"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "ciborium",
  "serde",

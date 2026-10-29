@@ -11,7 +11,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-solveng-names = { path = "../names", version = "=1.0.0" }
+solveng-names = { path = "../names", version = "=2.0.0" }
 solveng-core = { path = "../core" }
 wasm-minimal-protocol = "0.2"
 ciborium = "0.2"

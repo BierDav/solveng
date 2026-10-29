@@ -77,7 +77,7 @@
 ///
 /// ## Units
 ///
-/// Units, constants, operations and modifiers are Typst bindings, so solveng never guesses what a name means: in math `A` is a variable and, after `#import units: A`, `#A` is the ampere; quoted text (`$"mA"$`) is always a variable. Imports are lexical: they hold in the file or block where they're written and the blocks nested in it, whatever worksheet is around, and nothing comes along with `#import "@preview/solveng:1.0.0": *`. A unit binding hides a Typst function of the same name in code: after `#import units: h`, spacing is `std.h(1em)`.
+/// Units, constants, operations and modifiers are Typst bindings, so solveng never guesses what a name means: in math `A` is a variable and, after `#import units: A`, `#A` is the ampere; quoted text (`$"mA"$`) is always a variable. Imports are lexical: they hold in the file or block where they're written and the blocks nested in it, whatever worksheet is around, and nothing comes along with `#import "@preview/solveng:2.0.0": *`. A unit binding hides a Typst function of the same name in code: after `#import units: h`, spacing is `std.h(1em)`.
 ///
 /// After a trailing `=` or `->`, the unit to show is an expression of unit values too: `$t => #h$`, `$v -> km/#h$`, `$P => mW, digits(2)$`. Without one, results are shown in the unit of the option `preferred-units` (`preferred-units: ($#m / #s$,)`), else in a unit of the inputs, else in SI units with a prefix.
 ///

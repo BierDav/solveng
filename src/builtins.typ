@@ -4,7 +4,7 @@
 ///
 /// Import only the ones you use, where you use them: `#import operations: tri, sgn`. Typst imports are lexical, so
 /// they apply to that file or block and the ones nested in it; nothing comes along with
-/// `#import "@preview/solveng:1.0.0": *`. Without the import, math reads the name as Typst's own (`at` is the
+/// `#import "@preview/solveng:2.0.0": *`. Without the import, math reads the name as Typst's own (`at` is the
 /// symbol @) or as an unknown variable.
 ///
 /// A worksheet's own function of that name wins. `op("tri")` and `operation("convolve")` are the explicit
@@ -19,7 +19,7 @@
 /// ## Built-in operations
 ///
 /// Built-in operations work in worksheet math and graphs. Typst needs a binding for every name it doesn't
-/// know in math, and `#import "@preview/solveng:1.0.0": *` brings none: import the ones you use from solveng's
+/// know in math, and `#import "@preview/solveng:2.0.0": *` brings none: import the ones you use from solveng's
 /// `operations` module, `#import operations: tri, sgn` (or `#import operations: *`), then `$tri(t)$`. Like any
 /// import, it holds only where it's written, so no name appears in a document unasked. `at` needs it most:
 /// without the import, `$at(v, 0)$` is Typst's symbol @. Typst's own math names (`sin`, `sqrt`, `abs`, `arg`,
@@ -36,7 +36,7 @@
 /// content.
 ///
 /// ```typ
-/// #import "@preview/solveng:1.0.0": *
+/// #import "@preview/solveng:2.0.0": *
 /// #show: worksheet
 /// #let triangle = math.op("tri")
 /// #let conv = operation("convolve", display: () => math.op("conv"))
@@ -67,7 +67,7 @@
 /// epsilon extrapolation with a limit of 100000 terms. Unresolved or nonconvergent series report an error.
 ///
 /// ```typ
-/// #import "@preview/solveng:1.0.0": *
+/// #import "@preview/solveng:2.0.0": *
 /// #import units: m
 /// #show: worksheet
 /// $a := sqrt(9 #m^2) =>$

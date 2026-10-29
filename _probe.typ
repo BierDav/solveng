@@ -1,2 +1,2 @@
-#import "@preview/solveng:1.0.0": *
+#import "@preview/solveng:2.0.0": *
 Hello

@@ -2,7 +2,7 @@
 ///
 /// Import the ones you use, where you use them: `#import modifiers: solve, digits`. Typst imports are lexical, so
 /// they apply to that file or block and the ones nested in it; nothing comes along with
-/// `#import "@preview/solveng:1.0.0": *`. A renamed import works the same: `#import modifiers: solve as löse`,
+/// `#import "@preview/solveng:2.0.0": *`. A renamed import works the same: `#import modifiers: solve as löse`,
 /// then `$x^2 = 4 -> löse(x)$`.
 ///
 /// ```typ
@@ -16,12 +16,12 @@
 /// The clause after a trailing `=` or `->` takes a unit and modifiers, separated by commas: `$t => #h, digits(2)$`,
 /// `$x^2 = 4 -> solve(x)$`. Modifiers are Typst bindings of solveng's `modifiers` module, and importing them is the
 /// only way to use them: `#import modifiers: solve, simplify` (or `#import modifiers: *`). Like any import, it holds
-/// only where it's written; `#import "@preview/solveng:1.0.0": *` brings none. Renamed imports
+/// only where it's written; `#import "@preview/solveng:2.0.0": *` brings none. Renamed imports
 /// (`#import modifiers: solve as löse`) work as the original. `solve`, `substitute`, `assume` and `digits` are functions,
 /// called with what they take; `simplify`, `expand`, `factor`, `steps`, `sci`, `eng` and `fraction` are written on their own.
 ///
 /// ```typ
-/// #import "@preview/solveng:1.0.0": *
+/// #import "@preview/solveng:2.0.0": *
 /// #import modifiers: solve, digits, sci
 /// #import units: h, mA, mAh
 /// #show: worksheet
@@ -61,7 +61,7 @@
 /// automatic check considers up to sixteen names in expressions of size at most 512.
 ///
 /// ```typ
-/// #import "@preview/solveng:1.0.0": *
+/// #import "@preview/solveng:2.0.0": *
 /// #import operations: Re
 /// #import modifiers: assume
 /// #show: worksheet

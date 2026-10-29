@@ -3,7 +3,7 @@
 Engineering calculations in Typst math. `:=` defines a worksheet variable or function, `=>` shows its value as ⇒, and `->` shows an exact symbolic result or solves an equation. Values carry their units.
 
 ```typ
-#import "@preview/solveng:1.0.0": *
+#import "@preview/solveng:2.0.0": *
 #import units: mA, mAh, h
 #import modifiers: solve
 #show: worksheet
@@ -18,7 +18,7 @@ $Q_0/2 = I t -> solve(t)$
 Units, constants, operations and modifiers use Typst's lexical bindings. Import the ones you use from `units`, `constants`, `operations`, or `modifiers`. Imports follow Typst's normal file and block scopes; worksheet scope does not change their meaning. Single-letter bindings need `#` in math, for example `$2 #s$` and `$#e^x$`.
 
 ```typ
-#import "@preview/solveng:1.0.0": *
+#import "@preview/solveng:2.0.0": *
 #import units: m, s
 #import constants: pi, e, c
 #import operations: tri
@@ -33,7 +33,7 @@ $tri(1/4) =>$
 A base unit identifies an independent dimension. Declarations with the same identity describe the same dimension, even in different files or worksheets. Derived units contain expressions of unit values:
 
 ```typ
-#import "@preview/solveng:1.0.0": *
+#import "@preview/solveng:2.0.0": *
 #let second = base-unit("time", display: () => math.upright("s"))
 #let minute = unit($60 second$, display: () => math.upright("min"))
 #show: worksheet
@@ -45,7 +45,7 @@ $t := 2 minute = second$
 How a constant is shown belongs to the worksheet, not to the binding: the option `constant-displays` maps identities to content, over built-in displays for `pi` (π), `euler` (e), `imaginary` (i) and `speed-of-light` (c). Nested worksheets add to the displays around them. Results use the same displays, also for constants the engine produces itself, like the π of an integral or the i of a complex solution. An identity without a display is shown as its expression.
 
 ```typ
-#import "@preview/solveng:1.0.0": *
+#import "@preview/solveng:2.0.0": *
 #import units: m, s, kg
 #let g0 = constant("standard-gravity", $9.80665 #m / #s^2$)
 #let triangle = operation("tri", display: () => math.op("triangle"))
@@ -57,7 +57,7 @@ $triangle(1/2) =>$
 `display` says how a unit or operation is shown: content (`display: $"in"$`), a string (`display: "in"`, set upright) or a function returning content. It changes presentation without changing meaning. Binding names retain their spelling; a unit named `tau` is not renamed to `τ`. Names with underscores or hyphens need `#` in math (`$1 #fluid_ounce$`), because Typst otherwise reads subscripts or subtraction. A unit without a display shows its expression, written as results are: `unit($2.54 #cm$)` is 2.54 cm, in the input and in results alike. Such a display is one unit: next to a number it is joined by a dot (1 · 2.54 cm), and under a power or after a slash it is parenthesized ((2.54 cm)², m/(2.54 cm)).
 
 ```typ
-#import "@preview/solveng:1.0.0": *
+#import "@preview/solveng:2.0.0": *
 #import units: cm
 #let inch = unit($2.54 #cm$)
 #let inches = unit($2.54 #cm$, display: $"in"$)
@@ -71,7 +71,7 @@ $b := 3 inches => cm$
 Values are complex numbers: `$sqrt(-4) =>$` and `$sqrt(-4) ->$` are 2i, also when `i` isn't written; operations keep their real value where they have one, so `(-8)^(1/3)` is −2. `#import constants: i` brings the imaginary unit, `constant("imaginary", $sqrt(-1)$)`, and results show it as the worksheet says even where it isn't imported. Exact arithmetic stays exact (`(1 + 2i)(3 - i) -> 5 + 5i`, `#e^(#i pi) -> -1`), values carry units, and solving gives complex solutions (`$x^2 + 4 = 0 -> solve(x)$` is ±2i). Graphs, comparisons with `<`, inequalities and the numeric search need real values. `Re`, `Im` and `conj` come from `operations`; `abs` is the magnitude and `arg` the angle. Electrical engineers write `j`:
 
 ```typ
-#import "@preview/solveng:1.0.0": *
+#import "@preview/solveng:2.0.0": *
 #import units: Ω, Hz, mH
 #import constants: pi, i
 #import operations: Re, Im
