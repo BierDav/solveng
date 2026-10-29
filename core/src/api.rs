@@ -214,6 +214,9 @@ pub struct Compiled {
     /// Dimension per parameter with a unit (as exponents ×60), for checking values passed as text.
     pub dims: Vec<Option<crate::dim::Dim>>,
     pub out: f64,
+    /// Expected result dimension, retained for parameters whose dimension is known only at a call.
+    #[serde(default)]
+    pub out_dim: Option<crate::dim::Dim>,
     pub cfg: Cfg,
 }
 
@@ -232,6 +235,11 @@ pub fn compile(env: &Env, req: &CompileReq) -> Result<Compiled, String> {
     let mut lo = Lower::new(env, &units);
     lo.params = ps.iter().cloned().collect();
     let e = simp(&lo.expr(a)?);
+    let mut pending = vec![&e];
+    while let Some(part) = pending.pop() {
+        if let Expr::Call(name, _) = part { return Err(format!("{name} isn't defined – define it before compiling")); }
+        pending.extend(part.children());
+    }
     let ps = if ps.is_empty() { e.syms() } else { ps };
     let miss: Vec<String> = e.syms().into_iter().filter(|s| !ps.contains(s)).collect();
     if !miss.is_empty() {
@@ -260,20 +268,22 @@ pub fn compile(env: &Env, req: &CompileReq) -> Result<Compiled, String> {
     let pd = |n: &str| ps.iter().position(|p| p == n).and_then(|i| dims[i].clone());
     dim_of(&e, &pd)?;
     let mut out = 1.0;
+    let mut out_dim = None;
     if let Some(u) = &req.unit {
         let pu = units.parse(u, false).map_err(|e| format!("unit: {e}"))?;
         out = pu.f.f();
+        out_dim = Some(pu.d.clone());
         // with the units of all parameters known, the unit of the result can be checked now
         if dims.iter().all(|d| d.is_some()) {
             let pd = |n: &str| ps.iter().position(|p| p == n).and_then(|i| dims[i].clone());
             if let Some(d) = dim_of(&e, &pd)? {
                 if d != pu.d {
-                    return Err(format!("the result has unit {}, not {u}", format::dim_text(&d, &units)));
+                    return Err(format!("the result has unit {}, not {}", format::dim_text(&d, &units), described_source(u, &units)));
                 }
             }
         }
     }
-    Ok(Compiled { expr: e, params: ps, factors, dims, out, cfg: req.cfg.clone() })
+    Ok(Compiled { expr: e, params: ps, factors, dims, out, out_dim, cfg: req.cfg.clone() })
 }
 
 /// An argument: a number (in the parameter's unit) or a value as text ("5 V").
@@ -290,22 +300,28 @@ pub fn compiled_eval(l: &Compiled, args: &[Arg]) -> Result<Option<f64>, String> 
     }
     let units = Units::configured(&l.cfg)?;
     let mut xs = vec![];
+    let mut dims = l.dims.clone();
     for (i, a) in args.iter().enumerate() {
         xs.push(match a {
             Arg::Num(x) => x * l.factors[i],
             Arg::Text(s) => {
-                let p = units.parse(s, true).map_err(|e| format!("{}: {e}", l.params[i]))?;
+                let p = units.parse(s, true).map_err(|e| format!("{}: {}", l.params[i], described_source(&e, &units)))?;
                 if let Some(d) = &l.dims[i] {
                     if *d != p.d {
-                        return Err(format!("{} = {s} doesn't have the unit of {}", l.params[i], l.params[i]));
+                        return Err(format!("{} = {} doesn't have the unit of {}", l.params[i], described_source(s, &units), l.params[i]));
                     }
                 }
+                dims[i] = Some(p.d);
                 p.f.f()
             }
         });
     }
+    let result_dim = dim_of(&l.expr, &|n| l.params.iter().position(|p| p == n).and_then(|i| dims[i].clone()))?;
+    if let (Some(actual), Some(expected)) = (&result_dim, &l.out_dim) {
+        if actual != expected { return Err("the result does not have the requested result-unit".into()); }
+    }
     let r = eval_f(&l.expr, &|n| l.params.iter().position(|p| p == n).map(|i| xs[i]));
-    Ok(r.map(|v| v / l.out))
+    Ok(r.map(|v| v / l.out).filter(|v| v.is_finite()))
 }
 
 /// A value of an expression of defined names (for graph ranges): (SI value, dims) or a message.
@@ -333,7 +349,7 @@ pub fn clear(env: &mut Env, req: &ClearReq) -> Vec<String> {
     for src in &req.names {
         let name = match parse::lex(src).as_deref() {
             Ok([parse::Tok::Name(n) | parse::Tok::Quoted(n), rest @ ..])
-                if rest.is_empty() || (rest.first() == Some(&parse::Tok::Op("(")) && rest.last() == Some(&parse::Tok::Op(")"))) =>
+                if rest.is_empty() || complete_call_tail(rest) =>
             {
                 n.clone()
             }
@@ -347,6 +363,46 @@ pub fn clear(env: &mut Env, req: &ClearReq) -> Vec<String> {
         }
     }
     errors
+}
+
+
+fn complete_call_tail(tokens: &[parse::Tok]) -> bool {
+    if tokens.first() != Some(&parse::Tok::Op("(")) { return false; }
+    let mut depth = 0usize;
+    for (i, t) in tokens.iter().enumerate() {
+        match t {
+            parse::Tok::Op("(") => depth += 1,
+            parse::Tok::Op(")") => {
+                if depth == 0 { return false; }
+                depth -= 1;
+                if depth == 0 { return i + 1 == tokens.len(); }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+// A diagnostic describes lexical values by their presentation, never by their transport encoding.
+fn described_source(source: &str, units: &Units) -> String {
+    let mut out = String::new();
+    let mut rest = source;
+    while let Some((before, after)) = rest.split_once('⟦') {
+        out.push_str(before);
+        let Some((encoded, tail)) = after.split_once('⟧') else { out.push_str("[lexical value]"); return out; };
+        let display = crate::bindings::Binding::decode(encoded).ok().map(|binding| {
+            let mut local = units.clone();
+            local.map.extend(binding.units);
+            match binding.expr {
+                Expr::C(v) => v.u.map(|u| local.text(&u)).unwrap_or_else(|| binding.identity.unwrap_or("value".into())),
+                _ => binding.identity.unwrap_or("constant".into()),
+            }
+        }).unwrap_or_else(|| "[lexical value]".into());
+        out.push_str(&display);
+        rest = tail;
+    }
+    out.push_str(rest);
+    out
 }
 
 #[cfg(test)]

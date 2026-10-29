@@ -74,7 +74,9 @@
   let out = c + lc
   for k in _GRAPH.filter(k => k in lc) {
     let (old, new) = (c.at(k), lc.at(k))
-    out.insert(k, range(calc.max(old.len(), new.len())).map(i => {
+    let gcd(a, b) = { while b != 0 { (a, b) = (b, calc.rem(a, b)) }; a }
+    let period = int(old.len() / gcd(old.len(), new.len())) * new.len()
+    out.insert(k, range(period).map(i => {
       let v = new.at(calc.rem(i, new.len()))
       if v == auto { old.at(calc.rem(i, old.len())) } else { v }
     }))
@@ -101,8 +103,11 @@
   graph-colors: (array, color, gradient, content), graph-lines: (array, str, dictionary, type(none), content), graph-dots: (array, str, type(none), content), graph-joined: (array, bool, content),
 )
 // the colours of a kind of chip: fill, mark and ink, and the ones a dark page takes in `dark`
-#let _chip-colours(v) = type(v) == dictionary and v.keys().all(c => c in ("fill", "mark", "ink", "dark"))
-  and ("dark" not in v or (type(v.dark) == dictionary and v.dark.keys().all(c => c in ("fill", "mark", "ink"))))
+#let _chip-colours(v) = {
+  let palette(p) = type(p) == dictionary and p.pairs().all(((k, c)) => k in ("fill", "mark", "ink") and type(c) == color)
+  (type(v) == dictionary and palette(v.pairs().filter(((k, _)) => k != "dark").to-dict())
+    and ("dark" not in v or palette(v.dark)))
+}
 #let _tyname(ts) = ts.map(t => if t == type(none) { "none" } else if t == type(auto) { "auto" } else { str(t) }).join(" or ")
 // units are checked by the engine once a worksheet sets them (see #worksheet)
 #let _check(o) = {
@@ -119,7 +124,7 @@
   if "notation-thresholds" in o and o.notation-thresholds != none and (o.notation-thresholds.len() != 2 or o.notation-thresholds.any(x => type(x) != int)) { return (err: "notation-thresholds must be (low, high) with integers, or none") }
   if "prefixes" in o and type(o.prefixes) == str and o.prefixes != "all" { return (err: "prefixes: \"all\", none or an array like (\"m\", \"k\")") }
   if "prefixes" in o and type(o.prefixes) == array and o.prefixes.any(p => type(p) != str) { return (err: "prefixes: the array must hold strings like \"m\"") }
-  if "words" in o and o.words.keys().any(k => k != "any") { return (err: "words: the word shown for any-unit types, (any: \"beliebig\")") }
+  if "words" in o and (o.words.keys().any(k => k != "any") or type(o.words.at("any", default: "any")) != str) { return (err: "words: the word shown for any-unit types, (any: \"beliebig\")") }
   if "chips" in o and type(o.chips) == dictionary and o.chips.pairs().any(((k, v)) => k != "type" or not _chip-colours(v)) { return (err: "chips: the colours of type chips, (type: (fill: …, mark: …, ink: …, dark: (fill: …, mark: …, ink: …))), or a function (kind, mark, unit) => content") }
   if "constant-displays" in o and o.constant-displays.values().any(v => type(v) not in (content, symbol)) { return (err: "constant-displays: how constants are shown, by identity: (imaginary: $j$)") }
   for k in _GRAPH {

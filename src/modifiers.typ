@@ -32,19 +32,24 @@
 /// ```
 
 #import "keywords.typ": _key
+// Keep invalid arguments in the clause so the worksheet reports them normally.
+#let _modifier(name, args) = {
+  if args.named().len() > 0 { return _key("invalid named arguments for " + name + ": " + args.named().keys().join(", ")) }
+  _key(name, ..args.pos())
+}
 
 /// Returns solutions for these names without changing definitions: `$x^2 - 4 = 0 -> solve(x)$`.
 ///
 /// - ..names (content): What to solve for.
 /// -> content
-#let solve(..names) = _key("solve", ..names.pos())
+#let solve(..names) = _modifier("solve", names)
 /// The result with these variables' formulas and constants' expressions put in, every other name kept:
 /// `$P := U^2/R -> substitute(U)$`, `$E := m #c^2 -> substitute(#c)$`. A constant alone shows its expression
 /// as written: `$#i -> substitute(#i)$` is √−1, where a simplified result would be i again.
 ///
 /// - ..names (content): The variables and constants whose formulas to put in.
 /// -> content
-#let substitute(..names) = _key("substitute", ..names.pos())
+#let substitute(..names) = _modifier("substitute", names)
 /// Assumptions for this symbolic calculation: `$Re(a z) = a Re(z) -> assume(a in RR)$`
 /// is true. Import `assume` from `modifiers`. Real scalar names and sign constraints such as `x > 0`, `x >= 0`, `x < 0`, `x <= 0` are supported; assumptions
 /// apply to this result and do not change definitions or later calculations.
@@ -66,7 +71,7 @@
 ///
 /// - ..conditions (content): Real scalar or sign assumptions, for example `a in RR, x > 0`.
 /// -> content
-#let assume(..conditions) = _key("assume", ..conditions.pos())
+#let assume(..conditions) = _modifier("assume", conditions)
 /// Optional explicit spelling of the default symbolic result; bare `->` is preferred.
 /// The symbolic result, what `->` shows anyway: `$f := (x^2 - 1)/(x - 1) -> simplify$`. Of an equation, where it
 /// holds: one side brought to zero and split into factors, each factor zero – `$x^2 = x -> simplify$` is

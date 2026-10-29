@@ -93,7 +93,8 @@ fn term_end(t: &[Token], start: usize) -> usize {
 
 /// Read each complete sum while tolerating unfinished text elsewhere.
 pub(crate) fn read(source: &[char], base: usize, operation:&dyn Fn(usize)->Option<String>) -> Vec<Local> {
-    let c = source;
+    let clean = crate::text::without_math_comments(source);
+    let c = clean.as_slice();
     let mut out = Vec::new();
     for (start, equation_end) in crate::text::equation_ranges(c) {
         let t = tokens(&c[start..equation_end]);
@@ -101,7 +102,7 @@ pub(crate) fn read(source: &[char], base: usize, operation:&dyn Fn(usize)->Optio
         for (i, token) in t.iter().enumerate() {
             let notation = token.text == "sum_";
             let op=operation(at(token.start)).unwrap_or_else(||token.text.clone());
-            if !notation && !matches!(op.as_str(),"sum"|"minimize"|"odesolve") { continue; }
+            if !notation && !matches!(op.as_str(),"sum"|"minimize"|"odesolve"|"diff"|"integrate"|"taylor"|"jacobian"|"hessian") { continue; }
             if !notation && token.text != "sum" && operation(at(token.start)).is_none() { continue; }
             // sum_(k=0)^n, or the call sum(body, k, lo, hi).
             if t.get(i + 1).map(|t| t.text.as_str()) != Some("(") { continue; }
@@ -127,10 +128,31 @@ pub(crate) fn read(source: &[char], base: usize, operation:&dyn Fn(usize)->Optio
                     if t[j].text == "," { commas.push(j); }
                     j += 1;
                 }
-                let count=if op == "odesolve" { 2 } else { 1 };
-                if commas.len() != if count==2 { 5 } else { 3 } || commas[0] <= i+2 { continue; }
-                if (0..count).any(|j|commas[j+1] != commas[j]+2) { continue; }
-                ((0..count).map(|j|commas[j]+1).collect(), (t[i+2].start,t[commas[0]-1].end))
+                if commas.first().is_none_or(|first| *first <= i+2) { continue; }
+                let mut args = vec![(i+2, commas[0])];
+                for (n, comma) in commas.iter().enumerate() {
+                    args.push((comma+1, commas.get(n+1).copied().unwrap_or(end)));
+                }
+                let expected = match op.as_str() {
+                    "odesolve" => 6..=6, "diff" | "jacobian" | "hessian" => 2..=2,
+                    "integrate" => 2..=4, _ => 4..=4,
+                };
+                if !expected.contains(&args.len()) { continue; }
+                let indices: &[usize] = if op == "odesolve" { &[1,2] } else { &[1] };
+                let mut decls = vec![];
+                for &arg in indices {
+                    let (a,b) = args[arg];
+                    if b == a+1 { decls.push(a); }
+                    else if matches!(op.as_str(), "jacobian"|"hessian") && t.get(a).is_some_and(|t| t.text == "vec") && t.get(a+1).is_some_and(|t| t.text == "(") && close(&t,a+1) == Some(b-1) {
+                        let mut at = a+2;
+                        while at < b-1 {
+                            decls.push(at);
+                            at += 1;
+                            if at < b-1 { if t[at].text != "," { decls.clear(); break; } at += 1; }
+                        }
+                    }
+                }
+                (decls, (t[i+2].start,t[commas[0]-1].end))
             };
             for (j,declaration) in declarations.into_iter().enumerate() {
                 let decl = &t[declaration];
@@ -140,7 +162,8 @@ pub(crate) fn read(source: &[char], base: usize, operation:&dyn Fn(usize)->Optio
                     "minimize"=>"local optimization variable",
                     "odesolve" if j==0=>"local ODE state",
                     "odesolve"=>"local ODE time",
-                    _=>"local sum index (unitless integer)",
+                    "sum"|"sum_"=>"local sum index (unitless integer)",
+                    _=>"local calculus variable",
                 };
                 out.push(Local { declaration: (at(decl.start), at(decl.end)), body: (at(body.0), at(body.1)), key: name.value, description });
             }

@@ -121,6 +121,18 @@ pub struct GraphOut {
     pub ay: f64,
 }
 
+// Interpolate and form interval fractions without overflowing finite endpoints.
+fn lerp(a: f64, b: f64, t: f64) -> f64 {
+    if a.signum() != b.signum() { a * (1.0 - t) + b * t } else { a + (b - a) * t }
+}
+fn fraction(x: f64, a: f64, b: f64) -> f64 {
+    let (n, d) = (x - a, b - a);
+    if n.is_finite() && d.is_finite() { n / d } else {
+        let scale = x.abs().max(a.abs()).max(b.abs());
+        (x / scale - a / scale) / (b / scale - a / scale)
+    }
+}
+
 fn nice(r: f64) -> f64 {
     let b = 10f64.powf(r.log10().floor());
     for m in [1.0, 2.0, 5.0, 10.0] {
@@ -167,7 +179,7 @@ impl Data {
         if self.xs.len() == 1 && self.xs[0] == t { add(self.ys[0]); }
         for ((x1, y1), (x2, y2)) in self.segments() {
             if t < x1.min(x2) || t > x1.max(x2) { continue; }
-            if t == x1 { add(y1); } else if t == x2 { add(y2); } else { add(y1 + (y2 - y1) * (t - x1) / (x2 - x1)); }
+            if t == x1 { add(y1); } else if t == x2 { add(y2); } else { add(lerp(y1, y2, fraction(t, x1, x2))); }
         }
         out
     }
@@ -181,7 +193,7 @@ impl Data {
                 out.push(self.xs[k]);
             } else if k + 1 < n {
                 let w = self.ys[k + 1] - level;
-                if w != 0.0 && (u > 0.0) != (w > 0.0) { out.push(self.xs[k] + (self.xs[k + 1] - self.xs[k]) * u / (u - w)); }
+                if w != 0.0 && (u > 0.0) != (w > 0.0) { out.push(lerp(self.xs[k], self.xs[k + 1], fraction(level, self.ys[k], self.ys[k + 1]))); }
             }
         }
         out
@@ -214,12 +226,12 @@ impl Data {
             if p.0 == q.0 {
                 if !inside(p.0) { open = false; continue; }
             } else {
-                let (sa, sb) = ((a - p.0) / (q.0 - p.0), (b - p.0) / (q.0 - p.0));
+                let (sa, sb) = (fraction(a, p.0, q.0), fraction(b, p.0, q.0));
                 s0 = s0.max(sa.min(sb));
                 s1 = s1.min(sa.max(sb));
                 if s0 > s1 { open = false; continue; }
             }
-            let at = |s: f64| if s == 0.0 { p } else if s == 1.0 { q } else { (p.0 + s * (q.0 - p.0), p.1 + s * (q.1 - p.1)) };
+            let at = |s: f64| if s == 0.0 { p } else if s == 1.0 { q } else { (lerp(p.0, q.0, s).clamp(a, b), lerp(p.1, q.1, s)) };
             if !open || s0 > 0.0 { runs.push(vec![at(s0)]); }
             runs.last_mut().unwrap().push(at(s1));
             open = s1 == 1.0;
@@ -594,13 +606,13 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
     // values of ranges and marks
     let xv = |v: &XV| -> Result<V, String> {
         match v {
-            XV::Num(n) => Ok(V::Plain(*n)),
+            XV::Num(n) => if n.is_finite() { Ok(V::Plain(*n)) } else { Err("graph values must be finite".into()) },
             XV::Src(s) => {
                 let t = s.src.trim();
                 // no e-notation: `1e5` is a number and the name e5, not a range value
                 if !t.contains(['e', 'E'])
                     && let Ok(n) = t.replace(',', ".").replace('−', "-").parse::<f64>() {
-                    return Ok(V::Plain(n));
+                    return if n.is_finite() { Ok(V::Plain(n)) } else { Err("graph values must be finite".into()) };
                 }
                 let (val, d) = crate::api::quantity(env, cfg, t).map_err(|e| format!("{e} in '{t}'"))?;
                 let a = units.auto(&d);
@@ -700,7 +712,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         if units.parse(u, false)?.d != yd { return Err("y-unit does not match the curves' dimension".into()); }
     }
     for c in &curves[1..] {
-        if let Ok(Some(d)) = cdim(c) {
+        if let Some(d) = cdim(c)? {
             // a unitless function next to others may be a scale; data has the unit it has
             if d != yd && (!yd.is_one() || c.data.is_some()) {
                 return Err(format!("the curves have different units ({} and {}) – plot them separately", if yd.is_one() { "1".into() } else { units.text(&units.auto(&yd)) }, if d.is_one() { "1".into() } else { units.text(&units.auto(&d)) }));
@@ -806,7 +818,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         return Err("the range is empty – give two different x values".into());
     }
     let n = req.samples;
-    let mut ts: Vec<f64> = (0..=n).map(|i| xa + i as f64 * (xb - xa) / n as f64).collect();
+    let mut ts: Vec<f64> = (0..=n).map(|i| lerp(xa, xb, i as f64 / n as f64)).collect();
     if !boundaries.is_empty() {
         let mut edges = vec![xa];
         edges.extend(boundaries.iter().copied().filter(|point| *point > xa && *point < xb));
@@ -906,10 +918,10 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         // Flat curves can differ by a few ulps after numerical evaluation.
         // Give them a useful range before choosing a tick step: a sub-ulp
         // step at this magnitude cannot advance a floating-point tick loop.
-        let scale = y0.abs().max(y1.abs()).max(1.0);
+        let scale = y0.abs().max(y1.abs());
         if y1 - y0 <= 32.0 * f64::EPSILON * scale {
             let center = y0 * 0.5 + y1 * 0.5;
-            let half = scale.max(2.0) * 0.5;
+            let half = if scale == 0.0 { 1.0 } else { scale * 0.5 };
             (y0, y1) = (center - half, center + half);
         }
         let pad = (y1 - y0) * 0.08;
@@ -924,7 +936,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
             y1 = v / yf + 0.05 * w;
         }
     }
-    let (xs_, ys_) = (nice((x1 - x0) / 5.0), nice((y1 - y0) / 5.0));
+    let (xs_, ys_) = (nice(x1 / 5.0 - x0 / 5.0), nice(y1 / 5.0 - y0 / 5.0));
     let xc = x0 <= 0.0 && 0.0 <= x1;
     let yc = y0 <= 0.0 && 0.0 <= y1;
     let ax = if yc { 0.0 } else { y0 };
@@ -1005,7 +1017,7 @@ pub fn graph(env: &Env, req: &GraphReq) -> Result<GraphOut, String> {
         for r in &mut runs { r.dedup_by(|p, q| p.0 == q.0 && p.1 == q.1); }
         // a run that is one point, sampled twice where branches switch, has no line to draw
         // – nor one too narrow to see, the value right on a step at the graph's edge (⌈x⌉ at x = −2), drawn as a dot
-        let narrow = 1e-9 * (x1 - x0);
+        let narrow = x1 * 1e-9 - x0 * 1e-9;
         runs.retain(|r| r.len() > 1 && r.iter().any(|p| (p.0 - r[0].0).abs() > narrow));
         // single points: where a branch holds at one x alone (2 for x = 1), the value there differs from the
         // values on both sides, or there are none; drawn as a dot
@@ -1256,7 +1268,7 @@ fn data_meets(d: &Data, g: &dyn Fn(f64) -> Option<f64>, ts: &[f64]) -> Vec<(f64,
     if d.xs.len() == 1 && g(d.xs[0]) == Some(d.ys[0]) { out.push((d.xs[0], Some(d.ys[0]))); }
     for ((x1, y1), (x2, y2)) in d.segments() {
         if x1 == x2 { continue; }
-        let lerp = |t: f64| y1 + (y2 - y1) * (t - x1) / (x2 - x1);
+        let lerp = |t: f64| lerp(y1, y2, fraction(t, x1, x2));
         let h = |t: f64| Some(lerp(t) - g(t)?);
         let (a, b) = (x1.min(x2), x1.max(x2));
         let mut grid = vec![a];

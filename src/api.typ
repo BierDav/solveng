@@ -251,7 +251,7 @@
     let outer = d.at("^")
     // what the last line gave stays readable afterwards, whatever the scope
     let last = if "last" in d { (last: d.last) } else { (:) }
-    if scope == "shared" { outer + (env: _p.merge(_env(outer), _env(d))) + last } else { outer + last }
+    if scope == "shared" { outer + (env: _env(d)) + last } else { outer + last }
   }
   let out = if eqs {
     if clear-at != none { return _err-now("clear-at is for a worksheet's content, #worksheet[…]") }
@@ -291,6 +291,5 @@
 /// - hidden (bool): Hide calculated equations.
 /// -> content
 #let calculate(..equations, hidden: false) = {
-  assert(equations.named().len() == 0, message: "calculate: use positional equations and hidden")
-  worksheet(..equations.pos(), hidden: hidden, scope: "shared")
+  worksheet(..equations.pos(), ..equations.named(), hidden: hidden, scope: "shared")
 }

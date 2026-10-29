@@ -55,6 +55,6 @@ impl N {
             propagate(derivative.im,self.error.re) + propagate(derivative.re,self.error.im) + Self::rounding(z.im.abs())))
     }
     pub fn projected(self, x: f64, error: f64) -> Self { Self::estimated(Z::real(x), Z::new(error, 0.0)) }
-    pub fn is_real_result(self) -> bool { self.im == 0.0 || (self.error.im.is_finite() && self.im.abs() <= self.error.im) }
+    pub fn is_real_result(self) -> bool { self.im == 0.0 || (self.error.im.is_finite() && self.im.abs() <= self.error.im && self.im.abs() <= 64.0*f64::EPSILON*self.re.abs()) }
 }
 impl From<Z> for N { fn from(z: Z) -> Self { Self { z, error: Z::real(0.0) } } }

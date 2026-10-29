@@ -37,7 +37,7 @@ fn inverse_table_and_round_trips() {
             ("1/(2*s+4)^3", "t^2*exp(-2*t)/16"),
             ("1/(s^2+4)", "sin(2*t)/2"), ("s/(s^2+4)", "cos(2*t)"),
             ("1/(s^2-4)", "sinh(2*t)/2"),
-            ("1/(s^2-b^2)", "sinh(b*t)/b"),
+            ("1/(s^2-b^2)", "cases(sinh(b*t)/b,-b^2 != 0,t)"),
             ("1/(s^2*(s+1))", "t-1+exp(-t)"),
             ("1/(s^2+4*s+4)", "t*exp(-2*t)"),
             ("(s+3)/(s^2+2*s+5)", "exp(-t)*(cos(2*t)+sin(2*t))"),
@@ -113,8 +113,8 @@ fn signal_transforms_and_transfer_function() {
             ("tri(t+1)", "0"),
             ("sgn(t-1)", "(2*exp(-s)-1)/s"),
             ("sgn(1-t)", "(1-2*exp(-s))/s"),
-            ("rect(a*t)", "(1-exp(-s/(2*abs(a))))/s"),
-            ("tri(a*t)", "1/s-abs(a)*(1-exp(-s/abs(a)))/s^2"),
+            ("rect(a*t)", "cases(cases((1-exp(-s/(2*abs(a))))/s,abs(a) != 0,1/s),Im(a)=0)"),
+            ("tri(a*t)", "cases(cases(1/s-abs(a)*(1-exp(-s/abs(a)))/s^2,abs(a) != 0,1/s),Im(a)=0)"),
             ("rect(0*t)", "1/s"),
         ] { equal(&mut env, &format!("laplace({input})"), expected); }
         run(&mut env, "Lambda(t) := tri(t)");

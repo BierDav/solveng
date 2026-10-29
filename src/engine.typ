@@ -233,6 +233,7 @@
     if t == "ⅆ" { return "dif" }
     return if t == "" { "\"\"" } else if t.match(regex("\\p{L}|\\p{So}|[°%‰]")) != none { repr(t) } else { t }
   }
+  if f == _align-point { return "" }
   if f == linebreak { return "\\" }
   if f == _space or f == h { return " " }
   if c.has("children") {
@@ -257,7 +258,10 @@
     let base = _src(c.base)
     if _E(base) { return base }
     if (base == "∫" or base == "∑") and c.has("b") and c.b != none and c.has("t") and c.t != none {
-      return (if base == "∑" { "sum_(" } else { "integral_(" }) + _src(c.b) + ")^(" + _src(c.t) + ")"
+      let (lower, upper) = (_src(c.b), _src(c.t))
+      if _E(lower) { return lower }
+      if _E(upper) { return upper }
+      return (if base == "∑" { "sum_(" } else { "integral_(" }) + lower + ")^(" + upper + ")"
     }
     let out = base
     // y_A(a p): Typst sets the (a p) in the subscript; it's the call's arguments, spaces and all
@@ -488,7 +492,11 @@
     let normalized = _call(_p.name, c.text)
     if normalized != none { return _m(normalized, cf) }
   }
-  if f == math.vec { return math.vec(..c.children.map(x => _restyle(x, cf))) }
+  if f == math.vec {
+    let fields = c.fields()
+    let children = fields.remove("children")
+    return math.vec(..fields, ..children.map(x => _restyle(x, cf)))
+  }
   if f == math.mat {
     let fields = c.fields()
     let rows = fields.remove("rows")
@@ -583,7 +591,11 @@
     let base = fields.remove("base")
     return math.attach($lr((#base))$.body, ..fields)
   }
-  if f == math.lr { return math.lr(_restyle(c.body, cf)) }
+  if f == math.lr {
+    let fields = c.fields()
+    let body = fields.remove("body")
+    return math.lr(..fields, _restyle(body, cf))
+  }
   if f == math.frac { return math.frac(_restyle(c.num, cf), _restyle(c.denom, cf)) }
   if f == math.root { return math.root(c.at("index", default: none), _restyle(c.radicand, cf)) }
   c
@@ -636,7 +648,7 @@
     if type(v) != array { return bad("calculation field '" + k + "' must be an array, got " + repr(type(v))) }
     if not v.all(x => type(x) == str) { return bad("calculation field '" + k + "' must contain strings") }
   }
-  if out.mark not in (none, "=>", "->") { return bad("calculation field 'mark' must be none, '=' or '->', got " + repr(out.mark)) }
+  if out.mark not in (none, "=>", "->") { return bad("calculation field 'mark' must be none, '=>' or '->', got " + repr(out.mark)) }
   if out.result != none and type(out.result) != str { return bad("calculation field 'result' must be none or a string, got " + repr(type(out.result))) }
   r
 }

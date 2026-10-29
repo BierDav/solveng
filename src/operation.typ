@@ -34,6 +34,8 @@
   }
   if c.has("children") { return c.children.map(_references).fold((:), (a, b) => a + b) }
   if c.has("body") { return _references(c.body) }
+  if c.func() == math.root { return _references(c.radicand) + _references(c.at("index", default: [])) }
+  if c.func() == math.mat { return c.rows.flatten().map(_references).fold((:), (a, b) => a + b) }
   if c.func() == math.frac { return _references(c.num) + _references(c.denom) }
   if c.func() == math.attach { return _references(c.base) + _references(c.fields().at("t", default: [])) + _references(c.fields().at("b", default: [])) }
   (:)

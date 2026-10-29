@@ -87,13 +87,21 @@ fn forward(e: &Expr, x: &str, s: &Expr, depth: usize) -> Option<Expr> {
 /// measure, including rect's half-height endpoints and sgn's value at zero.
 fn signal(f: Func, a: Expr, b: Expr, s: &Expr) -> Option<Expr> {
     if b.is_zero() {
+        if crate::eval::complex_value(&a).is_ok_and(|value| !value.is_real()) { return None; }
         let scale = simp(&func(Func::Abs, a.clone()));
         let decay = |end: Expr| func(Func::Exp, neg(mul(vec![s.clone(), end])));
-        return Some(match f {
-            Func::Rect => div(sub(int(1), decay(div(int(1), mul(vec![int(2), scale])))), s.clone()),
-            Func::Tri => sub(div(int(1), s.clone()), div(mul(vec![scale.clone(), sub(int(1), decay(div(int(1), scale)))]), pow(s.clone(), int(2)))),
-            Func::Sgn => div(div(a, scale), s.clone()),
+        let result = match f {
+            Func::Rect => div(sub(int(1), decay(div(int(1), mul(vec![int(2), scale.clone()])))), s.clone()),
+            Func::Tri => sub(div(int(1), s.clone()), div(mul(vec![scale.clone(), sub(int(1), decay(div(int(1), scale.clone())))]), pow(s.clone(), int(2)))),
+            Func::Sgn => div(div(a.clone(), scale.clone()), s.clone()),
             _ => return None,
+        };
+        let result = if scale.syms().is_empty() { result } else {
+            Expr::Cases(vec![(result, Expr::Cmp(vec![scale, int(0)], vec![crate::parse::Rel::Ne])),
+                (if f == Func::Sgn { int(0) } else { div(int(1), s.clone()) }, int(1))])
+        };
+        return Some(if a.syms().is_empty() { result } else {
+            Expr::Cases(vec![(result, Expr::Cmp(vec![func(Func::Im, a), int(0)], vec![crate::parse::Rel::Eq]))])
         });
     }
     // Shifted signals need ordered corners. Only use known real numeric
@@ -181,11 +189,11 @@ pub(crate) fn backward_symbolic(e: &Expr, s: &str, t: &Expr) -> Option<Expr> {
         let p = simp(&div(n.get(1).cloned().unwrap_or(int(0)), a.clone()));
         let q = simp(&sub(div(n[0].clone(), a), mul(vec![p.clone(), shift.clone()])));
         let inner = if w2.is_zero() {
-            add(vec![p, mul(vec![q, t.clone()])])
+            add(vec![p.clone(), mul(vec![q.clone(), t.clone()])])
         } else {
             let hyperbolic = w2.as_num().is_some_and(|n| n.is_neg())
                 || matches!(&w2, Expr::Mul(fs) if fs.first().and_then(Expr::as_num).is_some_and(|n| n.is_neg()));
-            let square = simp(&if hyperbolic { neg(w2) } else { w2 });
+            let square = simp(&if hyperbolic { neg(w2.clone()) } else { w2.clone() });
             // Both cos(w t) and sin(w t)/w are invariant under w -> -w,
             // so a symbolic square needs no absolute value or sign assumption.
             let w = match &square {
@@ -193,8 +201,12 @@ pub(crate) fn backward_symbolic(e: &Expr, s: &str, t: &Expr) -> Option<Expr> {
                 _ => simp(&sqrt(square)),
             };
             let wt = mul(vec![w.clone(), t.clone()]);
-            add(vec![mul(vec![p, func(if hyperbolic { Func::Cosh } else { Func::Cos }, wt.clone())]), mul(vec![div(q, w), func(if hyperbolic { Func::Sinh } else { Func::Sin }, wt)])])
+            add(vec![mul(vec![p.clone(), func(if hyperbolic { Func::Cosh } else { Func::Cos }, wt.clone())]), mul(vec![div(q.clone(), w), func(if hyperbolic { Func::Sinh } else { Func::Sin }, wt)])])
         };
+        let inner = if !w2.syms().is_empty() {
+            Expr::Cases(vec![(inner, Expr::Cmp(vec![w2, int(0)], vec![crate::parse::Rel::Ne])),
+                (add(vec![p.clone(), mul(vec![q.clone(), t.clone()])]), int(1))])
+        } else { inner };
         return Some(mul(vec![func(Func::Exp, neg(mul(vec![shift, t.clone()]))), inner]));
     }
     Some(add(partial_fractions(&num, &den, s)?.into_iter().map(|(root, j, coefficient)| {

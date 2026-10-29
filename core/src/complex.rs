@@ -84,7 +84,11 @@ impl Z {
     }
     /// The principal logarithm.
     pub fn ln(self) -> Z {
-        Z::new(self.abs().ln(), self.arg())
+        let scale = self.re.abs().max(self.im.abs());
+        let magnitude = if scale == 0.0 { f64::NEG_INFINITY } else {
+            scale.ln() + (self.re / scale).hypot(self.im / scale).ln()
+        };
+        Z::new(magnitude, self.arg())
     }
     /// The principal square root.
     pub fn sqrt(self) -> Z {
@@ -137,11 +141,40 @@ impl Z {
     pub fn cosh(self) -> Z {
         Z::new(self.re.cosh() * self.im.cos(), self.re.sinh() * self.im.sin())
     }
+    pub fn tanh(self) -> Z {
+        if self.re.abs() > 20.0 {
+            let q = (-2.0 * self.re.abs()).exp();
+            let d = 1.0 + q*q + 2.0*q*(2.0*self.im).cos();
+            Z::new(((1.0-q*q)/d).copysign(self.re), 2.0*q*(2.0*self.im).sin()/d)
+        } else { self.sinh().div(self.cosh()) }
+    }
     /// asin z = −i ln(iz + √(1 − z²))
     pub fn asin(self) -> Z {
+        // The analytic series avoids cancellation in ln(1 + O(z)) near zero.
+        if self.abs() <= 0.5 {
+            let zz = self.mul(self);
+            let mut term = self;
+            let mut sum = term;
+            for n in 1..80 {
+                let k = n as f64;
+                term = term.mul(zz).scale((2.0*k-1.0).powi(2)/(2.0*k*(2.0*k+1.0)));
+                let next = sum.add(term);
+                if next == sum { break; }
+                sum = next;
+            }
+            return sum;
+        }
         if self.im == 0.0 && self.re.abs() > 1.0 {
             return Z::new(std::f64::consts::FRAC_PI_2.copysign(self.re), -self.re.abs().acosh().copysign(self.re));
         }
+        // Conjugate to the lower half-plane so the logarithm adds rather
+        // than subtracts nearly equal magnitudes. At large magnitudes, use
+        // the asymptotic form before squaring can overflow; its omitted terms
+        // are far below machine precision.
+        if self.re.abs().max(self.im.abs()) > 1e150 {
+            return Z::new(self.re.atan2(self.im.abs()), (self.ln().re + std::f64::consts::LN_2).copysign(self.im));
+        }
+        if self.im > 0.0 { return self.conj().asin().conj(); }
         let root = Z::real(1.0).sub(self.mul(self)).sqrt();
         Z::I.mul(self).add(root).ln().mul(Z::I).neg()
     }
@@ -151,12 +184,25 @@ impl Z {
     }
     /// atan z = i/2 · ln((i + z)/(i − z))
     pub fn atan(self) -> Z {
+        if self.abs() <= 0.5 {
+            let zz = self.mul(self).neg();
+            let mut power = self;
+            let mut sum = power;
+            for n in 1..80 {
+                power = power.mul(zz);
+                let next = sum.add(power.scale(1.0/(2*n+1) as f64));
+                if next == sum { break; }
+                sum = next;
+            }
+            return sum;
+        }
         Z::I.add(self).div(Z::I.sub(self)).ln().mul(Z::new(0.0, 0.5))
     }
     /// Parts much smaller than the whole are rounding noise of the other part's calculation (cos(π/2) for 0):
     /// they become 0.
     pub fn cleaned(self) -> Z {
-        let m = self.abs();
+        if !self.is_finite() { return self; }
+        let m = self.re.abs().max(self.im.abs());
         let tiny = |x: f64| x.abs() <= 1e-14 * m;
         Z::new(if tiny(self.re) { 0.0 } else { self.re }, if tiny(self.im) { 0.0 } else { self.im })
     }

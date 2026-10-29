@@ -356,7 +356,7 @@ impl Num {
         if b < 0.0 && x.fract() != 0.0 {
             return None;
         }
-        let v = if x.fract() == 0.0 && x.abs() < 1e9 { b.powi(x as i32) } else { b.powf(x) };
+        let v = if x.fract() == 0.0 && x.abs() < 1e9 { float_powi(b, x as i32) } else { b.powf(x) };
         Some(Num::F(v))
     }
     pub fn cmp(self, o: Num) -> Ordering {
@@ -372,6 +372,15 @@ impl Num {
             _ => close(self.f(), o.f()),
         }
     }
+}
+
+/// Integer floating powers avoid overflow in a positive power before taking
+/// its reciprocal when the final negative power is a representable subnormal.
+pub(crate) fn float_powi(base: f64, exponent: i32) -> f64 {
+    if exponent < 0 && base.abs() > 1.0 {
+        let v = base.powi(exponent);
+        if v == 0.0 { base.powf(exponent as f64) } else { v }
+    } else { base.powi(exponent) }
 }
 
 /// Equal within rounding: 1e-9 relative.

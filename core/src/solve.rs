@@ -66,8 +66,22 @@ pub fn solve1(e: &Expr, x: &str, numeric_params: &dyn Fn(&str) -> bool) -> Resul
             vec![simplify(&expr::div(expr::neg(cs[0].clone()), cs[1].clone()))]
         } else if deg == 2 && !(only_known && cs.iter().any(|c| !c.syms().is_empty())) {
             let (c0, b, a) = (cs[0].clone(), cs[1].clone(), cs[2].clone());
-            let disc = simplify(&expr::sub(expr::pow(b.clone(), int(2)), expr::mul(vec![int(4), a.clone(), c0.clone()])));
-            if b.is_zero() {
+            // If radical intermediates overflow, compute a scaled numerical
+            // quadratic instead. Both roots can be finite even when b² is not.
+            let numerical = cs.iter().map(|c| crate::eval::complex_value(c).ok()).collect::<Option<Vec<_>>>();
+            let unstable = numerical.as_ref().is_some_and(|v| {
+                !v[1].z().mul(v[1].z()).is_finite() || !v[0].z().mul(v[2].z()).scale(4.0).is_finite()
+            });
+            let disc = if unstable { int(0) } else {
+                simplify(&expr::sub(expr::pow(b.clone(), int(2)), expr::mul(vec![int(4), a.clone(), c0.clone()])))
+            };
+            if unstable {
+                let values = numerical.unwrap();
+                let dx = poly_dim(&values.iter().map(|z| if z.re.v.is_zero() { z.im.clone() } else { z.re.clone() }).collect::<Vec<_>>()).unwrap_or(Dim::ONE);
+                complex_roots(&values.iter().map(CVal::z).collect::<Vec<_>>()).into_iter().map(|z| {
+                    crate::complex::expr(CVal { re: Val::new(Num::F(z.re), dx.clone()), im: Val::new(Num::F(z.im), dx.clone()) })
+                }).collect()
+            } else if b.is_zero() {
                 let square = simplify(&expr::div(expr::neg(c0), a));
                 if square.is_zero() { vec![int(0)] }
                 else if let Some(root) = root(square) {
@@ -98,19 +112,35 @@ pub fn solve1(e: &Expr, x: &str, numeric_params: &dyn Fn(&str) -> bool) -> Resul
             (0..deg).map(|i| Expr::Op(crate::linalg::Op::At, vec![roots.clone(), int(i as i128)])).collect()
         } else if cs.iter().all(|c| c.syms().is_empty()) {
             // numbers only: every root, the real ones exactly where they can be
-            let Some(cz) = cs.iter().map(crate::complex::parts).collect::<Option<Vec<CVal>>>() else { return Err(Fail::NotSymbolic) };
+            // Translate by the exact centroid before converting coefficients to
+            // floats. Otherwise a tiny perturbation of (x-a)^n disappears in
+            // the expanded constant term and independent solvers invent roots.
+            let shift = simplify(&expr::div(expr::neg(cs[deg-1].clone()), expr::mul(vec![int(deg as i128), cs[deg].clone()])));
+            let shifted = coeffs(&n.subst(x, &expr::add(vec![expr::sym(x), shift.clone()])), x);
+            let cs = shifted.as_ref().unwrap_or(&cs);
+            let Some(cz) = cs.iter().map(|c| crate::eval::complex_value(c).ok()).collect::<Option<Vec<CVal>>>() else { return Err(Fail::NotSymbolic) };
+            let offset = if shifted.is_some() { crate::eval::complex_value(&shift).ok().map(|v| v.z()).unwrap_or(Z::real(0.0)) } else { Z::real(0.0) };
             let dx = poly_dim(&cz.iter().map(|z| if z.re.v.is_zero() { z.im.clone() } else { z.re.clone() }).collect::<Vec<_>>()).unwrap_or(Dim::ONE);
             let val = |x: f64| Val::new(snap(x), dx.clone());
-            let all = complex_roots(&cz.iter().map(CVal::z).collect::<Vec<_>>());
             let complex = |z: &Z| z.im.abs() > 1e-9 * z.abs();
             let mut out: Vec<Expr> = vec![];
             if cz.iter().all(CVal::is_real) {
-                out.extend(roots(&cz.iter().map(|z| z.re.v.f()).collect::<Vec<_>>()).into_iter().map(|r| Expr::C(val(r))));
+                let real = roots(&cz.iter().map(|z| z.re.v.f()).collect::<Vec<_>>());
+                // Remove proven rational roots with their full multiplicity
+                // before a floating complex iteration. Repeated real roots
+                // otherwise split into spurious tiny conjugate pairs.
+                let mut remaining: Vec<Num> = cz.iter().map(|z| z.re.v).collect();
+                for &root in &real {
+                    while let Some(quotient) = deflate_exact(&remaining, snap(root)) { remaining = quotient; }
+                }
+                let all = complex_roots(&remaining.iter().map(|v| Z::real(v.f())).collect::<Vec<_>>());
+                out.extend(real.into_iter().map(|r| Expr::C(val(r))));
                 out.extend(all.iter().filter(|z| complex(z)).map(|z| crate::complex::expr(CVal { re: val(z.re), im: val(z.im) })));
             } else {
+                let all = complex_roots(&cz.iter().map(CVal::z).collect::<Vec<_>>());
                 out.extend(all.iter().map(|z| if complex(z) { crate::complex::expr(CVal { re: val(z.re), im: val(z.im) }) } else { Expr::C(val(z.re)) }));
             }
-            out
+            out.into_iter().map(|value| if offset == Z::real(0.0) { value } else { simplify(&expr::add(vec![value, shift.clone()])) }).collect()
         } else {
             return Err(Fail::NotSymbolic);
         };
@@ -118,34 +148,26 @@ pub fn solve1(e: &Expr, x: &str, numeric_params: &dyn Fn(&str) -> bool) -> Resul
         let sols = sols.into_iter().filter(|s| !simp(&d.subst(x, s)).is_zero()).collect();
         return Ok(sols);
     }
-    // x once: isolate it
-    if count(&e, x) == 1 {
-        if let Some(s) = isolate(e.clone(), int(0), x) {
-            let s = simplify(&s);
-            // Inverse operations (squaring, exponentiating) may introduce roots.
-            // Validate whenever substitution leaves a fully numeric equation.
-            let residual = simp(&e.subst(x, &s));
-            if residual.syms().is_empty() {
-                let valid = crate::eval::complex_value(&residual)
-                    .is_ok_and(|v| v.z().abs() <= 1e-9);
-                if !valid { return Ok(vec![]); }
+    // Inverting an outer function exposes a new equation, whose polynomial
+    // preimages must all be solved rather than choosing a single radical.
+    for numerator in [&e, &n] {
+        if count(numerator, x) != 1 { continue; }
+        if let Some(candidates) = isolate_all(numerator.clone(), int(0), x, numeric_params) {
+            let mut out = vec![];
+            for candidate in candidates {
+                let candidate = simplify(&candidate);
+                let substituted = e.subst(x, &candidate);
+                let residual = simp(&substituted);
+                if residual.syms().is_empty() {
+                    let scale = match &substituted {
+                        Expr::Add(terms) => terms.iter().filter_map(|term| crate::eval::complex_value(term).ok()).map(|v| v.z().abs()).fold(0.0_f64, f64::max),
+                        _ => crate::eval::complex_value(&residual).map_or(0.0, |v| v.z().abs()),
+                    };
+                    if !crate::eval::complex_value(&residual).is_ok_and(|v| v.z().abs() <= 1e-9 * scale) { continue; }
+                }
+                if !out.contains(&candidate) { out.push(candidate); }
             }
-            return Ok(vec![s]);
-        }
-    }
-    // both sides over one denominator may leave x once: (x + 1)/x = 3
-    if count(&n, x) == 1 {
-        if let Some(s) = isolate(n.clone(), int(0), x) {
-            let s = simplify(&s);
-            // Inverse operations (squaring, exponentiating) may introduce roots.
-            // Validate whenever substitution leaves a fully numeric equation.
-            let residual = simp(&e.subst(x, &s));
-            if residual.syms().is_empty() {
-                let valid = crate::eval::complex_value(&residual)
-                    .is_ok_and(|v| v.z().abs() <= 1e-9);
-                if !valid { return Ok(vec![]); }
-            }
-            return Ok(vec![s]);
+            return Ok(out);
         }
     }
     Err(Fail::NotSymbolic)
@@ -270,55 +292,41 @@ fn count(e: &Expr, x: &str) -> usize {
     }
 }
 
-/// l = r with x once in l: undo what's done to x, outside in.
-fn isolate(mut l: Expr, mut r: Expr, x: &str) -> Option<Expr> {
-    if !l.has(x) {
-        std::mem::swap(&mut l, &mut r);
-    }
-    let mut steps = 0;
-    while l != Expr::Sym(x.to_string()) {
-        steps += 1;
-        if steps > 200 {
-            return None;
-        }
+fn isolate_all(mut l: Expr, mut r: Expr, x: &str, numeric_params: &dyn Fn(&str) -> bool) -> Option<Vec<Expr>> {
+    if !l.has(x) { std::mem::swap(&mut l, &mut r); }
+    for _ in 0..200 {
+        if l == expr::sym(x) { return Some(vec![r]); }
         match l {
-            Expr::Add(ts) => {
-                let (inx, rest): (Vec<Expr>, Vec<Expr>) = ts.into_iter().partition(|t| t.has(x));
-                r = expr::sub(r, expr::add(rest));
-                l = inx.into_iter().next()?;
+            Expr::Add(terms) => {
+                let (varying, fixed): (Vec<_>, Vec<_>) = terms.into_iter().partition(|term| term.has(x));
+                r = expr::sub(r, expr::add(fixed)); l = varying.into_iter().next()?;
             }
-            Expr::Mul(fs) => {
-                let (inx, rest): (Vec<Expr>, Vec<Expr>) = fs.into_iter().partition(|t| t.has(x));
-                r = expr::div(r, expr::mul(rest));
-                l = inx.into_iter().next()?;
+            Expr::Mul(factors) => {
+                let (varying, fixed): (Vec<_>, Vec<_>) = factors.into_iter().partition(|term| term.has(x));
+                r = expr::div(r, expr::mul(fixed)); l = varying.into_iter().next()?;
             }
-            Expr::Pow(b, k) => {
-                if b.has(x) {
-                    // x^k = r → x = r^(1/k); even powers only the positive root (polynomials give both)
-                    r = expr::pow(r, expr::pow(*k, int(-1)));
-                    l = *b;
-                } else {
-                    // b^k = r → k = ln r / ln b
-                    r = if *b == Expr::E { expr::func(Func::Ln, r) } else { expr::div(expr::func(Func::Ln, r), expr::func(Func::Ln, *b)) };
-                    l = *k;
+            Expr::Pow(base, exponent) if base.has(x) => {
+                let target = simp(&expr::pow(r, expr::pow((*exponent).clone(), int(-1))));
+                let mut targets = vec![target.clone()];
+                if exponent.as_num().and_then(Num::rat).is_some_and(|q| q.numer() % 2 == 0) && !target.is_zero() {
+                    targets.push(expr::neg(target));
                 }
+                let mut out = vec![];
+                for target in targets { out.extend(solve1(&expr::sub((*base).clone(), target), x, numeric_params).ok()?); }
+                return Some(out);
             }
-            Expr::F(f, a) => {
-                r = match f {
-                    Func::Log => expr::pow(int(10), r),
-                    Func::Abs | Func::Cosh => return None,
-                    _ => expr::func(f.inverse().or(match f {
-                        Func::Sinh | Func::Tanh => None,
-                        _ => None,
-                    })?, r),
-                };
-                l = *a;
+            Expr::Pow(base, exponent) => {
+                r = if *base == Expr::E { expr::func(Func::Ln, r) } else { expr::div(expr::func(Func::Ln, r), expr::func(Func::Ln, *base)) };
+                l = *exponent;
             }
-            Expr::Number(..) | Expr::Cmp(..) => return None,
+            Expr::F(f, argument) => {
+                r = match f { Func::Log => expr::pow(int(10), r), Func::Abs | Func::Cosh => return None, _ => expr::func(f.inverse()?, r) };
+                l = *argument;
+            }
             _ => return None,
         }
     }
-    Some(r)
+    None
 }
 
 // ---------- numeric ----------
@@ -386,6 +394,50 @@ pub fn roots(c: &[f64]) -> Vec<f64> {
     uniq(rs)
 }
 
+// Synthetic division is accepted only with an exact zero remainder.
+fn deflate_exact(coefficients: &[Num], root: Num) -> Option<Vec<Num>> {
+    let n = coefficients.len().checked_sub(1)?;
+    if n == 0 { return None; }
+    let root = root.rat()?;
+    let c = coefficients.iter().map(|v| v.rat()).collect::<Option<Vec<_>>>()?;
+    let mut q = vec![Rat::ZERO; n];
+    q[n - 1] = c[n];
+    for i in (1..n).rev() { q[i - 1] = c[i].add(q[i].mul(root)?)?; }
+    c[0].add(q[0].mul(root)?)?.is_zero().then(|| q.into_iter().map(Num::R).collect())
+}
+
+// Unit complex phase and logarithmic magnitude keep coefficient ratios finite
+// even when their unscaled quotient is outside the floating-point range.
+fn polar(z: Z) -> (Z, f64) {
+    let scale = z.re.abs().max(z.im.abs());
+    if scale == 0.0 { return (Z::real(0.0), f64::NEG_INFINITY); }
+    let scaled = Z::new(z.re / scale, z.im / scale);
+    let mag = scaled.abs();
+    (scaled.scale(1.0 / mag), scale.ln() + mag.ln())
+}
+fn from_polar(phase: Z, log_magnitude: f64) -> Z {
+    let part = |v: f64| if v == 0.0 { 0.0 } else { (log_magnitude + v.abs().ln()).exp().copysign(v) };
+    Z::new(part(phase.re), part(phase.im))
+}
+fn quadratic_roots(c: &[Z]) -> Vec<Z> {
+    let (a, la) = polar(c[2]);
+    let (b, lb) = polar(c[1]);
+    let (constant, lc) = polar(c[0]);
+    if c[1] == Z::real(0.0) {
+        let root = from_polar(constant.neg().div(a).sqrt(), (lc-la)*0.5);
+        return vec![root.neg(), root];
+    }
+    let scale = lb.max((la + lc + 4f64.ln())*0.5);
+    let bs = from_polar(b, lb-scale);
+    let ac = from_polar(a.mul(constant), la+lc-2.0*scale);
+    let mut d = bs.mul(bs).sub(ac.scale(4.0)).sqrt();
+    // Choose the sum with larger magnitude to avoid cancellation; recover
+    // the other root with Vieta's product rather than subtracting radicals.
+    if bs.re*d.re + bs.im*d.im < 0.0 { d = d.neg(); }
+    let (q, lq) = polar(bs.add(d).scale(-0.5));
+    vec![from_polar(q.div(a), lq+scale-la), from_polar(constant.div(q), lc-lq-scale)]
+}
+
 /// Every root of Σ c_k x^k with complex coefficients (Durand–Kerner, then Newton), in order of their real parts.
 pub fn complex_roots(c: &[Z]) -> Vec<Z> {
     let zero = |z: &Z| z.re == 0.0 && z.im == 0.0;
@@ -400,10 +452,23 @@ pub fn complex_roots(c: &[Z]) -> Vec<Z> {
     if n == 0 {
         return out;
     }
-    // monic and rescaled, so that the roots are of size ~1
-    let r0 = c[0].div(c[n]).abs().powf(1.0 / n as f64);
-    let r0 = if r0 > 0.0 && r0.is_finite() { r0 } else { 1.0 };
-    let m: Vec<Z> = (0..=n).map(|i| c[i].div(c[n]).scale(r0.powi(i as i32 - n as i32))).collect();
+    if n <= 2 {
+        if n == 1 {
+            let (p0, l0) = polar(c[0]);
+            let (p1, l1) = polar(c[1]);
+            out.push(from_polar(p0.neg().div(p1), l0-l1));
+        } else { out.extend(quadratic_roots(c)); }
+        out.sort_by(|a,b| a.re.total_cmp(&b.re).then(a.im.total_cmp(&b.im)));
+        return out;
+    }
+    // Monic and rescaled, without first forming overflowing coefficient ratios.
+    let (phase_n, log_n) = polar(c[n]);
+    let log_r0 = (polar(c[0]).1-log_n) / n as f64;
+    let r0 = log_r0.exp();
+    let m: Vec<Z> = (0..=n).map(|i| {
+        let (phase, magnitude) = polar(c[i]);
+        from_polar(phase.div(phase_n), magnitude-log_n+(i as f64-n as f64)*log_r0)
+    }).collect();
     let p = |z: Z| (0..=n).rev().fold((Z::real(0.0), Z::real(0.0)), |(v, g), i| (v.mul(z).add(m[i]), g.mul(z).add(v)));
     let mut zs: Vec<Z> = (0..n).map(|k| {
         let t = 2.0 * std::f64::consts::PI * k as f64 / n as f64 + 0.4;
@@ -915,7 +980,7 @@ pub fn infer_dims(eqs: &[(Expr, Expr)], xs: &[String], known: &dyn Fn(&str) -> O
         for (k, z) in rows[i][n..].iter().enumerate() {
             let q = Rat::approx(*z, 60).ok_or("a unit to a power that isn't a simple fraction")?;
             let power = (q.mul(Rat::int(60)).unwrap().to_f64().round()) as i32;
-            if power != 0 { d.0.insert(identities[k].clone(), power); }
+            if power != 0 { d.0.insert(identities[k].clone(), power.into()); }
         }
         out[col] = Some(d);
     }

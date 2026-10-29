@@ -525,6 +525,10 @@ impl<'a> Lower<'a> {
                 if k > 0 { factorial *= k as i128; }
                 let coefficient = simp(&derivative.subst(var, &center));
                 if coefficient.contains(&|e| matches!(e, Expr::Derivative(..))) { return Err("taylor: derivative is unsupported".into()); }
+                // Undefined coefficients must not be hidden inside a symbolic polynomial.
+                if let Err(crate::eval::NoValue::Error(message)) = crate::eval::complex_value(&coefficient) {
+                    return Err(format!("taylor: derivative is undefined at the center: {message}"));
+                }
                 terms.push(expr::div(expr::mul(vec![coefficient, expr::pow(expr::sub(Expr::Sym(var.clone()), center.clone()), expr::int(k as i128))]), expr::int(factorial)));
                 derivative = derivative.diff(var);
             }
@@ -778,17 +782,42 @@ pub fn range(start: Val, end: Val, step: Option<Val>, inclusive: bool) -> Result
     if step.v.is_zero() {
         return Err("range: the step can't be 0".into());
     }
-    let span = end.v.sub(start.v).f() / step.v.f();
+    let difference = end.v.sub(start.v);
+    let exact_span = difference.div(step.v);
+    let mut span = exact_span.map_or(f64::NAN, Num::f);
+    if !span.is_finite() && start.v.f().is_finite() && end.v.f().is_finite() && step.v.f().is_finite() {
+        let scale = start.v.f().abs().max(end.v.f().abs()).max(step.v.f().abs());
+        span = (end.v.f() / scale - start.v.f() / scale) / (step.v.f() / scale);
+    }
     if !span.is_finite() {
         return Err("a range needs finite bounds".into());
     }
-    // the last index: within rounding of the end, which counts when the range includes it
-    let last = if inclusive { (span + 1e-9).floor() } else { (span - 1e-9).ceil() - 1.0 };
+    // Exact rational endpoints determine inclusion exactly. A fixed tolerance
+    // in index space would discard short nonempty ranges and near-integer ends.
+    let last = if let Some(Num::R(r)) = exact_span {
+        if r.is_neg() { -1.0 } else {
+            let q = r.numer() / r.denom();
+            let remainder = r.numer() % r.denom();
+            if inclusive { q as f64 } else if remainder == 0 { q as f64 - 1.0 } else { q as f64 }
+        }
+    } else {
+        if inclusive { span.floor() } else { span.ceil() - 1.0 }
+    };
     if last >= 100_000.0 {
         return Err(format!("a range of {} values is too long – at most 100000", last + 1.0));
     }
     let count = if last < 0.0 { 0 } else { last as i128 + 1 };
-    Ok(Expr::Vector((0..count).map(|k| Expr::C(Val::new(start.v.add(step.v.mul(Num::int(k))), start.d.clone()))).collect()))
+    let mut values = Vec::with_capacity(count as usize);
+    for k in 0..count {
+        let mut value = start.v.add(step.v.mul(Num::int(k)));
+        if !value.f().is_finite() {
+            let scale = start.v.f().abs().max(step.v.f().abs());
+            value = Num::F((start.v.f() / scale + (step.v.f() / scale) * k as f64) * scale);
+        }
+        if !value.f().is_finite() { return Err("range: generated value is outside the finite range".into()); }
+        values.push(Expr::C(Val::new(value, start.d.clone())));
+    }
+    Ok(Expr::Vector(values))
 }
 
 /// e^(p/q) for a value's dims with a rational exponent.

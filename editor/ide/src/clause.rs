@@ -77,6 +77,8 @@ fn calls(tail: &str, modifier: Modifiers) -> Vec<(usize, usize, Modifier)> {
 /// that only a unit and modifiers follow. Its range in characters, and whether it's an arrow. `unit` says which words
 /// are units: the unit bindings in scope; `modifier` which are modifiers.
 pub(crate) fn marker(text: &[char], unit: &dyn Fn(&str) -> bool, modifier: Modifiers) -> Option<(usize, usize, bool)> {
+    let clean = crate::text::without_math_comments(text);
+    let text = clean.as_slice();
     let n = text.len();
     let (mut depth, mut quoted) = (0i32, false);
     let (mut arrow, mut equals) = (None, None);

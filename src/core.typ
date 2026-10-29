@@ -30,12 +30,12 @@
     return _st.update(_restart)
   }
   if ns.len() == 0 { return _err-now("clear: which names – clear(\"x\", \"f\") – or every one, clear(all: true)") }
-  let bad = ns.find(n => type(n) != str and not (type(n) == content and n.func() == math.equation))
-  if bad != none { return _err-now("clear: names as strings or math, clear(\"x\", $f$), got " + _tn(bad)) }
+  let bad = ns.filter(n => type(n) != str and not (type(n) == content and n.func() == math.equation))
+  if bad.len() > 0 { return _err-now("clear: names as strings or math, clear(\"x\", $f$), got " + _tn(bad.first())) }
   let req = ns.map(n => if type(n) == str { n } else { let s = _src(n.body); if _E(s) { repr(n.body) } else { s } })
   _st.update(s => {
     let r = _call(_p.clear, _env(s), (names: req))
     s + (env: r.env, last: _out(errors: r.errors, operation: "clear"))
   })
-  context { let cf = _cf.get(); _st.get().last.errors.map(m => _errc(m, cf, wide: true)).join() }
+  context { let cf = _cf.get(); let errors = _st.get().last.errors; errors.map(m => _errc(m, cf, wide: true)).join() + errors.map(m => [#metadata((kind: "error", element: none, message: m, source: ""))<solveng>]).join() }
 }

@@ -84,6 +84,11 @@ fn capabilities() -> Value {
 /// The path of a `file://` URI.
 fn path_of(uri: &str) -> Option<PathBuf> {
     let rest = uri.strip_prefix("file://")?;
+    let rest = if rest.starts_with('/') { rest } else {
+        let (authority, _) = rest.split_once('/')?;
+        if !authority.eq_ignore_ascii_case("localhost") { return None; }
+        &rest[authority.len()..]
+    };
     let bytes = rest.as_bytes();
     let mut out = Vec::new();
     let mut i = 0;
@@ -97,7 +102,7 @@ fn path_of(uri: &str) -> Option<PathBuf> {
         out.push(bytes[i]);
         i += 1;
     }
-    Some(PathBuf::from(String::from_utf8(out).ok()?))
+    Some(normalized(PathBuf::from(String::from_utf8(out).ok()?)))
 }
 
 /// The `file://` URI of a path, with anything but unreserved characters and `/` escaped.
@@ -111,6 +116,11 @@ fn uri_of(path: &Path) -> String {
         }
     }
     out
+}
+
+/// One key per local file, independent of URI escaping or localhost spelling.
+fn canonical_uri(uri: &str) -> String {
+    path_of(uri).map(|path| uri_of(&normalized(path))).unwrap_or_else(||uri.to_owned())
 }
 
 /// Normalize imports lexically so `exercise/../template.typ` matches the module path and open buffer.
@@ -174,7 +184,9 @@ impl Server {
     }
 
     fn text_of(&self, path: &Path) -> Option<String> {
-        self.open.get(&uri_of(path)).cloned().or_else(|| std::fs::read_to_string(path).ok())
+        self.open.get(&uri_of(path)).cloned()
+            .or_else(|| self.open.iter().find(|(uri,_)| path_of(uri).is_some_and(|p| normalized(p) == normalized(path.to_path_buf()))).map(|(_,text)|text.clone()))
+            .or_else(|| std::fs::read_to_string(path).ok())
     }
 
     /// The folder imports starting with `/` and the context's paths are relative to.
@@ -237,7 +249,7 @@ impl Server {
 
     fn document(&self, params: &Value) -> Option<(String, String)> {
         let uri = params["textDocument"]["uri"].as_str()?.to_string();
-        let text = self.open.get(&uri)?.clone();
+        let text = self.open.get(&canonical_uri(&uri)).or_else(||self.open.get(&uri))?.clone();
         Some((uri, text))
     }
 
@@ -338,22 +350,30 @@ impl Server {
             }
             "textDocument/semanticTokens/full" => {
                 let mut data = Vec::new();
+                let utf16: Vec<u16> = text.encode_utf16().collect();
                 let (mut line, mut col) = (0u32, 0u32);
                 for t in ide::document_tokens(&text, &context) {
-                    let l = starts.partition_point(|&s| s <= t.start).saturating_sub(1);
-                    let c = t.start - starts[l];
-                    // Tokens stop at the line's end.
-                    let line_end = starts.get(l + 1).map_or(u32::MAX, |s| s - 1);
-                    let length = t.length.min(line_end.saturating_sub(t.start));
                     let (kind, modifiers) = if t.kind == ide::TokenKind::EVALUATE { (ide::TokenKind::OPERATOR, 1) } else if matches!(t.kind, ide::TokenKind::FUNCTION_CALL | ide::TokenKind::BUILTIN_FUNCTION) { (ide::TokenKind::FUNCTION, 0) } else if t.kind == ide::TokenKind::UNIT_REFERENCE { (ide::TokenKind::COMMENT, 0) } else if t.kind == ide::TokenKind::CONSTANT { (ide::TokenKind::VARIABLE, 2) } else { (t.kind, 0) };
-                    if length == 0 || usize::from(kind) >= TOKEN_TYPES.len() {
-                        continue;
+                    if usize::from(kind) >= TOKEN_TYPES.len() { continue; }
+                    // LSP tokens cannot cross newlines. Emit every line of a
+                    // multiline token instead of truncating its remainder.
+                    let end = (t.start + t.length).min(utf16.len() as u32);
+                    let mut at = t.start;
+                    while at < end {
+                        let l = starts.partition_point(|&s| s <= at).saturating_sub(1);
+                        let next = starts.get(l+1).copied();
+                        let mut line_end = next.map_or(utf16.len() as u32, |v|v-1);
+                        if line_end > starts[l] && utf16[(line_end-1) as usize] == 13 { line_end -= 1; }
+                        let length = end.min(line_end).saturating_sub(at);
+                        if length > 0 {
+                            let c = at-starts[l];
+                            let l = l as u32;
+                            let delta_col = if l == line { c-col } else { c };
+                            data.extend([l-line,delta_col,length,u32::from(kind),modifiers]);
+                            line=l; col=c;
+                        }
+                        at = next.filter(|n|*n <= end).unwrap_or(end);
                     }
-                    let l = l as u32;
-                    let delta_col = if l == line { c - col } else { c };
-                    data.extend([l - line, delta_col, length, u32::from(kind), modifiers]);
-                    line = l;
-                    col = c;
                 }
                 json!({ "data": data })
             }
@@ -366,20 +386,20 @@ impl Server {
         match n.method.as_str() {
             "textDocument/didOpen" => {
                 let uri = p["textDocument"]["uri"].as_str().unwrap_or_default().to_string();
-                self.open.insert(uri.clone(), p["textDocument"]["text"].as_str().unwrap_or_default().to_string());
+                self.open.insert(canonical_uri(&uri), p["textDocument"]["text"].as_str().unwrap_or_default().to_string());
                 self.publish(&uri)
             }
             "textDocument/didChange" => {
                 let uri = p["textDocument"]["uri"].as_str().unwrap_or_default().to_string();
                 // Full sync: the last change is the whole text.
                 if let Some(text) = p["contentChanges"].as_array().and_then(|c| c.last()).and_then(|c| c["text"].as_str()) {
-                    self.open.insert(uri.clone(), text.to_string());
+                    self.open.insert(canonical_uri(&uri), text.to_string());
                 }
                 self.publish(&uri)
             }
             "textDocument/didClose" => {
                 let uri = p["textDocument"]["uri"].as_str().unwrap_or_default().to_string();
-                self.open.remove(&uri);
+                self.open.remove(&canonical_uri(&uri));
                 vec![Notification::new("textDocument/publishDiagnostics".into(), json!({ "uri": uri, "diagnostics": [] }))]
             }
             "workspace/didChangeConfiguration" => {
@@ -399,7 +419,7 @@ impl Server {
     }
 
     fn publish(&self, uri: &str) -> Vec<Notification> {
-        let Some(text) = self.open.get(uri) else { return Vec::new() };
+        let Some(text) = self.open.get(&canonical_uri(uri)).or_else(|| self.open.get(uri)) else { return Vec::new() };
         let starts = line_starts(text);
         let diagnostics: Vec<Value> = ide::diagnostics(text, &self.context(uri, text))
             .into_iter()
@@ -408,3 +428,7 @@ impl Server {
         vec![Notification::new("textDocument/publishDiagnostics".into(), json!({ "uri": uri, "diagnostics": diagnostics }))]
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/audit_20261029/unit.rs"]
+mod audit_unit_20261029;

@@ -56,17 +56,17 @@
 #graph($p(x)$, x-range: (-2, 4), lines: none, errors: "panic")
 // joined: a function's pieces joined through its single points, every mode, and joins to points beyond the graph
 #for l in (auto, none) { for d in (auto, none) { for j in (false, true) { if l != none or d != none { graph($p(x)$, x-range: (-2, 4), lines: l, dots: d, joined: j, errors: "panic") } } } }
-#graph($y(τ) \ p(τ)$, joined: (auto, true), errors: "panic")
+#graph($y(τ) \ p(τ / (1 ms)) dot 1 #V$, joined: (auto, true), errors: "panic")
 #graph($p(x)$, x-range: (0.5, 1.8), y-range: (0, 3), dots: none, joined: true, errors: "panic")
 // auto keeps the worksheet's, curve by curve, through nested worksheets
 #worksheet(scope: "inherit", graph-dots: (auto, "star"), graph-lines: ("dotted", auto))[
   #context assert.eq(_cf.get().graph-dots, ("circle", "star", "triangle", "star"))
   #context assert.eq(_cf.get().graph-lines, ("dotted", "dashed", "dotted", "dash-dotted"))
   #worksheet(graph-dots: ("cross", auto, auto), graph-joined: (auto, true))[
-    #context assert.eq(_cf.get().graph-dots, ("cross", "star", "triangle", "cross"))
+    #context assert.eq(_cf.get().graph-dots, ("cross", "star", "triangle", "cross", "circle", "star", "cross", "star", "circle", "cross", "triangle", "star"))
     #context assert.eq(_cf.get().graph-joined, (false, true))
   ]
-  #graph($y(τ) \ z(τ) \ p(τ)$, dots: (auto, auto, none), joined: (false, auto, true), errors: "panic")
+  #graph($y(τ) \ z(τ) \ p(τ / (1 ms)) dot 1 #V$, dots: (auto, auto, none), joined: (false, auto, true), errors: "panic")
 ]
 // a dot right on a dot of another curve: both drawn, the later smaller
 #graph($y(τ) \ y(τ)$, lines: none, errors: "panic")

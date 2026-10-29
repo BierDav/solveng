@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use regex::Regex;
-use typst_syntax::{LinkedNode, SyntaxKind};
+use typst_syntax::{LinkedNode, SyntaxKind, ast};
 
 use crate::calls::callee;
 use crate::complete::Definition;
@@ -89,7 +89,7 @@ fn options(args: Option<LinkedNode>) -> (bool, bool, Option<ClearAt>) {
 /// The key of a name `clear` takes: `"x"`, `"f()"`, `$Q_0$`; None for other arguments.
 fn clear_key(arg: &LinkedNode) -> Option<String> {
     let text = match arg.kind() {
-        SyntaxKind::Str => arg.get().clone().full_text().trim_matches('"').to_string(),
+        SyntaxKind::Str => arg.get().cast::<ast::Str>()?.get().to_string(),
         SyntaxKind::Equation => arg.get().clone().full_text().trim_matches('$').to_string(),
         _ => return None,
     };

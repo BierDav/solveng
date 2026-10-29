@@ -178,9 +178,9 @@ fn redefinitions_split_usages() {
     let doc = "#show: worksheet\n$x := 1$\n$x := x + 1$\n$y := x$\n";
     assert_eq!(definition(doc, &c, nth(doc, "x", 2)).unwrap().start, nth(doc, "x", 0));
     assert_eq!(definition(doc, &c, nth(doc, "x", 3)).unwrap().start, nth(doc, "x", 1));
-    // what's solved for is defined in the clause
+    // Solving leaves subsequent names undefined unless explicitly assigned.
     let doc = "#show: worksheet\n$x^2 = 4 -> solve(x)$ $y := x$\n";
-    assert_eq!(definition(doc, &c, nth(doc, "x", 2)).unwrap().start, nth(doc, "x", 1));
+    assert!(definition(doc, &c, nth(doc, "x", 2)).is_none());
 }
 
 #[test]

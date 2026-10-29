@@ -57,7 +57,7 @@
       const s = Math.abs(v) < Math.pow(10, -dec) / 2 ? (0).toFixed(dec) : v.toFixed(dec);
       return s.replace('.', spec.sep || '.').replace(/^-/, '−');
     }
-    let s = Math.abs(v) < 1e-12 ? '0' : String(Number(v.toPrecision(Math.max(1, Math.min(spec.digits || 4, 15)))));
+    let s = String(Number(v.toPrecision(Math.max(1, Math.min(spec.digits || 4, 15)))));
     if (s.includes('e')) {
       const [m, e] = s.split('e');
       s = m + ' · 10' + String(Number(e)).replace(/-/g, '⁻').replace(/\d/g, d => '⁰¹²³⁴⁵⁶⁷⁸⁹'[d]);
@@ -77,7 +77,7 @@
   // a legend or tooltip swatch: what the curve draws – its line with its dash, its dot, or both
   function swatch(c) {
     const s = el('svg', {width: 26, height: 12, viewBox: '0 0 26 12'});
-    if (c.legend !== 'dot') el('line', {x1: 1, y1: 6, x2: 25, y2: 6, stroke: c.color, 'stroke-width': 1.8, 'stroke-dasharray': c.dash, 'stroke-linecap': 'round'}, s);
+    if (c.legend !== 'dot') el('line', {x1: 1, y1: 6, x2: 25, y2: 6, stroke: c.color, 'stroke-width': 1.8, 'stroke-dasharray': c.dash, 'stroke-dashoffset': c.phase || 0, 'stroke-linecap': 'round'}, s);
     if (c.legend !== 'line') dotEl(c.corners, 13, 6, (c.legend === 'dot' ? 5 : 4) * PX, c.color, s);
     return s;
   }
@@ -100,7 +100,13 @@
       }
       for (let i = 0; i + 1 < p.length; i++) {
         const [xa, ya] = p[i], [xb, yb] = p[i + 1];
-        if ((x - xa) * (x - xb) <= 0 && xa !== xb) return {x, y: ya + (yb - ya) * (x - xa) / (xb - xa)};
+        if (Math.min(xa, xb) <= x && x <= Math.max(xa, xb) && xa !== xb) {
+          const delta = xb - xa, offset = x - xa;
+          const scale = Math.max(Math.abs(x), Math.abs(xa), Math.abs(xb));
+          const t = Number.isFinite(delta) && Number.isFinite(offset) ? offset / delta :
+            (x / scale - xa / scale) / (xb / scale - xa / scale);
+          return {x, y: Math.sign(ya) !== Math.sign(yb) ? ya * (1 - t) + yb * t : ya + (yb - ya) * t};
+        }
       }
     }
     return best;
@@ -190,7 +196,7 @@
       const c = spec.curves[s.c];
       // joins (joined: true) are faint, as on paper: where the curve has values stays clear
       if (s.line) el('path', {d: 'M' + s.p.map(([x, y]) => X(x).toFixed(2) + ',' + Y(y).toFixed(2)).join('L'), fill: 'none', stroke: c.color, 'stroke-width': 1.7, 'stroke-opacity': s.bridge ? 0.4 : 1,
-        'stroke-dasharray': c.dash, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'clip-path': `url(#${cid})`}, layers);
+        'stroke-dasharray': c.dash, 'stroke-dashoffset': c.phase || 0, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'clip-path': `url(#${cid})`}, layers);
       if (!s.d.length) return;
       const g = el('g', {'clip-path': `url(#${cid}-m)`}, layers);
       // a dot on a dot of another curve is smaller, the one below a ring around it
@@ -357,7 +363,9 @@
   }
 
   const stops = [];
+  let stopped = false;
   function start() {
+    if (stopped) return;
     const st = document.createElement('style'); st.textContent = CSS; document.head.appendChild(st);
     stops.push(() => st.remove());
     const draw = (r, animate) => { try { render(r, animate); } catch (e) { console.error('solveng graph:', e); } };
@@ -384,6 +392,9 @@
     window.addEventListener('resize', resize);
     stops.push(() => { mo.disconnect(); if (io) io.disconnect(); window.removeEventListener('resize', resize); clearTimeout(timer); });
   }
-  window.solvengPlot = {render, source, stop: () => stops.splice(0).forEach(f => f())};
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+  window.solvengPlot = {render, source, stop: () => { stopped = true; stops.splice(0).forEach(f => f()); }};
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start, {once: true});
+    stops.push(() => document.removeEventListener('DOMContentLoaded', start));
+  } else start();
 })();

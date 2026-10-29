@@ -79,6 +79,8 @@
 /// oscillatory/improper integrals, unresolved narrow features, and slowly converging series can exceed the
 /// numerical method's limits. Supply finite bounds or explicit projections when appropriate.
 ///
+/// Gradient curve colors are supported in paged output. Interactive HTML graphs require solid colors; gradient inputs report a document error.
+///
 /// **Data:** a vector of values is plotted as the points through its elements, joined in index order (with a dot at each when there are at most 30): `#graph($y$)` against the zero-based index k (as in `at(y, k)`), `#graph($y(τ)$)` over the vector `tau` of the same length – or over any expression without free names that is one, `y(2 tau)`. Units come from the elements (each vector needs one unit for all its elements; every element must have a value). Function curves can go alongside: `#graph($y(τ) \ c(τ)$)` with a function `c`, or an expression in `tau` (`$2 tau$`), where `tau` stands for the x axis and the function is sampled over it; the x range is from the data's first to last x value unless `x-range` says otherwise, and the units of x and y must agree. Marks work on data too, with linear interpolation between the points: x values, `"roots"` and `"crossings"` (with data and with functions) where the values change sign, `"extrema"` as the local extreme points, and `ymark`. A vector with a free name is several curves instead, one per element (`$vec(t, t^2)$`). For measurements, `lines: none` draws the data as points alone, without the line: `#graph($y(τ) \ c(τ)$, lines: (none, auto))` shows measured points next to the curve `c`.
 ///
 /// **Piecewise functions** (`cases`) break their line where a branch changes with a jump; a value that holds at a single x – `2 & "for" x = 1`, or a point set apart from the line – is drawn as a dot. `joined: true` joins the pieces through them instead. The steps of `rect`, `sgn`, `floor` and `ceil` break the line the same way, without dots for the values right on their edges; with `joined: true` each step is joined by a vertical line.
@@ -115,11 +117,12 @@
   digits: auto, trailing-zeros: auto, decimal-separator: auto, grouping: auto, notation-thresholds: auto, notation: auto, multiplication: auto, number-form: auto,
   max-denominator: auto, fraction-style: auto, prefixes: auto, show-si: auto, preferred-units: auto,
   show-approximation: auto, block: auto, max-solutions: auto, defined-style: auto, errors: auto, show-types: auto,
-  words: auto, chips: auto, unit-style: auto, unit-separator: auto,
+  words: auto, chips: auto, unit-style: auto, unit-separator: auto, constant-displays: auto,
 ) = _mine(context {
-  let lc = _check(_given((digits: digits, trailing-zeros: trailing-zeros, decimal-separator: decimal-separator, grouping: grouping, notation-thresholds: notation-thresholds, notation: notation, multiplication: multiplication, number-form: number-form, max-denominator: max-denominator, fraction-style: fraction-style, prefixes: prefixes, show-si: show-si, preferred-units: preferred-units, show-approximation: show-approximation, block: block, max-solutions: max-solutions, defined-style: defined-style, errors: errors, show-types: show-types, words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator)) + _given((graph-colors: colors, graph-lines: lines, graph-dots: dots, graph-joined: joined)).pairs().map(((k, v)) => (k, _graph-style(k, v))).filter(((k, v)) => not _E(v)).to-dict())
+  let lc = _check(_given((digits: digits, trailing-zeros: trailing-zeros, decimal-separator: decimal-separator, grouping: grouping, notation-thresholds: notation-thresholds, notation: notation, multiplication: multiplication, number-form: number-form, max-denominator: max-denominator, fraction-style: fraction-style, prefixes: prefixes, show-si: show-si, preferred-units: preferred-units, show-approximation: show-approximation, block: block, max-solutions: max-solutions, defined-style: defined-style, errors: errors, show-types: show-types, words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator, constant-displays: constant-displays)) + _given((graph-colors: colors, graph-lines: lines, graph-dots: dots, graph-joined: joined)).pairs().map(((k, v)) => (k, _graph-style(k, v))).filter(((k, v)) => not _E(v)).to-dict())
   if _E(lc) { return _errc("graph: " + lc.err, _cf.get(), wide: true) }
-  let cf = _merge(_cf.get(), lc)
+  let outer = _cf.get()
+  let cf = _merge(outer, lc) + (constant-displays: outer.at("constant-displays", default: (:)) + lc.at("constant-displays", default: (:)))
   // shown, and reported as a problem of the document, as a worksheet's are
   let fail(m) = _errc("graph: " + m, cf, wide: true) + [#metadata((kind: "error", element: none, message: "graph: " + m, source: ""))<solveng>]
   // types
@@ -140,6 +143,7 @@
   let gone = (xrange: "use x-range", yrange: "use y-range", x: "x is the one variable of the curves that isn't defined", xunit: "x's unit comes from a function parameter with a unit (q(I: mA)), x-range or the marks", yunit: "y's unit comes from the curves; preferred-units: (\"mW\",) picks another", builtin-units: "units are Typst bindings: #import units: …", units: "units are Typst bindings: #import units: …, or unit($…$)", dashes: "lines: the line style per curve, like (\"solid\", \"dashed\"); none draws no line", draw: "lines: none (only dots), dots: none (only lines) and joined: true (everything joined with a line), per curve")
   let old = args.named().keys().find(k => k in gone)
   if old != none { return fail(old + ": is gone – " + gone.at(old)) }
+  if args.named().len() > 0 { return fail("unknown argument '" + args.named().keys().first() + "' for graph") }
   for (name, u) in (("x-unit", x-unit), ("y-unit", y-unit)) {
     if u != auto and (type(u) != content or u.func() != math.equation) { return fail(name + ": a math unit expression") }
   }
@@ -147,24 +151,25 @@
   for c in curves {
     if c.keys().any(k => k not in ("expression", "color", "line", "dot", "joined")) { return fail("curve: unknown field") }
     for (key, value) in c {
-      if key != "expression" { let checked = _graph-style((color: "colors", line: "lines", dot: "dots", joined: "joined").at(key), value); if _E(checked) { return fail(checked.err) } }
+      if key != "expression" { let checked = _graph-style((color: "colors", line: "lines", dot: "dots", joined: "joined").at(key), value); if _E(checked) { return fail(checked.err) }; if checked.len() != 1 { return fail("curve: " + key + " must specify one style") } }
     }
   }
   let XV = (content, int, float)
+  let is-value(v) = type(v) in (int, float) or (type(v) == content and v.func() == math.equation)
   let list(v) = if v == auto or v == none { () } else if type(v) == array { v } else { (v,) }
   let (rng, yrng) = (list(x-range), list(y-range))
   for (name, bounds) in (("x-range", rng), ("y-range", yrng)) {
     if bounds.len() not in (0, 2) { return fail(name + ": exactly two bounds; use x-include to widen an automatic x range") }
   }
-  if list(x-include).any(v => type(v) not in XV) { return fail("x-include: numbers or math quantities") }
-  for (n, r) in (x-range: rng, y-range: yrng) { if r.any(v => type(v) not in XV) { return fail(n + ": values to show, like (1, 2), (\"10 Ω\", \"1 kΩ\") or (0, \"2 R\")") } }
+  if list(x-include).any(v => not is-value(v)) { return fail("x-include: numbers or math quantities") }
+  for (n, r) in (x-range: rng, y-range: yrng) { if r.any(v => not is-value(v)) { return fail(n + ": values to show, like (1, 2), (\"10 Ω\", \"1 kΩ\") or (0, \"2 R\")") } }
   let ymk = list(ymark)
-  if ymk.any(v => type(v) not in XV) { return fail("ymark: y values like \"P0\" or 2, or an array of these") }
+  if ymk.any(v => not is-value(v)) { return fail("ymark: y values like \"P0\" or 2, or an array of these") }
   // marks: x values, keywords, auto; (item, y labelled): mark writes x and y on the axes, xmark only x
   let KW = _VALUES.mark
   let ms(v) = if v == none or v == false { () } else if v == true { (auto,) } else if type(v) == array { v } else { (v,) }
   let ents = ms(mark).map(m => (m, true)) + ms(xmark).map(m => (m, false))
-  if ents.any(((m, _)) => m != auto and type(m) not in XV and m not in ("crossings", "roots", "extrema")) { return fail("mark / xmark: auto, x values like \"R\" or 2, \"crossings\", \"roots\", \"extrema\", or an array of these; () for none") }
+  if ents.any(((m, _)) => m != auto and not is-value(m) and m not in ("crossings", "roots", "extrema")) { return fail("mark / xmark: auto, x values like \"R\" or 2, \"crossings\", \"roots\", \"extrema\", or an array of these; () for none") }
   let iskw(m) = type(m) == str and m in KW
   let kws = ents.filter(((m, _)) => iskw(m))
   let autos = ents.filter(((m, _)) => m == auto).map(e => e.at(1))
@@ -206,7 +211,8 @@
     let style(i) = {
       let at(a) = a.at(calc.rem(i, a.len()))
       let c = curves.at(i, default: (:))
-      (color: c.at("color", default: at(cf.graph-colors)), dash: c.at("line", default: at(cf.graph-lines)), shape: c.at("dot", default: at(cf.graph-dots)), joined: c.at("joined", default: at(cf.graph-joined)))
+      let own(key, kind, fallback) = { let v = c.at(key, default: auto); if v == auto { fallback } else { _graph-style(kind, v).first() } }
+      (color: own("color", "colors", at(cf.graph-colors)), dash: own("line", "lines", at(cf.graph-lines)), shape: own("dot", "dots", at(cf.graph-dots)), joined: own("joined", "joined", at(cf.graph-joined)))
     }
     // the legend goes to the corner the curves leave emptiest
     let (gw, gh) = (g.x1 - g.x0, g.y1 - g.y0)
@@ -353,6 +359,10 @@
       make(w1, h1)
     })
     if _target() != "html" { return align(center, sized) }
+    if range(calc.max(0, ..series.map(s => s.curve + 1))).any(i => type(style(i).color) == gradient) {
+      // Paged rendering supports gradients; the live HTML renderer requires solid paints.
+      return fail("gradient curve colors are supported for paged output; interactive HTML graphs require solid colors")
+    }
     // HTML: drawn in the browser, animated and with the values under the pointer; the static picture stays for
     // readers without scripts. Labels are the document's math, placed over the drawing.
     let hex(c) = (if type(c) == gradient { c.sample(50%) } else { c }).to-hex()
@@ -367,7 +377,7 @@
       xt: g.xticks.zip(xm), yt: g.yticks.zip(ym),
       // what each series draws, as on paper: its line, and its dots (x, y, how many dots of other curves lie below)
       series: series.enumerate().map(((k, s)) => (p: s.points, c: s.curve, data: s.at("data", default: false), bridge: s.at("bridge", default: false), beyond: s.at("beyond", default: false), line: layers.at(k).line, d: layers.at(k).dots, size: layers.at(k).size.pt())),
-      curves: range(ncurves).map(i => { let st = style(i); (color: hex(st.color), dash: svg-dash(st.dash), corners: _dot-corners(st.shape), legend: legend-of(i), named: i in named) }),
+      curves: range(ncurves).map(i => { let st = style(i); (color: hex(st.color), dash: svg-dash(st.dash), phase: if type(st.dash) == dictionary { st.dash.at("phase", default: 0pt).to-absolute().pt() * 4 / 3 } else { 0 }, corners: _dot-corners(st.shape), legend: legend-of(i), named: i in named) }),
       points: g.points, legend: if outside { "outside" } else { (if corner.y == top { "top-" } else { "bottom-" }) + (if corner.x == left { "left" } else { "right" }) }, sep: rc.separator, digits: rc.digits, em: text.size.to-absolute().pt(), size: { let m = measure(sized); (w: m.width.pt(), h: m.height.pt()) },
     )
     let lab(k, body) = html.elem("span", attrs: ("data-k": k), body)

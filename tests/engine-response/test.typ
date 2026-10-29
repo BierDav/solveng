@@ -29,7 +29,7 @@
 #check-bad((env: previous, out: _out() + (defined: (1,))), "'defined' must contain strings")
 #check-bad((env: previous, out: _out() + (mark: "?")), "'mark'")
 #check-bad((env: previous, out: _out() + (result: 2)), "'result'")
-#let valid = (env: previous, out: _out(result: "\"2\"", mark: "="))
+#let valid = (env: previous, out: _out(result: "\"2\"", mark: "=>"))
 #assert.eq(_line-response(valid, bytes(()), source), valid)
 
 // A shared last-result belonging to a different operation/equation is diagnosed.

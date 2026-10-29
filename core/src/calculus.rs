@@ -54,6 +54,13 @@ fn closed(body: &Expr, var: &str, lo: &Expr, hi: &Expr) -> Option<(Expr, Vec<Exp
     if !bounds_match || crosses_pole || lo.contains(&infinite) || hi.contains(&infinite) { return None; }
     let mut nonzero = vec![];
     let f = primitive(&simp(body), var, &mut nonzero)?;
+    // A principal complex logarithm may jump along the integration path.
+    // Endpoint subtraction alone cannot recover its winding number.
+    let real_names = [var.to_string()].into_iter().collect();
+    if f.contains(&|e| match e {
+        Expr::F(Func::Ln, argument) if argument.has(var) => !crate::complex::assuming_real(&func(Func::Im, (**argument).clone()), &real_names).is_zero(),
+        _ => false,
+    }) { return None; }
     (defined_at(&f, lo) && defined_at(&f, hi)).then(|| {
         let lower = simp(&f.subst(var, lo));
         let upper = simp(&f.subst(var, hi));
@@ -188,8 +195,18 @@ pub fn antiderivative(body: &Expr, var: &str) -> Expr {
 /// Keep an unresolved primitive with its local variable and a separate evaluation point.
 /// This lets later definitions resolve the integrand before substituting a function argument.
 pub fn antiderivative_at(body: Expr, var: String, by: Expr) -> Expr {
-    match primitive(&body, &var, &mut vec![]) {
-        Some(f) => simp(&f.subst(&var, &by)),
+    let mut nonzero = vec![];
+    match primitive(&body, &var, &mut nonzero) {
+        Some(f) => {
+            let mut result = simp(&f.subst(&var, &by));
+            for condition in nonzero.into_iter().rev() {
+                let condition = essential(&condition);
+                let Some((name, root)) = parameter(&condition) else { continue };
+                let alternate = antiderivative_at(crate::poly::simplify(&body.subst(&name, &root)), var.clone(), simp(&by.subst(&name, &root)));
+                result = Expr::Cases(vec![(result, Expr::Cmp(vec![condition, int(0)], vec![crate::parse::Rel::Ne])), (alternate, int(1))]);
+            }
+            simp(&result)
+        }
         None => Expr::Antiderivative(Box::new(body), var, Box::new(by)),
     }
 }
@@ -215,7 +232,7 @@ fn primitive(e: &Expr, x: &str, nonzero: &mut Vec<Expr>) -> Option<Expr> {
             if slope.has(x) || slope.is_zero() { return expanded(e, x, nonzero); }
             divides(&slope, nonzero);
             let f = if b.as_num().is_some_and(|n| n.same(Num::int(-1))) {
-                func(Func::Ln, func(Func::Abs, (**a).clone()))
+                log_primitive_argument((**a).clone(), x)
             } else {
                 let next = simp(&add(vec![(**b).clone(), int(1)]));
                 divides(&next, nonzero);
@@ -244,13 +261,20 @@ fn primitive(e: &Expr, x: &str, nonzero: &mut Vec<Expr>) -> Option<Expr> {
                 Func::Cosh => func(Func::Sinh, a),
                 // u ln u − u and −ln|cos u|
                 Func::Ln => sub(mul(vec![a.clone(), func(Func::Ln, a.clone())]), a),
-                Func::Tan => neg(func(Func::Ln, func(Func::Abs, func(Func::Cos, a)))),
+                Func::Tan => neg(log_primitive_argument(func(Func::Cos, a), x)),
                 _ => return None,
             };
             Some(div(result, slope))
         }
         _ => None,
     }
+}
+
+// Real reciprocals use ln|u|; a genuinely complex affine path needs its phase.
+fn log_primitive_argument(argument: Expr, variable: &str) -> Expr {
+    let names = [variable.to_string()].into_iter().collect();
+    let imaginary = crate::complex::assuming_real(&func(Func::Im, argument.clone()), &names);
+    func(Func::Ln, if imaginary.is_zero() { func(Func::Abs, argument) } else { argument })
 }
 
 fn divides(by: &Expr, nonzero: &mut Vec<Expr>) {
@@ -421,7 +445,7 @@ pub fn signal_points(body: &Expr, var: &str, vars: &dyn Fn(&str) -> Option<f64>)
     let mut points = Vec::new();
     fn collect(e: &Expr, var: &str, vars: &dyn Fn(&str) -> Option<f64>, points: &mut Vec<f64>) {
         if let Expr::F(f, argument) = e {
-            let levels: &[f64] = match f { Func::Rect => &[-0.5, 0.5], Func::Tri => &[-1.0, 0.0, 1.0], Func::Sgn => &[0.0], _ => &[] };
+            let levels: &[f64] = match f { Func::Rect => &[-0.5, 0.5], Func::Tri => &[-1.0, 0.0, 1.0], Func::Sgn | Func::Abs | Func::Ln => &[0.0], _ => &[] };
             if !levels.is_empty() {
                 let slope = argument.diff(var);
                 if !slope.has(var) {

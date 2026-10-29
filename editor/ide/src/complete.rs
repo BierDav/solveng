@@ -33,7 +33,7 @@ pub(crate) struct Definition {
     pub statement_end: usize,
     /// The unit a variable is declared with: `A` in `V: A = …`.
     pub unit: Option<String>,
-    /// Written with `:=`, which assigns; a name solved for (`-> solve(x)`) is defined without.
+    /// Written with `:=`, which assigns. Solving alone creates no definition.
     pub assign: bool,
 }
 
@@ -52,7 +52,7 @@ static SPACES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
 
 /// `I := 30 mA` or `f(x) := x^2` → a definition; anything else (`Q0/2 = I t`, `x =`) → None.
 pub(crate) fn definition(line: &str) -> Option<Definition> {
-    let raw: Vec<char> = line.chars().collect();
+    let raw = crate::text::without_math_comments(&line.chars().collect::<Vec<_>>());
     let (decoded, offsets) = crate::text::unescape(&raw);
     let start = decoded.iter().position(|c| !c.is_whitespace())?;
     let name = solveng_names::scan(&decoded, start).ok()??;
@@ -88,24 +88,6 @@ pub(crate) fn definition(line: &str) -> Option<Definition> {
     })
 }
 
-/// The names a statement solves for (`x^2 = 4 -> solve(x)`): definitions at the names in the clause, which
-/// starts at `clause` in `doc`; `equation` is what's solved.
-fn solved_definitions(doc: &Doc, clause: usize, end: usize, equation: &str, modifier: crate::clause::Modifiers, found: &mut Vec<Definition>) {
-    if equation.contains(":=") || equation.contains('≔') { return; }
-    let tail = doc.sub(clause, end);
-    let names = crate::clause::solved(&tail, modifier);
-    let mut from = 0;
-    for name in names {
-        let Some(at) = tail[from..].find(&name).map(|i| from + i) else { continue };
-        from = at + name.len();
-        let start = clause + tail[..at].chars().count();
-        let written = name.chars().count();
-        let detail = format!("from {}", equation.trim());
-        let key = crate::navigate::math_name_of(&chars(&name)).map_or_else(|| crate::resolved_name(&name), |n| n.0);
-        found.push(Definition { name: key, detail, function: false, start, end: start + written, written, statement_end: end, unit: None, assign: false });
-    }
-}
-
 /// Names defined in a text, in order: the equations that `active` says are calculated. `bindings` are the text's
 /// Typst bindings, which say what's a modifier.
 pub(crate) fn definitions(doc: &Doc, elements: &[Element], bindings: &crate::bindings::Bindings, active: &dyn Fn(&Element) -> bool) -> Vec<Definition> {
@@ -122,10 +104,8 @@ pub(crate) fn definitions(doc: &Doc, elements: &[Element], bindings: &crate::bin
         // Math writes Q_0, t_"half", "tews" and units as names: Q_0 := 3450 mAh.
         let modifier = |w: &str| bindings.modifier(e.body_start, w);
         let marker = crate::clause::marker(&doc.c[e.body_start..e.body_end], &|_| false, &modifier);
-        if let Some((s, m, _)) = marker {
-            solved_definitions(doc, e.body_start + m, e.body_end, &doc.sub(e.body_start, e.body_start + s), &modifier, &mut found);
-        }
-        let c = &doc.c[e.body_start..marker.map_or(e.body_end, |m| e.body_start + m.0)];
+        let clean = crate::text::without_math_comments(&doc.c[e.body_start..marker.map_or(e.body_end, |m| e.body_start + m.0)]);
+        let c = clean.as_slice();
         let relation = c.iter().position(|ch| "=<>≤≥≔".contains(*ch)).unwrap_or(c.len());
         // := assigns: the colon belongs to the relation
         let assign = c.get(relation) == Some(&'≔') || (relation > 0 && c.get(relation) == Some(&'=') && c[relation - 1] == ':');

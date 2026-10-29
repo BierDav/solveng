@@ -228,7 +228,10 @@ impl<'a> Sheet<'a> {
         let old = self.env.vars.get(n).map(|v| simp(&self.env.bind_with_units(&v.expr, &BTreeSet::new(), &self.units).unwrap_or(v.expr.clone())));
         let (mut rows, mut cols, mut cells): (usize, usize, BTreeMap<(usize, usize), Expr>) = (0, 0, BTreeMap::new());
         if let Some(a) = old.as_ref().and_then(Array::of) {
-            if (indices.len() == 1) == a.vector() {
+            if indices.len() == 1 && !a.vector() {
+                return Err(format!("{n}[i] selects a vector element; use {n}[i,j] for a matrix"));
+            }
+            if indices.len() == 2 || a.vector() {
                 (rows, cols) = (a.rows, a.cols);
                 for i in 0..a.rows {
                     for j in 0..a.cols {
@@ -240,6 +243,11 @@ impl<'a> Sheet<'a> {
         let (is, js) = (axes[0].clone(), axes.get(1).cloned().unwrap_or((None, vec![0])));
         if is.1.len() * js.1.len() > 1_000_000 {
             return Err(format!("{n}[…] := …: too many elements at once"));
+        }
+        let target_rows = rows.max(is.1.iter().max().map_or(0, |i| i + 1));
+        let target_cols = if indices.len() == 1 { 1 } else { cols.max(js.1.iter().max().map_or(0, |j| j + 1)) };
+        if target_rows.checked_mul(target_cols).is_none_or(|count| count > 1_000_000) {
+            return Err(format!("{n}[…] := …: the resulting array is too large (at most 1000000 elements)"));
         }
         for &i in &is.1 {
             for &j in &js.1 {

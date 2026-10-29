@@ -28,17 +28,20 @@
 /// - digits, decimal-separator, number-form, … (auto): Every option of `worksheet` works here too, for this call only.
 /// -> content
 #let defined(
-  names: "all", kinds: ("given", "computed", "function"), where: name => true,
+  ..args, names: "all", kinds: ("given", "computed", "function"), where: name => true,
   style: auto,
   digits: auto, trailing-zeros: auto, decimal-separator: auto, grouping: auto, notation-thresholds: auto, notation: auto, multiplication: auto, number-form: auto,
   max-denominator: auto, fraction-style: auto, prefixes: auto, show-si: auto, preferred-units: auto,
   show-approximation: auto, block: auto, max-solutions: auto, errors: auto, show-types: auto,
-  words: auto, chips: auto, unit-style: auto, unit-separator: auto,
+  words: auto, chips: auto, unit-style: auto, unit-separator: auto, constant-displays: auto,
 ) = _mine(context {
-  let lc = _check(_given((defined-style: style, digits: digits, trailing-zeros: trailing-zeros, decimal-separator: decimal-separator, grouping: grouping, notation-thresholds: notation-thresholds, notation: notation, multiplication: multiplication, number-form: number-form, max-denominator: max-denominator, fraction-style: fraction-style, prefixes: prefixes, show-si: show-si, preferred-units: preferred-units, show-approximation: show-approximation, block: block, max-solutions: max-solutions, errors: errors, show-types: show-types, words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator)))
+  if args.pos().len() > 0 { return _err-now("defined takes named arguments") }
+  if args.named().len() > 0 { return _err-now("unknown argument '" + args.named().keys().first() + "' for defined") }
+  let lc = _check(_given((defined-style: style, digits: digits, trailing-zeros: trailing-zeros, decimal-separator: decimal-separator, grouping: grouping, notation-thresholds: notation-thresholds, notation: notation, multiplication: multiplication, number-form: number-form, max-denominator: max-denominator, fraction-style: fraction-style, prefixes: prefixes, show-si: show-si, preferred-units: preferred-units, show-approximation: show-approximation, block: block, max-solutions: max-solutions, errors: errors, show-types: show-types, words: words, chips: chips, unit-style: unit-style, unit-separator: unit-separator, constant-displays: constant-displays)))
   if _E(lc) { return _errc(lc.err, _cf.get(), wide: true) }
-  let cf0 = _cf.get() + lc
-  if type(kinds) == str { kinds = (kinds,) }
+  let outer = _cf.get()
+  let cf0 = outer + lc + (constant-displays: outer.at("constant-displays", default: (:)) + lc.at("constant-displays", default: (:)))
+  let kinds = if type(kinds) == str { (kinds,) } else { kinds }
   if type(kinds) != array or kinds.any(k => k not in ("given", "computed", "function")) { return _errc("kinds: given, computed or function", cf0, wide: true) }
   if type(where) != function { return _errc("where: a predicate on a definition name", cf0, wide: true) }
   let ok(p) = p == none or type(p) in (str, regex, function) or (type(p) == array and p.all(ok))

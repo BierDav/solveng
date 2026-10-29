@@ -45,6 +45,9 @@ pub fn value(e: &Expr) -> Result<Val, NoValue> {
 /// The value of a bound expression, complex if it has `i` in it: exact if it can be.
 pub fn complex_value(e: &Expr) -> Result<CVal, NoValue> {
     let s = simp(e);
+    if s.contains(&|e| matches!(e, Expr::C(v) if !v.d.supported())) {
+        return Err(NoValue::Error("unit dimension exponent limit exceeded".into()));
+    }
     if let Some(z) = complex::parts(&s) {
         return Ok(z);
     }
@@ -104,7 +107,7 @@ fn real_pow(bv: f64, xv: f64) -> Result<f64, String> {
         let m = (-bv).powf(xv);
         return Ok(if r.numer() % 2 == 0 { m } else { -m });
     }
-    Ok(if xv.fract() == 0.0 && xv.abs() < 1e9 { bv.powi(xv as i32) } else { bv.powf(xv) })
+    Ok(if xv.fract() == 0.0 && xv.abs() < 1e9 { crate::num::float_powi(bv, xv as i32) } else { bv.powf(xv) })
 }
 
 /// The dimension of a power: a unit takes rational exponents only.
@@ -166,7 +169,7 @@ fn complex_f(f: Func, z: Z) -> Option<Z> {
         Func::Tan => z.tan(),
         Func::Sinh => z.sinh(),
         Func::Cosh => z.cosh(),
-        Func::Tanh => z.sinh().div(z.cosh()),
+        Func::Tanh => z.tanh(),
         Func::Asin => z.asin(),
         Func::Acos => z.acos(),
         Func::Atan => z.atan(),
@@ -590,7 +593,7 @@ fn eval_real(e: &Expr, vars: &dyn Fn(&str) -> Option<f64>) -> Option<f64> {
                 let m = (-b).powf(x);
                 if r.numer() % 2 == 0 { m } else { -m }
             } else if x.fract() == 0.0 && x.abs() < 1e9 {
-                b.powi(x as i32)
+                crate::num::float_powi(b, x as i32)
             } else {
                 b.powf(x)
             }

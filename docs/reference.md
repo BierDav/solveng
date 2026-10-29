@@ -315,6 +315,9 @@ Parameters are an ordered dictionary; `auto` means arguments use SI units.
 With no parameters, free names are inferred.
 
 ```typ
+#import units: V, W, Ω
+#show: worksheet
+$R := 10 #Ω$
 #context {
   let P = compile($U^2/R$, parameters: (U: $#V$), result-unit: $#W$)
   [#P(12)]
@@ -599,6 +602,8 @@ that a real projection is needed: `Re(…)`, `Im(…)`, `abs(…)`, or `arg(…)
 continue to split curves. These are floating-point error estimates, not rigorous bounds: difficult
 oscillatory/improper integrals, unresolved narrow features, and slowly converging series can exceed the
 numerical method's limits. Supply finite bounds or explicit projections when appropriate.
+
+Gradient curve colors are supported in paged output. Interactive HTML graphs require solid colors; gradient inputs report a document error.
 
 **Data:** a vector of values is plotted as the points through its elements, joined in index order (with a dot at each when there are at most 30): `#graph($y$)` against the zero-based index k (as in `at(y, k)`), `#graph($y(τ)$)` over the vector `tau` of the same length – or over any expression without free names that is one, `y(2 tau)`. Units come from the elements (each vector needs one unit for all its elements; every element must have a value). Function curves can go alongside: `#graph($y(τ) \ c(τ)$)` with a function `c`, or an expression in `tau` (`$2 tau$`), where `tau` stands for the x axis and the function is sampled over it; the x range is from the data's first to last x value unless `x-range` says otherwise, and the units of x and y must agree. Marks work on data too, with linear interpolation between the points: x values, `"roots"` and `"crossings"` (with data and with functions) where the values change sign, `"extrema"` as the local extreme points, and `ymark`. A vector with a free name is several curves instead, one per element (`$vec(t, t^2)$`). For measurements, `lines: none` draws the data as points alone, without the line: `#graph($y(τ) \ c(τ)$, lines: (none, auto))` shows measured points next to the curve `c`.
 
@@ -1551,7 +1556,7 @@ called with what they take; `simplify`, `expand`, `factor`, `steps`, `sci`, `eng
 #show: worksheet
 $I := 30 mA$, $Q := 3450 mAh$
 $Q/2 = I t -> solve(t)$
-$t => #h, digits(3)$
+$t := Q/(2 I) => #h, digits(3)$
 $I => sci$
 ```
 

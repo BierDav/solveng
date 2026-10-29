@@ -473,11 +473,11 @@ fn assignments_statements_and_results() {
     assert!(warn[0].starts_with("the variable 'R' is assigned again"), "{warn:?}");
     let at = u16len(&doc[..doc.find("I R").unwrap()]);
     assert_eq!(hover(doc, &Context::default(), at).unwrap().markdown, "```text\nI: mA = 30 mA\n```");
-    // the name solved for is defined there
+    // Solving is read-only; only an explicit := creates a definition.
     let at = u16len(&doc[..doc.rfind("x)").unwrap()]);
-    assert_eq!(definition(doc, &Context::default(), at).map(|l| l.start), Some(at));
+    assert!(definition(doc, &Context::default(), at).is_none());
     let names = labels(&format!("{doc}$z := |$"));
-    assert!(names.contains(&"x".into()) && names.contains(&"y".into()));
+    assert!(!names.contains(&"x".into()) && names.contains(&"y".into()));
 }
 
 /// Whether an editor filtering by substring, as Typewright and VS Code do, keeps a unit for what's typed.
@@ -537,12 +537,12 @@ fn reads_no_exponent_notation() {
 
 #[test]
 fn modifiers_are_bindings_of_their_module() {
-    // renamed, a modifier is still one: highlighted, solving defines, hover reaches its docs
+    // Renamed modifiers keep highlighting and documentation; solving remains read-only.
     let doc = format!("{SOLVENG}#import modifiers: solve as löse, digits\n#show: worksheet\n$2 w = 6 -> löse(w)$\n$v := w + 1$\n$w => digits(2)$");
     let toks = found(&doc);
     for want in ["löse:0", "digits:0", "->:11", "=>:11"] { assert!(toks.contains(&want.to_string()), "{want}: {toks:?}"); }
     let at = u16len(&doc[..doc.rfind("w + 1").unwrap()]);
-    assert_eq!(definition(&doc, &Context::default(), at).unwrap().start, u16len(&doc[..doc.rfind("(w)").unwrap()]) + 1);
+    assert!(definition(&doc, &Context::default(), at).is_none());
     let at = u16len(&doc[..doc.rfind("löse(").unwrap()]) + 1;
     assert!(hover(&doc, &Context::default(), at).unwrap().markdown.contains("`solve` (solveng)"));
     // a binding of another kind under a modifier's name isn't one

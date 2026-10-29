@@ -55,6 +55,33 @@ fn common_dimension(values: &[Val]) -> Result<Dim, String> {
     }
     Ok(d)
 }
+// Differences of finite values can overflow even when their ratio is finite.
+fn difference_ratio(a: f64, b: f64, c: f64, d: f64) -> f64 {
+    let numerator = a - b;
+    let denominator = c - d;
+    if numerator.is_finite() && denominator.is_finite() {
+        numerator / denominator
+    } else {
+        let scale = a.abs().max(b.abs()).max(c.abs()).max(d.abs());
+        (a / scale - b / scale) / (c / scale - d / scale)
+    }
+}
+fn lerp(a: f64, b: f64, t: f64) -> f64 {
+    if a.signum() != b.signum() { a * (1.0 - t) + b * t } else { a + (b - a) * t }
+}
+// Centred observations in a finite scale, retaining close large offsets.
+fn centered(values: &[f64]) -> (Vec<f64>, f64, f64) {
+    let origin = values[0];
+    let scale = values.iter().map(|v| v.abs()).fold(0.0_f64, f64::max);
+    if scale == 0.0 { return (vec![0.0; values.len()], 0.0, 0.0); }
+    let offsets: Vec<_> = values.iter().map(|v| {
+        let delta = v - origin;
+        if delta.is_finite() { delta / scale } else { v / scale - origin / scale }
+    }).collect();
+    let mean = offsets.iter().sum::<f64>() / values.len() as f64;
+    let location = origin / scale + mean;
+    (offsets.iter().map(|v| v - mean).collect(), scale, location)
+}
 fn same(a: &Dim, b: &Dim) -> Result<(), String> {
     if a != b { Err("arguments must have matching units".into()) } else { Ok(()) }
 }
@@ -109,15 +136,8 @@ pub(crate) fn operation(op: Op, args: &[Expr]) -> Result<Expr, String> {
             if values.len() < 2 {
                 return Err("sample statistics need at least two observations".into());
             }
-            // Centre before summing to retain precision with large offsets.
-            let origin = values[0];
-            let mean = values.iter().map(|v| v - origin).sum::<f64>() / values.len() as f64;
-            let scale = values.iter().map(|v| (v - origin - mean).abs()).fold(0.0_f64, f64::max);
-            let ss = if scale == 0.0 {
-                0.0
-            } else {
-                values.iter().map(|v| ((v - origin - mean) / scale).powi(2)).sum::<f64>() / (values.len() - 1) as f64
-            };
+            let (centered, scale, _) = centered(&values);
+            let ss = centered.iter().map(|v| v * v).sum::<f64>() / (values.len() - 1) as f64;
             if op == Op::Stdev { number(scale * ss.sqrt(), d) } else { number(scale * (scale * ss), d.powi(2)) }
         }
         Op::Celsius | Op::Fahrenheit => {
@@ -184,7 +204,7 @@ pub(crate) fn operation(op: Op, args: &[Expr]) -> Result<Expr, String> {
             }
             if op == Op::Pnorm {
                 same(&x.d, &mu.d)?;
-                number(normal_cdf((x.v.f() - mu.v.f()) / sigma.v.f()), Dim::ONE)
+                number(normal_cdf(difference_ratio(x.v.f(), mu.v.f(), sigma.v.f(), 0.0)), Dim::ONE)
             } else {
                 let p = unitless(&x)?;
                 if !(0.0 < p && p < 1.0) {
@@ -196,7 +216,7 @@ pub(crate) fn operation(op: Op, args: &[Expr]) -> Result<Expr, String> {
                 // An exactly represented endpoint root should remain exact;
                 // bisection into a rounded CDF plateau would move it needlessly.
                 if normal_cdf(hi) == p {
-                    return number(mu.v.f() + sigma.v.f() * sign * hi, mu.d);
+                    return number(sigma.v.f().mul_add(sign * hi, mu.v.f()), mu.d);
                 }
                 for _ in 0..160 {
                     let mid = (lo + hi) * 0.5;
@@ -206,7 +226,7 @@ pub(crate) fn operation(op: Op, args: &[Expr]) -> Result<Expr, String> {
                         hi = mid;
                     }
                 }
-                number(mu.v.f() + sigma.v.f() * sign * (lo + hi) * 0.5, mu.d)
+                number(sigma.v.f().mul_add(sign * ((lo + hi) * 0.5), mu.v.f()), mu.d)
             }
         }
         Op::Interpolate | Op::LinearFit => {
@@ -229,21 +249,18 @@ pub(crate) fn operation(op: Op, args: &[Expr]) -> Result<Expr, String> {
                 if i < x.len() && x[i] == at {
                     return Ok(vector(&args[1])?[i].clone());
                 }
-                let weight = (at - x[i - 1]) / (x[i] - x[i - 1]);
-                number(y[i - 1] * (1.0 - weight) + y[i] * weight, dy)
+                let weight = difference_ratio(at, x[i - 1], x[i], x[i - 1]);
+                number(lerp(y[i - 1], y[i], weight), dy)
             } else {
-                let n = x.len() as f64;
-                let mx = x.iter().map(|v| v - x[0]).sum::<f64>() / n;
-                let my = y.iter().map(|v| v - y[0]).sum::<f64>() / n;
-                let scale = x.iter().map(|v| (v - x[0] - mx).abs()).fold(0.0_f64, f64::max);
-                if scale == 0.0 {
-                    return Err("regression needs distinct x observations".into());
-                }
-                let xx = x.iter().map(|v| ((v - x[0] - mx) / scale).powi(2)).sum::<f64>();
-                let xy = x.iter().zip(&y).map(|(xv, yv)| ((xv - x[0] - mx) / scale) * (yv - y[0] - my)).sum::<f64>();
-                let slope = (xy / xx) / scale;
+                let (xc, sx, mx) = centered(&x);
+                let (yc, sy, my) = centered(&y);
+                let xx = xc.iter().map(|v| v * v).sum::<f64>();
+                if xx == 0.0 { return Err("regression needs distinct x observations".into()); }
+                let xy = xc.iter().zip(&yc).map(|(x, y)| x * y).sum::<f64>();
+                let normalized_slope = xy / xx;
+                let slope = (normalized_slope * sy) / sx;
                 Ok(Expr::Vector(vec![
-                    number(y[0] + my - slope * (x[0] + mx), dy.clone())?,
+                    number((my - normalized_slope * mx) * sy, dy.clone())?,
                     number(slope, dy.div(&dx))?,
                 ]))
             }
@@ -255,7 +272,9 @@ pub(crate) fn operation(op: Op, args: &[Expr]) -> Result<Expr, String> {
                 return Err("direct Fourier transform limit exceeded (2048 samples)".into());
             }
             let a = Array { rows: n, cols: 1, a: entries };
-            let (m, d) = uniform_matrix(&a)?;
+            let (mut m, d) = uniform_matrix(&a)?;
+            let amplitude = m.iter().map(|v| v.re.abs().max(v.im.abs())).fold(0.0_f64, f64::max);
+            if amplitude > 0.0 { m.iter_mut().for_each(|v| { v.re /= amplitude; v.im /= amplitude; }); }
             let scale = if op == Op::Idft { 1.0 / n as f64 } else { 1.0 };
             let sign = if op == Op::Idft { 1.0 } else { -1.0 };
             let mut out = vec![];
@@ -290,7 +309,7 @@ pub(crate) fn operation(op: Op, args: &[Expr]) -> Result<Expr, String> {
                 if sum.im.abs() <= 8.0 * f64::EPSILON * im_scale {
                     sum.im = 0.0;
                 }
-                out.push(complex_number(sum * scale, d.clone())?);
+                out.push(complex_number((sum * scale) * amplitude, d.clone())?);
             }
             Ok(Expr::Vector(out))
         }
@@ -314,12 +333,12 @@ pub(crate) fn operation(op: Op, args: &[Expr]) -> Result<Expr, String> {
                 DMatrix::from_row_iterator(a.rows, a.cols, av.iter().map(|v| Complex::new(v.re.v.f(), v.im.v.f())));
             let mut rhs =
                 DMatrix::from_row_iterator(b.rows, b.cols, bv.iter().map(|v| Complex::new(v.re.v.f(), v.im.v.f())));
-            let scale = m.iter().map(|v| v.re.hypot(v.im)).fold(0.0_f64, f64::max);
+            let scale = m.iter().map(|v| v.re.abs().max(v.im.abs())).fold(0.0_f64, f64::max);
             if scale == 0.0 {
                 return Err("matrix does not have full column rank".into());
             }
-            m /= Complex::new(scale, 0.0);
-            rhs /= Complex::new(scale, 0.0);
+            m.iter_mut().for_each(|v| { v.re /= scale; v.im /= scale; });
+            rhs.iter_mut().for_each(|v| { v.re /= scale; v.im /= scale; });
             let decomp = svd(m, true)?;
             let cutoff = decomp.singular_values[0] * a.rows.max(a.cols) as f64 * 32.0 * f64::EPSILON;
             if decomp.singular_values.iter().any(|v| *v <= cutoff) {
@@ -337,9 +356,9 @@ pub(crate) fn operation(op: Op, args: &[Expr]) -> Result<Expr, String> {
         Op::Eigenvals | Op::SingularValues | Op::Condition => {
             let a = array(&args[0])?;
             let (mut m, d) = uniform_matrix(&a)?;
-            let scale = m.iter().map(|v| v.re.hypot(v.im)).fold(0.0_f64, f64::max);
+            let scale = m.iter().map(|v| v.re.abs().max(v.im.abs())).fold(0.0_f64, f64::max);
             if scale > 0.0 {
-                m /= Complex::new(scale, 0.0);
+                m.iter_mut().for_each(|v| { v.re /= scale; v.im /= scale; });
             }
             if op == Op::Eigenvals {
                 if a.rows != a.cols {
@@ -397,17 +416,17 @@ pub(crate) fn minimize(f: &impl Fn(f64) -> Option<f64>, lo: f64, hi: f64) -> Res
     if !lo.is_finite() || !hi.is_finite() || lo > hi {
         return Err("minimize: finite bounds must be ordered lower <= upper".into());
     }
-    let sample = |x| f(x).filter(|y| y.is_finite()).ok_or("minimize: objective is undefined in the interval");
-    let (fl, fh) = (sample(lo)?, sample(hi)?);
+    let sample = |x| f(lerp(lo, hi, x)).filter(|y| y.is_finite()).ok_or("minimize: objective is undefined in the interval");
+    let (fl, fh) = (sample(0.0)?, sample(1.0)?);
     if lo == hi {
         return Ok(lo);
     }
-    let (mut a, mut b) = (lo, hi);
+    let (mut a, mut b) = (0.0_f64, 1.0_f64);
     let ratio = (5.0_f64.sqrt() - 1.0) * 0.5;
     let (mut c, mut d) = (b - ratio * (b - a), a + ratio * (b - a));
     let (mut fc, mut fd) = (sample(c)?, sample(d)?);
     for _ in 0..256 {
-        if (b - a).abs() <= (1e-12 * (hi - lo)).max(2.0 * f64::EPSILON * a.abs().max(b.abs())) {
+        if (b - a).abs() <= 1e-12 {
             break;
         }
         if fc < fd {
@@ -426,13 +445,7 @@ pub(crate) fn minimize(f: &impl Fn(f64) -> Option<f64>, lo: f64, hi: f64) -> Res
     }
     let at = a * 0.5 + b * 0.5;
     let value = sample(at)?;
-    Ok(if fl <= value && fl <= fh {
-        lo
-    } else if fh <= value {
-        hi
-    } else {
-        at
-    })
+    Ok(lerp(lo, hi, if fl <= value && fl <= fh { 0.0 } else if fh <= value { 1.0 } else { at }))
 }
 
 /// Adaptive RK4 step doubling with a fifth-order extrapolated accepted step.
@@ -452,8 +465,12 @@ pub(crate) fn ode(f: &impl Fn(f64, f64) -> Option<f64>, initial: f64, start: f64
         let next = y + h * (a + 2.0 * b + 2.0 * c + d) / 6.0;
         next.is_finite().then_some(next)
     };
-    let sign = (end - start).signum();
-    let (mut t, mut y, mut h) = (start, initial, (end - start) / 31.0);
+    let sign = if end > start { 1.0 } else { -1.0 };
+    let delta = end - start;
+    let mut max_step = if delta.is_finite() { delta / 31.0 } else { end / 31.0 - start / 31.0 };
+    // A subnormal interval may be shorter than one nominal subdivision.
+    if max_step == 0.0 { max_step = delta; }
+    let (mut t, mut y, mut h) = (start, initial, max_step);
     for _ in 0..100_000 {
         if sign * (t + h - end) > 0.0 {
             h = end - t;
@@ -474,7 +491,7 @@ pub(crate) fn ode(f: &impl Fn(f64, f64) -> Option<f64>, initial: f64, start: f64
             }
         }
         h *= if error == 0.0 { 4.0 } else { (0.9 * (tolerance / error).powf(0.2)).clamp(0.1, 4.0) };
-        h = sign * h.abs().min((end - start).abs() / 31.0);
+        h = sign * h.abs().min(max_step.abs());
     }
     Err("odesolve: step limit exceeded (100000); the problem may be stiff".into())
 }

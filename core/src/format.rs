@@ -244,6 +244,13 @@ fn fixed(v: f64, d: i32, zeros: bool) -> String {
     if v < 0.0 && s.chars().any(|c| c != '0' && c != '.') { format!("-{s}") } else { s }
 }
 
+// Split scaling into finite factors: 10^-324 cannot itself be represented,
+// but dividing a subnormal by that mathematical scale has a finite mantissa.
+fn decimal_scale(x: f64, exponent: i32) -> f64 {
+    if exponent < -308 { (x * 1e308) / 10f64.powi(exponent + 308) }
+    else { x / 10f64.powi(exponent) }
+}
+
 /// A number rounded to `digits` significant digits: (mantissa, exponent if scientific).
 pub fn fmt(x: f64, cfg: &Cfg) -> (String, Option<i32>) {
     if x == 0.0 || !x.is_finite() {
@@ -251,7 +258,7 @@ pub fn fmt(x: f64, cfg: &Cfg) -> (String, Option<i32>) {
     }
     let n = cfg.digits as i32;
     let mut e = x.abs().log10().floor() as i32;
-    let m = x / 10f64.powi(e);
+    let m = decimal_scale(x, e);
     if (m * 10f64.powi(n - 1)).round().abs() >= 10f64.powi(n) {
         e += 1; // 9.9996 → 10.00
     }
@@ -265,7 +272,7 @@ pub fn fmt(x: f64, cfg: &Cfg) -> (String, Option<i32>) {
         e
     };
     let d = n - 1 - e + p;
-    let mut y = x / 10f64.powi(p);
+    let mut y = decimal_scale(x, p);
     if d < 0 {
         y = (y / 10f64.powi(-d)).round() * 10f64.powi(-d); // 123456 → 123500 at 4 digits
     }

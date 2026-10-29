@@ -71,7 +71,7 @@ impl Val {
         } else {
             match e {
                 Num::R(r) => self.d.pow(r)?,
-                Num::F(x) if x.fract() == 0.0 => self.d.powi(x as i32),
+                Num::F(x) if x.fract() == 0.0 => self.d.pow(Rat::approx(x, 1)?)?,
                 _ => return None,
             }
         };
@@ -510,6 +510,21 @@ impl Expr {
                     .collect(),
             ),
             Expr::Pow(a, b) => {
+                // Differentiation uses a real independent variable. Extract
+                // complete rational powers before applying a singular chain
+                // rule, e.g. sqrt(x^4)=x^2 at the otherwise removable origin.
+                if let (Expr::Pow(inner, exponent), Some(outer)) = (a.as_ref(), b.as_num().and_then(Num::rat)) {
+                    if let Some(n) = exponent.as_num().and_then(Num::as_int) {
+                        let names = [x.to_string()].into_iter().collect();
+                        if outer.denom() > 1 && n % outer.denom() as i64 == 0
+                            && crate::complex::assuming_real(&func(Func::Im, (**inner).clone()), &names).is_zero() {
+                            if let Some(power) = (n as i128 / outer.denom()).checked_mul(outer.numer()) {
+                                let base = if outer.denom() % 2 == 0 { func(Func::Abs, (**inner).clone()) } else { (**inner).clone() };
+                                return pow(base, int(power)).diff(x);
+                            }
+                        }
+                    }
+                }
                 if !b.has(x) {
                     mul(vec![(**b).clone(), pow((**a).clone(), add(vec![(**b).clone(), int(-1)])), a.d(x)])
                 } else {
@@ -534,7 +549,7 @@ impl Expr {
                 if branches.iter().all(|(value, _)| !value.has(x)) {
                     return Expr::Derivative(Box::new(self.clone()), x.into());
                 }
-                Expr::Cases(branches.iter().map(|(value, guard)| (value.d(x), guard.clone())).collect())
+                piecewise_derivative(self, branches, x)
             },
             Expr::Op(crate::linalg::Op::BesselJ, args) if !args[0].has(x) => mul(vec![rat(1,2), sub(Expr::Op(crate::linalg::Op::BesselJ, vec![sub(args[0].clone(), int(1)), args[1].clone()]), Expr::Op(crate::linalg::Op::BesselJ, vec![add(vec![args[0].clone(), int(1)]), args[1].clone()])), args[1].d(x)]),
             Expr::Op(crate::linalg::Op::Erf, args) => mul(vec![div(int(2), sqrt(Expr::Pi)), func(Func::Exp, neg(pow(args[0].clone(), int(2)))), args[0].d(x)]),
@@ -594,7 +609,13 @@ impl Expr {
                                 }
                             }
                         }
-                        return div(add(vec![mul(vec![re.clone(), re.d(x)]), mul(vec![im.clone(), im.d(x)])]), func(Func::Abs, a0));
+                        let numerator = add(vec![mul(vec![re.clone(), re.d(x)]), mul(vec![im.clone(), im.d(x)])]);
+                        // The modulus is Lipschitz: a stationary inner path has
+                        // derivative zero even when that path passes through 0.
+                        return Expr::Cases(vec![
+                            (int(0), Expr::Cmp(vec![func(Func::Abs, a.d(x)), int(0)], vec![Rel::Eq])),
+                            (div(numerator, func(Func::Abs, a0)), int(1)),
+                        ]);
                     },
                 };
                 mul(vec![inner, a.d(x)])
@@ -611,6 +632,72 @@ impl Expr {
             _ => int(0),
         }
     }
+}
+
+// A removable isolated branch is differentiated through its neighboring limit;
+// ordinary branch boundaries require both continuity and matching derivatives.
+fn piecewise_derivative(original: &Expr, branches: &[(Expr, Expr)], x: &str) -> Expr {
+    use crate::convolution::{breakpoints, inside, resolve, sorted};
+    let mut points = vec![];
+    if breakpoints(original, x, &mut points).is_none() {
+        return Expr::Derivative(Box::new(original.clone()), x.into());
+    }
+    let points = sorted(points);
+    let mut exceptions = vec![];
+    for (i, point) in points.iter().enumerate() {
+        let at = Expr::C(point.clone());
+        let sides = inside(i.checked_sub(1).and_then(|j| points.get(j)), Some(point), point.d.clone())
+            .zip(inside(Some(point), points.get(i+1), point.d.clone()))
+            .and_then(|(left, right)| Some((resolve(original, x, &left)?, resolve(original, x, &right)?)));
+        let derivative = sides.and_then(|(left, right)| {
+            let left = analytic_quotients(&left);
+            let right = analytic_quotients(&right);
+            let lv = local_limit(&left, x, &at)?;
+            let rv = local_limit(&right, x, &at)?;
+            let pv = simp(&original.subst(x, &at));
+            if !simp(&sub(lv.clone(), rv)).is_zero() || !simp(&sub(lv, pv)).is_zero() { return None; }
+            let ld = local_limit(&left.diff(x), x, &at)?;
+            let rd = local_limit(&right.diff(x), x, &at)?;
+            simp(&sub(ld.clone(), rd)).is_zero().then_some(ld)
+        });
+        exceptions.push((derivative.unwrap_or_else(|| Expr::Cases(vec![])), Expr::Cmp(vec![sym(x), at], vec![Rel::Eq])));
+    }
+    exceptions.extend(branches.iter().map(|(value, guard)| (value.d(x), guard.clone())));
+    Expr::Cases(exceptions)
+}
+
+fn analytic_quotients(expression: &Expr) -> Expr {
+    let mapped = expression.map(&mut analytic_quotients);
+    match mapped {
+        Expr::F(f @ (Func::Sinc | Func::Cosc | Func::Tanc), a) => {
+            let numerator = match f {
+                Func::Sinc => func(Func::Sin, (*a).clone()),
+                Func::Cosc => sub(int(1), func(Func::Cos, (*a).clone())),
+                _ => func(Func::Tan, (*a).clone()),
+            };
+            div(numerator, *a)
+        }
+        other => other,
+    }
+}
+
+fn local_limit(expression: &Expr, x: &str, at: &Expr) -> Option<Expr> {
+    let direct = simp(&expression.subst(x, at));
+    if crate::eval::complex_value(&direct).is_ok() { return Some(direct); }
+    let (mut numerator, mut denominator) = crate::poly::together(expression);
+    // Repeated l'Hopital for removable analytic quotients. Unresolved and
+    // nonanalytic limits are kept unsupported rather than guessed numerically.
+    for _ in 0..16 {
+        let n = simp(&numerator.subst(x, at));
+        let d = simp(&denominator.subst(x, at));
+        if !d.is_zero() {
+            let result = simp(&div(n, d));
+            return crate::eval::complex_value(&result).is_ok().then_some(result);
+        }
+        if !n.is_zero() { return None; }
+        numerator = numerator.diff(x); denominator = denominator.diff(x);
+    }
+    None
 }
 
 // ---------- canonical order ----------
@@ -792,7 +879,8 @@ pub fn simp(e: &Expr) -> Expr {
 // Keep known undefined operands visible to evaluation, even under annihilating identities.
 fn undefined(e: &Expr) -> bool {
     e.contains(&|e| match e {
-        Expr::Pow(b, x) => b.is_zero() && x.as_num().is_some_and(|n| n.is_neg()),
+        Expr::Pow(b, x) => x.as_num().is_some_and(|n| n.is_neg())
+            && (b.is_zero() || (linalg::is_array(b) && linalg::problem(e).is_some())),
         Expr::F(Func::Ln | Func::Log, a) => a.is_zero(),
         _ => false,
     })
@@ -1173,7 +1261,10 @@ fn simp_f(f: Func, a: Expr) -> Expr {
             (Func::Tri, x) => return exact(if x.abs().cmp(Num::ONE) == Ordering::Less { Num::ONE.sub(x.abs()) } else { Num::ZERO }),
             (Func::Sgn, x) => return exact(if x.is_zero() { Num::ZERO } else if x.is_neg() { Num::int(-1) } else { Num::ONE }),
             (Func::Floor, Num::R(r)) => return int(r.numer().div_euclid(r.denom())),
-            (Func::Ceil, Num::R(r)) => return int(-(-r.numer()).div_euclid(r.denom())),
+            (Func::Ceil, Num::R(r)) => {
+                let q = r.numer().div_euclid(r.denom());
+                return int(q + i128::from(r.numer().rem_euclid(r.denom()) != 0));
+            },
             (Func::Factorial, x) if x.as_int().is_some_and(|k| (0..=33).contains(&k)) => return int((1..=x.as_int().unwrap() as i128).product()),
             (_, Num::F(x)) => {
                 if let Some(y) = f.eval(x) {

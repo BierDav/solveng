@@ -128,8 +128,19 @@ pub(crate) fn math_comments(math: &[char]) -> Vec<(usize, usize)> {
     out
 }
 
+/// Replace comment characters with whitespace without changing source offsets.
+pub(crate) fn without_math_comments(text: &[char]) -> Vec<char> {
+    let mut clean = text.to_vec();
+    for (a,b) in math_comments(text) {
+        for c in &mut clean[a..b] { if *c != '\n' { *c = ' '; } }
+    }
+    clean
+}
+
 /// The equations of an equation's body, split at math line breaks (`\\`), with their offsets in it.
 pub(crate) fn equation_ranges(text: &[char]) -> Vec<(usize, usize)> {
+    let clean = without_math_comments(text);
+    let text = clean.as_slice();
     let (mut start, mut quoted, mut comment) = (0, false, false);
     let mut out = Vec::new();
     for (i, &c) in text.iter().enumerate() {

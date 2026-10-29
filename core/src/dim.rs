@@ -8,10 +8,10 @@ use crate::num::Rat;
 /// Canonical identities of the SI dimensions.
 pub const BASE: [&str; 7] = ["m", "kg", "s", "A", "K", "mol", "cd"];
 pub const IDENTITIES: [&str; 7] = ["length", "mass", "time", "electric-current", "temperature", "amount-of-substance", "luminous-intensity"];
-const S: i32 = 60;
+const S: i64 = 60;
 
 #[derive(Clone, PartialEq, Eq, Hash, Default, Debug, Serialize, Deserialize)]
-pub struct Dim(pub BTreeMap<String, i32>);
+pub struct Dim(pub BTreeMap<String, i64>);
 
 impl Dim {
     pub const ONE: Dim = Dim(BTreeMap::new());
@@ -24,8 +24,11 @@ impl Dim {
         Self::named(IDENTITIES[i])
     }
     pub fn si(e: [i32; 7]) -> Dim {
-        Dim(IDENTITIES.into_iter().zip(e).filter(|(_, e)| *e != 0).map(|(k, e)| (k.into(), e * S)).collect())
+        Dim(IDENTITIES.into_iter().zip(e).filter(|(_, e)| *e != 0).map(|(k, e)| (k.into(), i64::from(e) * S)).collect())
     }
+    /// Public expression powers are bounded to this many sixtieths. Wider
+    /// storage lets intermediate products be diagnosed before narrowing.
+    pub fn supported(&self) -> bool { self.0.values().all(|e| e.unsigned_abs() <= 1 << 30) }
     pub fn is_one(&self) -> bool { self.0.is_empty() }
     pub fn mul(&self, o: &Dim) -> Dim {
         let mut d = self.0.clone();
@@ -39,13 +42,13 @@ impl Dim {
         for (k, e) in &self.0 {
             let x = Rat::int(*e as i128).mul(p)?;
             if !x.is_int() || x.numer().abs() > 1 << 30 { return None; }
-            if !x.is_zero() { d.insert(k.clone(), x.numer() as i32); }
+            if !x.is_zero() { d.insert(k.clone(), x.numer() as i64); }
         }
         Some(Dim(d))
     }
     pub fn powi(&self, k: i32) -> Dim {
         if k == 0 { return Dim::ONE; }
-        Dim(self.0.iter().map(|(n, e)| (n.clone(), e * k)).collect())
+        Dim(self.0.iter().map(|(n, e)| (n.clone(), e * i64::from(k))).collect())
     }
     pub fn ratio(&self, o: &Dim) -> Option<Rat> {
         let (n, e) = o.0.first_key_value()?;

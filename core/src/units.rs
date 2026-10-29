@@ -269,7 +269,7 @@ impl Units {
     }
 
     /// A unit expression: `kg m/s^2`, `Ω mm^2/m`, `(A*as)/V`, `m²`, `1/min`; everything after a `/` is below it
-    /// (`J/kg K`). With `numbers`, plain factors are allowed too (`100 kPa`, `12`).
+    /// (`J/kg K`); explicit multiplication resumes the numerator. With `numbers`, plain factors are allowed too (`100 kPa`, `12`).
     pub fn parse(&self, s: &str, numbers: bool) -> Result<Parsed, String> {
         if s.contains('⟦') {
             let mut units = self.clone();
@@ -285,9 +285,15 @@ impl Units {
                 rest = tail;
             }
             source.push_str(rest);
-            return units.parse(&source, numbers);
+            return units.parse(&source, numbers).map_err(|mut message| {
+                for (name, definition) in &units.map {
+                    if let Some(display) = &definition.display { message = message.replace(name, display); }
+                }
+                message
+            });
         }
         let toks = utok(s);
+        if toks.is_empty() { return Ok(Parsed { f: Num::ONE, d: Dim::ONE, u: UnitExpr::default() }); }
         let mut p = UParser { t: &toks, i: 0, u: self, numbers, src: s };
         let (terms, mut f) = p.expr(0)?;
         if p.i < toks.len() {
@@ -537,7 +543,7 @@ fn utok(s: &str) -> Vec<String> {
             while i < cs.len() && (cs[i].is_ascii_digit() || cs[i] == '.') {
                 i += 1;
             }
-            if i < cs.len() && (cs[i] == 'e' || cs[i] == 'E') && cs.get(i + 1).is_some_and(|c| c.is_ascii_digit() || *c == '-') {
+            if i < cs.len() && (cs[i] == 'e' || cs[i] == 'E') && cs.get(i + 1).is_some_and(|c| c.is_ascii_digit() || matches!(*c, '-' | '+')) {
                 i += 2;
                 while i < cs.len() && cs[i].is_ascii_digit() {
                     i += 1;
@@ -580,23 +586,34 @@ impl UParser<'_> {
         let mut out = vec![];
         let mut f = Num::ONE;
         let mut below = false;
+        let mut need_operand = true;
         while let Some(k) = self.at(self.i).map(str::to_string) {
             let k = k.as_str();
             if k == ")" {
+                if need_operand { return Err(format!("missing operand in the unit '{}'", self.src)); }
                 if depth == 0 {
                     return Err(format!("unbalanced ')' in the unit '{}'", self.src));
                 }
                 break;
             }
             if matches!(k, "*" | "·" | "⋅" | "∗") {
+                if need_operand { return Err(format!("missing operand in the unit '{}'", self.src)); }
+                below = false;
+                need_operand = true;
                 self.i += 1;
                 continue;
             }
             if k == "/" {
+                if need_operand { return Err(format!("missing operand in the unit '{}'", self.src)); }
+                need_operand = true;
                 below = true;
                 self.i += 1;
                 continue;
             }
+            let negative = k == "-" && self.numbers && need_operand;
+            if negative { self.i += 1; }
+            let k = if negative { self.at(self.i).ok_or("missing quantity after minus")?.to_string() } else { k.to_string() };
+            let k = k.as_str();
             let (terms, x): (Vec<(String, i32)>, Num) = if k == "(" {
                 self.i += 1;
                 let r = self.expr(depth + 1)?;
@@ -610,7 +627,9 @@ impl UParser<'_> {
                 if k != "1" && !self.numbers {
                     return Err(format!("a number in the unit '{}'", self.src));
                 }
-                (vec![], Rat::parse_decimal(k).map(Num::R).ok_or_else(|| format!("cannot read the number '{k}'"))?)
+                let value = Rat::parse_decimal(k).map(Num::R).or_else(|| k.parse::<f64>().ok().filter(|v| v.is_finite()).map(Num::F))
+                    .ok_or_else(|| format!("cannot read the number '{k}'"))?;
+                (vec![], value)
             } else if k == "-" || k == "^" || k == "²" || k == "³" {
                 return Err(format!("can't read the unit '{}'", self.src));
             } else {
@@ -631,6 +650,7 @@ impl UParser<'_> {
                 }
                 (vec![(n, 1)], Num::ONE)
             };
+            need_operand = false;
             // m^2, m^-1, m^(2), m², 10^3, 10^(-3)
             let mut p = 1;
             match self.at(self.i) {
@@ -657,11 +677,15 @@ impl UParser<'_> {
                 _ => {}
             }
             let sign = if below { -1 } else { 1 };
-            f = f.mul(powi(x, p * sign));
+            let factor = powi(x, p * sign);
+            f = f.mul(if negative { factor.neg() } else { factor });
             for (n, e) in terms {
-                out.push((n, e * p * sign));
+                let exponent = e.checked_mul(p).and_then(|e| e.checked_mul(sign))
+                    .ok_or_else(|| format!("unit exponent is outside the supported range in '{}'", self.src))?;
+                out.push((n, exponent));
             }
         }
+        if need_operand { return Err(format!("missing operand in the unit '{}'", self.src)); }
         Ok((out, f))
     }
 }

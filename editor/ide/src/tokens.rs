@@ -335,7 +335,7 @@ fn code_tokens(math: &[char], unit: &dyn Fn(&str) -> bool, modifier: Modifiers) 
             i = end;
         } else if is_digit(c) {
             let mut j = i;
-            while j < n && (is_digit(math[j]) || (".,".contains(math[j]) && j + 1 < n && is_digit(math[j + 1]))) {
+            while j < n && (is_digit(math[j]) || (math[j] == '.' && j + 1 < n && is_digit(math[j + 1]))) {
                 j += 1;
             }
             let exponent = i > 0 && math[i - 1] == '^';

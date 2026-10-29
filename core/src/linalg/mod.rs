@@ -470,7 +470,7 @@ fn eval(op: Op, args: &[Expr]) -> Result<Option<Expr>, String> {
                 if xr.is_zero() {
                     return Ok(Some(simp(&expr::mul(vec![rat(if !yr.is_neg() { 1 } else { -1 }, 2), Expr::Pi]))));
                 }
-                if yr.abs() == xr.abs() {
+                if yr.denom() == xr.denom() && yr.numer().unsigned_abs() == xr.numer().unsigned_abs() {
                     let (y_pos, x_pos) = (!yr.is_neg(), !xr.is_neg());
                     let q = match (y_pos, x_pos) {
                         (true, true) => rat(1, 4),
@@ -581,7 +581,10 @@ fn eval(op: Op, args: &[Expr]) -> Result<Option<Expr>, String> {
             // a scalar is its own transpose, determinant and trace
             let Some(a) = &arrays[0] else { return Ok(Some(args[0].clone())) };
             match op {
-                Op::Transpose => a.transpose().expr(),
+                Op::Transpose => {
+                    if a.rows == 0 || a.cols == 0 { return Err("transpose requires a nonempty array".into()); }
+                    a.transpose().expr()
+                },
                 Op::Det => {
                     square(a)?;
                     det(a)?
@@ -592,7 +595,7 @@ fn eval(op: Op, args: &[Expr]) -> Result<Option<Expr>, String> {
                 }
             }
         }
-        Op::Rank => int(rank(&need(0)?) as i128),
+        Op::Rank => int(rank(&need(0)?)? as i128),
         Op::Norm => match &arrays[0] {
             Some(a) => simp(&expr::sqrt(Expr::Add(a.a.iter().map(|x| expr::pow(expr::func(Func::Abs, x.clone()), int(2))).collect()))),
             None => simp(&expr::func(Func::Abs, args[0].clone())),
@@ -784,10 +787,15 @@ fn lsolve(a: &Array, b: &Array) -> Result<Array, String> {
     Ok(Array { rows: x.rows, cols: x.cols, a: x.a })
 }
 
-fn rank(a: &Array) -> usize {
-    match a.a.iter().map(Expr::as_c).collect::<Option<Vec<&Val>>>() {
-        // units don't change which rows are independent
-        Some(vals) => eliminate::rank(Mat::new(a.rows, a.cols, vals.iter().map(|v| v.v).collect()), tolerance(a, &vals)),
-        None => eliminate::rank(a.mat(), 0.0),
+fn rank(a: &Array) -> Result<usize, String> {
+    // A closed but undefined pivot is not a symbolic nonzero value.
+    for entry in &a.a {
+        if entry.syms().is_empty() {
+            crate::eval::complex_value(entry).map_err(|e| e.message())?;
+        }
+    }
+    match numeric(a)? {
+        Some(n) => Ok(eliminate::rank(n.m, n.tol)),
+        None => Ok(eliminate::rank(a.mat(), 0.0)),
     }
 }

@@ -106,7 +106,7 @@ fn vectors_survive_reports_serialization_graphs_and_domain_checks() {
 }
 
 #[test]
-fn graphs_after_a_solve_are_over_the_solved_name() {
+fn graphs_after_selecting_a_solved_branch_are_over_the_solved_name() {
     use solveng_core::graph::{self, GraphReq, XV};
     let plot = |env: &Env, srcs: &[&str], xrange: Vec<XV>| graph::graph(env, &GraphReq { axes: Default::default(),
         cfg: support::cfg(), curves: srcs.iter().map(|s| support::curve(s, env)).collect(),
@@ -118,8 +118,10 @@ fn graphs_after_a_solve_are_over_the_solved_name() {
     // untyped: f's unit comes from its value once it has one
     run(&mut env, "S_2(f) := 1/sqrt(1 + (f/f_0)^2)");
     let before = plot(&env, &["S_1(f)"], vec![]).unwrap();
-    // solve(f) defines f as a value: the graph is still over f, as before the solve
-    run(&mut env, "f := S_1(f) = 1/2 -> solve(f)");
+    // Solved definitions retain every branch. Select a scalar explicitly before
+    // checking the graph's fallback to a name that already has a scalar value.
+    run(&mut env, "roots := S_1(f) = 1/2 -> solve(f)");
+    run(&mut env, "f := at(roots, 0)");
     assert!(env.vars.contains_key("f"));
     let after = plot(&env, &["S_1(f)"], vec![]).unwrap();
     assert_eq!((after.x0, after.x1, &after.xlabel), (before.x0, before.x1, &before.xlabel));
