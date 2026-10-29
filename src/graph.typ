@@ -123,7 +123,12 @@
   // shown, and reported as a problem of the document, as a worksheet's are
   let fail(m) = _errc("graph: " + m, cf, wide: true) + [#metadata((kind: "error", element: none, message: "graph: " + m, source: ""))<solveng>]
   // types
-  if args.pos().len() > 0 { return fail("pass curves in one equation, separated by a backslash") }
+  // `equation` used to be positional. Keep accepting that spelling while also
+  // allowing the advanced `curves:` form to be passed by name.
+  let positional = args.pos()
+  let equation = if positional.len() == 0 { equation } else if positional.len() == 1 and equation == none { positional.first() } else {
+    return fail("pass one equation, or curves in one equation separated by a backslash")
+  }
   if type(curves) != array or curves.any(c => type(c) != dictionary) { return fail("curves: an array of dictionaries with expression, color, line, dot and joined") }
   let advanced = curves.len() > 0 and curves.any(c => "expression" in c)
   if advanced and equation != none { return fail("pass either equation or curves with expressions") }
@@ -363,7 +368,7 @@
       // what each series draws, as on paper: its line, and its dots (x, y, how many dots of other curves lie below)
       series: series.enumerate().map(((k, s)) => (p: s.points, c: s.curve, data: s.at("data", default: false), bridge: s.at("bridge", default: false), beyond: s.at("beyond", default: false), line: layers.at(k).line, d: layers.at(k).dots, size: layers.at(k).size.pt())),
       curves: range(ncurves).map(i => { let st = style(i); (color: hex(st.color), dash: svg-dash(st.dash), corners: _dot-corners(st.shape), legend: legend-of(i), named: i in named) }),
-      points: g.points, legend: if outside { "outside" } else { (if corner.y == top { "top-" } else { "bottom-" }) + (if corner.x == left { "left" } else { "right" }) }, sep: rc.decimal-separator, digits: rc.digits, em: text.size.to-absolute().pt(), size: { let m = measure(sized); (w: m.width.pt(), h: m.height.pt()) },
+      points: g.points, legend: if outside { "outside" } else { (if corner.y == top { "top-" } else { "bottom-" }) + (if corner.x == left { "left" } else { "right" }) }, sep: rc.separator, digits: rc.digits, em: text.size.to-absolute().pt(), size: { let m = measure(sized); (w: m.width.pt(), h: m.height.pt()) },
     )
     let lab(k, body) = html.elem("span", attrs: ("data-k": k), body)
     let labels = (

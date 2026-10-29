@@ -13,7 +13,7 @@
 #context {
   let g = _call(_p.graph, _env(_st.get()), (
     cfg: _req-cfg(_cf.get()), curves: ((src: "y(tau)", mode: "code", label: none),),
-    x-range: (), y-range: (), marks: (("roots", true), ("extrema", true)), ymark: (), samples: 100,
+    xrange: (), yrange: (), marks: (("roots", true), ("extrema", true)), ymark: (), samples: 100,
   ))
   assert("err" not in g, message: repr(g))
   assert.eq(g.series.at(0).points.len(), 7)
@@ -43,6 +43,12 @@
 
 // dot shapes per graph and as worksheet defaults; lines: none on a function leaves its single points
 #graph($y(τ) \ z(τ)$, lines: none, dots: ("star", "cross"), colors: (black, red), errors: "panic")
+
+// A pair of independently rendered named curves must retain the positional
+// equation form; this is how graphs embedded in a grid are commonly written.
+#calculate($q_1(t) := t^2$, $q_2(t) := 2 t + 1$, hidden: true)
+#grid(columns: (1fr, 1fr), graph($q_1(t)$, x-range: (-1, 1), errors: "panic"), graph($q_2(t)$, x-range: (-1, 1), errors: "panic"))
+
 #worksheet(scope: "inherit", graph-dots: "hexagon", graph-colors: blue, graph-lines: "dashed", graph-joined: true)[
   #graph($y(τ) \ z(τ)$, errors: "panic")
 ]
