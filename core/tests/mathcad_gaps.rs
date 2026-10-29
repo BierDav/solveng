@@ -255,9 +255,9 @@ fn descriptive_statistics() {
 
 #[test]
 fn normal_distribution_and_quantiles() {
-    near("⦇normalcdf⦈(0, 0, 1)", 0.5, 1e-12);
-    near("⦇normalcdf⦈(1, 0, 1)", 0.8413447460685429, 1e-10);
-    near("⦇normalquantile⦈(0.975, 0, 1)", 1.959963984540054, 1e-8);
+    near("⦇pnorm⦈(0, 0, 1)", 0.5, 1e-12);
+    near("⦇pnorm⦈(1, 0, 1)", 0.8413447460685429, 1e-10);
+    near("⦇qnorm⦈(0.975, 0, 1)", 1.959963984540054, 1e-8);
 }
 
 #[test]

@@ -1,7 +1,7 @@
 //! Supported worksheet facade. Other engine modules expose lower-level implementation details.
 use crate::{api, env::Env, format::Cfg, sheet::Out};
 
-pub use crate::api::{Arg as Argument, Lam as CompiledExpression, LamReq as CompileRequest, Row as Definition};
+pub use crate::api::{Arg as Argument, Compiled as CompiledExpression, CompileReq as CompileRequest, Row as Definition};
 pub use crate::format::Cfg as FormatOptions;
 
 /// A diagnostic with a stable data shape, suitable for an editor or host application.
@@ -38,7 +38,7 @@ impl Worksheet {
         api::defined(&self.environment, &api::DefinedReq { cfg: self.options.clone() }).map_err(Into::into)
     }
     pub fn compile(&self, request: &CompileRequest) -> Result<CompiledExpression, Diagnostic> {
-        api::lambdify(&self.environment, request).map_err(Into::into)
+        api::compile(&self.environment, request).map_err(Into::into)
     }
     pub fn clear(&mut self, names: Vec<String>) -> Vec<Diagnostic> {
         api::clear(&mut self.environment, &api::ClearReq { names }).into_iter().map(Into::into).collect()

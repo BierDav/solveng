@@ -27,16 +27,6 @@ fn solve_is_read_only_and_explicit_assignment_keeps_all_branches() {
 }
 
 #[test]
-fn canonical_probability_operations_and_deprecated_aliases_agree() {
-    assert_eq!(solveng_core::builtins::canonical("normalcdf"), "pnorm");
-    assert_eq!(solveng_core::builtins::canonical("normalquantile"), "qnorm");
-    let mut env = Env::default();
-    for name in ["pnorm", "normalcdf"] {
-        assert_eq!(support::result(&mut env, &format!("{name}(0, 0, 1) =>")), "\"0.5\"");
-    }
-}
-
-#[test]
 fn explicit_graph_variable_shadows_only_locally_and_bounds_stay_exact() {
     let mut env = Env::default();
     support::run(&mut env, "x := 100");

@@ -1,7 +1,7 @@
 // Numerical engineering APIs: exports, units, scope, error flow and solved functions.
 #import "/lib.typ": *
 #import "/tests/util.typ": expect, passes, fails, result
-#import operations: lsolve, eigenvals, singularvals, svds, cond, median, variance, stdev, normalcdf, normalquantile, pnorm, qnorm, linterp, linfit, dft, idft, gamma, erf, besselj, minimize, odesolve, celsius, fahrenheit, polyroots, at, rows, number, Im
+#import operations: lsolve, eigenvals, singularvals, cond, median, variance, stdev, pnorm, qnorm, linterp, linfit, dft, idft, gamma, erf, besselj, minimize, odesolve, celsius, fahrenheit, polyroots, at, rows, number, Im
 #import modifiers: solve, assume, simplify
 #import units: m, s, V, K, degC
 #set page(width: 20cm, height: auto)
@@ -12,8 +12,8 @@ $"eigsum" := at(eigenvals(mat(2, 1; 1, 2)), 0) + at(eigenvals(mat(2, 1; 1, 2)), 
 #passes() #expect("eigsum", 4)
 $"singular" := at(singularvals(mat(3 #m, 0; 0, 4 #m ; 0, 0)), 0) =>$
 #passes() #expect("singular", 4)
-$"alias_singular" := at(svds(mat(3, 0; 0, 4; 0, 0)), 1) =>$
-#passes() #expect("alias_singular", 3)
+$"singular_unitless" := at(singularvals(mat(3, 0; 0, 4; 0, 0)), 1) =>$
+#passes() #expect("singular_unitless", 3)
 $"condition" := cond(mat(1, 0; 0, 1/100000000)) =>$
 #passes() #expect("condition", 100000000)
 $"middle" := median(vec(9 #m, 1 #m, 3 #m, 7 #m)) =>$
@@ -22,14 +22,14 @@ $"variance" := variance(vec(1 #m, 2 #m, 3 #m)) =>$
 #passes() #expect("variance", 1)
 $"deviation" := stdev(vec(2, 4, 6)) =>$
 #passes() #expect("deviation", 2)
-$"probability" := normalcdf(10 #m, 10 #m, 2 #m) =>$
+$"probability" := pnorm(10 #m, 10 #m, 2 #m) =>$
 #passes() #expect("probability", 0.5)
-$"quantile" := normalquantile(1/2, 10 #m, 2 #m) =>$
+$"quantile" := qnorm(1/2, 10 #m, 2 #m) =>$
 #passes() #expect("quantile", 10)
-$"alias_probability" := pnorm(0, 0, 1) =>$
-#passes() #expect("alias_probability", 0.5)
-$"alias_quantile" := qnorm(1/2, 0, 1) =>$
-#passes() #expect("alias_quantile", 0)
+$"probability_zero" := pnorm(0, 0, 1) =>$
+#passes() #expect("probability_zero", 0.5)
+$"quantile_midpoint" := qnorm(1/2, 0, 1) =>$
+#passes() #expect("quantile_midpoint", 0)
 $"interpolation" := linterp(vec(0 #s, 2 #s, 5 #s), vec(1 #V, 5 #V, 11 #V), 3 #s) =>$
 #passes() #expect("interpolation", 7)
 $"slope" := at(linfit(vec(0 #s, 1 #s, 2 #s), vec(3 #V, 5 #V, 7 #V)), 1) =>$

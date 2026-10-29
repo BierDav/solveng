@@ -6,7 +6,7 @@
 mod support;
 
 use solveng_core::{
-    api::{self, LamReq},
+    api::{self, CompileReq},
     complex::{CVal, Z},
     dim::Dim,
     env::Env,
@@ -75,8 +75,8 @@ fn identity(source: &str) {
     );
 }
 
-fn lambda(source: &str, params: &[&str]) -> LamReq {
-    LamReq {
+fn lambda(source: &str, params: &[&str]) -> CompileReq {
+    CompileReq {
         cfg: support::cfg(),
         src: support::src(source, &Env::default()),
         params: params.iter().map(|s| s.to_string()).collect(),
@@ -188,23 +188,23 @@ fn b12_modulus_of_square_is_differentiable_at_zero() {
 }
 
 #[test]
-fn b13_lambdify_rejects_duplicate_parameters() {
+fn b13_compile_rejects_duplicate_parameters() {
     for params in [["x", "x"], ["alpha", "α"]] {
         let req = lambda(params[0], &params);
         assert!(
-            api::lambdify(&Env::default(), &req).is_err(),
+            api::compile(&Env::default(), &req).is_err(),
             "duplicate parameters: {params:?}"
         );
     }
 }
 
 #[test]
-fn b14_lambdify_checks_known_parameter_dimensions() {
+fn b14_compile_checks_known_parameter_dimensions() {
     for source in ["x + 1 s", "sin(x)"] {
         let mut req = lambda(source, &["x"]);
         req.units.insert("x".into(), support::unit("m"));
         assert!(
-            api::lambdify(&Env::default(), &req).is_err(),
+            api::compile(&Env::default(), &req).is_err(),
             "invalid dimensions: {source}"
         );
     }

@@ -13,7 +13,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "docs", "reference.md")
 # public functions (worksheet comes with the option tables) and the operations of the `operations` module,
 # in the order they are documented
-FUNCTIONS = ["worksheet", "calculate", "compile", "base-unit", "unit", "constant", "operation", "solve", "substitute", "assume", "simplify", "expand", "factor", "steps", "digits", "sci", "eng", "fraction", "defined", "graph", "lambdify", "value", "clear"]
+FUNCTIONS = ["worksheet", "calculate", "compile", "base-unit", "unit", "constant", "operation", "solve", "substitute", "assume", "simplify", "expand", "factor", "steps", "digits", "sci", "eng", "fraction", "defined", "graph", "value", "clear"]
 OPERATIONS = ["atan2", "min", "max", "mean", "prod", "sinc", "cosc", "tanc", "rect", "tri", "dirac", "sgn", "Re", "Im", "conj", "number", "floor", "ceil", "factorial", "diff", "integrate", "laplace", "invlaplace", "convolve", "range", "at", "rank", "identity", "rows", "cols", "asin", "acos", "atan"]
 OPERATIONS += ['linear-solve', 'eigenvals', 'singularvals', 'cond', 'median', 'variance', 'stdev', 'pnorm', 'qnorm', 'linear-interpolate', 'linear-fit', 'dft', 'idft', 'gamma', 'erf', 'besselj', 'minimize', 'odesolve', 'celsius', 'fahrenheit', 'polyroots']
 DOCUMENTED = FUNCTIONS + OPERATIONS

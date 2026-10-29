@@ -746,7 +746,7 @@ fn string_completions(a: &Analysis, call: &Call, t: &crate::calls::Text, at: usi
         Role::Choice => {
             let param = call.function.named.iter().find(|p| Some(&p.name) == t.param.as_ref())?;
             let mut items: Vec<Item> = param.values.iter().map(|v| Item::new(v, ItemKind::VALUE, &param.types, v)).collect();
-            if param.name == "included" || param.name == "excluded" {
+            if param.name == "names" || param.name == "kinds" {
                 items.extend(definition_items(a, &mut HashSet::new(), false, true, Some(at)).into_iter().map(|mut i| {
                     i.insert = crate::text::before(&i.label, "(").into();
                     i

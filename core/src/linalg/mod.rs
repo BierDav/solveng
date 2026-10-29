@@ -55,8 +55,8 @@ pub enum Op {
     Median,
     Variance,
     Stdev,
-    NormalCdf,
-    NormalQuantile,
+    Pnorm,
+    Qnorm,
     Interpolate,
     LinearFit,
     Dft,
@@ -83,8 +83,8 @@ impl Op {
             "median" => Op::Median,
             "variance" => Op::Variance,
             "stdev" => Op::Stdev,
-            "pnorm" => Op::NormalCdf,
-            "qnorm" => Op::NormalQuantile,
+            "pnorm" => Op::Pnorm,
+            "qnorm" => Op::Qnorm,
             "linterp" => Op::Interpolate,
             "linfit" => Op::LinearFit,
             "dft" => Op::Dft,
@@ -136,8 +136,8 @@ impl Op {
             Op::Median => "median",
             Op::Variance => "variance",
             Op::Stdev => "stdev",
-            Op::NormalCdf => "pnorm",
-            Op::NormalQuantile => "qnorm",
+            Op::Pnorm => "pnorm",
+            Op::Qnorm => "qnorm",
             Op::Interpolate => "linterp",
             Op::LinearFit => "linfit",
             Op::Dft => "dft",
@@ -164,7 +164,7 @@ impl Op {
     pub fn arity(self) -> RangeInclusive<usize> {
         match self {
             Op::Lsolve | Op::LinearFit | Op::BesselJ => 2..=2,
-            Op::NormalCdf | Op::NormalQuantile | Op::Interpolate => 3..=3,
+            Op::Pnorm | Op::Qnorm | Op::Interpolate => 3..=3,
             Op::Cross | Op::Convolve | Op::Row | Op::Col | Op::Atan2 => 2..=2,
             Op::Min | Op::Max => 1..=usize::MAX,
             Op::At => 2..=3,
@@ -440,7 +440,7 @@ fn eval(op: Op, args: &[Expr]) -> Result<Option<Expr>, String> {
             }
         }
     }
-    if matches!(op, Op::Lsolve | Op::Eigenvals | Op::SingularValues | Op::Condition | Op::Median | Op::Variance | Op::Stdev | Op::NormalCdf | Op::NormalQuantile | Op::Interpolate | Op::LinearFit | Op::Dft | Op::Idft | Op::Gamma | Op::Erf | Op::BesselJ | Op::Celsius | Op::Fahrenheit | Op::Polyroots) {
+    if matches!(op, Op::Lsolve | Op::Eigenvals | Op::SingularValues | Op::Condition | Op::Median | Op::Variance | Op::Stdev | Op::Pnorm | Op::Qnorm | Op::Interpolate | Op::LinearFit | Op::Dft | Op::Idft | Op::Gamma | Op::Erf | Op::BesselJ | Op::Celsius | Op::Fahrenheit | Op::Polyroots) {
         if args.iter().any(|e| !e.syms().is_empty()) { return Ok(None); }
         return crate::numerics::operation(op, args).map(Some);
     }
@@ -632,7 +632,7 @@ fn eval(op: Op, args: &[Expr]) -> Result<Option<Expr>, String> {
             // a row of a vector, a column of a row: one element
             if picked.a.len() == 1 { picked.a[0].clone() } else { picked.expr() }
         }
-        Op::Lsolve | Op::Eigenvals | Op::SingularValues | Op::Condition | Op::Median | Op::Variance | Op::Stdev | Op::NormalCdf | Op::NormalQuantile | Op::Interpolate | Op::LinearFit | Op::Dft | Op::Idft | Op::Gamma | Op::Erf | Op::BesselJ | Op::Celsius | Op::Fahrenheit | Op::Polyroots => unreachable!("handled above"),
+        Op::Lsolve | Op::Eigenvals | Op::SingularValues | Op::Condition | Op::Median | Op::Variance | Op::Stdev | Op::Pnorm | Op::Qnorm | Op::Interpolate | Op::LinearFit | Op::Dft | Op::Idft | Op::Gamma | Op::Erf | Op::BesselJ | Op::Celsius | Op::Fahrenheit | Op::Polyroots => unreachable!("handled above"),
         Op::Cross | Op::Convolve | Op::Atan2 | Op::Min | Op::Max | Op::Mean => unreachable!("handled above"),
     }))
 }

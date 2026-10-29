@@ -176,13 +176,13 @@ pub(crate) fn operation(op: Op, args: &[Expr]) -> Result<Expr, String> {
             };
             number(y, Dim::ONE)
         }
-        Op::NormalCdf | Op::NormalQuantile => {
+        Op::Pnorm | Op::Qnorm => {
             let (x, mu, sigma) = (real(&args[0])?, real(&args[1])?, real(&args[2])?);
             same(&mu.d, &sigma.d)?;
             if sigma.v.f() <= 0.0 {
                 return Err("standard deviation must be positive".into());
             }
-            if op == Op::NormalCdf {
+            if op == Op::Pnorm {
                 same(&x.d, &mu.d)?;
                 number(normal_cdf((x.v.f() - mu.v.f()) / sigma.v.f()), Dim::ONE)
             } else {
@@ -521,12 +521,12 @@ pub(crate) fn dimension(op: Op, args: &[Expr], sd: &dyn Fn(&str) -> Option<Dim>)
             require_unitless(&args[0])?;
             Ok(Some(Dim::base(4)))
         }
-        Op::NormalCdf | Op::NormalQuantile => {
+        Op::Pnorm | Op::Qnorm => {
             let (mu, sigma) = (dim(&args[1])?, dim(&args[2])?);
             if let (Some(a), Some(b)) = (&mu, &sigma) {
                 same(a, b)?;
             }
-            if op == Op::NormalQuantile {
+            if op == Op::Qnorm {
                 require_unitless(&args[0])?;
                 Ok(mu.or(sigma))
             } else {

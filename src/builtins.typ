@@ -664,10 +664,6 @@
 /// -> vector
 #let singularvals = [#math.op("singularvals")<solveng-builtin-operation>]
 
-/// Deprecated alias for `singularvals(A)`; returns all singular values, not a truncated decomposition.
-/// - A (expression): Matrix with matching entry units.
-#let svds = [#math.op("singularvals")<solveng-builtin-operation>]
-
 /// Spectral condition number: largest / smallest singular value, a unitless sensitivity diagnostic.
 /// Entries must have matching units. Numerically singular matrices report an error;
 /// a finite result is meaningful only to floating-point resolution. Maximum dimension: 256.
@@ -705,18 +701,6 @@
 /// - mean (expression): Distribution mean.
 /// - sigma (expression): Positive standard deviation.
 #let qnorm = [#math.op("qnorm")<solveng-builtin-operation>]
-
-/// Deprecated alias for `pnorm(x, mean, sigma)`.
-/// - x (expression): Real observation.
-/// - mean (expression): Distribution mean.
-/// - sigma (expression): Positive standard deviation.
-#let normalcdf = [#math.op("pnorm")<solveng-builtin-operation>]
-
-/// Deprecated alias for `qnorm(probability, mean, sigma)`.
-/// - probability (expression): Probability strictly between 0 and 1.
-/// - mean (expression): Distribution mean.
-/// - sigma (expression): Positive standard deviation.
-#let normalquantile = [#math.op("qnorm")<solveng-builtin-operation>]
 
 /// Linear interpolation of measured data: `linterp(x, y, at)`.
 /// x and y are equally sized real vectors with at least two entries. x knots

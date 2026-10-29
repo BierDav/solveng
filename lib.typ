@@ -12,7 +12,7 @@
 #import "src/keywords.typ": any
 #import "src/defined.typ": defined
 #import "src/graph.typ": graph
-#import "src/lambdify.typ": compile, lambdify
+#import "src/compile.typ": compile
 #import "src/value.typ": value
 #import "src/operation.typ": base-unit, unit, constant, operation
 // bindings only where imported, never through `*`: #import units: km, mA, s, #import operations: tri, sgn,

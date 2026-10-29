@@ -6,7 +6,7 @@
 /// ```sh
 /// cargo test                                    # the engine (units, parsing, algebra, solving, worksheets, graphs, random inputs) and the editor (IDE, language server)
 /// plugin/build.sh                               # src/solveng.wasm from the engine (rustup target add wasm32-unknown-unknown; wasm-opt if installed)
-/// tt run                                        # units, complex numbers, solving, names, lambdify, … and the README examples (reference images)
+/// tt run                                        # units, complex numbers, solving, names, compile, … and the README examples (reference images)
 /// tt update readme document                     # accept changed output of the README and document examples
 /// python3 tests/examples.py                     # every example in README.md and docs/reference.md compiles on its own
 /// python3 tests/reference.py                    # docs/reference.md from the doc comments in src/ (--check: is it up to date?)

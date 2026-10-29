@@ -1,4 +1,4 @@
-// Imperial units made from imported ones, used in math, value and lambdify.
+// Imperial units made from imported ones, used in math, value and compile.
 #import "/tests/util.typ": *
 #import units: m, s, cm, kg, g, ml, l
 #import operations: tri
@@ -18,5 +18,5 @@
   $M := 2 pound => kg$ #expect("M", 0.907184)
   $V := 1 gallon => #l$ #expect("V", 0.00454609)
   #value($x_2 => cm$)
-  #context assert.eq(lambdify($x_2 + a$, "a", unit: $#m$, units: (a: $#m$))(1), 1.0254)
+  #context assert.eq(compile($x_2 + a$, parameters: (a: $#m$), result-unit: $#m$)(1), 1.0254)
 ]

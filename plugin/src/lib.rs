@@ -4,7 +4,7 @@
 use ciborium::Value;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use solveng_core::api::{self, Arg, ClearReq, DefinedReq, Lam, LamReq, LineReq, UnitReq};
+use solveng_core::api::{self, Arg, ClearReq, DefinedReq, Compiled, CompileReq, LineReq, UnitReq};
 use solveng_core::env::Env;
 use wasm_minimal_protocol::*;
 
@@ -82,12 +82,12 @@ pub fn unit(req: &[u8]) -> Result<Vec<u8>, String> {
 
 /// (env, request) → the prepared function as bytes, or an error message as (err: …).
 #[wasm_func]
-pub fn lambdify(env: &[u8], req: &[u8]) -> Result<Vec<u8>, String> {
+pub fn compile(env: &[u8], req: &[u8]) -> Result<Vec<u8>, String> {
     let e = env_of(env)?;
-    let r: LamReq = de(req, "request")?;
-    match api::lambdify(&e, &r) {
+    let r: CompileReq = de(req, "request")?;
+    match api::compile(&e, &r) {
         Ok(l) => en(&Value::Map(vec![
-            (Value::Text("lam".into()), Value::Bytes(en(&l)?)),
+            (Value::Text("compiled".into()), Value::Bytes(en(&l)?)),
             (Value::Text("params".into()), to_value(&l.params)?),
         ])),
         Err(m) => en(&Value::Map(vec![(Value::Text("err".into()), Value::Text(m))])),
@@ -107,10 +107,10 @@ pub fn value(env: &[u8], req: &[u8]) -> Result<Vec<u8>, String> {
 
 /// (prepared, args) → the value, none where undefined, or (err: …).
 #[wasm_func]
-pub fn lam_eval(lam: &[u8], args: &[u8]) -> Result<Vec<u8>, String> {
-    let l: Lam = de(lam, "function")?;
+pub fn compiled_eval(compiled: &[u8], args: &[u8]) -> Result<Vec<u8>, String> {
+    let l: Compiled = de(compiled, "function")?;
     let a: Vec<Arg> = de(args, "arguments")?;
-    match api::lam_eval(&l, &a) {
+    match api::compiled_eval(&l, &a) {
         Ok(v) => en(&v),
         Err(m) => en(&Value::Map(vec![(Value::Text("err".into()), Value::Text(m))])),
     }

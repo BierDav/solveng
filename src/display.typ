@@ -5,7 +5,7 @@
 ///
 /// > ⚠ solveng: 'U' in 'P := U I' isn't defined – define it first with :=, or solve for it: … -> solve(U)
 ///
-/// `#show: worksheet.with(errors: "panic")` stops the compilation instead (useful in CI). Unknown named arguments of `worksheet`, `defined` and `graph` are reported the same way; those of `lambdify` stop the compilation.
+/// `#show: worksheet.with(errors: "panic")` stops the compilation instead (useful in CI). Unknown named arguments of `worksheet`, `defined` and `graph` are reported the same way; those of `compile` stop the compilation.
 ///
 /// ## HTML
 ///

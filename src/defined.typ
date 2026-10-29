@@ -8,9 +8,8 @@
 /// #show: worksheet
 /// $R := 7.2 kΩ$, $U := 5 #V$, $I := U/R$, $f(x) := x^2$
 /// #defined()                                          // everything, in columns side by side
-/// #defined(included: "given")                         // only plain values (also "computed", "function")
-/// #defined(excluded: ("U", "function"))               // names and kinds
-/// #defined(included: regex("^R"), style: "column")    // a regex, or a function name => bool
+/// #defined(kinds: "given")                             // only plain values (also "computed", "function")
+/// #defined(names: regex("^R"), style: "column")      // a regex, or a function name => bool
 /// #defined(show-si: true, digits: 3)                  // any option, for this list only
 /// ```
 ///
@@ -21,20 +20,16 @@
 /// - `"inline"`: comma separated in the text.
 /// - `"list"`: bullets.
 ///
-/// `included` / `excluded` take `"all"`, a kind (`"given"`: plain values, `"computed"`, `"function"`), a name, a regex, a function `name => bool` or an array of these; `excluded` wins. (`include` is a Typst keyword, hence the names.)
-///
 /// - names (str, regex, function, array): Definition names to show; strings match names literally, except "all".
 /// - kinds (str, array): given, computed or function; all three by default.
 /// - where (function): Additional predicate on each definition name.
-/// - included (str, regex, function, array): Deprecated combined kind/name filter; prefer names and kinds.
-/// - excluded (none, str, regex, function, array): What to leave out.
 /// - style (auto, str): `"grid"`, `"column"`, `"inline"` or `"list"`, see above. `auto`: the option `defined-style` (default `"grid"`).
 /// - show-si (auto, bool): Also show the SI value: `Q₀ = 3450 mAh = 12420 C`.
 /// - digits, decimal-separator, number-form, … (auto): Every option of `worksheet` works here too, for this call only.
 /// -> content
 #let defined(
   names: "all", kinds: ("given", "computed", "function"), where: name => true,
-  included: auto, excluded: none, style: auto,
+  style: auto,
   digits: auto, trailing-zeros: auto, decimal-separator: auto, grouping: auto, notation-thresholds: auto, notation: auto, multiplication: auto, number-form: auto,
   max-denominator: auto, fraction-style: auto, prefixes: auto, show-si: auto, preferred-units: auto,
   show-approximation: auto, block: auto, max-solutions: auto, errors: auto, show-types: auto,
@@ -47,14 +42,9 @@
   if type(kinds) != array or kinds.any(k => k not in ("given", "computed", "function")) { return _errc("kinds: given, computed or function", cf0, wide: true) }
   if type(where) != function { return _errc("where: a predicate on a definition name", cf0, wide: true) }
   let ok(p) = p == none or type(p) in (str, regex, function) or (type(p) == array and p.all(ok))
-  if not ok(names) or (included != auto and not ok(included)) or not ok(excluded) { return _errc("included/excluded: use \"all\", a kind, names, a regex or a function", cf0, wide: true) }
-  let hit(e, p) = if p == none { false }
-    else if type(p) == str { if p == "all" { true } else if p in ("given", "computed", "function") { e.kind == p } else { e.name == p } }
-    else if type(p) == array { p.any(x => hit(e, x)) }
-    else if type(p) == regex { e.name.match(p) != none }
-    else { p(e.name) }
+  if not ok(names) { return _errc("names: use \"all\", a name, regex or function", cf0, wide: true) }
   let named(e, p) = if type(p) == str { p == "all" or e.name == p } else if type(p) == array { p.any(x => named(e, x)) } else if type(p) == regex { e.name.match(p) != none } else if p == none { false } else { p(e.name) }
-  let es = _rows(_st.get(), cf0).filter(e => e.listed and e.kind in kinds and named(e, names) and where(e.name) and (included == auto or hit(e, included)) and not named(e, excluded))
+  let es = _rows(_st.get(), cf0).filter(e => e.listed and e.kind in kinds and named(e, names) and where(e.name))
   if es.len() == 0 { return }
   let rows = es.map(e => ($#_m(e.lhs, cf0)$, e.values.map(v => _m(v, cf0)), if e.rel == "=" { $=>$ } else { _m(e.rel, cf0) }))
   let style = cf0.defined-style

@@ -60,7 +60,7 @@
 /// - **Parts:** `abs(z)` is the magnitude, `arg(z)` the angle in radians (−π…π); `Re`, `Im` and `conj` come from `operations` (`#import operations: Re, Im, conj`).
 /// - **Solving** is complex: `$x^2 + 4 = 0 -> solve(x)$` gives ±2i, polynomials with numbers get all their roots (`$x^3 = 8 -> solve(x)$`: 2 and −1 ± 1.732i). The numeric search for other equations finds real solutions only.
 /// - **Showing:** electrical engineers write `j`: `#show: worksheet.with(constant-displays: (imaginary: $j$))`.
-/// - **Real only:** graphs, `lambdify`, comparisons with `<` and `>`, inequalities and the numeric search need real values; a complex one there is an error.
+/// - **Real only:** graphs, `compile`, comparisons with `<` and `>`, inequalities and the numeric search need real values; a complex one there is an error.
 ///
 /// ```typ
 /// #import units: Ω, Hz, mH
@@ -112,7 +112,7 @@
 /// Import these operations from `operations`. They use the same explicit references,
 /// worksheet function scopes and deferred definitions as existing operations; plain
 /// unbound names do not select a built-in. Canonical names are `singularvals`,
-/// `pnorm` and `qnorm`; `normalcdf` and `normalquantile` remain deprecated aliases, as does `svds` for `singularvals`.
+/// `pnorm` and `qnorm`; `singularvals` provides the complete singular-value spectrum.
 /// The operation source comments also supply editor hover and parameter help.
 ///
 /// Numerical decompositions allow dimensions up to 256 and at most 10000 iterations.
@@ -148,7 +148,7 @@
 /// - **Numeric search** can miss roots squeezed between nearby poles, roots of very fast oscillations, and roots outside ±10¹⁵ (scaled by the target unit); the result then says "no real solution".
 /// - **Systems** are solved numerically from a fixed set of starts; solutions far away from them can be missed. Underdetermined systems show one arbitrary solution.
 /// - **Domains:** values are complex, with the real value where there is one: `sqrt(-1)` is i, `(-8)^(1/3)` is −2. Higher-degree polynomial solutions with parameters are deferred until coefficients have values.
-/// - **Complex numbers:** numerical polynomial roots use bounded iteration and can lose root-location accuracy near repeated or clustered roots; real-root isolation uses derivative roots to recover repeated real locations. Graphs, `lambdify`, numeric solving and inequalities need real values, and complex numbers have no order (`<` on them is an error).
+/// - **Complex numbers:** numerical polynomial roots use bounded iteration and can lose root-location accuracy near repeated or clustered roots; real-root isolation uses derivative roots to recover repeated real locations. Graphs, `compile`, numeric solving and inequalities need real values, and complex numbers have no order (`<` on them is an error).
 /// - **°C** (`degC`) is a temperature difference. Use `celsius(reading)` or `fahrenheit(reading)` for explicit absolute-temperature conversion to kelvin; temperatures in formulas like `p V = n R T` use these Kelvin values.
 /// - **Unit expressions** take whole-number powers (`#m^2`, `#s^(-1)`); fractional ones (`#m^(1/2)`) aren't units.
 /// - **Functions** can't call themselves.
@@ -313,7 +313,7 @@
 }
 
 
-// A unit expression (lambdify's units and arguments) as the plugin reads it.
+// A unit expression (compile's units and arguments) as the plugin reads it.
 #let _unit-src(c) = {
   if type(c) == content and c.has("label") and c.label == <solveng-binding> { return _src(c) }
   if type(c) == content {

@@ -11,7 +11,7 @@ const SOURCES: &[&str] = &[
     include_str!("../../../src/core.typ"),
     include_str!("../../../src/defined.typ"),
     include_str!("../../../src/graph.typ"),
-    include_str!("../../../src/lambdify.typ"),
+    include_str!("../../../src/compile.typ"),
     include_str!("../../../src/value.typ"),
     include_str!("../../../src/modifiers.typ"),
     include_str!("../../../src/unit-words.typ"),
@@ -191,10 +191,7 @@ fn read() -> Vec<Function> {
                     Some(v) => v,
                     None => String::new(),
                 };
-                let mut values = choices.get(option).cloned().unwrap_or_default();
-                if name == "defined" && (pname == "included" || pname == "excluded") {
-                    values = ["all", "given", "computed", "function"].map(String::from).to_vec();
-                }
+                let values = choices.get(option).cloned().unwrap_or_default();
                 let p = Param { name: pname, types, doc, default, values, variadic };
                 if part.contains(':') && !variadic { f.named.push(p) } else { f.positional.push(p) }
             }

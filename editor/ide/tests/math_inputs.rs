@@ -11,7 +11,7 @@ fn kind(doc: &str, needle: &str) -> Option<u8> {
 
 #[test]
 fn expression_strings_have_no_editor_language() {
-    for name in ["worksheet", "value", "graph", "lambdify"] {
+    for name in ["worksheet", "value", "graph", "compile"] {
         let doc = format!("#{name}(\"x := 2 s\")");
         let at = offset(&doc, "2 s") + 2;
         assert!(document_tokens(&doc, &Context::default()).is_empty(), "{doc}");
@@ -24,7 +24,7 @@ fn expression_strings_have_no_editor_language() {
 
 #[test]
 fn unit_expressions_of_options_and_constructors_are_math() {
-    let doc = "#import units: cm, m, s as sec, W, V\n#let inch = unit($2.54 cm$)\n#show: worksheet.with(preferred-units: ($m / #sec$, $inch$))\n#lambdify($U^2/R$, \"U\", unit: $#W$, units: (U: $#V$))\n$x := 1 $";
+    let doc = "#import units: cm, m, s as sec, W, V\n#let inch = unit($2.54 cm$)\n#show: worksheet.with(preferred-units: ($m / #sec$, $inch$))\n#compile($U^2/R$, \"U\", unit: $#W$, units: (U: $#V$))\n$x := 1 $";
     for (needle, want) in [("cm$)", TokenKind::UNIT), ("2.54", TokenKind::NUMBER), ("sec$", TokenKind::UNIT), ("inch$)", TokenKind::UNIT), ("W$,", TokenKind::UNIT), ("V$)", TokenKind::UNIT)] {
         assert_eq!(kind(doc, needle), Some(want), "{needle}");
     }

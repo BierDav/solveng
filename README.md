@@ -101,7 +101,7 @@ Editor completions and import quick fixes follow bindings re-exported by local t
 
 Solving returns solutions without changing definitions: `$x^2 = 4 -> solve(x)$` leaves `x` undefined. To retain all branches explicitly, write `$roots := x^2 = 4 -> solve(x)$`, then select a branch with `at(roots, 0)`. Numeric search results are available in the calculation report; solved definitions currently require symbolic isolation.
 
-Canonical numerical operations include `pnorm`, `qnorm`, `linear-solve`, `linear-interpolate`, and `linear-fit`. See [API migration](docs/api-migration.md) for renamed settings and deprecated compatibility spellings.
+Canonical numerical operations include `pnorm`, `qnorm`, `linear-solve`, `linear-interpolate`, and `linear-fit`.
 
 ## Development
 

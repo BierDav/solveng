@@ -12,7 +12,7 @@ use crate::ContextFile;
 /// What a string argument holds.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Role {
-    /// A variable's name: `#lambdify($U^2/R$, "U")`, `#clear("x")`.
+    /// A variable's name: `#compile($U^2/R$, "U")`, `#clear("x")`.
     Name,
     /// One of an option's strings: `form: "fraction"`.
     Choice,
@@ -220,7 +220,7 @@ pub(crate) struct Call {
     pub args_end: usize,
     pub texts: Vec<Text>,
     pub named: Vec<Named>,
-    /// Equations solveng reads wherever they are: passed to `worksheet`, `value`, `graph` and `lambdify`, the
+    /// Equations solveng reads wherever they are: passed to `worksheet`, `value`, `graph` and `compile`, the
     /// expressions of `unit` and `constant`, and unit expressions of options (`preferred-units: ($#m / #s$,)`).
     pub maths: Vec<(usize, usize)>,
 }
@@ -246,7 +246,7 @@ const UNIT_OPTIONS: &[&str] = &["preferred-units", "unit", "units", "result-unit
 fn role(function: &str, param: Option<&str>, index: usize) -> Option<Role> {
     let Some(param) = param else {
         return match function {
-            "lambdify" => (index > 0).then_some(Role::Name),
+            "compile" => (index > 0).then_some(Role::Name),
             "clear" => Some(Role::Name),
             _ => None,
         };
@@ -406,7 +406,7 @@ impl Reader<'_> {
                     call.named.push(Named { name: pname, name_start, name_end });
                 }
                 _ => {
-                    if arg.kind() == SyntaxKind::Equation && (matches!(function.name.as_str(), "worksheet" | "calculate") || index == 0 && matches!(function.name.as_str(), "value" | "graph" | "lambdify" | "compile" | "unit") || function.name == "constant") {
+                    if arg.kind() == SyntaxKind::Equation && (matches!(function.name.as_str(), "worksheet" | "calculate") || index == 0 && matches!(function.name.as_str(), "value" | "graph" | "compile" | "unit") || function.name == "constant") {
                         let (s, e) = self.chars(&arg);
                         call.maths.push((s, e));
                     }

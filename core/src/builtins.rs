@@ -92,8 +92,8 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin { name: "cases", sig: Sig { positional: &[], variadic: true, named: &[] } },
 ];
 
-/// Other spellings of operations.
-const ALIASES: &[(&str, &str)] = &[("svds", "singularvals"), ("normalcdf", "pnorm"), ("normalquantile", "qnorm"), ("γ", "gamma"), ("asin", "arcsin"), ("acos", "arccos"), ("atan", "arctan"), ("re", "Re"), ("im", "Im")];
+/// Other spellings of operations retained as mathematical notation.
+const ALIASES: &[(&str, &str)] = &[("γ", "gamma"), ("asin", "arcsin"), ("acos", "arccos"), ("atan", "arctan"), ("re", "Re"), ("im", "Im")];
 
 /// Return the canonical spelling for an operation name.
 pub fn canonical(name: &str) -> &str {

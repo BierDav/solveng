@@ -127,19 +127,19 @@ fn transforms_have_explicit_phase_normalization_and_resolvable_small_parts() {
 #[test]
 fn probability_and_special_functions_cover_tails_symmetry_and_domains() {
     let mut env = Env::default();
-    scalar(&mut env, "normalcdf(10 m,10 m,2 m)", 0.5, Dim::ONE, 1e-15);
-    scalar(&mut env, "normalquantile(1/2,10 m,2 m)", 10.0, Dim::base(0), 1e-12);
-    scalar(&mut env, "normalcdf(normalquantile(1/1000000000000,0,1),0,1)", 1e-12, Dim::ONE, 1e-24);
+    scalar(&mut env, "pnorm(10 m,10 m,2 m)", 0.5, Dim::ONE, 1e-15);
+    scalar(&mut env, "qnorm(1/2,10 m,2 m)", 10.0, Dim::base(0), 1e-12);
+    scalar(&mut env, "pnorm(qnorm(1/1000000000000,0,1),0,1)", 1e-12, Dim::ONE, 1e-24);
     scalar(&mut env, "gamma(-1/2)", -2.0 * std::f64::consts::PI.sqrt(), Dim::ONE, 1e-12);
     scalar(&mut env, "erf(-1)", -0.8427007929497149, Dim::ONE, 1e-12);
     scalar(&mut env, "besselj(2,1)", 0.1149034849319005, Dim::ONE, 1e-12);
     // Scalar operation dimensions are available inside numerical calculus too.
     scalar(&mut env, "integrate(erf(t),t,0,1)", 0.4860649581122559, Dim::ONE, 1e-10);
     for input in [
-        "normalcdf(0,0,-1) =>",
-        "normalquantile(0,0,1) =>",
-        "normalquantile(1,0,1) =>",
-        "normalcdf(1 m,0 s,1 s) =>",
+        "pnorm(0,0,-1) =>",
+        "qnorm(0,0,1) =>",
+        "qnorm(1,0,1) =>",
+        "pnorm(1 m,0 s,1 s) =>",
         "gamma(0) =>",
         "gamma(-2) =>",
         "erf(1 m) =>",

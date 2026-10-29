@@ -47,7 +47,7 @@ const PIECES: &[&str] = &[
     "$J := number(U, #A)$ $q(x: mA) := x$ $t := 2 s + 3 #sec = minute$\n",
     "#worksheet($z := q + 1 =$, form: \"fraction\")\n",
     "#graph($P(..) = U^2/R$, mark: \"extrema\", xrange: (\"0 Ω\", \"10 Ω\"))\n",
-    "#lambdify($U^2/R$, \"U\", unit: $#W$, units: (U: $V$))\n",
+    "#compile($U^2/R$, \"U\", unit: $#W$, units: (U: $V$))\n",
     "#worksheet(evaluate: false)[$E = m c^2$]\n",
     "#worksheet(scope: \"shared\")[$T := 2 #sec$ $f := 1/T = Hz$]\n",
     "#include \"part.typ\"\n",

@@ -24,8 +24,6 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 - [`fraction`](#fraction)
 - [`defined`](#defined)
 - [`graph`](#graph)
-- [`compile`](#compile)
-- [`lambdify`](#lambdify)
 - [`value`](#value)
 - [`clear`](#clear)
 - [`atan2`](#atan2)
@@ -119,7 +117,6 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 | [`fraction`](#fraction) | Exact fraction-style: `$I / 3 => fraction$` → ⅙ A. |
 | [`defined`](#defined) | Lists the definitions made so far, in order. |
 | [`graph`](#graph) | Plots an equation: ranges, nice ticks, axis labels and units are picked automatically. |
-| [`lambdify`](#lambdify) | Deprecated: use `compile(expr, parameters: (U: $#V$), result-unit: $#W$)`. |
 | [`value`](#value) | The result of an expression alone, where the text needs it: what `$U =>$` shows after its `=`. |
 | [`clear`](#clear) | Forgets definitions: the names given, or with `all: true` every one made so far. |
 
@@ -314,13 +311,26 @@ Returns content.
 ## `compile`
 
 Compiles a snapshot of an expression into a numeric Typst function. Needs context.
-Parameters are ordered; auto means numbers use SI units. With no parameters, free names are inferred.
+Parameters are an ordered dictionary; `auto` means arguments use SI units.
+With no parameters, free names are inferred.
+
+```typ
+#context {
+  let P = compile($U^2/R$, parameters: (U: $#V$), result-unit: $#W$)
+  [#P(12)]
+}
+```
+
+The function takes one argument per parameter: a number (in the unit given in
+`parameters`, else in the SI unit) or a math quantity like `$5 #V$`. It returns
+a float in `result-unit` (else in the SI unit), or `none` where the expression
+isn't defined.
 
 | parameter | type | default | |
 |---|---|---|---|
-| `expr` | content |  | A math expression. |
-| `parameters` | dictionary | `(:)` | Names mapped to unit expressions or auto, in argument order. |
-| `result-unit` | none, content | `none` | Unit of the returned number; none means SI. |
+| `expr` | content |  | The expression, using defined variables and the parameters. |
+| `parameters` | dictionary | `(:)` | Names mapped to unit expressions or `auto`, in argument order. |
+| `result-unit` | none, content | `none` | Unit of the returned number as math; `none` means SI. |
 
 Returns function.
 
@@ -535,9 +545,8 @@ Lists the definitions made so far, in order.
 #show: worksheet
 $R := 7.2 kΩ$, $U := 5 #V$, $I := U/R$, $f(x) := x^2$
 #defined()                                          // everything, in columns side by side
-#defined(included: "given")                         // only plain values (also "computed", "function")
-#defined(excluded: ("U", "function"))               // names and kinds
-#defined(included: regex("^R"), style: "column")    // a regex, or a function name => bool
+#defined(kinds: "given")                             // only plain values (also "computed", "function")
+#defined(names: regex("^R"), style: "column")      // a regex, or a function name => bool
 #defined(show-si: true, digits: 3)                  // any option, for this list only
 ```
 
@@ -548,15 +557,11 @@ Styles (`style:` here, option `defined-style` for all of them):
 - `"inline"`: comma separated in the text.
 - `"list"`: bullets.
 
-`included` / `excluded` take `"all"`, a kind (`"given"`: plain values, `"computed"`, `"function"`), a name, a regex, a function `name => bool` or an array of these; `excluded` wins. (`include` is a Typst keyword, hence the names.)
-
 | parameter | type | default | |
 |---|---|---|---|
 | `names` | str, regex, function, array | `"all"` | Definition names to show; strings match names literally, except "all". |
 | `kinds` | str, array | `("given", "computed", "function")` | given, computed or function; all three by default. |
 | `where` | function | `name => true` | Additional predicate on each definition name. |
-| `included` | str, regex, function, array | `auto` | Deprecated combined kind/name filter; prefer names and kinds. |
-| `excluded` | none, str, regex, function, array | `none` | What to leave out. |
 | `style` | auto, str | `auto` | `"grid"`, `"column"`, `"inline"` or `"list"`, see above. `auto`: the option `defined-style` (default `"grid"`). |
 | `digits`, `decimal-separator`, `number-form`, … | auto | `auto` | Every option of `worksheet` works here too, for this call only. See [Options](#options). |
 | `digits`, `separator`, … | auto | `auto` | Any [option](#options) for this call; `auto` keeps the current setting. |
@@ -628,53 +633,6 @@ numerical method's limits. Supply finite bounds or explicit projections when app
 | `digits`, `decimal-separator`, `number-form`, … | auto | `auto` | Every option of `worksheet` works here too, for this call only. See [Options](#options). |
 
 Returns content.
-
-## `compile`
-
-Compiles a snapshot of an expression into a numeric Typst function. Parameters are
-an ordered dictionary of names to unit expressions (or `auto`); `result-unit`
-controls the unit used for the returned number. With no parameters, free names are
-inferred. It needs `context`.
-
-```typ
-#context {
-  let P = compile($U^2/R$, parameters: (U: $#V$), result-unit: $#W$)
-  [#P(12)]
-}
-```
-
-## `lambdify`
-
-Deprecated compatibility API: use `compile(expr, parameters: (U: $#V$), result-unit: $#W$)`.
-It turns an expression into a plain Typst function of numbers, for value tables,
-other plotting packages (lilaq, cetz-plot, simple-plot) or your own calculations.
-Defined variables and functions are used with their current values. Needs `context`.
-
-```typ
-#import units: Ω, W, V
-#calculate($R := 50 #Ω$, hidden: true)
-#context {
-  let P = lambdify($U^2/R$, "U", unit: $#W$, units: (U: $#V$))
-  table(columns: 2, ..range(1, 6).map(u => ([#u V], [#P(u) W])).flatten())
-}
-```
-
-The function takes one argument per parameter: a number (in the unit given in
-`units`, else in the SI unit) or a math quantity like `$5 #V$`. It returns a float in
-`unit` (else in the SI unit), or `none` where the expression isn't defined
-(`sqrt(-1)`, division by zero).
-
-Unlike the other functions, problems stop the compilation here, since the
-result is a function and not content.
-
-| parameter | type | default | |
-|---|---|---|---|
-| `expr` | content |  | The expression, using defined variables and the parameters: `$U^2 / R$`. |
-| `..params` | str |  | The parameters in order, e.g. `"U"` or `"U", "R"`. A defined variable as a parameter is replaced by the argument. Without any: the undefined variables of the expression, in the order they appear. |
-| `unit` | none, content | `none` | Unit of the result as math, e.g. `$#W$` or `$kW$`. Checked against the expression when all parameters have units. |
-| `units` | dictionary | `(:)` | Units of numeric arguments as math, e.g. `(U: $#V$, R: $kΩ$)`. |
-
-Returns function.
 
 ## `value`
 
@@ -1656,7 +1614,7 @@ Values are complex numbers: `$sqrt(-4) =>$` is 2i, `$ln(-1) ->$` is iπ, also wi
 - **Parts:** `abs(z)` is the magnitude, `arg(z)` the angle in radians (−π…π); `Re`, `Im` and `conj` come from `operations` (`#import operations: Re, Im, conj`).
 - **Solving** is complex: `$x^2 + 4 = 0 -> solve(x)$` gives ±2i, polynomials with numbers get all their roots (`$x^3 = 8 -> solve(x)$`: 2 and −1 ± 1.732i). The numeric search for other equations finds real solutions only.
 - **Showing:** electrical engineers write `j`: `#show: worksheet.with(constant-displays: (imaginary: $j$))`.
-- **Real only:** graphs, `lambdify`, comparisons with `<` and `>`, inequalities and the numeric search need real values; a complex one there is an error.
+- **Real only:** graphs, `compile`, comparisons with `<` and `>`, inequalities and the numeric search need real values; a complex one there is an error.
 
 ```typ
 #import units: Ω, Hz, mH
@@ -1708,8 +1666,7 @@ A solved definition keeps its solutions: `circle(x, r) := x^2 + b^2 = r^2 -> sol
 Import these operations from `operations`. They use the same explicit references,
 worksheet function scopes and deferred definitions as existing operations; plain
 unbound names do not select a built-in. Canonical names are `singularvals`,
-`pnorm` and `qnorm`; `svds`, `normalcdf` and `normalquantile` remain deprecated
-compatibility aliases.
+`pnorm` and `qnorm`; `singularvals` provides the complete singular-value spectrum.
 The operation source comments also supply editor hover and parameter help.
 
 Numerical decompositions allow dimensions up to 256 and at most 10000 iterations.
@@ -1745,7 +1702,7 @@ single-boundary inequalities keep the existing scalar boundary behavior.
 - **Numeric search** can miss roots squeezed between nearby poles, roots of very fast oscillations, and roots outside ±10¹⁵ (scaled by the target unit); the result then says "no real solution".
 - **Systems** are solved numerically from a fixed set of starts; solutions far away from them can be missed. Underdetermined systems show one arbitrary solution.
 - **Domains:** values are complex, with the real value where there is one: `sqrt(-1)` is i, `(-8)^(1/3)` is −2. Higher-degree polynomial solutions with parameters are deferred until coefficients have values.
-- **Complex numbers:** numerical polynomial roots use bounded iteration and can lose root-location accuracy near repeated or clustered roots; real-root isolation uses derivative roots to recover repeated real locations. Graphs, `lambdify`, numeric solving and inequalities need real values, and complex numbers have no order (`<` on them is an error).
+- **Complex numbers:** numerical polynomial roots use bounded iteration and can lose root-location accuracy near repeated or clustered roots; real-root isolation uses derivative roots to recover repeated real locations. Graphs, `compile`, numeric solving and inequalities need real values, and complex numbers have no order (`<` on them is an error).
 - **°C** (`degC`) is a temperature difference. Use `celsius(reading)` or `fahrenheit(reading)` for explicit absolute-temperature conversion to kelvin; temperatures in formulas like `p V = n R T` use these Kelvin values.
 - **Unit expressions** take whole-number powers (`#m^2`, `#s^(-1)`); fractional ones (`#m^(1/2)`) aren't units.
 - **Functions** can't call themselves.
@@ -1760,7 +1717,7 @@ Problems (a missing value, units that don't match, a real calculation that would
 
 > ⚠ solveng: 'U' in 'P := U I' isn't defined – define it first with :=, or solve for it: … -> solve(U)
 
-`#show: worksheet.with(errors: "panic")` stops the compilation instead (useful in CI). Unknown named arguments of `worksheet`, `defined` and `graph` are reported the same way; those of `lambdify` stop the compilation.
+`#show: worksheet.with(errors: "panic")` stops the compilation instead (useful in CI). Unknown named arguments of `worksheet`, `defined` and `graph` are reported the same way; those of `compile` stop the compilation.
 
 ## HTML
 
@@ -1773,7 +1730,7 @@ The engine is tested in Rust, the package with [tytanic](https://github.com/typs
 ```sh
 cargo test                                    # the engine (units, parsing, algebra, solving, worksheets, graphs, random inputs) and the editor (IDE, language server)
 plugin/build.sh                               # src/solveng.wasm from the engine (rustup target add wasm32-unknown-unknown; wasm-opt if installed)
-tt run                                        # units, complex numbers, solving, names, lambdify, … and the README examples (reference images)
+tt run                                        # units, complex numbers, solving, names, compile, … and the README examples (reference images)
 tt update readme document                     # accept changed output of the README and document examples
 python3 tests/examples.py                     # every example in README.md and docs/reference.md compiles on its own
 python3 tests/reference.py                    # docs/reference.md from the doc comments in src/ (--check: is it up to date?)

@@ -192,10 +192,10 @@ pub fn unit_markup(req: &UnitReq) -> Option<String> {
     Some(format::unit(&p.u, &units, &req.cfg))
 }
 
-// ---------- lambdify ----------
+// ---------- compile ----------
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct LamReq {
+pub struct CompileReq {
     pub cfg: Cfg,
     pub src: String,
     pub params: Vec<String>,
@@ -206,7 +206,7 @@ pub struct LamReq {
 
 /// An expression ready to evaluate: parameters in order, their unit factors, the result's factor.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Lam {
+pub struct Compiled {
     pub expr: Expr,
     pub params: Vec<String>,
     /// Factor to SI of plain numbers per parameter.
@@ -217,7 +217,7 @@ pub struct Lam {
     pub cfg: Cfg,
 }
 
-pub fn lambdify(env: &Env, req: &LamReq) -> Result<Lam, String> {
+pub fn compile(env: &Env, req: &CompileReq) -> Result<Compiled, String> {
     let unit_sources = req.units.values().cloned().chain(req.unit.iter().cloned()).collect::<Vec<_>>().join(" ");
     let units = Units::lexical(&req.cfg, env, &format!("{} {unit_sources}", req.src))?;
     let is_fn = |n: &str| env.funs.contains_key(n);
@@ -273,7 +273,7 @@ pub fn lambdify(env: &Env, req: &LamReq) -> Result<Lam, String> {
             }
         }
     }
-    Ok(Lam { expr: e, params: ps, factors, dims, out, cfg: req.cfg.clone() })
+    Ok(Compiled { expr: e, params: ps, factors, dims, out, cfg: req.cfg.clone() })
 }
 
 /// An argument: a number (in the parameter's unit) or a value as text ("5 V").
@@ -284,7 +284,7 @@ pub enum Arg {
     Text(String),
 }
 
-pub fn lam_eval(l: &Lam, args: &[Arg]) -> Result<Option<f64>, String> {
+pub fn compiled_eval(l: &Compiled, args: &[Arg]) -> Result<Option<f64>, String> {
     if args.len() != l.params.len() {
         return Err(format!("the function takes {} argument(s) ({}), got {}", l.params.len(), l.params.join(", "), args.len()));
     }
@@ -379,17 +379,17 @@ mod tests {
     }
 
     #[test]
-    fn lambdify_works() {
+    fn compile_works() {
         let mut env = Env::default();
         run(&mut env, "R := 50 Ω");
         let mut units = IndexMap::new();
         units.insert("U".to_string(), t::unit("V"));
-        let l = lambdify(&env, &LamReq { cfg: Cfg::default(), src: "U^2/R".into(), params: vec!["U".into()], unit: Some(t::unit("W")), units }).unwrap();
-        assert_eq!(lam_eval(&l, &[Arg::Num(10.0)]).unwrap(), Some(2.0));
-        assert_eq!(lam_eval(&l, &[Arg::Text(format!("20000 {}", t::unit("mV")))]).unwrap(), Some(8.0));
+        let l = compile(&env, &CompileReq { cfg: Cfg::default(), src: "U^2/R".into(), params: vec!["U".into()], unit: Some(t::unit("W")), units }).unwrap();
+        assert_eq!(compiled_eval(&l, &[Arg::Num(10.0)]).unwrap(), Some(2.0));
+        assert_eq!(compiled_eval(&l, &[Arg::Text(format!("20000 {}", t::unit("mV")))]).unwrap(), Some(8.0));
         // real values only: √−1 has none
-        let l = lambdify(&env, &LamReq { cfg: Cfg::default(), src: "⦇sqrt⦈(x)".into(), params: vec![], unit: None, units: IndexMap::new() }).unwrap();
-        assert_eq!(lam_eval(&l, &[Arg::Num(-1.0)]).unwrap(), None);
+        let l = compile(&env, &CompileReq { cfg: Cfg::default(), src: "⦇sqrt⦈(x)".into(), params: vec![], unit: None, units: IndexMap::new() }).unwrap();
+        assert_eq!(compiled_eval(&l, &[Arg::Num(-1.0)]).unwrap(), None);
     }
 
     #[test]
