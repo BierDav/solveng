@@ -11,9 +11,9 @@ import os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "docs", "reference.md")
-# public functions (worksheet comes with the option tables) and the operations of the `operations` module,
+# public functions (math comes with the option tables) and the operations of the `operations` module,
 # in the order they are documented
-FUNCTIONS = ["worksheet", "calculate", "compile", "base-unit", "unit", "constant", "operation", "solve", "substitute", "assume", "simplify", "expand", "factor", "steps", "digits", "sci", "eng", "fraction", "defined", "graph", "value", "clear"]
+FUNCTIONS = ["math", "mathscope", "compile", "base-unit", "unit", "constant", "operation", "solve", "substitute", "assume", "simplify", "expand", "factor", "steps", "digits", "sci", "eng", "fraction", "defined", "graph", "value", "clear"]
 OPERATIONS = ["atan2", "min", "max", "mean", "prod", "sinc", "cosc", "tanc", "rect", "tri", "dirac", "sgn", "Re", "Im", "conj", "number", "floor", "ceil", "factorial", "diff", "integrate", "laplace", "invlaplace", "convolve", "range", "at", "rank", "identity", "rows", "cols", "asin", "acos", "atan"]
 OPERATIONS += ['linear-solve', 'eigenvals', 'singularvals', 'cond', 'median', 'variance', 'stdev', 'pnorm', 'qnorm', 'linear-interpolate', 'linear-fit', 'dft', 'idft', 'gamma', 'erf', 'besselj', 'minimize', 'odesolve', 'celsius', 'fahrenheit', 'polyroots']
 DOCUMENTED = FUNCTIONS + OPERATIONS
@@ -207,9 +207,9 @@ def generate():
             if ret:
                 out += ["", f"Returns {ret}."]
             out.append("")
-    # The options are documented with worksheet; defined and graph take the same ones (except units).
-    out += ["## Options", "", "Options of `worksheet`, and of `defined` and `graph`. Each one defaults to `auto`, which keeps the current setting.", ""]
-    texts = {n: (t, d) for n, t, d in split(fns["worksheet"][0])[1]}
+    # The options are documented with math; defined and graph take the same ones (except units).
+    out += ["## Options", "", "Options of `math`, and of `defined` and `graph`. Each one defaults to `auto`, which keeps the current setting.", ""]
+    texts = {n: (t, d) for n, t, d in split(fns["math"][0])[1]}
     for group, kv in opt_groups:
         out += [f"### {group}", "", "| option | type | default | |", "|---|---|---|---|"]
         for k, v in kv:

@@ -1,5 +1,5 @@
 // Which equations are calculated when the source repeats them or changed since the compile: the report decides
-// what it saw, worksheets written in the source decide where they end.
+// what it saw, maths written in the source decide where they end.
 
 use solveng_ide::*;
 
@@ -45,32 +45,32 @@ fn copies(doc: &str, context: &Context) -> Vec<bool> {
 const Y: &str = "$y := x$";
 
 #[test]
-fn a_copy_after_a_worksheet_block_is_not_calculated() {
-    let doc = "#worksheet[\n$y := x$\n]\n\n$y := x$";
+fn a_copy_after_a_math_block_is_not_calculated() {
+    let doc = "#mathscope[\n$y := x$\n]\n\n$y := x$";
     assert_eq!(copies(doc, &Context::default()), [true, false]);
     assert_eq!(copies(doc, &report(doc, &[(Y, 0, true, true)])), [true, false]);
 }
 
 #[test]
 fn a_copy_before_a_show_rule_is_not_calculated() {
-    let doc = "#import \"@solveng/solveng:1.0.0\": *\n\n$y := x$\n\n#show: worksheet\n$y := x$";
+    let doc = "#import \"@solveng/solveng:1.0.0\": *\n\n$y := x$\n\n#show: math\n$y := x$";
     assert_eq!(copies(doc, &Context::default()), [false, true]);
     assert_eq!(copies(doc, &report(doc, &[(Y, 1, true, true)])), [false, true]);
 }
 
 #[test]
-fn copies_around_worksheet_blocks_follow_the_blocks() {
-    let doc = "$y := x$\n#worksheet[$y := x$ $y := x$]\n$y := x$\n#worksheet[$y := x$]\n$y := x$";
+fn copies_around_math_blocks_follow_the_blocks() {
+    let doc = "$y := x$\n#mathscope[$y := x$ $y := x$]\n$y := x$\n#mathscope[$y := x$]\n$y := x$";
     let context = report(doc, &[(Y, 1, true, true), (Y, 2, true, true), (Y, 4, true, true)]);
     assert_eq!(copies(doc, &Context::default()), [false, true, true, false, true, false]);
     assert_eq!(copies(doc, &context), [false, true, true, false, true, false]);
 }
 
 #[test]
-fn equations_written_since_the_compile_follow_the_worksheet_they_are_in() {
-    let compiled = "#worksheet[\n$a := 1$\n]\n";
+fn equations_written_since_the_compile_follow_the_math_they_are_in() {
+    let compiled = "#mathscope[\n$a := 1$\n]\n";
     let context = report(compiled, &[("$a := 1$", 0, true, true)]);
-    let edited = "$z := 0$\n#worksheet[\n$a := 1$ $b := 2$\n]\n$c := 3$\n";
+    let edited = "$z := 0$\n#mathscope[\n$a := 1$ $b := 2$\n]\n$c := 3$\n";
     assert!(!coloured(edited, &context, "$z := 0$", 0));
     assert!(coloured(edited, &context, "$a := 1$", 0));
     assert!(coloured(edited, &context, "$b := 2$", 0));
@@ -78,36 +78,36 @@ fn equations_written_since_the_compile_follow_the_worksheet_they_are_in() {
 }
 
 #[test]
-fn a_copy_inserted_before_the_worksheet_does_not_take_its_report() {
+fn a_copy_inserted_before_the_math_does_not_take_its_report() {
     // The report's position is stale: the new copy at the top is now nearer to it than the calculated one.
-    let compiled = "#worksheet[$y := x$]\n$y := x$";
+    let compiled = "#mathscope[$y := x$]\n$y := x$";
     let context = report(compiled, &[(Y, 0, true, true)]);
-    let edited = "$y := x$\n#worksheet[$y := x$]\n$y := x$";
+    let edited = "$y := x$\n#mathscope[$y := x$]\n$y := x$";
     assert_eq!(copies(edited, &context), [false, true, false]);
 }
 
 #[test]
 fn a_show_rule_ends_with_the_block_it_is_in() {
-    let doc = "#block[\n#show: worksheet\n$y := x$\n]\n$y := x$";
+    let doc = "#block[\n#show: math\n$y := x$\n]\n$y := x$";
     assert_eq!(copies(doc, &Context::default()), [true, false]);
     assert_eq!(copies(doc, &report(doc, &[(Y, 0, true, true)])), [true, false]);
 }
 
 #[test]
 fn evaluate_false_turns_math_off_inside_only() {
-    let doc = "#show: worksheet\n$y := x$\n#worksheet(evaluate: false)[$y := x$]\n$y := x$";
+    let doc = "#show: math\n$y := x$\n#math(evaluate: false)[$y := x$]\n$y := x$";
     let context = report(doc, &[(Y, 0, true, true), (Y, 1, false, false), (Y, 2, true, true)]);
     assert_eq!(copies(doc, &Context::default()), [true, false, true]);
     assert_eq!(copies(doc, &context), [true, false, true]);
     // Written since: inside the block not, after it again.
-    let edited = "#show: worksheet\n$y := x$\n#worksheet(evaluate: false)[$y := x$ $p := 1$]\n$y := x$ $q := 2$";
+    let edited = "#show: math\n$y := x$\n#math(evaluate: false)[$y := x$ $p := 1$]\n$y := x$ $q := 2$";
     assert!(!coloured(edited, &context, "$p := 1$", 0));
     assert!(coloured(edited, &context, "$q := 2$", 0));
 }
 
 #[test]
 fn templates_solveng_cannot_read_are_trusted_where_the_report_says() {
-    // `template` applies a worksheet the editor can't see: only the report tells.
+    // `template` applies a math the editor can't see: only the report tells.
     let compiled = "#import \"t.typ\": template\n#show: template\n$a := 1$\n";
     let context = report(compiled, &[("$a := 1$", 0, true, true)]);
     assert!(coloured(compiled, &context, "$a := 1$", 0));
@@ -123,16 +123,16 @@ fn templates_solveng_cannot_read_are_trusted_where_the_report_says() {
 }
 
 #[test]
-fn an_uncalculated_copy_in_a_worksheet_stays_uncalculated() {
+fn an_uncalculated_copy_in_a_math_stays_uncalculated() {
     // Not shown, like a branch of `#if false`: the report says it wasn't calculated.
-    let doc = "#show: worksheet\n#if false [$y := x$]\n$y := x$";
+    let doc = "#show: math\n#if false [$y := x$]\n$y := x$";
     let context = report(doc, &[(Y, 0, false, true), (Y, 1, true, true)]);
     assert_eq!(copies(doc, &context), [false, true]);
 }
 
 #[test]
-fn included_files_are_calculated_where_a_worksheet_includes_them() {
-    let main = "#show: worksheet\n#include \"part.typ\"\n";
+fn included_files_are_calculated_where_a_math_includes_them() {
+    let main = "#show: math\n#include \"part.typ\"\n";
     let part = "$y := x$\n";
     let files = vec![ContextFile { path: "main.typ".into(), text: main.into() }, ContextFile { path: "part.typ".into(), text: part.into() }];
     let start = 0;
@@ -145,7 +145,7 @@ fn included_files_are_calculated_where_a_worksheet_includes_them() {
     let edited = "$y := x$\n$w := 1$\n";
     assert!(coloured(edited, &context, Y, 0));
     assert!(coloured(edited, &context, "$w := 1$", 0));
-    // Before any compile, the including worksheet decides.
+    // Before any compile, the including math decides.
     let context = Context::new("").with_files(files).with_report(&Report::default(), "part.typ", false);
     assert!(coloured("$w := 1$\n", &context, "$w := 1$", 0));
 }

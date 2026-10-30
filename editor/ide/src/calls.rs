@@ -37,32 +37,34 @@ pub(crate) struct Named {
     pub name_end: usize,
 }
 
-/// Where a `worksheet` reads content, in characters: one of its content blocks, or what follows a
-/// `#show: worksheet` rule in the block around it. `evaluate` is what it says about the math there.
+/// Where a `math` reads content, in characters: one of its content blocks, or what follows a
+/// `#show: math` rule in the block around it. `evaluate` is what it says about the math there.
 #[derive(Clone, Debug)]
 pub(crate) struct Scope {
     pub start: usize,
     pub end: usize,
-    pub evaluate: bool,
+    pub evaluate: Option<bool>,
 }
 
-/// Whether the math at `at` is calculated as the innermost worksheet around says; None outside every one.
+/// Whether the math at `at` is calculated as the innermost math around says; None outside every one.
 pub(crate) fn evaluates_at(scopes: &[Scope], at: usize) -> Option<bool> {
-    scopes.iter().filter(|s| s.start <= at && at < s.end).max_by_key(|s| s.start).map(|s| s.evaluate)
+    let enclosing: Vec<_> = scopes.iter().filter(|s| s.start <= at && at < s.end).collect();
+    enclosing.iter().filter_map(|s| s.evaluate.map(|e| (s.start, e))).max_by_key(|(start, _)| *start).map(|(_, e)| e)
+        .or_else(|| (!enclosing.is_empty()).then_some(true))
 }
 
-/// A worksheet wrapper's options, as `worksheet`, a `#let` alias of it or `.with(…)` sets them. Content it wraps
+/// A math wrapper's options, as `math`, a `#let` alias of it or `.with(…)` sets them. Content it wraps
 /// evaluates its math unless `evaluate` is false.
 #[derive(Clone, Debug)]
 pub(crate) struct Wrapper {
-    pub evaluate: bool,
+    pub evaluate: Option<bool>,
     /// `scope: …` as written, without quotes.
     pub scope: Option<String>,
 }
 
 impl Default for Wrapper {
     fn default() -> Wrapper {
-        Wrapper { evaluate: true, scope: None }
+        Wrapper { evaluate: None, scope: None }
     }
 }
 
@@ -72,7 +74,10 @@ impl Wrapper {
         let mut wrapper = self.clone();
         if let Some(args) = args {
             if args.children().any(|n| n.kind() == SyntaxKind::Named && n.children().next().is_some_and(|c| c.get().leaf_text() == "evaluate")) {
-                wrapper.evaluate = evaluate(args);
+                wrapper.evaluate = match args.children().find(|n| n.kind() == SyntaxKind::Named && n.children().next().is_some_and(|c| c.get().leaf_text() == "evaluate")).map(|n| n.get().clone().full_text()) {
+                    Some(value) if value.split_once(':').is_some_and(|(_, v)| v.trim() == "auto") => None,
+                    _ => Some(evaluate(args)),
+                };
             }
             for named in args.children().filter(|n| n.kind() == SyntaxKind::Named) {
                 let source = named.get().clone().full_text();
@@ -86,10 +91,10 @@ impl Wrapper {
     }
 }
 
-/// The names a text binds to `worksheet` (or `worksheet.with(…)`), through `#let` and the files it imports.
+/// The names a text binds to `math` (or `math.with(…)`), through `#let` and the files it imports.
 pub(crate) type Aliases = HashMap<String, Wrapper>;
 
-/// The worksheet aliases of a text, following `#let` chains and imports from the files around it.
+/// The math aliases of a text, following `#let` chains and imports from the files around it.
 pub(crate) fn aliases(doc: &Doc, files: &[ContextFile], path: &str) -> Aliases {
     let mut out = Aliases::new();
     let mut seen = Vec::new();
@@ -142,17 +147,19 @@ fn collect_aliases(doc: &Doc, files: &[ContextFile], path: &str, out: &mut Alias
     seen.pop();
 }
 
-/// The wrapper an expression names: `worksheet`, an alias, or either with `.with(…)`.
+/// The wrapper an expression names: `math`, an alias, or either with `.with(…)`.
 fn wrapper_of(node: &LinkedNode, aliases: &Aliases) -> Option<Wrapper> {
     match node.kind() {
         SyntaxKind::Ident => match node.get().leaf_text().as_str() {
-            "worksheet" => Some(Wrapper::default()),
+
+            "math" | "mathscope" => Some(Wrapper::default()),
             name => aliases.get(name).cloned(),
         },
         SyntaxKind::FuncCall => {
             let name = callee(node.children().next()?.get())?;
             let base = match name.as_str() {
-                "worksheet" => Wrapper::default(),
+
+                "math" | "mathscope" => Wrapper::default(),
                 name => aliases.get(name)?.clone(),
             };
             Some(base.with(node.children().find(|c| c.kind() == SyntaxKind::Args).as_ref()))
@@ -170,8 +177,8 @@ fn wrapper_of(node: &LinkedNode, aliases: &Aliases) -> Option<Wrapper> {
     }
 }
 
-/// Follow a template's content parameter through worksheet calls and show rules. A worksheet elsewhere in
-/// the closure does not make it a worksheet template: its body must actually reach the calculating wrapper.
+/// Follow a template's content parameter through math calls and show rules. A math elsewhere in
+/// the closure does not make it a math template: its body must actually reach the calculating wrapper.
 fn forwarded(node: &LinkedNode, body: &str, aliases: &Aliases, ambient: Option<Wrapper>) -> Option<Wrapper> {
     match node.kind() {
         SyntaxKind::Ident if node.get().leaf_text() == body => ambient,
@@ -220,12 +227,12 @@ pub(crate) struct Call {
     pub args_end: usize,
     pub texts: Vec<Text>,
     pub named: Vec<Named>,
-    /// Equations solveng reads wherever they are: passed to `worksheet`, `value`, `graph` and `compile`, the
+    /// Equations solveng reads wherever they are: passed to `math`, `value`, `graph` and `compile`, the
     /// expressions of `unit` and `constant`, and unit expressions of options (`preferred-units: ($#m / #s$,)`).
     pub maths: Vec<(usize, usize)>,
 }
 
-/// The function a callee names: `worksheet`, `solveng.worksheet`, `worksheet.with`.
+/// The function a callee names: `math`, `solveng.math`, `math.with`.
 pub(crate) fn callee(node: &SyntaxNode) -> Option<String> {
     match node.kind() {
         // Calls in code and math.
@@ -335,7 +342,7 @@ impl Reader<'_> {
         }
     }
 
-    /// `#show: worksheet`, `#show: worksheet.with(…)` and their aliases: a worksheet for the rest of the block around.
+    /// `#show: math`, `#show: math.with(…)` and their aliases: a math for the rest of the block around.
     fn show_rule(&mut self, node: &LinkedNode) {
         let Some(transform) = node.children().rev().find(|c| !c.kind().is_trivia()) else { return };
         let (function, args) = match transform.kind() {
@@ -344,7 +351,8 @@ impl Reader<'_> {
         };
         let Some(name) = function.and_then(|f| callee(f.get())) else { return };
         let base = match name.as_str() {
-            "worksheet" => Wrapper::default(),
+
+            "math" | "mathscope" => Wrapper::default(),
             name => match self.aliases.get(name) {
                 Some(wrapper) => wrapper.clone(),
                 None => return,
@@ -358,12 +366,12 @@ impl Reader<'_> {
     fn call(&mut self, node: &LinkedNode) {
         let Some(first) = node.children().next() else { return };
         let name = callee(first.get());
-        // A `#let` alias of `worksheet.with(…)` is a worksheet too.
+        // A `#let` alias of `math.with(…)` is a math too.
         let (function, base) = match name.as_deref().and_then(params::function) {
             Some(function) => (function, Wrapper::default()),
             None => {
                 let Some(wrapper) = name.as_deref().and_then(|n| self.aliases.get(n)) else { return };
-                (params::function("worksheet").expect("worksheet is a function"), wrapper.clone())
+                (params::function("math").expect("math is a function"), wrapper.clone())
             }
         };
         let Some(args) = node.children().find(|c| matches!(c.kind(), SyntaxKind::Args | SyntaxKind::MathArgs)) else { return };
@@ -381,8 +389,8 @@ impl Reader<'_> {
         let mut index = 0;
         for arg in args.children() {
             match arg.kind() {
-                SyntaxKind::ContentBlock => {
-                    if function.name == "worksheet" {
+                SyntaxKind::ContentBlock | SyntaxKind::Equation if matches!(function.name.as_str(), "math" | "mathscope") || arg.kind() == SyntaxKind::ContentBlock => {
+                    if matches!(function.name.as_str(), "math" | "mathscope") {
                         let (start, end) = self.chars(&arg);
                         let wrapper = base.with(Some(&args));
                         self.scopes.push(Scope { start, end, evaluate: wrapper.evaluate });
@@ -406,7 +414,7 @@ impl Reader<'_> {
                     call.named.push(Named { name: pname, name_start, name_end });
                 }
                 _ => {
-                    if arg.kind() == SyntaxKind::Equation && (matches!(function.name.as_str(), "worksheet" | "calculate") || index == 0 && matches!(function.name.as_str(), "value" | "graph" | "compile" | "unit") || function.name == "constant") {
+                    if arg.kind() == SyntaxKind::Equation && (index == 0 && matches!(function.name.as_str(), "value" | "graph" | "compile" | "unit") || function.name == "constant") {
                         let (s, e) = self.chars(&arg);
                         call.maths.push((s, e));
                     }
@@ -442,7 +450,7 @@ impl Call {
 }
 
 
-/// Whether a worksheet's arguments calculate the math of its content: unless `evaluate: false`.
+/// Whether a math's arguments calculate the math of its content: unless `evaluate: false`.
 fn evaluate(args: &LinkedNode) -> bool {
     !args.children().filter(|c| c.kind() == SyntaxKind::Named).any(|named| {
         let mut parts = named.children().filter(|c| !c.kind().is_trivia() && c.kind() != SyntaxKind::Colon);
@@ -450,7 +458,7 @@ fn evaluate(args: &LinkedNode) -> bool {
     })
 }
 
-/// Every call of a solveng function in a document, outer ones first, and where worksheets read content.
+/// Every call of a solveng function in a document, outer ones first, and where maths read content.
 pub(crate) fn read(doc: &Doc, aliases: &Aliases) -> (Vec<Call>, Vec<Scope>) {
     let root = typst_syntax::parse(&doc.s);
     let mut reader = Reader { doc, aliases, calls: Vec::new(), scopes: Vec::new() };
@@ -458,7 +466,7 @@ pub(crate) fn read(doc: &Doc, aliases: &Aliases) -> (Vec<Call>, Vec<Scope>) {
     (reader.calls, reader.scopes)
 }
 
-/// The content and code blocks of a document, in characters: where a show rule's worksheet ends.
+/// The content and code blocks of a document, in characters: where a show rule's math ends.
 pub(crate) fn blocks(doc: &Doc) -> Vec<(usize, usize)> {
     fn visit(node: &LinkedNode, doc: &Doc, out: &mut Vec<(usize, usize)>) {
         if matches!(node.kind(), SyntaxKind::ContentBlock | SyntaxKind::CodeBlock) {

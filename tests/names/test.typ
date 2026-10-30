@@ -4,7 +4,7 @@
 #import modifiers: substitute
 
 // a spelled Greek letter alone or before an index is the letter, in code as in math; DeltaT is a name of its own
-#worksheet[
+#mathscope[
   $Delta_R := 5 cm$
   $Δ_T := 3 #K$
 $"α2" := 2$
@@ -18,7 +18,7 @@ $"DeltaT" := 4 #K$
 ]
 
 // empty strings glue names as in math: Delta""r_R is Δr_R in math, code and strings
-#worksheet[
+#mathscope[
   $Delta""r_R := 5 cm$
   $Delta""Gamma""Omega := 2$
   $a := "Δr"_R dot 2$
@@ -29,7 +29,7 @@ $b := "ΔΓΩ" + "Δr"_R$
 ]
 
 // names of more letters are quoted in math, as typst needs them to be; so are long subscripts, which may be grouped
-#worksheet[
+#mathscope[
   $"tews" := 23 #V$
   $"test"_("test" Delta) := 3$
   $"x"_"in" := 2$
@@ -41,7 +41,7 @@ $y := "test"_"testΔ" dot x_"in"$
 ]
 
 // Quotes transport names; digits stay in the identifier and only underscores make subscripts.
-#worksheet[
+#mathscope[
   $"Delta2tau" := 7$
   $a := "Δ2τ" =>$
   #passes() #expect("a", 7)
@@ -60,7 +60,7 @@ $y := "test"_"testΔ" dot x_"in"$
 ]
 
 // The acute accent is a literal part of a name.
-#worksheet[
+#mathscope[
   $x := 2$
   $x´ := 3$
   $x´´ := 5$
@@ -75,7 +75,7 @@ $y := "test"_"testΔ" dot x_"in"$
   #passes() #expect("c", 8)
 ]
 
-#worksheet[
+#mathscope[
   $r := 2$
   $r` := 3$
   $a := r + r` =>$
@@ -83,7 +83,7 @@ $y := "test"_"testΔ" dot x_"in"$
 ]
 
 // A join keeps leading digits in a name instead of multiplying a coefficient.
-#worksheet[
+#mathscope[
   $x := 3$
   $2""x := 7$
   #passes() #expect("2x", 7)

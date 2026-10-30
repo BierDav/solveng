@@ -13,7 +13,7 @@ fn tokens(doc: &str) -> Vec<(String, u8)> {
 
 #[test]
 fn case_functions_and_their_parameters_resolve_from_guards_and_graphs() {
-    let doc = "#show: worksheet\n$sigma(t) := cases(0 & \"für\" t < 0, 1 & \"für\" t >= 0)$\n#graph($σ(x)$)";
+    let doc = "#show: math\n$sigma(t) := cases(0 & \"für\" t < 0, 1 & \"für\" t >= 0)$\n#graph($σ(x)$)";
     let context = Context::new("");
     let target = definition(doc, &context, offset(doc, "σ(x)")).unwrap();
     assert_eq!(target.start, offset(doc, "sigma"));
@@ -25,7 +25,7 @@ fn case_functions_and_their_parameters_resolve_from_guards_and_graphs() {
 
 #[test]
 fn cases_complete_with_math_syntax() {
-    for doc in ["#show: worksheet\n$x := cas", "#graph($cas"] {
+    for doc in ["#show: math\n$x := cas", "#graph($cas"] {
         let found = complete(doc, &Context::new(""), doc.encode_utf16().count() as u32).unwrap();
         let item = found.items.iter().find(|item| item.label == "cases").unwrap();
         assert!(item.insert.starts_with("cases(") && item.insert.contains('&'), "{}", item.insert);
@@ -34,7 +34,7 @@ fn cases_complete_with_math_syntax() {
 
 #[test]
 fn case_labels_are_text_not_names() {
-    let doc = "#show: worksheet\n$g_1(t) := cases(\n  2t & \"für\" 0 <= t <= 1/2,\n  2-2t & \"für\" 1/2 < t <= 1,\n  0 & \"sonst.\"\n)$\n$\"tews\" := 1$";
+    let doc = "#show: math\n$g_1(t) := cases(\n  2t & \"für\" 0 <= t <= 1/2,\n  2-2t & \"für\" 1/2 < t <= 1,\n  0 & \"sonst.\"\n)$\n$\"tews\" := 1$";
     let found = tokens(doc);
     for label in ["\"für\"", "\"sonst.\""] {
         assert!(found.contains(&(label.to_string(), TokenKind::STRING)), "{label} in {found:?}");

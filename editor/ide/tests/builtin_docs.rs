@@ -8,9 +8,9 @@ fn offset(doc: &str, text: &str) -> u32 {
 fn every_builtin_has_hover_documentation_in_math() {
     for name in solveng_names::OPERATIONS {
         for doc in [
-            format!("#import operations: *\n#show: worksheet\n$f(t) := {name}(t)$"),
+            format!("#import operations: *\n#show: math\n$f(t) := {name}(t)$"),
             format!("#import operations: *\n#graph(${name}(t)$)"),
-            format!("#show: worksheet\n$f(t) := op(\"{name}\")(t)$"),
+            format!("#show: math\n$f(t) := op(\"{name}\")(t)$"),
         ] {
             let at = doc.find(&format!("{name}\"")).or_else(|| doc.find(&format!("{name}(t)"))).unwrap();
             let result = hover(&doc, &Context::default(), offset(&doc, &doc[at..]) + 1).unwrap_or_else(|| panic!("{doc}"));
@@ -40,7 +40,7 @@ fn builtin_docs_include_domains_units_boundaries_and_calculus_parameters() {
 #[test]
 fn builtin_completions_carry_documentation_and_keep_math_snippets() {
     for (prefix, name) in [("tr", "tri"), ("in", "integrate"), ("su", "sum"), ("as", "asin")] {
-        for doc in [format!("#show: worksheet\n$x := {prefix}$"), format!("#graph(${prefix}$)")] {
+        for doc in [format!("#show: math\n$x := {prefix}$"), format!("#graph(${prefix}$)")] {
             let result = complete(&doc, &Context::default(), offset(&doc, &format!("{prefix}$")) + prefix.len() as u32).unwrap();
             let item = result.items.iter().find(|i| i.label == name).unwrap();
             assert!(item.documentation.as_ref().unwrap().contains("### Parameters"), "{name}");
@@ -50,20 +50,20 @@ fn builtin_completions_carry_documentation_and_keep_math_snippets() {
 }
 
 #[test]
-fn worksheet_scope_option_has_documentation_values_and_auto_default() {
-    let worksheet = params::functions().iter().find(|f| f.name == "worksheet").unwrap();
-    assert!(!worksheet.named.iter().any(|p| p.name == "inherit" || p.name == "export"));
+fn mathscope_option_has_documentation_values_and_isolated_default() {
+    let math = params::functions().iter().find(|f| f.name == "mathscope").unwrap();
+    assert!(!math.named.iter().any(|p| p.name == "inherit" || p.name == "export"));
     // the unit table and the automatic lookups are gone
-    assert!(!worksheet.named.iter().any(|p| matches!(p.name.as_str(), "units" | "builtin-units" | "builtin-functions")));
-    let scope = worksheet.named.iter().find(|p| p.name == "scope").unwrap();
-    assert_eq!(scope.default, "auto");
+    assert!(!math.named.iter().any(|p| matches!(p.name.as_str(), "units" | "builtin-units" | "builtin-functions")));
+    let scope = math.named.iter().find(|p| p.name == "scope").unwrap();
+    assert_eq!(scope.default, "\"isolated\"");
     assert_eq!(scope.values, vec!["isolated", "inherit", "shared"]);
     assert!(scope.doc.contains("isolated"));
 }
 
 #[test]
 fn attached_sum_notation_has_the_same_documentation() {
-    let doc = "#import operations: tri\n#show: worksheet\n$f(t) := sum_(k=0)^infinity tri(t-k)$";
+    let doc = "#import operations: tri\n#show: math\n$f(t) := sum_(k=0)^infinity tri(t-k)$";
     let result = hover(doc, &Context::default(), offset(doc, "sum_") + 1).unwrap();
     assert!(result.markdown.contains("Inclusive integer sum"));
     assert!(result.markdown.contains("### Parameters"));
@@ -73,7 +73,7 @@ fn attached_sum_notation_has_the_same_documentation() {
 fn adjacent_coefficients_do_not_hide_symbol_documentation() {
     let imports = "#import constants: pi, e\n";
     for (expression, name, description) in [("2pi", "pi", "constant"), ("12infinity", "infinity", "infinite"), ("1.5#e^2", "e", "euler"), ("2.5 #e^(-10)", "e", "euler")] {
-        for doc in [format!("{imports}#show: worksheet\n${expression}$"), format!("{imports}#value(${expression}$)")] {
+        for doc in [format!("{imports}#show: math\n${expression}$"), format!("{imports}#value(${expression}$)")] {
             let at = offset(&doc, expression) + offset(expression, name);
             for caret in [at, at + name.len() as u32] {
                 let result = hover(&doc, &Context::default(), caret).unwrap_or_else(|| panic!("{doc} at {caret}"));
@@ -83,7 +83,7 @@ fn adjacent_coefficients_do_not_hide_symbol_documentation() {
         }
     }
     // no e-notation: `1e10` is a coefficient and the name e10, which has no documentation
-    for doc in ["#value($1e10$)", "#show: worksheet\n$3e4$"] {
+    for doc in ["#value($1e10$)", "#show: math\n$3e4$"] {
         let at = doc[..doc.rfind('e').unwrap()].encode_utf16().count() as u32;
         assert!(hover(doc, &Context::default(), at).is_none());
         assert!(hover(doc, &Context::default(), at + 1).is_none());

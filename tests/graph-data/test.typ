@@ -4,10 +4,10 @@
 #import "/tests/util.typ": reported
 #import units: ms, V
 #set page(width: 18cm, height: auto)
-#show: worksheet
+#show: math
 
 // sampled data: a signal over a time axis, and a vector against its index
-#calculate($tau := vec(0, 1, 2, 3, 4, 5, 6) * 1 ms$, $y := vec(0, 1.5, 2.5, 2, 0.5, -1, -0.5) * 1 #V$, $c(t: #units.s) := 0.4 #V/ms dot t$, hidden: true)
+#math($tau := vec(0, 1, 2, 3, 4, 5, 6) * 1 ms$, $y := vec(0, 1.5, 2.5, 2, 0.5, -1, -0.5) * 1 #V$, $c(t: #units.s) := 0.4 #V/ms dot t$, hidden: true)
 
 // what the engine gives the graph: the data's points, in its units
 #context {
@@ -32,12 +32,12 @@
 #graph($y(τ) \ 2 #V dot sin(τ / (1 ms))$, x-range: (-1, 8), mark: (3.5, "crossings"), errors: "panic")
 
 // a long vector: a line without dots
-#worksheet(eval("$n := vec(" + range(200).map(k => str(calc.round(calc.sin(k / 10) * calc.exp(-k / 80), digits: 4))).join(", ") + ")$"), hidden: true)
+#math(eval("$n := vec(" + range(200).map(k => str(calc.round(calc.sin(k / 10) * calc.exp(-k / 80), digits: 4))).join(", ") + ")$"), hidden: true)
 #graph($n$, ymark: 0.5, errors: "panic")
 
 // data as points alone, next to joined data and a function; custom dashes
 #graph($y(τ) \ c(τ)$, lines: (none, auto), mark: "crossings", errors: "panic")
-#calculate($z := vec(1, 2, 1.8, 0.9, 0, -0.4, 0.2) * 1 #V$, hidden: true)
+#math($z := vec(1, 2, 1.8, 0.9, 0, -0.4, 0.2) * 1 #V$, hidden: true)
 #graph($y(τ) \ z(τ) \ c(τ)$, lines: ("dotted", none, (4pt, 2pt)), errors: "panic")
 #graph($y$, lines: none, errors: "panic")
 
@@ -46,31 +46,31 @@
 
 // A pair of independently rendered named curves must retain the positional
 // equation form; this is how graphs embedded in a grid are commonly written.
-#calculate($q_1(t) := t^2$, $q_2(t) := 2 t + 1$, hidden: true)
+#math($q_1(t) := t^2$, $q_2(t) := 2 t + 1$, hidden: true)
 #grid(columns: (1fr, 1fr), graph($q_1(t)$, x-range: (-1, 1), errors: "panic"), graph($q_2(t)$, x-range: (-1, 1), errors: "panic"))
 
-#worksheet(scope: "inherit", graph-dots: "hexagon", graph-colors: blue, graph-lines: "dashed", graph-joined: true)[
+#mathscope(scope: "inherit")[#math(graph-dots: "hexagon", graph-colors: blue, graph-lines: "dashed", graph-joined: true)[
   #graph($y(τ) \ z(τ)$, errors: "panic")
-]
-#calculate($p(x) := cases(2 & "for" x = 1, x & "for" x < 0 or x > 2)$, hidden: true)
+]]
+#math($p(x) := cases(2 & "for" x = 1, x & "for" x < 0 or x > 2)$, hidden: true)
 #graph($p(x)$, x-range: (-2, 4), lines: none, errors: "panic")
 // joined: a function's pieces joined through its single points, every mode, and joins to points beyond the graph
 #for l in (auto, none) { for d in (auto, none) { for j in (false, true) { if l != none or d != none { graph($p(x)$, x-range: (-2, 4), lines: l, dots: d, joined: j, errors: "panic") } } } }
 #graph($y(τ) \ p(τ / (1 ms)) dot 1 #V$, joined: (auto, true), errors: "panic")
 #graph($p(x)$, x-range: (0.5, 1.8), y-range: (0, 3), dots: none, joined: true, errors: "panic")
 // auto keeps the worksheet's, curve by curve, through nested worksheets
-#worksheet(scope: "inherit", graph-dots: (auto, "star"), graph-lines: ("dotted", auto))[
+#mathscope(scope: "inherit")[#math(graph-dots: (auto, "star"), graph-lines: ("dotted", auto))[
   #context assert.eq(_cf.get().graph-dots, ("circle", "star", "triangle", "star"))
   #context assert.eq(_cf.get().graph-lines, ("dotted", "dashed", "dotted", "dash-dotted"))
-  #worksheet(graph-dots: ("cross", auto, auto), graph-joined: (auto, true))[
+  #mathscope[#math(graph-dots: ("cross", auto, auto), graph-joined: (auto, true))[
     #context assert.eq(_cf.get().graph-dots, ("cross", "star", "triangle", "cross", "circle", "star", "cross", "star", "circle", "cross", "triangle", "star"))
     #context assert.eq(_cf.get().graph-joined, (false, true))
-  ]
+  ]]
   #graph($y(τ) \ z(τ) \ p(τ / (1 ms)) dot 1 #V$, dots: (auto, auto, none), joined: (false, auto, true), errors: "panic")
-]
+]]
 // a dot right on a dot of another curve: both drawn, the later smaller
 #graph($y(τ) \ y(τ)$, lines: none, errors: "panic")
-#worksheet(scope: "inherit", errors: "document")[
+#mathscope(scope: "inherit")[#math(errors: "document")[
   #graph($x^2$, lines: none)
   #reported("draws nothing")
   #graph($x^2$, draw: "dots")
@@ -84,6 +84,6 @@
   #reported("draws nothing")
   #graph($y(τ)$, dots: "blob")
   #reported("dots: a dot shape")
-  #worksheet(graph-colors: [red])[]
+  #mathscope[#math(graph-colors: [red])[]]
   #reported("graph-colors: square brackets")
-]
+]]

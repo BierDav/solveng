@@ -1,8 +1,8 @@
-// Operations in the editor: named arguments, indices, convolve and range, and worksheet functions.
+// Operations in the editor: named arguments, indices, convolve and range, and math functions.
 
 use solveng_ide::*;
 
-const DOC: &str = "#import \"@preview/solveng:1.0.0\": *\n#import operations: *\n#show: worksheet\n$N := 200$, $i := 0..N$\n$x[i] := tri(i/N)$\n$y := convolve(x, x, step: 2)$\n$f(x, n: 2) := x^n$, $a := f(3, n: 3) =$\n$q := range(1, 10, step: 3)$\n$z := conv(x, x)$\n$w := x[2] + y[i]$\n$r := rect(0)$\n";
+const DOC: &str = "#import \"@preview/solveng:1.0.0\": *\n#import operations: *\n#show: math\n$N := 200$, $i := 0..N$\n$x[i] := tri(i/N)$\n$y := convolve(x, x, step: 2)$\n$f(x, n: 2) := x^n$, $a := f(3, n: 3) =$\n$q := range(1, 10, step: 3)$\n$z := conv(x, x)$\n$w := x[2] + y[i]$\n$r := rect(0)$\n";
 
 fn kind_of(doc: &str, word: &str, nth: usize) -> u8 {
     let at = doc.match_indices(word).nth(nth).unwrap().0;
@@ -23,7 +23,7 @@ fn named_arguments_are_parameters() {
     assert_eq!(kind_of(DOC, "n: 3", 0), TokenKind::PARAMETER);
     assert_eq!(kind_of(DOC, "n: 2", 0), TokenKind::PARAMETER);
     // a type stays a unit: f(I: mA), f(t: #s)
-    let typed = "#import units: mA, s\n#show: worksheet\n$q(I: mA) := I$\n$p(t: #s) := t$\n";
+    let typed = "#import units: mA, s\n#show: math\n$q(I: mA) := I$\n$p(t: #s) := t$\n";
     assert_eq!(kind_of(typed, "mA", 1), TokenKind::UNIT);
     assert_eq!(kind_of(typed, "s) :=", 0), TokenKind::UNIT);
 }
@@ -32,7 +32,7 @@ fn named_arguments_are_parameters() {
 fn indices_are_no_units() {
     assert_ne!(kind_of(DOC, "i]", 1), TokenKind::UNIT);
     // a unit binding after a number is the unit, also inside brackets; a bare single letter is a symbol
-    let unit = "#import units: V\n#show: worksheet\n$U := R [5 #V]$\n$W := R [5 V]$\n";
+    let unit = "#import units: V\n#show: math\n$U := R [5 #V]$\n$W := R [5 V]$\n";
     assert_eq!(kind_of(unit, "V]$\n$W", 0), TokenKind::UNIT);
     assert_eq!(kind_of(unit, "V]$\n", 1), TokenKind::VARIABLE);
 }

@@ -1,7 +1,7 @@
 #import "/lib.typ": *
 #import units: Hz, A, s
 #set page(width: 13cm, height: auto, margin: 0.6cm)
-#show: worksheet
+#show: math
 $A := 12$, $x := A dot 2 #A =>$
 
 $T := 2 #s$, $f := 1/T => Hz$

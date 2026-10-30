@@ -49,18 +49,18 @@ fn answers_over_stdio() {
     assert!(init["result"]["capabilities"]["semanticTokensProvider"]["full"].as_bool().unwrap());
     assert_eq!(init["result"]["capabilities"]["documentFormattingProvider"], true);
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}));
-    let text = "#import \"@preview/solveng:1.0.0\": *\n#import units: s\n#worksheet($I := 30 m$)\n#worksheet($t := 2 s$)\n";
+    let text = "#import \"@preview/solveng:1.0.0\": *\n#import units: s\n#math($I := 30 m$)\n#math($t := 2 s$)\n";
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file:///tmp/solveng-smoke.typ", "languageId": "typst", "version": 1, "text": text}}}));
     // the bare `s` that has a unit binding
     let diagnostics = wait(&mut stdout, |m| m["method"] == "textDocument/publishDiagnostics");
-    assert_eq!(diagnostics["params"]["diagnostics"][0]["range"]["start"], json!({"line": 3, "character": 19}));
+    assert_eq!(diagnostics["params"]["diagnostics"][0]["range"]["start"], json!({"line": 3, "character": 14}));
 
-    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file:///tmp/solveng-smoke.typ"}, "position": {"line": 2, "character": 21}}}));
+    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 2, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file:///tmp/solveng-smoke.typ"}, "position": {"line": 2, "character": 16}}}));
     let completion = wait(&mut stdout, |m| m["id"] == 2);
     assert_eq!(completion["result"]["isIncomplete"], true);
     let items = completion["result"]["items"].as_array().unwrap();
     let ma = items.iter().find(|i| i["label"] == "mA").unwrap();
-    assert_eq!(ma["textEdit"]["range"]["start"], json!({"line": 2, "character": 20}));
+    assert_eq!(ma["textEdit"]["range"]["start"], json!({"line": 2, "character": 15}));
 
     // Outside solveng tinymist answers.
     send(&mut stdin, json!({"jsonrpc": "2.0", "id": 3, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file:///tmp/solveng-smoke.typ"}, "position": {"line": 0, "character": 3}}}));
@@ -71,14 +71,14 @@ fn answers_over_stdio() {
     // `s` imported on line 1, column 15, a unit (enumMember).
     assert_eq!(tokens["result"]["data"].as_array().unwrap()[..4], [json!(1), json!(15), json!(1), json!(9)]);
 
-    send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file:///tmp/solveng-format.typ", "languageId": "typst", "version": 1, "text": "#show: worksheet\n$ x:=f( a :V,b )$"}}}));
+    send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file:///tmp/solveng-format.typ", "languageId": "typst", "version": 1, "text": "#show: math\n$ x:=f( a :V,b )$"}}}));
     send(&mut stdin, json!({"jsonrpc": "2.0", "id": 50, "method": "textDocument/formatting", "params": {"textDocument": {"uri": "file:///tmp/solveng-format.typ"}, "options": {"tabSize": 2, "insertSpaces": true}}}));
     let formatted = wait(&mut stdout, |m| m["id"] == 50);
     assert_eq!(formatted["result"][0]["newText"], "x := f(a: V, b)");
     assert_eq!(formatted["result"][0]["range"]["start"], json!({"line": 1, "character": 1}));
 
     // A quick fix comes with the edits it needs elsewhere: the import.
-    let fixable = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet\n$x := 2 km$";
+    let fixable = "#import \"@preview/solveng:1.0.0\": *\n#show: math\n$x := 2 km$";
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file:///tmp/solveng-fix.typ", "languageId": "typst", "version": 1, "text": fixable}}}));
     let km = json!({"line": 2, "character": 8});
     send(&mut stdin, json!({"jsonrpc": "2.0", "id": 51, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file:///tmp/solveng-fix.typ"}, "range": {"start": km, "end": km}, "context": {"diagnostics": []}}}));
@@ -88,7 +88,7 @@ fn answers_over_stdio() {
     let edits = action["edit"]["changes"]["file:///tmp/solveng-fix.typ"].as_array().unwrap();
     assert!(edits.iter().any(|e| e["newText"] == "\n#import units: km" && e["range"]["start"] == json!({"line": 0, "character": 35})), "{edits:?}");
 
-    let changed = "#worksheet($result := inte$)";
+    let changed = "#math($result := inte$)";
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file:///tmp/solveng-smoke.typ", "version": 2}, "contentChanges": [{"text": changed}]}}));
     let at = changed.find("inte").unwrap() + 4;
     send(&mut stdin, json!({"jsonrpc": "2.0", "id": 6, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file:///tmp/solveng-smoke.typ"}, "position": {"line": 0, "character": at}}}));
@@ -109,7 +109,7 @@ fn answers_over_stdio() {
 fn finds_definitions_and_references_across_files() {
     let dir = std::env::temp_dir().join(format!("solveng lsp {}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("main.typ"), "#show: worksheet\n#worksheet($U := 5 V$)\n#include \"chapter.typ\"\n").unwrap();
+    std::fs::write(dir.join("main.typ"), "#show: math\n#math($U := 5 V$)\n#include \"chapter.typ\"\n").unwrap();
     let root = format!("file://{}", dir.display()).replace(' ', "%20");
     let uri = format!("{root}/chapter.typ");
     let mut child = Command::new(env!("CARGO_BIN_EXE_solveng-lsp")).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
@@ -119,18 +119,18 @@ fn finds_definitions_and_references_across_files() {
     let init = wait(&mut stdout, |m| m["id"] == 1);
     assert!(init["result"]["capabilities"]["definitionProvider"].as_bool().unwrap());
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}));
-    let text = "Chapter\n#worksheet($P := U^2 / R$)\n#worksheet($I := U / 2$)\n";
+    let text = "Chapter\n#math($P := U^2 / R$)\n#math($I := U / 2$)\n";
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri, "languageId": "typst", "version": 1, "text": text}}}));
 
-    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 2, "method": "textDocument/definition", "params": {"textDocument": {"uri": uri}, "position": {"line": 1, "character": 17}}}));
+    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 2, "method": "textDocument/definition", "params": {"textDocument": {"uri": uri}, "position": {"line": 1, "character": 12}}}));
     let def = wait(&mut stdout, |m| m["id"] == 2);
     assert_eq!(def["result"]["uri"], json!(format!("{root}/main.typ")));
-    assert_eq!(def["result"]["range"], json!({"start": {"line": 1, "character": 12}, "end": {"line": 1, "character": 13}}));
+    assert_eq!(def["result"]["range"], json!({"start": {"line": 1, "character": 7}, "end": {"line": 1, "character": 8}}));
 
-    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 3, "method": "textDocument/references", "params": {"textDocument": {"uri": uri}, "position": {"line": 2, "character": 17}, "context": {"includeDeclaration": true}}}));
+    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 3, "method": "textDocument/references", "params": {"textDocument": {"uri": uri}, "position": {"line": 2, "character": 12}, "context": {"includeDeclaration": true}}}));
     let refs = wait(&mut stdout, |m| m["id"] == 3);
     assert_eq!(refs["result"].as_array().unwrap().len(), 3);
-    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 4, "method": "textDocument/references", "params": {"textDocument": {"uri": uri}, "position": {"line": 2, "character": 17}, "context": {"includeDeclaration": false}}}));
+    send(&mut stdin, json!({"jsonrpc": "2.0", "id": 4, "method": "textDocument/references", "params": {"textDocument": {"uri": uri}, "position": {"line": 2, "character": 12}, "context": {"includeDeclaration": false}}}));
     assert_eq!(wait(&mut stdout, |m| m["id"] == 4)["result"].as_array().unwrap().len(), 2);
 
     send(&mut stdin, json!({"jsonrpc": "2.0", "id": 5, "method": "shutdown", "params": null}));
@@ -153,7 +153,7 @@ fn shows_the_errors_a_client_reports() {
     send(&mut stdin, json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"capabilities": {}, "rootUri": root, "initializationOptions": {"main": "main.typ"}}}));
     wait(&mut stdout, |m| m["id"] == 1);
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}));
-    let text = "#show: worksheet\n$U := 5 V$\n$t := U + 2 s =$\n";
+    let text = "#show: math\n$U := 5 V$\n$t := U + 2 s =$\n";
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri, "languageId": "typst", "version": 1, "text": text}}}));
     let before = wait(&mut stdout, |m| m["method"] == "textDocument/publishDiagnostics");
     assert_eq!(before["params"]["diagnostics"], json!([]));
@@ -175,11 +175,11 @@ fn shows_the_errors_a_client_reports() {
 }
 
 #[test]
-fn leaves_math_outside_a_worksheet_as_written() {
+fn leaves_math_outside_a_math_as_written() {
     let dir = std::env::temp_dir().join(format!("solveng-lsp-plain-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    // A main file with a worksheet around other content says nothing about a file it doesn't include.
-    std::fs::write(dir.join("main.typ"), "#show: worksheet\n$U := 5 V$\n").unwrap();
+    // A main file with a math around other content says nothing about a file it doesn't include.
+    std::fs::write(dir.join("main.typ"), "#show: math\n$U := 5 V$\n").unwrap();
     let root = format!("file://{}", dir.display());
     let uri = format!("{root}/doc.typ");
     let mut child = Command::new(env!("CARGO_BIN_EXE_solveng-lsp")).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
@@ -193,10 +193,10 @@ fn leaves_math_outside_a_worksheet_as_written() {
     wait(&mut stdout, |m| m["method"] == "textDocument/publishDiagnostics");
     send(&mut stdin, json!({"jsonrpc": "2.0", "id": 2, "method": "textDocument/semanticTokens/full", "params": {"textDocument": {"uri": uri}}}));
     assert_eq!(wait(&mut stdout, |m| m["id"] == 2)["result"]["data"], json!([]));
-    // Wrapped in a worksheet it is solveng's, unless that worksheet says `evaluate: false`.
+    // Wrapped in a math it is solveng's, unless that math says `evaluate: false`.
     for (changed, tokens) in [
-        ("#show: worksheet\n$R := 5\"cm\"$\n", true),
-        ("#worksheet(evaluate: false)[$R := 5\"cm\"$]\n", false),
+        ("#show: math\n$R := 5\"cm\"$\n", true),
+        ("#math(evaluate: false)[$R := 5\"cm\"$]\n", false),
     ] {
         send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": uri, "version": 2}, "contentChanges": [{"text": changed}]}}));
         wait(&mut stdout, |m| m["method"] == "textDocument/publishDiagnostics");
@@ -221,7 +221,7 @@ fn bindings_and_operation_references_have_their_tokens_and_hovers() {
     wait(&mut stdout, |m| m["id"] == 1);
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}));
     let uri = "file:///tmp/solveng-bindings.typ";
-    let text = "#import units: km, ms\n#let cusom = unit($1000 km$)\n#show: worksheet\n$t := 1 cusom$\n$y := op(\"tri\")(x)$\n$y := 1 km$\n$y := 1 ms$\n#import constants: pi\n$z := 2 pi$\n";
+    let text = "#import units: km, ms\n#let cusom = unit($1000 km$)\n#show: math\n$t := 1 cusom$\n$y := op(\"tri\")(x)$\n$y := 1 km$\n$y := 1 ms$\n#import constants: pi\n$z := 2 pi$\n";
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri, "languageId": "typst", "version": 1, "text": text}}}));
     wait(&mut stdout, |m| m["method"] == "textDocument/publishDiagnostics");
     send(&mut stdin, json!({"jsonrpc": "2.0", "id": 2, "method": "textDocument/semanticTokens/full", "params": {"textDocument": {"uri": uri}}}));
@@ -268,7 +268,7 @@ fn templates_supply_highlighting_completion_and_import_actions_over_stdio() {
     wait(&mut stdout, |m| m["id"] == 1);
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}));
     let template_uri = "file:///tmp/solveng-template-test/template.typ";
-    let template = "#import \"@solveng/solveng:1.0.0\": *\n#let template(body) = {\n show: worksheet\n worksheet($sigma(t) := cases(0 & t < 0, 1 & t >= 0)$, hidden: true)\n worksheet(body, scope: \"inherit\", clear-at: heading)\n}";
+    let template = "#import \"@solveng/solveng:1.0.0\": *\n#let template(body) = {\n show: math\n math($sigma(t) := cases(0 & t < 0, 1 & t >= 0)$, hidden: true)\n math(body, clear-at: heading)\n}";
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": template_uri, "languageId": "typst", "version": 1, "text": template}}}));
     wait(&mut stdout, |m| m["method"] == "textDocument/publishDiagnostics" && m["params"]["uri"] == template_uri);
     let uri = "file:///tmp/solveng-template-test/exercises/exercise.typ";

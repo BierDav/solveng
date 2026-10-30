@@ -5,7 +5,7 @@ use crate::{Analysis, Problem, ReportError};
 
 /// Each reported error of the document where it still applies: in the element it was reported for (the one
 /// with the same source, nearest to where it was), at its statement when the report names one. An element
-/// edited since has no error until the next compile tells. Errors of equations passed to `worksheet` have no
+/// edited since has no error until the next compile tells. Errors of explicit value/graph calls can have no
 /// element; their statement is looked up in the equations passed to calls instead.
 pub(crate) fn reported(a: &Analysis) -> Vec<Problem> {
     let mut out: Vec<Problem> = Vec::new();
@@ -32,7 +32,7 @@ fn placed(a: &Analysis, err: &ReportError) -> Option<(usize, usize)> {
     let e = a
         .elements
         .iter()
-        .filter(|e| a.doc.sub(e.start, e.end) == err.text)
+        .filter(|e| a.evaluates_at(e.body_start) && a.doc.sub(e.start, e.end) == err.text)
         .min_by_key(|e| (i64::from(a.doc.to16(e.start)) - err.start as i64).abs())?;
     let found = (!err.source.is_empty()).then(|| statement(a, e.body_start, e.body_end, &err.source)).flatten();
     Some(found.unwrap_or_else(|| trimmed(a, e.body_start, e.body_end)))

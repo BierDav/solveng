@@ -221,7 +221,6 @@ pub fn diagnostics(document: &str, context: &Context) -> Vec<Problem> {
         });
     }
     out.extend(crate::bindings::problems(&a));
-    out.extend(crate::scope::export_warnings(&a.doc));
     let mut reported = crate::errors::reported(&a);
     reported.append(&mut out);
     reported

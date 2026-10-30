@@ -4,8 +4,8 @@
 
 Everything solveng does, for looking things up. For an introduction see the [README](../README.md).
 
-- [`worksheet`](#worksheet)
-- [`calculate`](#calculate)
+- [`math`](#math)
+- [`mathscope`](#mathscope)
 - [`compile`](#compile)
 - [`base-unit`](#base-unit)
 - [`unit`](#unit)
@@ -97,8 +97,8 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 
 | function | does |
 |---|---|
-| [`worksheet`](#worksheet) | Calculates the math you write, like a Mathcad worksheet. |
-| [`calculate`](#calculate) | Calculates equations in the current worksheet. |
+| [`math`](#math) | Enables calculations and configures math without creating a variable scope. |
+| [`mathscope`](#mathscope) | Creates an explicit variable scope, inheriting math settings. |
 | [`compile`](#compile) | Compiles a snapshot of an expression into a numeric Typst function. |
 | [`base-unit`](#base-unit) | A unit of a new, independent dimension: `#let bit = base-unit("information")`. |
 | [`unit`](#unit) | A unit defined by an expression of unit values: `#let minute = unit($60 #s$)`. |
@@ -179,132 +179,54 @@ Everything solveng does, for looking things up. For an introduction see the [REA
 | [`fahrenheit`](#fahrenheit) | Absolute Fahrenheit temperature expressed as kelvin: `fahrenheit(32)` is 273.15 K. |
 | [`polyroots`](#polyroots) | All numerical complex roots of a polynomial. |
 
-## `worksheet`
+## `math`
 
-Calculates the math you write, like a Mathcad worksheet.
+Enables calculations and configures math without creating a variable scope.
 
-`#show: worksheet` calculates the rest of the document, `#worksheet[…]` its content (on its own unless `scope` says otherwise), and `#calculate($…$)` single equations, also outside a worksheet.
-
-```typ
-#import units: mA, mAh, h
-#show: worksheet
-The battery holds $Q_0 := 3450 mAh$ and the load draws $I := 30 mA$,
-so it lasts $t := Q_0 / I => #h$.
-```
-
-**Math.** As in Mathcad:
-
-- `:=` defines (shown as ≔), symbolically: `$I := 30 mA$`, `$P := U I$`, `$f(x) := x^2 + 1$`. Names not defined yet stay names until they are, see *Calculating like Mathcad*.
-- `=` inside an expression compares, 1 or 0: `$M := 1 = 2 =>$` is 0.
-- `=` at the end shows the value, with a bold =: `$t =>$` → t **=** 115 h, `$t := Q_0/I =>$` defines and shows it. What follows it is the unit and modifiers: `$t => #h$`, `$t => min, digits(2)$`.
-- `->` at the end shows the symbolic result, the known values put in, exactly: `$f := (x^2 - 1)/(x - 1) -> simplify$`; an equation, where it holds: `$x^2 = x ->$` is x = 0 ∨ x = 1. With `solve(x)` it returns solutions without defining x: `$Q_0/2 = I t -> solve(t)$`, `$x^2 - 4 = 0 -> solve(x)$`, `$x + y = 3, x - y = 1 -> solve(x, y)$`, `$R <= U/I -> solve(R)$`.
-
-Modifiers, imported from `modifiers` where you use them (`#import modifiers: solve, digits`): `solve(x, …)`, `substitute(x, …)` (these variables' formulas put in, other names kept), `simplify`, `expand` (multiplied out), `factor` (in factors), `steps` (the way to the symbolic result, a line each), `fraction` (exact fraction-style), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
-
-**Units, constants, operations and modifiers** are Typst bindings, imported where you use them: `#import units: mA, s`, `#import constants: pi, i`, `#import operations: tri`, `#import modifiers: solve`, then `$30 mA$`, `$2 #s$`, `$2 pi$`. A binding of a single letter needs a `#` in math. Quoted text names worksheet variables; it never means a unit or operation. Raw blocks, also ```` ```solveng ```` ones, are ordinary text.
-
-**Calls.** `#calculate($U := 5 #V$, $I := U/R =>$)` calculates in the current worksheet. `#worksheet[…]` creates a scoped block.
-
-**Evaluate.** `#worksheet(evaluate: false)[…]` leaves its math alone: only `#worksheet(…)` calls in it are calculated. Nested worksheets don't inherit it, so a `#worksheet[…]` or `#calculate($t =>$)` inside calculates its math again.
+`#show: math` processes the remaining math in the document's implicit global scope.
+`#math(digits: 8)[…]` overrides settings locally; definitions made there remain in the current scope.
+Closest settings win, option by option. Importing alone does not enable calculations.
+`evaluate: false` leaves ordinary math as written, including a single equation.
+An explicit `#math(evaluate: true)[…]` enables it again.
+Nested mathscopes inherit settings, including evaluate and hidden.
+Native Typst math functions remain available through `std.math`.
 
 ```typ
-#import units: s
-#worksheet[
-  $t := 5 #s$
-  #worksheet(evaluate: false, scope: "inherit")[
-    $E = m c^2$ stays as written, and so does $t = 3 #s$;
-    #calculate($t =>$) is still calculated.
-  ]
-]
-```
-
-**Hidden.** `hidden: true` calculates without showing what is calculated: the equations of a call, or in `#worksheet(hidden: true)[…]` the math it calculates – its text, headings and prose equations (`$E = m c^2$`) stay. Problems are still shown. Nested worksheets don't inherit it, so a `#calculate($t =>$)` inside shows its equation again.
-
-```typ
-#import units: V, Ω, mA
-#worksheet(hidden: true)[
-  The values for the example:
-  $U := 5 #V$, $R := 100 #Ω$, $I := U/R$
-  The current is #calculate($I => mA$).
-]
-```
-
-**Scopes.** Every worksheet defaults to `"isolated"`, including a single equation. `"inherit"` reads outer definitions but keeps changes local; `"shared"` retains changes. Use `#calculate($x := 1$)` to calculate equations in the current worksheet. Units, constants and operations retain Typst lexical scope.
-
-```typ
-#import units: V, Ω, mA
-#show: worksheet
-$U := 12 #V$
-#worksheet(scope: "shared")[
-  $R := 100 #Ω$
-  $I := U/R => mA$
-]
-$I => mA$ // 120 mA, kept from the block
-#worksheet($U := 5 #V$, scope: "inherit") // local to this call
-$U =>$ // still 12 V
-```
-
-**Editors.** Each equation the worksheet sees leaves a `metadata` labelled `<solveng>` with its `location()`, whether it was calculated and whether math is evaluated there; each problem one with `kind: "error"`, its `message`, the `element` it's in (`none` for equations passed to `worksheet`) and the `source` statement; at the end (and before each match of `clear-at`) one lists everything defined, with values. Editors like Typewright read them after compiling: `query(<solveng>)`.
-
-**Starting over.** `clear-at` clears every definition at each match; `#clear(all: true)` inside a worksheet does the same once: back to how it started (with `scope: "inherit"` or `"shared"` the outer definitions stay), and `#clear("x", "f")` forgets only those names. After a `#worksheet[…]` the outer definitions come back; with `scope: "shared"`, its final definitions are merged over them.
-
-```typ
-#show: worksheet.with(clear-at: heading)                    // every heading
-#show: worksheet.with(clear-at: heading.where(level: 1))    // only top-level ones
-#show: worksheet.with(clear-at: <exercise>)                 // every element labelled, = Task <exercise>
-#show: worksheet.with(clear-at: heading, scope: "inherit")  // keep the definitions made before
-```
-
-**Options.** Every option defaults to `auto`, which keeps the current setting, so only what you pass changes. For the whole document: `#show: worksheet.with(digits: 3)`; for a part: `#worksheet(evaluate: false, digits: 2)[…]`; for equations or content it calculates: `#calculate($R := U/I =>$, digits: 2)`; or keep them in a dictionary: `#let opts = (digits: 2, decimal-separator: ",")`, then `#worksheet($P := U I =>$, ..opts)`. `defined` and `graph` take the same options. Unknown options and values of the wrong type are shown as an error in the document.
-
-```typ
-#import units: V, mA
-#show: worksheet.with(digits: 3, number-form: "fraction")   // your defaults, the whole document
-$U := 5 #V$, $I := 30 mA$
-#calculate($I/3 =>$, digits: 2)                        // only this equation
-#worksheet(evaluate: false, multiplication: "times")[Prose and $E = m c^2$ stay as written.]
-```
-
-`number-form`:
-
-- `"auto"`: plain numbers as typed (`7.20 kΩ` keeps its zero), arithmetic evaluated (`3450/2 mAh` → 1725 mAh), results rounded to `digits`.
-- `"decimal"`: everything rounded to `digits`, including what you typed.
-- `"fraction"`: exact fraction-style, simplified (`$frac(2, 4) #A$` → ½ A, `I/3` → ⅙ A); values that are no fraction with denominator ≤ `max-denominator` fall back to decimals.
-- `"input"`: given values exactly as typed (`3450/2 mAh` stays a fraction).
-
-An explicit unit (`$I => mA$`) always wins, then `preferred-units`, then the non-SI unit of the inputs (h, mAh, bar), then the SI unit with a prefix.
-
-To reuse your defaults in many documents, keep a small file of your own:
-
-```typ
-// my-defaults.typ
-#import "@preview/solveng:2.0.0": *
-#let setup = worksheet.with(digits: 3, multiplication: "times", constant-displays: (imaginary: $j$))
-
-// in a document
-#import "my-defaults.typ": *
-#show: setup
+#show: math.with(digits: 4)
+$x := 12$
+#math(digits: 8)[$y := x/7 =>$]
+$y =>$ // defined in the same global scope
+#math(evaluate: false)[$x =>$]
 ```
 
 | parameter | type | default | |
 |---|---|---|---|
-| `..body` | content |  | The content, or equations to calculate. |
-| `scope` | auto, str | `auto` | `"isolated"` (default), `"inherit"` (read outer definitions), or `"shared"` (also keep changes). |
-| `clear-at` | none, function, selector, label | `none` | Clear every definition at each match: `heading` (every heading), `heading.where(level: n)` (headings of level n) or a label like `<exercise>` (every element with it, e.g. `= Task <exercise>`): the definitions made since are forgotten, like `#clear(all: true)`. |
-| `hidden` | bool | `false` | Calculate without showing what is calculated (only problems are shown): the equations, or the math of the content. Not inherited by nested worksheets. |
-| `evaluate` | bool | `true` | Calculate the math in the content; `false`: only its `#worksheet(…)` calls are. Not inherited by nested worksheets, and not for equations, which are always calculated. |
+| `..body` | content |  | Content to process in the current variable scope. |
+| `clear-at` | auto, none, function, selector, label | `auto` | Reset the innermost variable scope at matching headings or labels. `auto` inherits; `none` disables resets. |
+| `hidden` | auto, bool | `auto` | Hide calculated math, keeping prose and problems. `auto` inherits. |
+| `evaluate` | auto, bool | `auto` | Process ordinary math. `auto` inherits, initially true. |
 | `digits`, `separator`, … | auto | `auto` | Any [option](#options) for this call; `auto` keeps the current setting. |
 
 Returns content.
 
-## `calculate`
+## `mathscope`
 
-Calculates equations in the current worksheet. Definitions persist in that worksheet.
+Creates an explicit variable scope, inheriting math settings.
+
+The document already has a global scope. Use math to change settings without creating another scope.
+Scope behavior is identical for one equation and a content block.
+
+```typ
+#show: math
+$x := 12$
+#mathscope(scope: "inherit")[$x := 99$]
+$x =>$ // still 12
+```
 
 | parameter | type | default | |
 |---|---|---|---|
-| `..equations` | content |  | Math equations to calculate. |
-| `hidden` | bool | `false` | Hide calculated equations. |
+| `..body` | content |  | Content in the new variable scope. |
+| `scope` | str | `"isolated"` | `"isolated"` starts empty; `"inherit"` reads outer definitions and keeps changes local; `"shared"` also keeps changes in the parent. Default `"isolated"`. |
 
 Returns content.
 
@@ -316,8 +238,7 @@ With no parameters, free names are inferred.
 
 ```typ
 #import units: V, W, Ω
-#show: worksheet
-$R := 10 #Ω$
+#math(hidden: true)[$R := 100 #Ω$]
 #context {
   let P = compile($U^2/R$, parameters: (U: $#V$), result-unit: $#W$)
   [#P(12)]
@@ -350,7 +271,7 @@ function returning content.
 ```typ
 #let bit = base-unit("information", display: "bit")
 #let byte = unit($8 bit$, display: $"B"$)
-#show: worksheet
+#show: math
 $d := 3 byte = bit$
 ```
 
@@ -381,7 +302,7 @@ power or after a slash it is parenthesized, (2.54 cm)², m/(2.54 cm).
 #let bar = unit($100 kPa$, display: "bar")
 #let rpm = unit($1/min$, display: $"rpm"$)
 #let inch = unit($2.54 #cm$)
-#show: worksheet
+#show: math
 $p := 3 bar$, $n := 3000 rpm$, $p => kPa$, $l := 2 #inch = inch$
 ```
 
@@ -397,7 +318,7 @@ Returns content.
 Defines a constant: an identity and the math expression it stands for, which can carry units.
 
 The identity says what the constant is and how it is shown: worksheets show it as their option `constants`
-says, `#show: worksheet.with(constant-displays: (imaginary: $j$))`, with built-in displays for `"pi"`, `"euler"`,
+says, `#show: math.with(constant-displays: (imaginary: $j$))`, with built-in displays for `"pi"`, `"euler"`,
 `"imaginary"` and `"speed-of-light"`; an identity without a display is shown as its expression. The engine
 calculates exactly with the identities it knows – `"pi"` (π), `"euler"` (e) and `"imaginary"` (i) – once the
 expression has that value: `$#calc.pi$`, `$sqrt(-1)$`. Any other identity is kept by it in exact results
@@ -409,7 +330,7 @@ the expression in: `$E := m #c^2 -> substitute(#c)$`, and a constant alone shows
 #import units: m, s, kg
 #let c0 = constant("speed-of-light", $299792458 #m / #s$)
 #let g0 = constant("standard-gravity", $9.80665 #m / #s^2$)
-#show: worksheet.with(constant-displays: ("standard-gravity": $g_0$))
+#show: math.with(constant-displays: ("standard-gravity": $g_0$))
 $F := 2 kg #g0 =>$
 ```
 
@@ -425,16 +346,16 @@ Returns content.
 An operation under a name of your choice: `#let conv = operation("convolve")`, then `$conv(x, h)$`.
 
 The name selects one of solveng's operations (see *Built-in operations*), whatever the binding is called;
-quoted names in math never do. Unlike `math.op("tri")`, the result takes named arguments, as Typst only
+quoted names in math never do. Unlike `std.math.op("tri")`, the result takes named arguments, as Typst only
 parses them for functions: `$conv(x, h, step: 2)$`.
 
 `display` is how the operation is shown, in the input and in results: a string (an operator name, as
-`math.op` writes it), content, or a function returning content.
+`std.math.op` writes it), content, or a function returning content.
 
 ```typ
 #let triangle = operation("tri", display: "triangle")
 #let step = operation("sgn", display: $op(sigma)$)
-#show: worksheet
+#show: math
 $triangle(1/2) =>$, $step(-2) =>$
 ```
 
@@ -483,7 +404,7 @@ automatic check considers up to sixteen names in expressions of size at most 512
 #import "@preview/solveng:2.0.0": *
 #import operations: Re
 #import modifiers: assume
-#show: worksheet
+#show: math
 $Re(a z + b w) = a Re(z) + b Re(w) ->$
 $Re(a z + b w) = a Re(z) + b Re(w) -> assume(a in RR, b in RR)$
 ```
@@ -545,7 +466,7 @@ Lists the definitions made so far, in order.
 
 ```typ
 #import units: kΩ, V
-#show: worksheet
+#show: math
 $R := 7.2 kΩ$, $U := 5 #V$, $I := U/R$, $f(x) := x^2$
 #defined()                                          // everything, in columns side by side
 #defined(kinds: "given")                             // only plain values (also "computed", "function")
@@ -566,7 +487,7 @@ Styles (`style:` here, option `defined-style` for all of them):
 | `kinds` | str, array | `("given", "computed", "function")` | given, computed or function; all three by default. |
 | `where` | function | `name => true` | Additional predicate on each definition name. |
 | `style` | auto, str | `auto` | `"grid"`, `"column"`, `"inline"` or `"list"`, see above. `auto`: the option `defined-style` (default `"grid"`). |
-| `digits`, `decimal-separator`, `number-form`, … | auto | `auto` | Every option of `worksheet` works here too, for this call only. See [Options](#options). |
+| `digits`, `decimal-separator`, `number-form`, … | auto | `auto` | Every option of `mathscope` works here too, for this call only. See [Options](#options). |
 | `digits`, `separator`, … | auto | `auto` | Any [option](#options) for this call; `auto` keeps the current setting. |
 
 Returns content.
@@ -583,7 +504,7 @@ When no name varies but the curves write one name with a value, they are plotted
 
 ```typ
 #import units: Ω, W, V
-#calculate($R := 50 #Ω$, $P_0 := 2 #W$, hidden: true)
+#math($R := 50 #Ω$, $P_0 := 2 #W$, hidden: true)
 #graph($P(U: #V) = U^2/R$, ymark: $P_0$)
 #graph($cos(w) \ w$, mark: auto)
 #graph($y(x) = x^2 \ y(x) = 2x + 3$, x-range: (-3, 5))
@@ -635,7 +556,7 @@ Gradient curve colors are supported in paged output. Interactive HTML graphs req
 | `lines` | auto, array, str, dictionary, none | `auto` | The curves' lines, like `colors`: Typst dash patterns such as `"solid"`, `"dashed"`, `"dotted"`, `"dash-dotted"`, `"densely-dashed"`, `"loosely-dotted"`, or an array of lengths like `(4pt, 2pt)`, so curves can be told apart without color (color-blind readers, grayscale prints); `none` draws no line – data as points alone (a scatter plot), a function as its single points. `auto`: the worksheet's `graph-lines`, by default `("solid", "dashed", "dotted", "dash-dotted")`, the order of scientific plotting tools. |
 | `dots` | auto, array, str, none | `auto` | The curves' dots, like `colors`: `"circle"`, `"square"`, `"triangle"`, `"triangle-down"`, `"diamond"`, `"pentagon"`, `"hexagon"`, `"star"`, `"cross"`, `"plus"`; `none` draws no dots. `auto`: the worksheet's `graph-dots`, by default `("circle", "square", "triangle", "diamond")`, so curves can be told apart without color too. Dots are drawn for data's points (with at most 30 points, or without a line) and a function's single points (`2 & "for" x = 1` in `cases`). |
 | `joined` | auto, bool, array | `auto` | Whether everything a curve draws is joined with a line, like `colors`: a function's pieces, from the end of one to its single point and on to the start of the next, as data's points are (with `lines: none`: data's dots joined). Joins to points beyond the graph leave it; the pointer doesn't read them. `auto`: the worksheet's `graph-joined`, by default `false`. A curve with nothing to draw is an error. |
-| `digits`, `decimal-separator`, `number-form`, … | auto | `auto` | Every option of `worksheet` works here too, for this call only. See [Options](#options). |
+| `digits`, `decimal-separator`, `number-form`, … | auto | `auto` | Every option of `mathscope` works here too, for this call only. See [Options](#options). |
 
 Returns content.
 
@@ -646,7 +567,7 @@ after its `=`. Calculated with the worksheet's definitions at this point, which
 it leaves as they are.
 
 ```typ
-#show: worksheet
+#show: math
 #import units: kΩ, mA, mV, Ω
 $R := 4.7 kΩ$, $I := 2 mA$, $U := R I$, $f(x: #Ω) := 2 x$
 The voltage is #value($U$) (#value($U => mV$)), and #value($f(3 #Ω)$) for 3 Ω.
@@ -666,11 +587,11 @@ Returns content.
 
 Forgets definitions: the names given, or with `all: true` every one made so far.
 
-A value and a function share their name – defining one replaces the other – so `clear("f")` forgets `f` either way (`"f()"` and `"f(x)"` are read the same). Names are written as strings (`"Q_0"`, `"tau"`) or in math (`$Q_0$`). A name that isn't defined is shown as a problem. With `all: true` inside a `worksheet` it's back to how the worksheet started (with `scope: "inherit"` the outer definitions stay). Units, constants and operations are bindings, not definitions: `clear` leaves them alone.
+A value and a function share their name – defining one replaces the other – so `clear("f")` forgets `f` either way (`"f()"` and `"f(x)"` are read the same). Names are written as strings (`"Q_0"`, `"tau"`) or in math (`$Q_0$`). A name that isn't defined is shown as a problem. With `all: true` inside a `mathscope` it's back to how the worksheet started (with `scope: "inherit"` the outer definitions stay). Units, constants and operations are bindings, not definitions: `clear` leaves them alone.
 
 ```typ
 #import units: mA, A, V
-#show: worksheet
+#show: math
 $I := 30 mA$, $f(x) := 2 x$, $U := 5 #V$
 #clear("I", $f$)
 $I := 1 #A$
@@ -1455,7 +1376,7 @@ Returns complex vector.
 
 ## Options
 
-Options of `worksheet`, and of `defined` and `graph`. Each one defaults to `auto`, which keeps the current setting.
+Options of `math`, and of `defined` and `graph`. Each one defaults to `auto`, which keeps the current setting.
 
 ### Numbers
 
@@ -1524,7 +1445,7 @@ Options of `worksheet`, and of `defined` and `graph`. Each one defaults to `auto
 
 | option | type | default | |
 |---|---|---|---|
-| `constant-displays` | auto, dictionary | `(:)` | How constants are shown, by identity: `(imaginary: $j$, "standard-gravity": $g_0$)`, over the built-in displays of `pi` (π), `euler` (e), `imaginary` (i) and `speed-of-light` (c) and the ones of the worksheets around. Results show them the same way. See `constant`. |
+| `constant-displays` | auto, dictionary | `(:)` | How constants are shown, by identity: `(imaginary: $j$, "standard-gravity": $g_0$)`, over the built-in displays of `pi` (π), `euler` (e), `imaginary` (i) and `speed-of-light` (c) and the surrounding math settings. Results show them the same way. See `constant`. |
 
 ### Graphs
 
@@ -1535,7 +1456,7 @@ Options of `worksheet`, and of `defined` and `graph`. Each one defaults to `auto
 
 | option | type | default | |
 |---|---|---|---|
-| `graph-colors` | auto, color, array | `(rgb("#3f90da"), rgb("#ffa90e"), rgb("#bd1f01"), rgb("#94a4a2"), rgb("#832db6"), rgb("#a96b59"), rgb("#e76300"), rgb("#b9ac70"), rgb("#717581"), rgb("#92dadd"))` | The colors of the curves in graphs, curve after curve and repeating: `(gray, blue, rgb("#f98eff"))`. Default: Petroff's ten colors, chosen to stay apart for color-blind readers. `auto` keeps the worksheet's around, also for a single curve: `(auto, red)` changes only the second (and fourth, …). A graph's `colors` goes over it, the same way. |
+| `graph-colors` | auto, color, array | `(rgb("#3f90da"), rgb("#ffa90e"), rgb("#bd1f01"), rgb("#94a4a2"), rgb("#832db6"), rgb("#a96b59"), rgb("#e76300"), rgb("#b9ac70"), rgb("#717581"), rgb("#92dadd"))` | The colors of the curves in graphs, curve after curve and repeating: `(gray, blue, rgb("#f98eff"))`. Default: Petroff's ten colors, chosen to stay apart for color-blind readers. `auto` inherits the surrounding settings, also for a single curve: `(auto, red)` changes only the second (and fourth, …). A graph's `colors` goes over it, the same way. |
 | `graph-lines` | auto, str, array, dictionary, none | `("solid", "dashed", "dotted", "dash-dotted")` | The lines of the curves in graphs, like `graph-colors`: Typst dash patterns such as `"solid"`, `"dashed"`, `"dotted"`, `"dash-dotted"`, or lengths like `(4pt, 2pt)`; `none` draws a curve without lines. A graph's `lines` goes over it. |
 | `graph-dots` | auto, str, array, none | `("circle", "square", "triangle", "diamond")` | The dots of the curves in graphs, like `graph-colors`: `"circle"`, `"square"`, `"triangle"`, `"triangle-down"`, `"diamond"`, `"pentagon"`, `"hexagon"`, `"star"`, `"cross"`, `"plus"`; `none` draws a curve without dots. A graph's `dots` goes over it. |
 | `graph-joined` | auto, bool, array | `(false,)` | Whether everything a curve in a graph draws is joined with a line, like `graph-colors`. A graph's `joined` goes over it. |
@@ -1553,7 +1474,7 @@ called with what they take; `simplify`, `expand`, `factor`, `steps`, `sci`, `eng
 #import "@preview/solveng:2.0.0": *
 #import modifiers: solve, digits, sci
 #import units: h, mA, mAh
-#show: worksheet
+#show: math
 $I := 30 mA$, $Q := 3450 mAh$
 $Q/2 = I t -> solve(t)$
 $t := Q/(2 I) => #h, digits(3)$
@@ -1576,7 +1497,7 @@ Three operators, and `=` keeps its meaning from maths:
 
 ```typ
 #import units: cm, m, A, V
-#show: worksheet
+#show: math
 $h := 5 z$, $z := 20 cm$, $h =>$             // h ≔ 5z, z ≔ 20 cm, h = 1 m
 $U(x: #m) := h x a ->$                     // U(x) ≔ h x a → 1 m · a x
 $g(x: #m) := U(x)/a ->$                    // g(x) ≔ U(x)/a → 1 m · x
@@ -1589,7 +1510,7 @@ $k := 2 #m = 200 cm =>$                     // k = 1: the comparison holds
 ```typ
 #import units: kΩ, A, V, m, mA, mAh, s
 #import modifiers: substitute
-#show: worksheet
+#show: math
 $R := 4.7 kΩ$                                 // a number and a unit
 $I := frac(2, 4) #A$, $Q_0 := 3450/2 mAh$     // arithmetic in the number
 $U := (1+2) dot 1.5 #V$, $A := 2^3 #m^2$      // A the variable, #A the ampere
@@ -1604,7 +1525,7 @@ $Q := U_2 dot 2 #s -> substitute(U_2)$        // U_2's formula put in: Q ≔ U_2
 - **No e-notation:** numbers are written out (`$11200$`, or `$1.12 dot 10^4$`). `1.12e4` is the coefficient 1.12 times the variable `e4` (undefined unless defined; quote it, `$"e4"$`, for a name of several letters). Scientific notation is only how results are written (option `notation-thresholds`, keyword `sci`).
 - **Names:** the acute accent `´` and the backtick (`` ` ``) are literal name characters (`$x´ := 3$`), with no escaping needed. Digits continue a name: `t2` differs from `t_2` and keeps its digits on the baseline. Complete Latin letter runs normalize to Greek: `Delta2tau` → Δ2τ, while `Deltatau` stays unchanged. `""` joins name fragments: `Delta""tau` → Δτ and `t""2` → t2. Quotes only carry a name through Typst: `$"Delta2tau"$` names Δ2τ, and `$"Delta\"\"tau"$` names Δτ. Quoted text is always a name, also when it spells a unit or an operation: `$"mA" := 3$` is a variable. Explicit subscripts may be grouped: `$R_(a b)$` names R_ab. Operators and whitespace end a name; a leading number remains a coefficient (`2t2` is 2 times t2).
 - **Sums:** `sum_(k=0)^10 k^2` or `sum(k^2, k, 0, 10)` sums over inclusive integer bounds. The index is local and case-sensitive. Parenthesize a summand containing addition. Small finite sums simplify exactly; infinite sums stay symbolic after `->` and are evaluated numerically for `=` and graphs. For example, `$s_2(t) := sum_(k=0)^infinity sigma(t-k+3/4)$` defines a function usable as `#graph($s_2(t)$)` once `sigma` is defined. Piecewise linear signal sums are counted directly between their corners. Other numerical sums use at most 100000 terms, a shrinking-tail check and guarded epsilon extrapolation; unresolved or nonconvergent series report an error. Bounds and the index are unitless, while summands may carry units.
-- **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. Import the names from `operations` (`#import operations: rect, tri, sgn`); a worksheet function such as `$Lambda(t) := tri(t)$` or `#let triangle = math.op("tri")` gives another name. Linear combinations simplify and can be solved; definite integrals of them (also times exponentials, sin or cos) are exact piecewise, over ±∞ too where they vanish outside a bounded interval. Distributional derivatives stay symbolic.
+- **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. Import the names from `operations` (`#import operations: rect, tri, sgn`); a worksheet function such as `$Lambda(t) := tri(t)$` or `#let triangle = std.math.op("tri")` gives another name. Linear combinations simplify and can be solved; definite integrals of them (also times exponentials, sin or cos) are exact piecewise, over ±∞ too where they vanish outside a bounded interval. Distributional derivatives stay symbolic.
 - **Ranges and elements:** `$i := 0..N$` (also `0 .. N`, `0...N`) is a range variable: the values from 0 to N in steps of 1, both included, counting down when N < 0; with units, use `range(start, end, step: …)`. `x[i]` and `A[i, j]` are elements, counted from 0, written right after the name without a space; a vector of indices selects several (`x[i]` with i a range is a vector). `:` selects a whole row or column: `A[i, :]` is row i (a matrix of one row), `A[:, j]` column j (a vector), both plottable as data: `#graph($A[1, :]$)`. `$x[i] := …$` defines an element for each value of the range variable i, the body calculated with i standing for that value: `$t[i] := i Delta""t$`, `$x[i] := tri(t[i])$`. Elements not defined yet are 0; defining one past the end extends the vector, as in Mathcad. `A[i, j] := …` defines a matrix.
 - **Convolution:** `convolve(x, h)` of sequences and `convolve(f(τ), g(τ), τ, t)` of functions, see `convolve`. Sequences of values are convolved numerically (whole numbers exactly), so long sampled signals stay fast; functions exactly where they're piecewise polynomial.
 - **Operators:** `+ - * / ^ · ×`, implicit multiplication (`2 pi f C`), Typst's math operators `sqrt exp ln log sin cos tan arcsin arccos arctan sinh cosh tanh abs arg` (no import needed), the other operations from `operations` (see [Built-in operations](#built-in-operations)), your own functions.
@@ -1618,7 +1539,7 @@ Values are complex numbers: `$sqrt(-4) =>$` is 2i, `$ln(-1) ->$` is iπ, also wi
 - **Units:** complex values carry units like any other, `(100 + 94.25i) Ω`.
 - **Parts:** `abs(z)` is the magnitude, `arg(z)` the angle in radians (−π…π); `Re`, `Im` and `conj` come from `operations` (`#import operations: Re, Im, conj`).
 - **Solving** is complex: `$x^2 + 4 = 0 -> solve(x)$` gives ±2i, polynomials with numbers get all their roots (`$x^3 = 8 -> solve(x)$`: 2 and −1 ± 1.732i). The numeric search for other equations finds real solutions only.
-- **Showing:** electrical engineers write `j`: `#show: worksheet.with(constant-displays: (imaginary: $j$))`.
+- **Showing:** electrical engineers write `j`: `#show: math.with(constant-displays: (imaginary: $j$))`.
 - **Real only:** graphs, `compile`, comparisons with `<` and `>`, inequalities and the numeric search need real values; a complex one there is an error.
 
 ```typ
@@ -1626,7 +1547,7 @@ Values are complex numbers: `$sqrt(-4) =>$` is 2i, `$ln(-1) ->$` is iπ, also wi
 #import constants: pi, e, i
 #import operations: conj
 #import modifiers: solve
-#show: worksheet.with(constant-displays: (imaginary: $j$))
+#show: math.with(constant-displays: (imaginary: $j$))
 $(1 + 2 #i)(3 - #i) ->$                       // 5 + 5j
 $#e^(#i pi) ->$, $sin(pi/4) ->$               // −1, √2/2
 $Z := 100 #Ω + #i 2 pi 50 Hz dot 300 mH =>$    // (100 + 94.25j) Ω
@@ -1642,7 +1563,7 @@ After a trailing `=` or `->`, the unit to show is an expression of unit values t
 
 ```typ
 #import units: Hz, ms, A, s
-#show: worksheet
+#show: math
 $A := 12$, $x := A dot 2 #A =>$        // x ≔ A · 2 A = 24 A
 $T := 2 #s$, $f := 1/T => Hz$          // f ≔ 1/T = 0.5 Hz
 $T -> ms$                             // 2000 ms
@@ -1652,13 +1573,13 @@ $T -> ms$                             // 2000 ms
 
 ```typ
 #import units: kPa, min
-#let bit = base-unit("information", display: () => math.upright("bit"))
-#let byte = unit($8 bit$, display: () => math.upright("B"))
-#let bar = unit($100 kPa$, display: () => math.upright("bar"))
-#let rpm = unit($1/min$, display: () => math.upright("rpm"))
-#show: worksheet
+#let bit = base-unit("information", display: () => std.math.upright("bit"))
+#let byte = unit($8 bit$, display: () => std.math.upright("B"))
+#let bar = unit($100 kPa$, display: () => std.math.upright("bar"))
+#let rpm = unit($1/min$, display: () => std.math.upright("rpm"))
+#show: math
 $d := 3 byte = bit$, $p := 3 bar$, $n := 3000 rpm$
-#worksheet(preferred-units: ($bar$,), scope: "inherit")[$p/2 =>$]   // results of this dimension in bar
+#math(preferred-units: ($bar$,))[$p/2 =>$]   // results of this dimension in bar
 ```
 
 ## How it solves
@@ -1714,7 +1635,7 @@ single-boundary inequalities keep the existing scalar boundary behavior.
 - **Ranges** have at most 100000 values, and their bounds and steps need values when they're defined. In math an index follows its name directly, so `a[b + c]` is an element of a – write `a dot [b + c]` or `a (b + c)` for a product.
 - **Convolution** of functions is exact for piecewise polynomials with numeric breakpoints (rect, tri, sgn, abs, cases with affine conditions, polynomials); exponentials, trigonometric functions, symbolic shifts and integrals that diverge stay the integral, evaluated numerically.
 - **Matrices:** names without a value are scalars, so they commute in products until they get a value (define matrices before multiplying them, or pass them to a function). Symbolic elimination treats an entry as zero only when it simplifies to 0, so entries that vanish by an identity like sin² + cos² = 1 count as nonzero. Floats count as zero within 10⁻¹³ of the largest element (times the size). Unknowns of `solve` are scalars: write a vector of unknowns as `vec(x, y)`.
-- **Math in a worksheet:** an equation with `=` and only known names is checked, so a formula meant as plain text that happens to use defined names (`$a^2 + b^2 = c^2$` after defining a, b and c) must hold. Put those outside the worksheet or use `#worksheet(evaluate: false)[…]` around them.
+- **Math in a worksheet:** an equation with `=` and only known names is checked, so a formula meant as plain text that happens to use defined names (`$a^2 + b^2 = c^2$` after defining a, b and c) must hold. Put those outside the worksheet or use `#math(evaluate: false)[…]` around them.
 
 ## Errors
 
@@ -1722,7 +1643,7 @@ Problems (a missing value, units that don't match, a real calculation that would
 
 > ⚠ solveng: 'U' in 'P := U I' isn't defined – define it first with :=, or solve for it: … -> solve(U)
 
-`#show: worksheet.with(errors: "panic")` stops the compilation instead (useful in CI). Unknown named arguments of `worksheet`, `defined` and `graph` are reported the same way; those of `compile` stop the compilation.
+`#show: math.with(errors: "panic")` stops the compilation instead (useful in CI). Unknown named arguments of `mathscope`, `defined` and `graph` are reported the same way; those of `compile` stop the compilation.
 
 ## HTML
 

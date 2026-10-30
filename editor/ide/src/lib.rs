@@ -1,5 +1,5 @@
 //! Editor support for solveng (`@preview/solveng`), calculations in Typst math: math in a `worksheet` (unless the
-//! innermost one says `evaluate: false`) and equations passed to `#worksheet(…)`. Like Mathcad, `:=` defines, a
+//! innermost one says `evaluate: false`) and equations passed to `#math(…)`. Like Mathcad, `:=` defines, a
 //! trailing `=` shows a value and `->` a symbolic result or a solution, each followed by a clause of a unit and
 //! modifiers. Units, constants, operations and modifiers are Typst bindings: imported from solveng's `units`,
 //! `constants`, `operations` and `modifiers` modules or made with `base-unit`, `unit`, `constant` and `operation`.
@@ -326,13 +326,13 @@ pub fn references(document: &str) -> Vec<String> {
 }
 
 /// Whether the document's math is calculated: in a `worksheet`, nothing without one. The compiler's answer wins;
-/// a `worksheet(evaluate: false)[…]` still leaves the math in it alone, see [`activity`].
+/// a `math(evaluate: false)[…]` still leaves the math in it alone, see [`activity`].
 pub fn evaluates(document: &str, context: &Context) -> bool {
     context.evaluate.unwrap_or_else(|| {
         let doc = Doc::new(document);
         let aliases = calls::aliases(&doc, &context.files, &context.path);
         let (_, scopes) = calls::read(&doc, &aliases);
-        scopes.iter().any(|s| s.evaluate) || wrapped(context, &context.path) == Some(true)
+        scopes.iter().any(|s| calls::evaluates_at(&scopes, s.start).unwrap_or(s.evaluate.unwrap_or(true))) || wrapped(context, &context.path) == Some(true)
     })
 }
 
@@ -380,7 +380,7 @@ fn wrapped(context: &Context, path: &str) -> Option<bool> {
             let doc = Doc::new(&context.text);
             let aliases = calls::aliases(&doc, &[], "");
             let (_, scopes) = calls::read(&doc, &aliases);
-            if scopes.iter().any(|scope| scope.evaluate) {
+            if scopes.iter().any(|scope| calls::evaluates_at(&scopes, scope.start).unwrap_or(scope.evaluate.unwrap_or(true))) {
                 return Some(true);
             }
         }

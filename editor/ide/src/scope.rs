@@ -1,5 +1,5 @@
 //! Which definition a name means, as the compile sees it: the document flattened in compile order from the main
-//! file (`#include` inlines a file), `worksheet` scopes, `inherit`, `export`, `clear-at`, `clear` and redefinitions.
+//! file (`#include` inlines a file), `mathscope` scopes, `inherit`, `export`, `clear-at`, `clear` and redefinitions.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -14,9 +14,11 @@ use crate::text::Doc;
 /// Structure of a file that decides what's visible, at character positions.
 #[derive(Clone, Debug)]
 enum Mark {
-    /// A `worksheet` starts; `clear_at` is where it starts over.
-    Start { inherit: bool, export: bool, clear_at: Option<ClearAt> },
+    /// An explicit variable scope starts.
+    Start { inherit: bool, export: bool },
     End,
+    ConfigStart(Option<Option<ClearAt>>),
+    ConfigEnd,
     /// `#clear(all: true)`.
     Reset,
     /// `#clear("x", $f$)`: the keys it forgets.
@@ -52,12 +54,11 @@ impl ClearAt {
 }
 
 /// What a worksheet's `scope` makes of the definitions around it: (sees the outer ones, they keep its own).
-pub(crate) fn scope_flags(scope: Option<&str>, expression: bool) -> (bool, bool) {
+fn scope_flags(scope: Option<&str>) -> (bool, bool) {
     match scope.map(|s| s.trim().trim_matches('"')) {
         Some("isolated") => (false, false),
         Some("inherit") => (true, false),
         Some("shared") => (true, true),
-        _ if expression => (true, true),
         _ => (false, false),
     }
 }
@@ -78,12 +79,11 @@ fn named(args: &LinkedNode, name: &str) -> Option<String> {
     named_args(args).find(|(n, _)| n == name).map(|(_, v)| v)
 }
 
-/// Scope options for worksheet content: `scope` (isolated by default) and `clear-at`.
-fn options(args: Option<LinkedNode>) -> (bool, bool, Option<ClearAt>) {
+/// Variable scope behavior, isolated by default.
+fn options(args: Option<LinkedNode>) -> (bool, bool) {
     let scope = args.as_ref().and_then(|a| named(a, "scope"));
-    let (inherit, export) = scope_flags(scope.as_deref(), false);
-    let reset = args.as_ref().and_then(|a| named(a, "clear-at")).and_then(|v| ClearAt::parse(&v));
-    (inherit, export, reset)
+    let (inherit, export) = scope_flags(scope.as_deref());
+    (inherit, export)
 }
 
 /// The key of a name `clear` takes: `"x"`, `"f()"`, `$Q_0$`; None for other arguments.
@@ -97,17 +97,7 @@ fn clear_key(arg: &LinkedNode) -> Option<String> {
     (!name.is_empty()).then(|| crate::conceal::resolved_name(name))
 }
 
-/// A content block whose only emitted content is one equation collapses to
-/// that equation in Typst. Spaces are meaningful content; comments are not.
-pub(crate) fn expression_block(body: &LinkedNode) -> bool {
-    if !body.children().any(|c| c.kind() == SyntaxKind::RightBracket) { return false; }
-    let Some(markup) = body.children().find(|c| c.kind() == SyntaxKind::Markup) else { return false; };
-    let mut children = markup.children().filter(|c| !matches!(c.kind(), SyntaxKind::LineComment | SyntaxKind::BlockComment));
-    matches!(children.next().map(|c| c.kind()), Some(SyntaxKind::Equation)) && children.next().is_none()
-}
-
 struct Reader<'a> {
-    warnings: Vec<crate::Problem>,
     doc: &'a Doc,
     out: Vec<(usize, Mark)>,
 }
@@ -123,32 +113,21 @@ impl Reader<'_> {
                 let name = node.children().next().and_then(|c| callee(c.get()));
                 let args = node.children().find(|c| c.kind() == SyntaxKind::Args);
                 match name.as_deref() {
-                    Some("worksheet") => {
-                        let body = args.as_ref().and_then(|a| a.children().find(|c| c.kind() == SyntaxKind::ContentBlock));
-                        if let Some(body) = body {
-                            let expression = expression_block(&body);
-                            let (inherit, export, reset) = if expression {
-                                let scope = args.as_ref().and_then(|a| named(a, "scope"));
-                                if scope.as_deref().is_none_or(|value| value == "auto") {
-                                    self.warnings.push(crate::Problem {
-                                        start: self.doc.to16(self.at(body.offset())),
-                                        end: self.doc.to16(self.at(body.offset() + body.len())),
-                                        message: "this worksheet block contains only one expression, so Typst passes it as an equation: scope: auto shares its definitions with the outer scope – set scope: \"isolated\" to keep them local, or scope: \"shared\" to make this explicit".into(),
-                                        severity: "warning",
-                                    });
-                                }
-                                let (inherit, export) = scope_flags(scope.as_deref(), true);
-                                (inherit, export, None)
-                            } else { options(args) };
-                            self.out.push((self.at(body.offset() + 1), Mark::Start { inherit, export, clear_at: reset }));
-                            self.out.push((self.at(body.offset() + body.len()).saturating_sub(1), Mark::End));
-                        } else if let Some(args) = args.as_ref() {
-                            // Equations passed to a worksheet share its scope unless `scope` says otherwise.
-                            let (inherit, export) = scope_flags(named(args, "scope").as_deref(), true);
-                            if !(inherit && export) {
-                                self.out.push((self.at(args.offset()), Mark::Start { inherit, export, clear_at: None }));
-                                self.out.push((self.at(args.offset() + args.len()), Mark::End));
-                            }
+                    Some("mathscope") => {
+                        if let Some(args) = args.as_ref() {
+                            let body = args.children().find(|c| c.kind() == SyntaxKind::ContentBlock);
+                            let (inherit, export) = options(Some(args.clone()));
+                            let start = body.as_ref().map_or(args.offset(), |b| b.offset() + 1);
+                            let end = body.as_ref().map_or(args.offset() + args.len(), |b| (b.offset() + b.len()).saturating_sub(1));
+                            self.out.push((self.at(start), Mark::Start { inherit, export }));
+                            self.out.push((self.at(end), Mark::End));
+                        }
+                    }
+                    Some("math") => {
+                        if let Some(args) = args.as_ref() {
+                            let reset = named(args, "clear-at").filter(|v| v != "auto").map(|v| ClearAt::parse(&v));
+                            self.out.push((self.at(args.offset()), Mark::ConfigStart(reset)));
+                            self.out.push((self.at(args.offset() + args.len()), Mark::ConfigEnd));
                         }
                     }
                     Some("clear") => {
@@ -187,7 +166,7 @@ impl Reader<'_> {
         }
     }
 
-    /// `#show: worksheet` (or `.with(…)`) runs to the end of the content around it.
+    /// Selectorless math and mathscope rules run to the end of their surrounding content.
     fn show(&mut self, node: &LinkedNode) {
         let parts: Vec<LinkedNode> = node.children().filter(|c| !c.kind().is_trivia()).collect();
         let Some(colon) = parts.iter().position(|c| c.kind() == SyntaxKind::Colon) else { return };
@@ -196,17 +175,24 @@ impl Reader<'_> {
             return;
         }
         let Some(transform) = parts.get(colon + 1) else { return };
-        let args = match transform.kind() {
-            SyntaxKind::Ident if transform.get().leaf_text() == "worksheet" => None,
-            SyntaxKind::FuncCall if transform.children().next().and_then(|c| callee(c.get())).as_deref() == Some("worksheet") => {
-                transform.children().find(|c| c.kind() == SyntaxKind::Args)
-            }
+        let name = match transform.kind() {
+            SyntaxKind::Ident => transform.get().leaf_text().to_string(),
+            SyntaxKind::FuncCall => transform.children().next().and_then(|c| callee(c.get())).unwrap_or_default(),
             _ => return,
         };
-        let (inherit, export, reset) = options(args);
+        if !matches!(name.as_str(), "mathscope" | "math") { return; }
+        let args = transform.children().find(|c| c.kind() == SyntaxKind::Args);
+        if name == "math" {
+            let reset = args.as_ref().and_then(|a| named(a, "clear-at")).filter(|v| v != "auto").map(|v| ClearAt::parse(&v));
+            let end = node.parent().map_or(self.doc.s.len(), |p| p.offset() + p.len());
+            self.out.push((self.at(node.offset() + node.len()), Mark::ConfigStart(reset)));
+            self.out.push((self.at(end), Mark::ConfigEnd));
+            return;
+        }
+        let (inherit, export) = options(args);
         // The markup around it; in a content block that ends before its `]`.
         let end = node.parent().map_or(self.doc.s.len(), |p| p.offset() + p.len());
-        self.out.push((self.at(node.offset() + node.len()), Mark::Start { inherit, export, clear_at: reset }));
+        self.out.push((self.at(node.offset() + node.len()), Mark::Start { inherit, export }));
         self.out.push((self.at(end), Mark::End));
     }
 }
@@ -226,17 +212,9 @@ fn labelled<'a>(label: &LinkedNode<'a>) -> LinkedNode<'a> {
 
 fn structure(doc: &Doc) -> Vec<(usize, Mark)> {
     let root = typst_syntax::parse(&doc.s);
-    let mut reader = Reader { doc, out: Vec::new(), warnings: Vec::new() };
+    let mut reader = Reader { doc, out: Vec::new() };
     reader.visit(&LinkedNode::new(&root));
     reader.out
-}
-
-/// Scope surprises that can be determined from the source without compiling it.
-pub(crate) fn export_warnings(doc: &Doc) -> Vec<crate::Problem> {
-    let root = typst_syntax::parse(&doc.s);
-    let mut reader = Reader { doc, out: Vec::new(), warnings: Vec::new() };
-    reader.visit(&LinkedNode::new(&root));
-    reader.warnings
 }
 
 /// One file of the flattened document: its path relative to the root (empty for the document without one), its
@@ -288,8 +266,8 @@ fn events(file: &File) -> Vec<(usize, u8, Event)> {
         .into_iter()
         .map(|(at, mark)| {
             let rank = match mark {
-                Mark::End => 0,
-                Mark::Start { .. } => 3,
+                Mark::End | Mark::ConfigEnd => 0,
+                Mark::Start { .. } | Mark::ConfigStart(_) => 3,
                 _ => 1,
             };
             (at, rank, Event::Mark(mark))
@@ -333,7 +311,6 @@ pub(crate) fn resolve(reference: &str, from: &str) -> String {
 struct Frame {
     outer: HashMap<String, usize>,
     start: HashMap<String, usize>,
-    reset: Option<ClearAt>,
     export: bool,
 }
 
@@ -344,6 +321,7 @@ struct Run<'f, 'a> {
     reached: Vec<bool>,
     visible: HashMap<String, usize>,
     stack: Vec<Frame>,
+    configurations: Vec<Option<ClearAt>>,
     out: Vec<Occurrence>,
     statements: Vec<(usize, usize)>,
     replaced: Vec<((usize, usize), (usize, usize))>,
@@ -362,6 +340,7 @@ impl Run<'_, '_> {
             reached: vec![false; files.len()],
             visible: HashMap::new(),
             stack: Vec::new(),
+            configurations: Vec::new(),
             out: Vec::new(),
             statements: Vec::new(),
             replaced: Vec::new(),
@@ -390,10 +369,10 @@ impl Run<'_, '_> {
         let file = &self.files[index];
         for (_, _, event) in events {
             match event {
-                Event::Mark(Mark::Start { inherit, export, clear_at: reset }) => {
+                Event::Mark(Mark::Start { inherit, export }) => {
                     let start = if inherit { self.visible.clone() } else { HashMap::new() };
                     let outer = std::mem::replace(&mut self.visible, start.clone());
-                    self.stack.push(Frame { outer, start, reset, export });
+                    self.stack.push(Frame { outer, start, export });
                 }
                 Event::Mark(Mark::End) => {
                     if let Some(frame) = self.stack.pop() {
@@ -401,6 +380,11 @@ impl Run<'_, '_> {
                         if frame.export { self.visible.extend(inner); }
                     }
                 }
+                Event::Mark(Mark::ConfigStart(reset)) => {
+                    let effective = reset.unwrap_or_else(|| self.configurations.last().cloned().flatten());
+                    self.configurations.push(effective);
+                }
+                Event::Mark(Mark::ConfigEnd) => { self.configurations.pop(); }
                 Event::Mark(Mark::Reset) => self.restart(),
                 Event::Mark(Mark::Clear(keys)) => {
                     for key in keys {
@@ -408,12 +392,12 @@ impl Run<'_, '_> {
                     }
                 }
                 Event::Mark(Mark::Heading(level)) => {
-                    if self.stack.iter().any(|f| matches!(f.reset, Some(ClearAt::Heading(r)) if r.is_none_or(|l| l == level))) {
+                    if self.configurations.last().is_some_and(|reset| matches!(reset, Some(ClearAt::Heading(r)) if r.is_none_or(|l| l == level))) {
                         self.restart();
                     }
                 }
                 Event::Mark(Mark::Label(label)) => {
-                    if self.stack.iter().any(|f| f.reset.as_ref() == Some(&ClearAt::Label(label.clone()))) {
+                    if self.configurations.last().is_some_and(|reset| reset.as_ref() == Some(&ClearAt::Label(label.clone()))) {
                         self.restart();
                     }
                 }

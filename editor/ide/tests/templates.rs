@@ -5,9 +5,9 @@ const TEMPLATE: &str = r#"
 #let tri = operation("tri", display: $Λ$)
 #let template(title: "Assignment", body) = {
   show: text.with(size: 11pt)
-  show: worksheet
-  worksheet($sigma(t) := cases(0 & t < 0, 1 & t >= 0)$, hidden: true)
-  worksheet(body, scope: "inherit", clear-at: heading.where(level: 1))
+  show: math
+  math($sigma(t) := cases(0 & t < 0, 1 & t >= 0)$, hidden: true)
+  math(clear-at: heading.where(level: 1), body)
 }
 "#;
 
@@ -76,34 +76,34 @@ fn reexported_operations_and_custom_bindings_keep_their_meaning() {
 fn wrappers_follow_import_chains_and_evaluate_overrides() {
     let mut cx = context(&format!("{PACKAGE}{TEMPLATE}"));
     cx.files.push(ContextFile { path: "course/defaults.typ".into(), text: "#import \"template.typ\": template as layout\n#let setup = layout.with(title: \"Default\")".into() });
-    let doc = "#import \"defaults.typ\": setup\n$outside := 0$\n#show: setup\n$inside := 1$\n#worksheet(evaluate: false)[Text $disabled := 2$]\n$after := 3$";
+    let doc = "#import \"defaults.typ\": setup\n$outside := 0$\n#show: setup\n$inside := 1$\n#math(evaluate: false)[Text $disabled := 2$]\n$after := 3$";
     let tokens = document_tokens(doc, &cx);
     for (name, enabled) in [("outside", false), ("inside", true), ("disabled", false), ("after", true)] {
         assert_eq!(tokens.iter().any(|t| t.start == at(doc, name)), enabled, "{name}: {tokens:?}");
     }
-    cx.files.push(ContextFile { path: "course/disabled.typ".into(), text: "#let quiet = worksheet.with(evaluate: false)\n#let setup = quiet.with(digits: 3)".into() });
+    cx.files.push(ContextFile { path: "course/disabled.typ".into(), text: "#let quiet = math.with(evaluate: false)\n#let setup = quiet.with(digits: 3)".into() });
     let disabled = "#import \"disabled.typ\": setup\n#show: setup.with(digits: 5)\n$x := 1$";
     assert!(!evaluates(disabled, &cx));
 }
 
 #[test]
-fn unrelated_and_block_local_worksheets_do_not_enable_template_bodies() {
+fn unrelated_and_block_local_maths_do_not_enable_template_bodies() {
     for template in [
-        "#let template(body) = { worksheet[$x := 1$]; body }",
-        "#let template(body) = { let ignored = worksheet(body); body }",
-        "#let template(body) = { let ignored = [#show: worksheet]; body }",
+        "#let template(body) = { math[$x := 1$]; body }",
+        "#let template(body) = { let ignored = math(body); body }",
+        "#let template(body) = { let ignored = [#show: math]; body }",
     ] {
         let cx = context(&format!("{PACKAGE}{template}"));
         assert!(!evaluates("#import \"template.typ\": *\n#show: template\n$x := 2$", &cx), "{template}");
     }
-    let cx = context(&format!("#[{PACKAGE}]\n#let template(body) = worksheet(body)"));
+    let cx = context(&format!("#[{PACKAGE}]\n#let template(body) = math(body)"));
     let doc = "#import \"template.typ\": *\n#show: template\n$Re(x)$";
     assert!(unit_fixes(doc, &cx, at(doc, "Re(")).is_empty(), "block-local modules must not be exported");
 }
 
 #[test]
 fn cyclic_template_imports_are_bounded() {
-    let mut cx = context("#import \"cycle.typ\": *\n#let template(body) = worksheet(body)");
+    let mut cx = context("#import \"cycle.typ\": *\n#let template(body) = math(body)");
     cx.files.push(ContextFile { path: "course/cycle.typ".into(), text: "#import \"template.typ\": *".into() });
     let doc = "#import \"template.typ\": *\n#show: template\n$Re(x)$";
     assert!(evaluates(doc, &cx));
@@ -119,7 +119,7 @@ fn all_binding_modules_and_renamed_module_exports_can_be_imported() {
             .find(|f| f.title == format!("Import {name} from solveng's {module}")).unwrap();
         assert!(apply(&doc, &fix.edits).contains(&format!("#import {module}: {name}")));
     }
-    let cx = context(&format!("#import \"@solveng/solveng:1.0.0\": worksheet, operations as ops\n{TEMPLATE}"));
+    let cx = context(&format!("#import \"@solveng/solveng:1.0.0\": math, operations as ops\n{TEMPLATE}"));
     let doc = "#import \"template.typ\": template, ops as functions\n#show: template\n$Re(x)$";
     let fix = unit_fixes(doc, &cx, at(doc, "Re(")).into_iter().find(|f| f.title.starts_with("Import Re")).unwrap();
     let fixed = apply(doc, &fix.edits);
@@ -130,9 +130,9 @@ fn all_binding_modules_and_renamed_module_exports_can_be_imported() {
 #[test]
 fn templates_can_wrap_content_blocks_and_do_not_leak_after_a_call() {
     for template in [
-        "#let template(body) = { show: worksheet; body }",
-        "#let template(body) = worksheet[Text #body]",
-        "#let template(body) = { show: worksheet; block(body) }",
+        "#let template(body) = { show: math; body }",
+        "#let template(body) = math[Text #body]",
+        "#let template(body) = { show: math; block(body) }",
     ] {
         let cx = context(&format!("{PACKAGE}{template}"));
         let doc = "#import \"template.typ\": template\n#template[Text $inside := 1$]\n$outside := 2$";

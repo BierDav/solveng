@@ -4,16 +4,16 @@
 /// An operation under a name of your choice: `#let conv = operation("convolve")`, then `$conv(x, h)$`.
 ///
 /// The name selects one of solveng's operations (see *Built-in operations*), whatever the binding is called;
-/// quoted names in math never do. Unlike `math.op("tri")`, the result takes named arguments, as Typst only
+/// quoted names in math never do. Unlike `std.math.op("tri")`, the result takes named arguments, as Typst only
 /// parses them for functions: `$conv(x, h, step: 2)$`.
 ///
 /// `display` is how the operation is shown, in the input and in results: a string (an operator name, as
-/// `math.op` writes it), content, or a function returning content.
+/// `std.math.op` writes it), content, or a function returning content.
 ///
 /// ```typ
 /// #let triangle = operation("tri", display: "triangle")
 /// #let step = operation("sgn", display: $op(sigma)$)
-/// #show: worksheet
+/// #show: math
 /// $triangle(1/2) =>$, $step(-2) =>$
 /// ```
 ///
@@ -84,7 +84,7 @@
 /// ```typ
 /// #let bit = base-unit("information", display: "bit")
 /// #let byte = unit($8 bit$, display: $"B"$)
-/// #show: worksheet
+/// #show: math
 /// $d := 3 byte = bit$
 /// ```
 ///
@@ -115,7 +115,7 @@
 /// #let bar = unit($100 kPa$, display: "bar")
 /// #let rpm = unit($1/min$, display: $"rpm"$)
 /// #let inch = unit($2.54 #cm$)
-/// #show: worksheet
+/// #show: math
 /// $p := 3 bar$, $n := 3000 rpm$, $p => kPa$, $l := 2 #inch = inch$
 /// ```
 ///
@@ -128,7 +128,7 @@
 /// Defines a constant: an identity and the math expression it stands for, which can carry units.
 ///
 /// The identity says what the constant is and how it is shown: worksheets show it as their option `constants`
-/// says, `#show: worksheet.with(constant-displays: (imaginary: $j$))`, with built-in displays for `"pi"`, `"euler"`,
+/// says, `#show: math.with(constant-displays: (imaginary: $j$))`, with built-in displays for `"pi"`, `"euler"`,
 /// `"imaginary"` and `"speed-of-light"`; an identity without a display is shown as its expression. The engine
 /// calculates exactly with the identities it knows – `"pi"` (π), `"euler"` (e) and `"imaginary"` (i) – once the
 /// expression has that value: `$#calc.pi$`, `$sqrt(-1)$`. Any other identity is kept by it in exact results
@@ -140,7 +140,7 @@
 /// #import units: m, s, kg
 /// #let c0 = constant("speed-of-light", $299792458 #m / #s$)
 /// #let g0 = constant("standard-gravity", $9.80665 #m / #s^2$)
-/// #show: worksheet.with(constant-displays: ("standard-gravity": $g_0$))
+/// #show: math.with(constant-displays: ("standard-gravity": $g_0$))
 /// $F := 2 kg #g0 =>$
 /// ```
 ///

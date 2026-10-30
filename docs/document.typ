@@ -1,7 +1,7 @@
 #import "/lib.typ": *
 #import units: mA, mAh, h, V
 #set page(width: 13cm, height: auto, margin: 0.6cm)
-#show: worksheet
+#show: math
 
 = Battery runtime
 The battery holds $Q_0 := 3450 mAh$ and the load draws $I := 30 mA$,

@@ -4,7 +4,7 @@
 #import "/lib.typ": *
 #import "/tests/util.typ": expect, passes
 #set page(width: 18cm, height: auto)
-#show: worksheet
+#show: math
 $f(x) := sqrt(2)$
 #passes()
 $ a := f(3) => $
@@ -25,7 +25,7 @@ $h(x) := sqrt(1 + sqrt(x))$
 #passes()
 $ k := h(9) => $
 #expect("k", 2)
-#calculate($f(x) := sqrt(x^2) ->$)
+#math($f(x) := sqrt(x^2) ->$)
 #passes()
-#calculate($m := f(-4) =>$)
+#math($m := f(-4) =>$)
 #expect("m", 4)

@@ -59,7 +59,7 @@
 ///
 /// ```typ
 /// #import units: Ω, W, V
-/// #calculate($R := 50 #Ω$, $P_0 := 2 #W$, hidden: true)
+/// #math($R := 50 #Ω$, $P_0 := 2 #W$, hidden: true)
 /// #graph($P(U: #V) = U^2/R$, ymark: $P_0$)
 /// #graph($cos(w) \ w$, mark: auto)
 /// #graph($y(x) = x^2 \ y(x) = 2x + 3$, x-range: (-3, 5))
@@ -109,7 +109,7 @@
 /// - lines (auto, array, str, dictionary, none): The curves' lines, like `colors`: Typst dash patterns such as `"solid"`, `"dashed"`, `"dotted"`, `"dash-dotted"`, `"densely-dashed"`, `"loosely-dotted"`, or an array of lengths like `(4pt, 2pt)`, so curves can be told apart without color (color-blind readers, grayscale prints); `none` draws no line – data as points alone (a scatter plot), a function as its single points. `auto`: the worksheet's `graph-lines`, by default `("solid", "dashed", "dotted", "dash-dotted")`, the order of scientific plotting tools.
 /// - dots (auto, array, str, none): The curves' dots, like `colors`: `"circle"`, `"square"`, `"triangle"`, `"triangle-down"`, `"diamond"`, `"pentagon"`, `"hexagon"`, `"star"`, `"cross"`, `"plus"`; `none` draws no dots. `auto`: the worksheet's `graph-dots`, by default `("circle", "square", "triangle", "diamond")`, so curves can be told apart without color too. Dots are drawn for data's points (with at most 30 points, or without a line) and a function's single points (`2 & "for" x = 1` in `cases`).
 /// - joined (auto, bool, array): Whether everything a curve draws is joined with a line, like `colors`: a function's pieces, from the end of one to its single point and on to the start of the next, as data's points are (with `lines: none`: data's dots joined). Joins to points beyond the graph leave it; the pointer doesn't read them. `auto`: the worksheet's `graph-joined`, by default `false`. A curve with nothing to draw is an error.
-/// - digits, decimal-separator, number-form, … (auto): Every option of `worksheet` works here too, for this call only.
+/// - digits, decimal-separator, number-form, … (auto): Every option of `mathscope` works here too, for this call only.
 /// -> content
 #let graph(
   equation: none, ..args, x-range: auto, y-range: auto, x-include: (), variable: auto, x-unit: auto, y-unit: auto, curves: (), mark: none, xmark: (), ymark: (), samples: 400,
@@ -137,7 +137,7 @@
   if advanced and equation != none { return fail("pass either equation or curves with expressions") }
   if advanced and curves.any(c => "expression" not in c) { return fail("every curve needs an expression") }
   let eqs = if advanced { curves.map(c => c.expression) } else { (equation,) }
-  if eqs.any(e => type(e) != content or e.func() != math.equation) { return fail("pass curves as math equations") }
+  if eqs.any(e => type(e) != content or e.func() != std.math.equation) { return fail("pass curves as math equations") }
   if args.pos().any(a => type(a) == array) { return fail("the x range is named: x-range: " + repr(args.pos().find(a => type(a) == array))) }
   // options graph had: what replaces them
   let gone = (xrange: "use x-range", yrange: "use y-range", x: "x is the one variable of the curves that isn't defined", xunit: "x's unit comes from a function parameter with a unit (q(I: mA)), x-range or the marks", yunit: "y's unit comes from the curves; preferred-units: (\"mW\",) picks another", builtin-units: "units are Typst bindings: #import units: …", units: "units are Typst bindings: #import units: …, or unit($…$)", dashes: "lines: the line style per curve, like (\"solid\", \"dashed\"); none draws no line", draw: "lines: none (only dots), dots: none (only lines) and joined: true (everything joined with a line), per curve")
@@ -145,9 +145,9 @@
   if old != none { return fail(old + ": is gone – " + gone.at(old)) }
   if args.named().len() > 0 { return fail("unknown argument '" + args.named().keys().first() + "' for graph") }
   for (name, u) in (("x-unit", x-unit), ("y-unit", y-unit)) {
-    if u != auto and (type(u) != content or u.func() != math.equation) { return fail(name + ": a math unit expression") }
+    if u != auto and (type(u) != content or u.func() != std.math.equation) { return fail(name + ": a math unit expression") }
   }
-  if variable != auto and type(variable) != str and (type(variable) != content or variable.func() != math.equation) { return fail("variable: a name as a string or math") }
+  if variable != auto and type(variable) != str and (type(variable) != content or variable.func() != std.math.equation) { return fail("variable: a name as a string or math") }
   for c in curves {
     if c.keys().any(k => k not in ("expression", "color", "line", "dot", "joined")) { return fail("curve: unknown field") }
     for (key, value) in c {
@@ -155,7 +155,7 @@
     }
   }
   let XV = (content, int, float)
-  let is-value(v) = type(v) in (int, float) or (type(v) == content and v.func() == math.equation)
+  let is-value(v) = type(v) in (int, float) or (type(v) == content and v.func() == std.math.equation)
   let list(v) = if v == auto or v == none { () } else if type(v) == array { v } else { (v,) }
   let (rng, yrng) = (list(x-range), list(y-range))
   for (name, bounds) in (("x-range", rng), ("y-range", yrng)) {
@@ -186,7 +186,7 @@
   }
 
   // Serialize math with its explicit unit and operation substitutions.
-  let src(q) = if type(q) == content and q.func() == math.equation { let m = _src(q.body); (src: if _E(m) { "?" } else { m }, label: _src(q.body)) } else { panic("solveng: graph: values must be numbers or math equations") }
+  let src(q) = if type(q) == content and q.func() == std.math.equation { let m = _src(q.body); (src: if _E(m) { "?" } else { m }, label: _src(q.body)) } else { panic("solveng: graph: values must be numbers or math equations") }
   let v(a) = if type(a) in (int, float) { float(a) } else { src(a) }
   let mk(m) = if m == auto { "auto" } else if type(m) == str and m in KW { m } else { v(m) }
   let req = (
@@ -206,7 +206,7 @@
     if "err" in g { return fail(g.err) }
     // Labels can be measured outside the graph's state context (notably in HTML frames).
     // Mark every generated equation so worksheet rules never calculate it.
-    let M(s) = math.equation(_OWN + _m(s, cf))
+    let M(s) = std.math.equation(_OWN + _m(s, cf))
     // a color, a dash and a dot shape per curve: curves stay apart without color too
     let style(i) = {
       let at(a) = a.at(calc.rem(i, a.len()))

@@ -1,10 +1,10 @@
-// worksheet: math calculated where it stands.
+// Math settings, the implicit document scope, and explicit variable scopes.
 #import "core.typ": *
 
 // what the engine defined so far, for defined(), editors and the tests
 #let _rows(s, cf) = if _env(s).len() == 0 { () } else { _call(_p.defined, _env(s), (cfg: _req-cfg(cf))) }
 
-// what went wrong, for editors to show at the source: the element it's in (none for equations passed to worksheet,
+// what went wrong, for editors to show at the source: the element it's in (none for equations passed to math,
 // which have no place of their own) and the statement solveng read there
 #let _err-notes(loc, errors, source) = errors.map(m => [#metadata((kind: "error", element: loc, message: m, source: source))<solveng>]).join()
 
@@ -21,7 +21,7 @@
     for c in children {
       if c.func() == linebreak { groups.push(()) } else { groups.last().push(c) }
     }
-    return groups.map(g => _math-def(math.equation(g.join(), block: it.block), quiet: quiet, loc: loc)).join()
+    return groups.map(g => _math-def(std.math.equation(g.join(), block: it.block), quiet: quiet, loc: loc)).join()
   }
   let cf = _cf.get() + (block: it.block)
   let src = _src(it.body)
@@ -41,7 +41,7 @@
 }
 
 // ---------- what editors read ----------
-// Typewright and other editors query <solveng> metadata after compiling: per element worksheet saw (by its
+// Typewright and other editors query <solveng> metadata after compiling: per element math processed (by its
 // location, which maps back to the source) whether it was calculated, per block what it defined, with values, and
 // per problem (kind: "error") its message, element and statement, see _err-notes.
 #let _block-note = context {
@@ -49,7 +49,7 @@
   let defined = _rows(_st.get(), cf).map(r => (name: r.name, kind: r.kind, value: r.plain))
   [#metadata((kind: "block", defined: defined))<solveng>]
 }
-// whether the innermost worksheet around calculates its math: its evaluate, one per worksheet, innermost first
+// whether the closest math settings enable processing: one evaluate entry per settings block, innermost first
 #let _evaluates(cf) = cf.at("#evaluate", default: ()).at(0, default: true)
 // the element `it` shown as `body`, followed by its record; `cf` is the configuration around it
 #let _noted(it, kind, active, cf, body) = {
@@ -58,136 +58,53 @@
   body + [#metadata((kind: kind, element: loc, active: active, evaluate: _evaluates(cf)))<solveng>]
 }
 
-// how many worksheets are around, kept with the configuration that every element reads anyway
+// how many math settings blocks are around, kept with the configuration that every element reads anyway
 #let _blocks(cf) = cf.at("#blocks", default: 0)
-// `b` with math calculated (unless the innermost worksheet around an element says evaluate: false);
-// hidden: what is calculated isn't shown (only its problems), the rest of `b` is.
-// Not a `context`: that would hide `b` from show rules around it that read its structure (letmeout).
-#let _rules(b, clear-at, hidden) = {
+// A reset belongs to the closest configuration and only the innermost variable scope.
+// Remember element locations so matching outer rules cannot reset the same element again.
+#let _reset-seen = state("solveng-reset-seen", ())
+#let _math-rules(body, clear-at, hidden, evaluate) = {
   show std.math.equation: it => context {
     if _own(it) or _reshown(it) or _busy.get() > 0 { return it }
     let cf = _cf.get()
-    let on = _evaluates(cf)
-    _noted(it, "math", on, cf, if on { _math-def(it, quiet: hidden) } else { it })
+    // Measurement can discard state updates; explicit local options still apply.
+    let on = if evaluate == auto { _evaluates(cf) } else { evaluate }
+    _noted(it, "math", on, cf, if on { _math-def(it, quiet: if hidden == auto { cf.at("#hidden", default: false) } else { hidden }) } else { _with-body(it, it.body) })
   }
-  // start over at each heading (or whatever clear-at selects): back to the state at the start of the worksheet
-  show selector(if clear-at == none { <solveng-never> } else { clear-at }): it => {
-    if clear-at != none { _block-note + _st.update(_restart) }
+  show selector(if clear-at in (auto, none) { <solveng-never> } else { clear-at }): it => context {
+    let cf = _cf.get()
+    let loc = it.location()
+    if cf.at("#clear-at", default: none) != clear-at or loc in _reset-seen.get() { return it }
+    _reset-seen.update(seen => seen + (loc,))
+    _block-note
+    _st.update(_restart)
     it
   }
-  b
+  body
 }
 
-/// Calculates the math you write, like a Mathcad worksheet.
+/// Enables calculations and configures math without creating a variable scope.
 ///
-/// `#show: worksheet` calculates the rest of the document, `#worksheet[…]` its content (on its own unless `scope` says otherwise), and `#calculate($…$)` single equations, also outside a worksheet.
-///
-/// ```typ
-/// #import units: mA, mAh, h
-/// #show: worksheet
-/// The battery holds $Q_0 := 3450 mAh$ and the load draws $I := 30 mA$,
-/// so it lasts $t := Q_0 / I => #h$.
-/// ```
-///
-/// **Math.** As in Mathcad:
-///
-/// - `:=` defines (shown as ≔), symbolically: `$I := 30 mA$`, `$P := U I$`, `$f(x) := x^2 + 1$`. Names not defined yet stay names until they are, see *Calculating like Mathcad*.
-/// - `=` inside an expression compares, 1 or 0: `$M := 1 = 2 =>$` is 0.
-/// - `=` at the end shows the value, with a bold =: `$t =>$` → t **=** 115 h, `$t := Q_0/I =>$` defines and shows it. What follows it is the unit and modifiers: `$t => #h$`, `$t => min, digits(2)$`.
-/// - `->` at the end shows the symbolic result, the known values put in, exactly: `$f := (x^2 - 1)/(x - 1) -> simplify$`; an equation, where it holds: `$x^2 = x ->$` is x = 0 ∨ x = 1. With `solve(x)` it returns solutions without defining x: `$Q_0/2 = I t -> solve(t)$`, `$x^2 - 4 = 0 -> solve(x)$`, `$x + y = 3, x - y = 1 -> solve(x, y)$`, `$R <= U/I -> solve(R)$`.
-///
-/// Modifiers, imported from `modifiers` where you use them (`#import modifiers: solve, digits`): `solve(x, …)`, `substitute(x, …)` (these variables' formulas put in, other names kept), `simplify`, `expand` (multiplied out), `factor` (in factors), `steps` (the way to the symbolic result, a line each), `fraction` (exact fraction-style), `digits(n)` (decimals with n significant digits), `sci` (scientific notation), `eng` (engineering notation). Any other equation with `=` states something: it's checked when everything in it is known (`$U = R I$` after defining them) and left alone as prose when not (`$E = m c^2$`).
-///
-/// **Units, constants, operations and modifiers** are Typst bindings, imported where you use them: `#import units: mA, s`, `#import constants: pi, i`, `#import operations: tri`, `#import modifiers: solve`, then `$30 mA$`, `$2 #s$`, `$2 pi$`. A binding of a single letter needs a `#` in math. Quoted text names worksheet variables; it never means a unit or operation. Raw blocks, also ```` ```solveng ```` ones, are ordinary text.
-///
-/// **Calls.** `#calculate($U := 5 #V$, $I := U/R =>$)` calculates in the current worksheet. `#worksheet[…]` creates a scoped block.
-///
-/// **Evaluate.** `#worksheet(evaluate: false)[…]` leaves its math alone: only `#worksheet(…)` calls in it are calculated. Nested worksheets don't inherit it, so a `#worksheet[…]` or `#calculate($t =>$)` inside calculates its math again.
+/// `#show: math` processes the remaining math in the document's implicit global scope.
+/// `#math(digits: 8)[…]` overrides settings locally; definitions made there remain in the current scope.
+/// Closest settings win, option by option. Importing alone does not enable calculations.
+/// `evaluate: false` leaves ordinary math as written, including a single equation.
+/// An explicit `#math(evaluate: true)[…]` enables it again.
+/// Nested mathscopes inherit settings, including evaluate and hidden.
+/// Native Typst math functions remain available through `std.math`.
 ///
 /// ```typ
-/// #import units: s
-/// #worksheet[
-///   $t := 5 #s$
-///   #worksheet(evaluate: false, scope: "inherit")[
-///     $E = m c^2$ stays as written, and so does $t = 3 #s$;
-///     #calculate($t =>$) is still calculated.
-///   ]
-/// ]
+/// #show: math.with(digits: 4)
+/// $x := 12$
+/// #math(digits: 8)[$y := x/7 =>$]
+/// $y =>$ // defined in the same global scope
+/// #math(evaluate: false)[$x =>$]
 /// ```
 ///
-/// **Hidden.** `hidden: true` calculates without showing what is calculated: the equations of a call, or in `#worksheet(hidden: true)[…]` the math it calculates – its text, headings and prose equations (`$E = m c^2$`) stay. Problems are still shown. Nested worksheets don't inherit it, so a `#calculate($t =>$)` inside shows its equation again.
-///
-/// ```typ
-/// #import units: V, Ω, mA
-/// #worksheet(hidden: true)[
-///   The values for the example:
-///   $U := 5 #V$, $R := 100 #Ω$, $I := U/R$
-///   The current is #calculate($I => mA$).
-/// ]
-/// ```
-///
-/// **Scopes.** Every worksheet defaults to `"isolated"`, including a single equation. `"inherit"` reads outer definitions but keeps changes local; `"shared"` retains changes. Use `#calculate($x := 1$)` to calculate equations in the current worksheet. Units, constants and operations retain Typst lexical scope.
-///
-/// ```typ
-/// #import units: V, Ω, mA
-/// #show: worksheet
-/// $U := 12 #V$
-/// #worksheet(scope: "shared")[
-///   $R := 100 #Ω$
-///   $I := U/R => mA$
-/// ]
-/// $I => mA$ // 120 mA, kept from the block
-/// #worksheet($U := 5 #V$, scope: "inherit") // local to this call
-/// $U =>$ // still 12 V
-/// ```
-///
-/// **Editors.** Each equation the worksheet sees leaves a `metadata` labelled `<solveng>` with its `location()`, whether it was calculated and whether math is evaluated there; each problem one with `kind: "error"`, its `message`, the `element` it's in (`none` for equations passed to `worksheet`) and the `source` statement; at the end (and before each match of `clear-at`) one lists everything defined, with values. Editors like Typewright read them after compiling: `query(<solveng>)`.
-///
-/// **Starting over.** `clear-at` clears every definition at each match; `#clear(all: true)` inside a worksheet does the same once: back to how it started (with `scope: "inherit"` or `"shared"` the outer definitions stay), and `#clear("x", "f")` forgets only those names. After a `#worksheet[…]` the outer definitions come back; with `scope: "shared"`, its final definitions are merged over them.
-///
-/// ```typ
-/// #show: worksheet.with(clear-at: heading)                    // every heading
-/// #show: worksheet.with(clear-at: heading.where(level: 1))    // only top-level ones
-/// #show: worksheet.with(clear-at: <exercise>)                 // every element labelled, = Task <exercise>
-/// #show: worksheet.with(clear-at: heading, scope: "inherit")  // keep the definitions made before
-/// ```
-///
-/// **Options.** Every option defaults to `auto`, which keeps the current setting, so only what you pass changes. For the whole document: `#show: worksheet.with(digits: 3)`; for a part: `#worksheet(evaluate: false, digits: 2)[…]`; for equations or content it calculates: `#calculate($R := U/I =>$, digits: 2)`; or keep them in a dictionary: `#let opts = (digits: 2, decimal-separator: ",")`, then `#worksheet($P := U I =>$, ..opts)`. `defined` and `graph` take the same options. Unknown options and values of the wrong type are shown as an error in the document.
-///
-/// ```typ
-/// #import units: V, mA
-/// #show: worksheet.with(digits: 3, number-form: "fraction")   // your defaults, the whole document
-/// $U := 5 #V$, $I := 30 mA$
-/// #calculate($I/3 =>$, digits: 2)                        // only this equation
-/// #worksheet(evaluate: false, multiplication: "times")[Prose and $E = m c^2$ stay as written.]
-/// ```
-///
-/// `number-form`:
-///
-/// - `"auto"`: plain numbers as typed (`7.20 kΩ` keeps its zero), arithmetic evaluated (`3450/2 mAh` → 1725 mAh), results rounded to `digits`.
-/// - `"decimal"`: everything rounded to `digits`, including what you typed.
-/// - `"fraction"`: exact fraction-style, simplified (`$frac(2, 4) #A$` → ½ A, `I/3` → ⅙ A); values that are no fraction with denominator ≤ `max-denominator` fall back to decimals.
-/// - `"input"`: given values exactly as typed (`3450/2 mAh` stays a fraction).
-///
-/// An explicit unit (`$I => mA$`) always wins, then `preferred-units`, then the non-SI unit of the inputs (h, mAh, bar), then the SI unit with a prefix.
-///
-/// To reuse your defaults in many documents, keep a small file of your own:
-///
-/// ```typ
-/// // my-defaults.typ
-/// #import "@preview/solveng:2.0.0": *
-/// #let setup = worksheet.with(digits: 3, multiplication: "times", constant-displays: (imaginary: $j$))
-///
-/// // in a document
-/// #import "my-defaults.typ": *
-/// #show: setup
-/// ```
-///
-/// - ..body (content): The content, or equations to calculate.
-/// - scope (auto, str): `"isolated"` (default), `"inherit"` (read outer definitions), or `"shared"` (also keep changes).
-/// - clear-at (none, function, selector, label): Clear every definition at each match: `heading` (every heading), `heading.where(level: n)` (headings of level n) or a label like `<exercise>` (every element with it, e.g. `= Task <exercise>`): the definitions made since are forgotten, like `#clear(all: true)`.
-/// - hidden (bool): Calculate without showing what is calculated (only problems are shown): the equations, or the math of the content. Not inherited by nested worksheets.
-/// - evaluate (bool): Calculate the math in the content; `false`: only its `#worksheet(…)` calls are. Not inherited by nested worksheets, and not for equations, which are always calculated.
+/// - ..body (content): Content to process in the current variable scope.
+/// - clear-at (auto, none, function, selector, label): Reset the innermost variable scope at matching headings or labels. `auto` inherits; `none` disables resets.
+/// - hidden (auto, bool): Hide calculated math, keeping prose and problems. `auto` inherits.
+/// - evaluate (auto, bool): Process ordinary math. `auto` inherits, initially true.
 /// - digits (auto, int): Significant digits of computed values, 1…15. Default `4`: `57.5 h`, `123500`.
 /// - trailing-zeros (auto, bool): Keep trailing zeros up to `digits` (`2.500 V`). Default `false`.
 /// - decimal-separator (auto, str): Decimal decimal-separator, any string like `","`. `auto` (default): from the document language, `,` for de, fr, it, … and `.` otherwise.
@@ -211,15 +128,15 @@
 /// - chips (auto, dictionary, function): The colours of the type chips, `(type: (fill: …, mark: …, ink: …))` (`mark` is the colour of `:`, `ink` the unit's), or a function `(kind, mark, unit) => content` drawing them, with `kind` `"type"` and `mark` and `unit` as content. In HTML export `dark: (fill: …, mark: …, ink: …)` beside them gives the colours of a dark page; a colour set only for the light page keeps there.
 /// - unit-style (auto, function): A function given every shown unit as content, `u => text(fill: blue, u)`.
 /// - unit-separator (auto, content, str, symbol): What goes between units, a thin dot by default (A·as): `sym.times`, `h(0.2em)`.
-/// - constant-displays (auto, dictionary): How constants are shown, by identity: `(imaginary: $j$, "standard-gravity": $g_0$)`, over the built-in displays of `pi` (π), `euler` (e), `imaginary` (i) and `speed-of-light` (c) and the ones of the worksheets around. Results show them the same way. See `constant`.
-/// - graph-colors (auto, color, array): The colors of the curves in graphs, curve after curve and repeating: `(gray, blue, rgb("#f98eff"))`. Default: Petroff's ten colors, chosen to stay apart for color-blind readers. `auto` keeps the worksheet's around, also for a single curve: `(auto, red)` changes only the second (and fourth, …). A graph's `colors` goes over it, the same way.
+/// - constant-displays (auto, dictionary): How constants are shown, by identity: `(imaginary: $j$, "standard-gravity": $g_0$)`, over the built-in displays of `pi` (π), `euler` (e), `imaginary` (i) and `speed-of-light` (c) and the surrounding math settings. Results show them the same way. See `constant`.
+/// - graph-colors (auto, color, array): The colors of the curves in graphs, curve after curve and repeating: `(gray, blue, rgb("#f98eff"))`. Default: Petroff's ten colors, chosen to stay apart for color-blind readers. `auto` inherits the surrounding settings, also for a single curve: `(auto, red)` changes only the second (and fourth, …). A graph's `colors` goes over it, the same way.
 /// - graph-lines (auto, str, array, dictionary, none): The lines of the curves in graphs, like `graph-colors`: Typst dash patterns such as `"solid"`, `"dashed"`, `"dotted"`, `"dash-dotted"`, or lengths like `(4pt, 2pt)`; `none` draws a curve without lines. Default `("solid", "dashed", "dotted", "dash-dotted")`. A graph's `lines` goes over it.
 /// - graph-dots (auto, str, array, none): The dots of the curves in graphs, like `graph-colors`: `"circle"`, `"square"`, `"triangle"`, `"triangle-down"`, `"diamond"`, `"pentagon"`, `"hexagon"`, `"star"`, `"cross"`, `"plus"`; `none` draws a curve without dots. Default `("circle", "square", "triangle", "diamond")`. A graph's `dots` goes over it.
 /// - graph-joined (auto, bool, array): Whether everything a curve in a graph draws is joined with a line, like `graph-colors`. Default `false`. A graph's `joined` goes over it.
 /// -> content
-#let worksheet(
+#let math(
   ..body,
-  scope: auto, clear-at: none, hidden: false, evaluate: true,
+  clear-at: auto, hidden: auto, evaluate: auto,
   digits: auto, trailing-zeros: auto, decimal-separator: auto, grouping: auto, notation-thresholds: auto, notation: auto, multiplication: auto, number-form: auto, max-denominator: auto, fraction-style: auto,
   prefixes: auto, show-si: auto, preferred-units: auto,
   show-approximation: auto, block: auto, max-solutions: auto,
@@ -227,11 +144,16 @@
   words: auto, chips: auto, unit-style: auto, unit-separator: auto, constant-displays: auto,
   graph-colors: auto, graph-lines: auto, graph-dots: auto, graph-joined: auto,
 ) = {
-  let pos = body.pos()
   if body.named().len() > 0 {
-    let k = body.named().keys().first()
-    if k in ("inherit", "export") { return _err-now(k + " was replaced by scope: \"isolated\" | \"inherit\" | \"shared\" (inherit: true is scope: \"inherit\", inherit and export: true is scope: \"shared\")") }
-    return _err-now("unknown argument '" + k + "' for worksheet (arguments: scope, clear-at, hidden, evaluate and the options " + _DEF.keys().join(", ") + ")")
+    return _err-now("unknown argument '" + body.named().keys().first() + "' for math; use mathscope(scope: …) to create a variable scope")
+  }
+  let pos = body.pos()
+  if pos.len() == 0 or not pos.all(x => type(x) == content) { return _err-now("math takes content, #math[…] or #math($x =>$)") }
+  if evaluate != auto and type(evaluate) != bool { return _err-now("evaluate: auto, true or false, got " + _tn(evaluate)) }
+  if hidden != auto and type(hidden) != bool { return _err-now("hidden: auto, true or false, got " + _tn(hidden)) }
+  let level = if type(clear-at) == selector { repr(clear-at).match(regex("^heading\\.where\\(level: (\\d+)\\)$")) } else { none }
+  if not (clear-at in (auto, none, heading) or type(clear-at) == label or (type(clear-at) == selector and (repr(clear-at) == "heading" or (level != none and int(level.captures.first()) > 0)))) {
+    return _err-now("clear-at: auto, none, heading, heading.where(level: n) or a label like <exercise>, got " + repr(clear-at))
   }
   let lc = _check(_given((
     digits: digits, trailing-zeros: trailing-zeros, decimal-separator: decimal-separator, grouping: grouping, notation-thresholds: notation-thresholds, notation: notation, multiplication: multiplication, number-form: number-form, max-denominator: max-denominator, fraction-style: fraction-style,
@@ -242,54 +164,52 @@
     graph-colors: graph-colors, graph-lines: graph-lines, graph-dots: graph-dots, graph-joined: graph-joined,
   )))
   if _E(lc) { return _err-now(lc.err) }
-  if type(hidden) != bool { return _err-now("hidden: true or false, got " + _tn(hidden)) }
-  if type(evaluate) != bool { return _err-now("evaluate: true or false, got " + _tn(evaluate)) }
-  if scope != auto and scope not in _CH.scope { return _err-now("scope: auto, \"isolated\", \"inherit\" or \"shared\", got " + repr(scope)) }
-  let eqs = pos.len() > 0 and pos.all(x => type(x) == content and x.func() == math.equation)
-  let scope = if scope != auto { scope } else { "isolated" }
-  let finish(d) = {
-    let outer = d.at("^")
-    // what the last line gave stays readable afterwards, whatever the scope
-    let last = if "last" in d { (last: d.last) } else { (:) }
-    if scope == "shared" { outer + (env: _env(d)) + last } else { outer + last }
+  let up(c) = {
+    let next = _merge(c, lc)
+    if "constant-displays" in lc { next.insert("constant-displays", c.at("constant-displays", default: (:)) + lc.constant-displays) }
+    next.insert("^", c)
+    next.insert("#blocks", _blocks(c) + 1)
+    next.insert("#evaluate", (if evaluate == auto { _evaluates(c) } else { evaluate },) + c.at("#evaluate", default: ()))
+    if hidden != auto { next.insert("#hidden", hidden) }
+    if clear-at != auto { next.insert("#clear-at", clear-at) }
+    next
   }
-  let out = if eqs {
-    if clear-at != none { return _err-now("clear-at is for a worksheet's content, #worksheet[…]") }
-    if not evaluate { return _err-now("evaluate: false is for a worksheet's content, #worksheet(evaluate: false)[…]; equations passed to worksheet are always calculated") }
-    let shown = pos.map(x => _math-def(x, quiet: hidden)).join()
-    if scope == "shared" { shown } else {
-      _st.update(d => { let inner = if scope == "inherit" { d } else { (:) }; inner.insert("^", d); inner })
-      shown
-      _st.update(finish)
-    }
-  } else {
-    let b = pos.at(0, default: [])
-    if pos.len() != 1 or type(b) != content { return _err-now("worksheet takes content, #worksheet[…], or equations, #calculate($U := 5 V$)") }
-    let level = if type(clear-at) == selector { repr(clear-at).match(regex("^heading\\.where\\(level: (\\d+)\\)$")) } else { none }
-    if not (clear-at == none or clear-at == heading or type(clear-at) == label or (type(clear-at) == selector and (repr(clear-at) == "heading" or (level != none and int(level.captures.first()) > 0)))) {
-      return _err-now("clear-at: none, heading, heading.where(level: n) or a label like <exercise>, got " + repr(clear-at)) + b
-    }
-    // "^": the state outside, restored at the end; "^0": the state at the start, for clear-at and clear(all: true)
-    _st.update(d => { let n = if scope == "isolated" { (:) } else { d }; n.insert("^", d); n.insert("^0", n); n })
-    _cf.update(c => c + ("#blocks": _blocks(c) + 1, "#evaluate": (evaluate,) + c.at("#evaluate", default: ())))
-    _rules(b, clear-at, hidden)
-    _block-note
-    _cf.update(c => c + ("#blocks": _blocks(c) - 1, "#evaluate": c.at("#evaluate").slice(1)))
-    _st.update(finish)
-  }
-  if lc.len() == 0 and scope != "isolated" { out } else {
-    // displays of constants add to the ones around
-    let up(c) = _merge(c, lc) + (if "constant-displays" in lc { (constant-displays: c.at("constant-displays", default: (:)) + lc.constant-displays) } else { (:) }) + ("^": c)
-    _cf.update(up)
-    out
-    _cf.update(c => c.at("^"))
-  }
+  _cf.update(up)
+  _math-rules(pos.join(), clear-at, hidden, evaluate)
+  _block-note
+  _cf.update(c => c.at("^"))
 }
 
-/// Calculates equations in the current worksheet. Definitions persist in that worksheet.
-/// - ..equations (content): Math equations to calculate.
-/// - hidden (bool): Hide calculated equations.
+/// Creates an explicit variable scope, inheriting math settings.
+///
+/// The document already has a global scope. Use math to change settings without creating another scope.
+/// Scope behavior is identical for one equation and a content block.
+///
+/// ```typ
+/// #show: math
+/// $x := 12$
+/// #mathscope(scope: "inherit")[$x := 99$]
+/// $x =>$ // still 12
+/// ```
+///
+/// - ..body (content): Content in the new variable scope.
+/// - scope (str): `"isolated"` starts empty; `"inherit"` reads outer definitions and keeps changes local; `"shared"` also keeps changes in the parent. Default `"isolated"`.
 /// -> content
-#let calculate(..equations, hidden: false) = {
-  worksheet(..equations.pos(), ..equations.named(), hidden: hidden, scope: "shared")
+#let mathscope(..body, scope: "isolated") = {
+  if body.named().len() > 0 { return _err-now("unknown argument '" + body.named().keys().first() + "' for mathscope; use math(…) to configure calculations") }
+  if scope not in _CH.scope { return _err-now("scope: \"isolated\", \"inherit\" or \"shared\", got " + repr(scope)) }
+  let pos = body.pos()
+  if pos.len() == 0 or not pos.all(x => type(x) == content) { return _err-now("mathscope takes content, #mathscope[…]") }
+  _st.update(d => {
+    let n = if scope == "isolated" { (:) } else { d }
+    n.insert("^", d)
+    n.insert("^0", n)
+    n
+  })
+  math(pos.join())
+  _st.update(d => {
+    let outer = d.at("^")
+    let last = if "last" in d { (last: d.last) } else { (:) }
+    if scope == "shared" { outer + (env: _env(d)) + last } else { outer + last }
+  })
 }

@@ -7,7 +7,7 @@
 ///
 /// ```typ
 /// #import modifiers: solve
-/// #show: worksheet
+/// #show: math
 /// $x^2 = 4 -> solve(x)$
 /// ```
 
@@ -24,10 +24,10 @@
 /// #import "@preview/solveng:2.0.0": *
 /// #import modifiers: solve, digits, sci
 /// #import units: h, mA, mAh
-/// #show: worksheet
+/// #show: math
 /// $I := 30 mA$, $Q := 3450 mAh$
 /// $Q/2 = I t -> solve(t)$
-/// $t => #h, digits(3)$
+/// $t := Q/(2 I) => #h, digits(3)$
 /// $I => sci$
 /// ```
 
@@ -64,7 +64,7 @@
 /// #import "@preview/solveng:2.0.0": *
 /// #import operations: Re
 /// #import modifiers: assume
-/// #show: worksheet
+/// #show: math
 /// $Re(a z + b w) = a Re(z) + b Re(w) ->$
 /// $Re(a z + b w) = a Re(z) + b Re(w) -> assume(a in RR, b in RR)$
 /// ```

@@ -6,6 +6,8 @@
 /// With no parameters, free names are inferred.
 ///
 /// ```typ
+/// #import units: V, W, Ω
+/// #math(hidden: true)[$R := 100 #Ω$]
 /// #context {
 ///   let P = compile($U^2/R$, parameters: (U: $#V$), result-unit: $#W$)
 ///   [#P(12)]
@@ -25,7 +27,7 @@
   let fail(m) = panic("solveng: compile: " + m)
   if type(parameters) != dictionary { fail("parameters must be an ordered dictionary") }
   if type(expr) != content or expr.func() != std.math.equation { fail("the expression must be math") }
-  if result-unit != none and (type(result-unit) != content or result-unit.func() != math.equation) { fail("result-unit must be a math expression containing unit values") }
+  if result-unit != none and (type(result-unit) != content or result-unit.func() != std.math.equation) { fail("result-unit must be a math expression containing unit values") }
   if parameters.values().any(u => u != auto and (type(u) != content or u.func() != std.math.equation)) { fail("parameters must map names to math unit expressions or auto") }
   let cf = _cf.get()
   let src = _src(expr.body)

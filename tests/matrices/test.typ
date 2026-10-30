@@ -5,7 +5,7 @@
 #import units: Ω, V
 #import modifiers: solve
 #set page(width: 18cm, height: auto)
-#show: worksheet.with(errors: "panic")
+#show: math.with(errors: "panic")
 
 $A := mat(2, 1; 1, 3)$ $b := vec(3, 5)$
 $x := A^(-1) b =>$ #passes() #result("vec(\"0.8\", \"1.4\")")
@@ -38,9 +38,9 @@ $K := mat(A, b; 0, 0, 1) =>$ #result("mat(\"2\", \"1\", \"3\"; \"1\", \"3\", \"5
 $M := mat(p, q; r, w)$
 $det(M) ->$ #result("p dot w - q dot r")
 
-#worksheet(errors: "document")[
+#mathscope[#math(errors: "document")[
   $mat(1, 2; 3, 4) mat(1, 2, 3; 4, 5, 6; 7, 8, 9) =>$ #fails("columns of the first must match the rows of the second")
   $vec(1, 2) vec(1, 2, 3) =>$ #fails("same length")
   $mat(2, 4, 6; 3, 5, 7)[2, :] =>$ #fails("row 2 is outside a 2×3 matrix, which has 2 rows")
   $mat(2, 4, 6; 3, 5, 7)[:, 1, 0] =>$ #fails("selects a whole row or column")
-]
+]]

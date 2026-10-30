@@ -1,5 +1,5 @@
 // Units are Typst bindings: visible where Typst's scopes say, referenced with `#` when a single letter, never
-// written as quoted text, which names worksheet variables.
+// written as quoted text, which names math variables.
 
 use solveng_ide::*;
 
@@ -13,21 +13,21 @@ fn kind_last(doc: &str, word: &str) -> Option<u8> { kind_at(doc, doc[..doc.rfind
 
 #[test]
 fn unit_bindings_follow_typst_scopes() {
-    let doc = "#show: worksheet\n#[\n#import units: km\n#let minute = unit($60 #s$)\n$x := 2 km + 1 minute$\n]\n$y := 2 km + 1 minute$";
+    let doc = "#show: math\n#[\n#import units: km\n#let minute = unit($60 #s$)\n$x := 2 km + 1 minute$\n]\n$y := 2 km + 1 minute$";
     assert_eq!(kind(doc, "km + 1 minute$\n]"), Some(TokenKind::UNIT));
     assert_eq!(kind(doc, "minute$\n]"), Some(TokenKind::UNIT));
     // outside the block they're no bindings: Typst can't find them
     assert_eq!(kind_last(doc, "km"), Some(TokenKind::VARIABLE));
     assert_eq!(kind_last(doc, "minute"), Some(TokenKind::VARIABLE));
     // a later binding of another value shadows a unit
-    let shadowed = "#import units: km\n#show: worksheet\n$x := 2 km$\n#let km = 3\n$y := 2 km$";
+    let shadowed = "#import units: km\n#show: math\n$x := 2 km$\n#let km = 3\n$y := 2 km$";
     assert_eq!(kind(shadowed, "km$\n#let"), Some(TokenKind::UNIT));
     assert_eq!(kind_last(shadowed, "km"), Some(TokenKind::VARIABLE));
 }
 
 #[test]
 fn constructors_aliases_and_module_fields_make_units() {
-    let doc = "#import units: km, s\n#let time = base-unit(\"time\")\n#let minute = unit($60 #s$)\n#let distance = km\n#let metre = units.m\n#let cusom = \"iwef\"\n#show: worksheet\n$x := 1 time + 2 minute + 3 distance + 4 metre + 5 cusom$";
+    let doc = "#import units: km, s\n#let time = base-unit(\"time\")\n#let minute = unit($60 #s$)\n#let distance = km\n#let metre = units.m\n#let cusom = \"iwef\"\n#show: math\n$x := 1 time + 2 minute + 3 distance + 4 metre + 5 cusom$";
     for needle in ["time +", "minute +", "distance +", "metre +"] {
         assert_eq!(kind(doc, needle), Some(TokenKind::UNIT), "{needle}");
     }
@@ -45,7 +45,7 @@ fn constructors_aliases_and_module_fields_make_units() {
 
 #[test]
 fn quoted_text_names_variables_never_bindings() {
-    let doc = "#import units: km\n#show: worksheet\n$\"km\" := 23$\n$x := 2 km + \"km\"$";
+    let doc = "#import units: km\n#show: math\n$\"km\" := 23$\n$x := 2 km + \"km\"$";
     let context = Context::default();
     assert_eq!(kind(doc, "km + "), Some(TokenKind::UNIT));
     assert_eq!(kind(doc, "\"km\"$"), Some(TokenKind::VARIABLE));
@@ -60,7 +60,7 @@ fn quoted_text_names_variables_never_bindings() {
 
 #[test]
 fn quoted_parameter_types_do_not_resolve_typst_bindings() {
-    let doc = "#show: worksheet\n#let second = base-unit(\"time\")\n$f(\"xaef\": second) := \"xaef\"$\n$g(\"xaef\": \"second\") := \"xaef\"$";
+    let doc = "#show: math\n#let second = base-unit(\"time\")\n$f(\"xaef\": second) := \"xaef\"$\n$g(\"xaef\": \"second\") := \"xaef\"$";
     assert_eq!(kind(doc, "second)"), Some(TokenKind::UNIT));
     assert_eq!(kind(doc, "\"second\""), Some(TokenKind::VARIABLE));
 }
@@ -79,18 +79,18 @@ fn applied_completion(marked: &str, label: &str) -> String {
 #[test]
 fn single_letter_units_complete_with_hash_bindings() {
     for typed in ["34s|", "34#s|", "34 #s|", "34 |"] {
-        let doc = format!("#show: worksheet\n#let s = base-unit(\"time\")\n$z := {typed}$");
+        let doc = format!("#show: math\n#let s = base-unit(\"time\")\n$z := {typed}$");
         let result = applied_completion(&doc, "s");
         assert!(result.ends_with("34#s$") || result.ends_with("34 #s$"), "{result}");
     }
     // greek letters too
-    let doc = "#show: worksheet\n#let α = unit($2 #s$)\n#let s = base-unit(\"time\")\n$z := 34 |$";
+    let doc = "#show: math\n#let α = unit($2 #s$)\n#let s = base-unit(\"time\")\n$z := 34 |$";
     assert!(applied_completion(doc, "α").ends_with("34 #α$"));
 }
 
 #[test]
 fn single_letter_bindings_need_a_hash_with_a_fix_and_gray_hash() {
-    for doc in ["#show: worksheet\n#let s = base-unit(\"time\")\n😅 $z := 34s$", "#import constants: e\n#show: worksheet\n😅 $z := 34e$"] {
+    for doc in ["#show: math\n#let s = base-unit(\"time\")\n😅 $z := 34s$", "#import constants: e\n#show: math\n😅 $z := 34e$"] {
         let name = if doc.contains("constants") { "e" } else { "s" };
         let offset = at(doc, &format!("{name}$"));
         let fixes = unit_fixes(doc, &Context::default(), offset);
@@ -103,18 +103,18 @@ fn single_letter_bindings_need_a_hash_with_a_fix_and_gray_hash() {
         assert!(unit_fixes(&fixed, &Context::default(), at(&fixed, &format!("{name}$"))).is_empty());
         assert!(!diagnostics(&fixed, &Context::default()).iter().any(|p| p.message.contains("bare single letters")));
     }
-    // a worksheet variable of that name is meant: no warning
-    let variable = "#show: worksheet\n#let s = base-unit(\"time\")\n$s := 5$\n$z := 34s$";
+    // a math variable of that name is meant: no warning
+    let variable = "#show: math\n#let s = base-unit(\"time\")\n$s := 5$\n$z := 34s$";
     assert!(unit_fixes(variable, &Context::default(), at(variable, "s$")).is_empty());
     assert!(!diagnostics(variable, &Context::default()).iter().any(|p| p.message.contains("bare single letters")));
     // nor without a binding of that name
-    let unbound = "#show: worksheet\n$z := 34s$";
+    let unbound = "#show: math\n$z := 34s$";
     assert!(diagnostics(unbound, &Context::default()).is_empty());
 }
 
 #[test]
 fn common_units_rank_before_uncommon_prefixes() {
-    let doc = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet\n$x := 1 |$";
+    let doc = "#import \"@preview/solveng:1.0.0\": *\n#show: math\n$x := 1 |$";
     let caret = doc.find('|').unwrap();
     let source = doc.replace('|', "");
     let result = complete(&source, &Context::default(), source[..caret].encode_utf16().count() as u32).unwrap();
@@ -132,7 +132,7 @@ fn common_units_rank_before_uncommon_prefixes() {
 
 #[test]
 fn units_are_found_by_their_names() {
-    let doc = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet\n$R := 5 |$";
+    let doc = "#import \"@preview/solveng:1.0.0\": *\n#show: math\n$R := 5 |$";
     let caret = doc.find('|').unwrap();
     let source = doc.replace('|', "");
     let items = complete(&source, &Context::default(), source[..caret].encode_utf16().count() as u32).unwrap().items;
@@ -144,7 +144,7 @@ fn units_are_found_by_their_names() {
 #[test]
 fn code_binding_names_need_hashes_in_math() {
     for name in ["fluid_ounce", "fluid_ounce_uk", "fluid-ounce", "fl_oz2"] {
-        let prefix = format!("#show: worksheet\n#let {name} = unit($28.413 ml$, display: $\"fl oz\"$)\n");
+        let prefix = format!("#show: math\n#let {name} = unit($28.413 ml$, display: $\"fl oz\"$)\n");
         let doc = format!("{prefix}$1 #units.l -> {name}$");
         let offset = at(&doc, &format!("{name}$"));
         let warning = diagnostics(&doc, &Context::default()).into_iter().find(|p| p.message.contains(&format!("use '#{name}'"))).unwrap_or_else(|| panic!("no warning: {doc}"));
@@ -159,6 +159,6 @@ fn code_binding_names_need_hashes_in_math() {
             assert!(applied_completion(&input, name).ends_with(&format!("-> #{name}$")), "{input}");
         }
     }
-    let doc = "#show: worksheet\n#let fluid_ounce = unit($28.413 ml$)\n$fluid_ounce := 2$\n$x := fluid_ounce$";
+    let doc = "#show: math\n#let fluid_ounce = unit($28.413 ml$)\n$fluid_ounce := 2$\n$x := fluid_ounce$";
     assert!(!diagnostics(doc, &Context::default()).iter().any(|p| p.message.contains("math splits")));
 }

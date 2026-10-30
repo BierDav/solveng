@@ -6,7 +6,7 @@
 #let _E(x) = type(x) == dictionary and "err" in x
 // the export target; Typst 0.14 only knows target() with --features html, else it is paged
 #let _target() = if "target" in dictionary(std) { std.target() } else { "paged" }
-// ---------- configuration: #worksheet(..) / #show: worksheet.with(..), or per call ----------
+// ---------- configuration: #math(..) / #show: math.with(..), or per call ----------
 #let _DEF = (
   // numbers
   digits: 4, trailing-zeros: false, decimal-separator: auto, grouping: none, notation-thresholds: (-3, 6), notation: "auto", multiplication: "dot",
@@ -109,7 +109,7 @@
     and ("dark" not in v or palette(v.dark)))
 }
 #let _tyname(ts) = ts.map(t => if t == type(none) { "none" } else if t == type(auto) { "auto" } else { str(t) }).join(" or ")
-// units are checked by the engine once a worksheet sets them (see #worksheet)
+// units are checked by the engine when processing unit expressions
 #let _check(o) = {
   if type(o) != dictionary { return (err: "config: expected a dictionary of options like (digits: 3), got " + str(type(o))) }
   let o = o

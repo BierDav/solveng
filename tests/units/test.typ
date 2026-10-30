@@ -4,26 +4,26 @@
 #set page(width: 18cm, height: auto)
 #include "math-inputs.typ"
 #include "math-definitions.typ"
-#show: worksheet.with(errors: "panic")
-#let second = base-unit("time", display: () => math.upright("s"))
-#let minute = unit($60 second$, display: () => math.upright("min"))
-#let hour = unit($60 minute$, display: () => math.upright("h"))
+#show: math.with(errors: "panic")
+#let second = base-unit("time", display: () => std.math.upright("s"))
+#let minute = unit($60 second$, display: () => std.math.upright("min"))
+#let hour = unit($60 minute$, display: () => std.math.upright("h"))
 $T := 2 minute =>$ #expect("T", 120, u: "min")
 $t := T = second$ #expect("t", 120, u: "s")
 $d := 1 km =>$ #expect("d", 1000, u: "km")
 $v := d / T => #m / #s$ #expect("v", 1000 / 120)
 #let travel = constant("speed-of-light", $299792458 #m / #s$)
 $u := travel =>$ #expect("u", 299792458)
-#let length = base-unit("length", display: () => math.upright("metre"))
+#let length = base-unit("length", display: () => std.math.upright("metre"))
 $x := 2 #m + 3 length =>$ #expect("x", 5)
-#let inch = unit($0.0254 #m$, display: () => math.upright("in"))
+#let inch = unit($0.0254 #m$, display: () => std.math.upright("in"))
 $L := 10 inch => #m$ #expect("L", 0.254)
-#worksheet(scope: "isolated")[$"time" := 2 minute =>$ #expect("time", 120)]
-#let tau = base-unit("oscillation-count", display: () => math.upright("count"))
+#mathscope(scope: "isolated")[$"time" := 2 minute =>$ #expect("time", 120)]
+#let tau = base-unit("oscillation-count", display: () => std.math.upright("count"))
 $N_c := 4 tau =>$ #expect("N_c", 4, u: "count")
 
 // a single letter is a variable; its unit binding needs #
-#worksheet[
+#mathscope[
   $h := 2$ $t := 3 h$ #expect("t", 6)
   $t_h := 3 #units.h$ #expect("t_h", 10800, u: "h")
   $t_1 := 3 dot h$ #expect("t_1", 6)
@@ -43,35 +43,35 @@ $N_c := 4 tau =>$ #expect("N_c", 4, u: "count")
   $B := 3 #units.T =>$ #expect("B", 3, u: "T")
 ]
 // quoted text is a worksheet variable, never a unit
-#worksheet(errors: "document")[
+#mathscope[#math(errors: "document")[
   $p := 3 "bar" =>$ #fails("'bar' in 'p' isn't defined")
-]
+]]
 
 // own units, conversions, preferred result units
-#worksheet[
-  #let bar = unit($100 kPa$, display: () => math.upright("bar"))
-  #let rpm = unit($1 / min$, display: () => math.upright("rpm"))
-  #let tesla = unit($1 #units.kg / (#s^2 #A)$, display: () => math.upright("tesla"))
+#mathscope[
+  #let bar = unit($100 kPa$, display: () => std.math.upright("bar"))
+  #let rpm = unit($1 / min$, display: () => std.math.upright("rpm"))
+  #let tesla = unit($1 #units.kg / (#s^2 #A)$, display: () => std.math.upright("tesla"))
   $p := 3 bar$ #expect("p", 3e5, u: "bar")
   $F := p dot 2 cm^2 => #N$ #expect("F", 60, u: "N")
   $w := 3000 rpm$ #expect("w", 50, u: "rpm")
   $w_2 := w => Hz$ #expect("w_2", 50, u: "Hz")
-  #worksheet(scope: "inherit", preferred-units: ($bar$,))[
+  #mathscope(scope: "inherit")[#math(preferred-units: ($bar$,))[
     $p_3 := 2 p =>$ #expect("p_3", 6e5, u: "bar")
-  ]
+  ]]
   $p_4 := 2 p =>$ #expect("p_4", 6e5, u: "bar") // the unit of the inputs
   $B := 2 tesla =>$ #expect("B", 2, u: "tesla")
 ]
 
 // base units of their own: in products, and numbers as plain factors
-#worksheet[
-  #let ue = base-unit("ü", display: () => math.upright("ü"))
+#mathscope[
+  #let ue = base-unit("ü", display: () => std.math.upright("ü"))
   #let sheep = base-unit("sheep")
-  #let dozen = unit($12$, display: () => math.upright("dozen"))
+  #let dozen = unit($12$, display: () => std.math.upright("dozen"))
   $x := 3 ue$ $y := 2 ue$ $n := 2 dozen$ $a := 4 sheep #m$
   $w := x y$ $v := x + y = ue$
   #expect("x", 3) #expect("y", 2) #expect("n", 24) #expect("a", 4, u: "sheep·m") #expect("w", 6, u: "ü^2") #expect("v", 5, u: "ü")
-  #worksheet(errors: "document", scope: "inherit")[$z := x + 1 #m =>$ #fails("different units")]
+  #mathscope(scope: "inherit")[#math(errors: "document")[$z := x + 1 #m =>$ #fails("different units")]]
 ]
 
 // Code identifiers with underscores need # to avoid Typst's math subscripts.

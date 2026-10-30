@@ -5,7 +5,7 @@
 #import modifiers: solve, assume, simplify
 #import units: m, s, V, K, degC
 #set page(width: 20cm, height: auto)
-#show: worksheet.with(errors: "panic")
+#show: math.with(errors: "panic")
 $"least" := at(lsolve(mat(1, 0; 1, 1; 1, 2), vec(1, 2, 2)), 0) =>$
 #passes() #expect("least", 7/6)
 $"eigsum" := at(eigenvals(mat(2, 1; 1, 2)), 0) + at(eigenvals(mat(2, 1; 1, 2)), 1) =>$
@@ -68,5 +68,5 @@ $sqrt(x^2) -> assume(x > 0)$
 $x^2 < 1 -> solve(x)$
 #passes() #result("\"−1\" < x < \"1\"")
 #graph($erf(x)$, x-range: (-2, 2), errors: "panic")
-#worksheet(errors: "document")[$celsius(-274) =>$ #fails("absolute temperature")]
-#worksheet(errors: "document")[$linterp(vec(0, 1), vec(1, 2), 2) =>$ #fails("outside")]
+#mathscope[#math(errors: "document")[$celsius(-274) =>$ #fails("absolute temperature")]]
+#mathscope[#math(errors: "document")[$linterp(vec(0, 1), vec(1, 2), 2) =>$ #fails("outside")]]

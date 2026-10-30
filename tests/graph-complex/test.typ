@@ -1,7 +1,7 @@
 #import "/lib.typ": *
 #import constants: e, i, pi
 #import operations: rect, tri
-#show: worksheet.with(errors: "panic")
+#show: math.with(errors: "panic")
 
 $p(t_0) := rect(t - t_0) + tri(2 * (t - t_0))$
 $s(t) := p(1.5) + p(3.5) + p(-1.5) + p(-3.5)$

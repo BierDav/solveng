@@ -16,7 +16,7 @@ fn completion(marked: &str, label: &str) -> (String, Completions, Item) {
 #[test]
 fn completion_accepts_every_partial_greek_spelling_and_uses_readable_insertions() {
     for prefix in ["D", "De", "Del", "Delta", "Delta2", "Delta2t", "Delta2ta", "Delta2tau", "Δ", "Δ2", "Δ2t", "Δ2ta", "Δ2τ", "Delta\"\"2\"\"ta"] {
-        let math = format!("#show: worksheet\n$\"Delta2tau\" := 3$\n$x := {prefix}|$");
+        let math = format!("#show: math\n$\"Delta2tau\" := 3$\n$x := {prefix}|$");
         let (applied, _, item) = completion(&math, "Δ2τ");
         assert_eq!(item.insert, "\"Δ2τ\"", "{prefix}");
         assert!(applied.ends_with("x := \"Δ2τ\"$"), "{applied}");
@@ -26,11 +26,11 @@ fn completion_accepts_every_partial_greek_spelling_and_uses_readable_insertions(
 #[test]
 fn quoted_prefixes_replace_the_whole_carrier_without_duplicate_quotes() {
     for prefix in ["\"Del|\"", "\"Delta2ta|u\"", "\"Δ2t|\"", "\"Del|"] {
-        let document = format!("#show: worksheet\n$\"Delta2tau\" := 1$\n$x := {prefix}$");
+        let document = format!("#show: math\n$\"Delta2tau\" := 1$\n$x := {prefix}$");
         let (applied, _, _) = completion(&document, "Δ2τ");
         assert!(applied.ends_with("$x := \"Δ2τ\"$"), "{applied}");
     }
-    let document = "#show: worksheet\n$Delta\"\"tau := 1$\n$x := \"Delta\\\"\\\"ta|\"$";
+    let document = "#show: math\n$Delta\"\"tau := 1$\n$x := \"Delta\\\"\\\"ta|\"$";
     let (applied, _, _) = completion(document, "Δτ");
     assert!(applied.ends_with("$x := \"Δτ\"$"), "{applied}");
 }
@@ -40,13 +40,13 @@ fn numeric_subscript_functions_complete_without_trailing_name_joins() {
     for name in ["g_2", "g_12", "g_2x"] {
         let expected = if name == "g_2x" { "g_\"2x\"" } else { name };
         for call in [format!("${name}|$"), format!("#graph(${name}|$)")] {
-            let doc = format!("#show: worksheet\n${expected}(t) := t$\n{call}");
+            let doc = format!("#show: math\n${expected}(t) := t$\n{call}");
             let (applied, _, item) = completion(&doc, &format!("{name}(t)"));
             assert_eq!(item.insert, format!("{expected}($0)"));
             assert!(applied.ends_with(&call.replace(&format!("{name}|"), &format!("{expected}()"))), "{applied}");
         }
     }
-    let doc = "#show: worksheet\n$g_2(t) := t$\n#graph($g_2|(3)$)";
+    let doc = "#show: math\n$g_2(t) := t$\n#graph($g_2|(3)$)";
     let (applied, _, item) = completion(doc, "g_2(t)");
     assert_eq!(item.insert, "g_2");
     assert!(applied.ends_with("#graph($g_2(3)$)"), "{applied}");
@@ -55,7 +55,7 @@ fn numeric_subscript_functions_complete_without_trailing_name_joins() {
 #[test]
 fn call_strings_complete_escaped_carriers_and_keep_utf16_ranges() {
     for prefix in ["Delta2ta|", "Δ2t|", "\\\"Delta2ta|\\\""] {
-        let document = format!("#show: worksheet\n$\"😅\" := 1$ $\"Delta2tau\" := 2$\n#clear(\"{prefix}\")");
+        let document = format!("#show: math\n$\"😅\" := 1$ $\"Delta2tau\" := 2$\n#clear(\"{prefix}\")");
         let (applied, _, item) = completion(&document, "Δ2τ");
         assert_eq!(item.insert, "Δ2τ");
         assert!(applied.ends_with("#clear(\"Δ2τ\")"), "{applied}");
@@ -64,7 +64,7 @@ fn call_strings_complete_escaped_carriers_and_keep_utf16_ranges() {
 
 #[test]
 fn aliases_share_navigation_and_rename_in_every_context() {
-    let document = "#show: worksheet\n$\"Delta2tau\" := 3$\n$x := \"Δ2τ\" + \"Delta2tau\"$\n$y := \"Δ2τ\"$\n#worksheet($z := \"Delta2tau\"$)\n#clear(\"Delta2tau\")";
+    let document = "#show: math\n$\"Delta2tau\" := 3$\n$x := \"Δ2τ\" + \"Delta2tau\"$\n$y := \"Δ2τ\"$\n#math($z := \"Delta2tau\"$)\n#clear(\"Delta2tau\")";
     let at = document.find("Δ2τ\" +").unwrap();
     let offset = document[..at].encode_utf16().count() as u32;
     let target = definition(document, &Context::default(), offset).unwrap();
@@ -79,7 +79,7 @@ fn aliases_share_navigation_and_rename_in_every_context() {
 
 #[test]
 fn functions_normalize_and_completion_keeps_existing_parentheses() {
-    let document = "#show: worksheet\n$\"Delta2tau\"(x) := 2 x$\n$y := Delta2t|(3)$";
+    let document = "#show: math\n$\"Delta2tau\"(x) := 2 x$\n$y := Delta2t|(3)$";
     let (applied, _, item) = completion(document, "Δ2τ(x)");
     assert_eq!(item.insert, "\"Δ2τ\"");
     assert!(applied.contains("y := \"Δ2τ\"(3)"), "{applied}");
@@ -88,7 +88,7 @@ fn functions_normalize_and_completion_keeps_existing_parentheses() {
 #[test]
 fn subscript_carriers_complete_without_leaving_parentheses_or_quotes() {
     for prefix in ["x_ta|", "x_\"ta|\"", "x_(\"ta|\")", "\"x_tau|\""] {
-        let document = format!("#show: worksheet\n$x_tau := 1$\n$y := {prefix}$");
+        let document = format!("#show: math\n$x_tau := 1$\n$y := {prefix}$");
         let (applied, _, item) = completion(&document, "x_τ");
         assert_eq!(item.insert, "x_τ");
         assert!(applied.ends_with("$y := x_τ$"), "{applied}");
@@ -97,14 +97,14 @@ fn subscript_carriers_complete_without_leaving_parentheses_or_quotes() {
 
 #[test]
 fn exact_names_rank_before_alternate_greek_spellings() {
-    let document = "#show: worksheet\n$\"Deltatau\" := 1$\n$Delta\"\"tau := 2$\n$x := \"Deltatau|\"$";
+    let document = "#show: math\n$\"Deltatau\" := 1$\n$Delta\"\"tau := 2$\n$x := \"Deltatau|\"$";
     let (_, result, _) = completion(document, "Deltatau");
     assert_eq!(result.items[0].label, "Deltatau");
 }
 
 #[test]
 fn function_parameters_match_aliases_and_show_normalized_signatures() {
-    let document = "#show: worksheet\n$f(\"Delta2tau\") := \"Delta2tau\" + \"Δ2τ\"$\n$y := f|$";
+    let document = "#show: math\n$f(\"Delta2tau\") := \"Delta2tau\" + \"Δ2τ\"$\n$y := f|$";
     let (_, _, item) = completion(document, "f(Δ2τ)");
     assert_eq!(item.insert, "f($0)");
     let text = document.replacen('|', "", 1);
@@ -118,9 +118,9 @@ fn function_parameters_match_aliases_and_show_normalized_signatures() {
 fn solved_function_unknowns_are_local_and_do_not_change_the_signature() {
     for statement in [
         "$\"circle\"(x, r) := x^2 + b^2 = r^2 -> solve(b)$",
-        "#worksheet($\"circle\"(x, r) := x^2 + b^2 = r^2 -> solve(b)$)",
+        "#math($\"circle\"(x, r) := x^2 + b^2 = r^2 -> solve(b)$)",
     ] {
-        let document = format!("#show: worksheet\n$b := 99$\n{statement}\n$z := b$");
+        let document = format!("#show: math\n$b := 99$\n{statement}\n$z := b$");
         let at = document.find("b^2").unwrap();
         let offset = document[..at].encode_utf16().count() as u32;
         let target = definition(&document, &Context::default(), offset).unwrap();
@@ -137,8 +137,8 @@ fn solved_function_unknowns_are_local_and_do_not_change_the_signature() {
 
 #[test]
 fn acute_accents_are_part_of_completion_and_navigation_names() {
-    for statement in ["$x´ := 3$", "#worksheet($x´ := 3$)"] {
-        let document = format!("#show: worksheet\n{statement}\n$y := x´|$");
+    for statement in ["$x´ := 3$", "#math($x´ := 3$)"] {
+        let document = format!("#show: math\n{statement}\n$y := x´|$");
         let (applied, _, item) = completion(&document, "x´");
         // math quotes it, as for every name Typst's math wouldn't read as one
         assert_eq!(item.insert, "\"x´\"");
@@ -157,7 +157,7 @@ const USER_WORKSHEET: &str = r#"#import "@solveng/solveng:1.0.0": *
 
 #import units: km
 
-#worksheet(evaluate: true)[
+#math(evaluate: true)[
   $ "pytagoras"(a, b, c) := a^2 + b^2 = c^2 $
   $ "circle"(x, r) := "pytagoras"(x,b,r) -> solve(b) $
   $ r` := 3 $
@@ -171,7 +171,7 @@ const USER_WORKSHEET: &str = r#"#import "@solveng/solveng:1.0.0": *
 ]"#;
 
 #[test]
-fn user_worksheet_highlights_and_resolves_names() {
+fn user_math_highlights_and_resolves_names() {
     for accent in ["´", "`"] {
         let document = USER_WORKSHEET.replace("r`", &format!("r{accent}"));
         let ctx = Context::default();
@@ -202,7 +202,7 @@ fn quoted_text_is_a_variable_never_a_unit() {
         let expression = format!("1{name}");
         let tokens = math_tokens_of(&expression);
         assert!(tokens.iter().any(|t| t.start == 1 && t.length == name.encode_utf16().count() as u32 && t.kind == TokenKind::VARIABLE), "{expression}: {tokens:?}");
-        let document = format!("#show: worksheet\n$y(x) := {expression}$");
+        let document = format!("#show: math\n$y(x) := {expression}$");
         assert!(diagnostics(&document, &Context::default()).is_empty(), "{document}");
     }
     // quoted text is a name, also where it spells a unit
@@ -215,9 +215,9 @@ fn quoted_text_is_a_variable_never_a_unit() {
 fn function_definitions_calls_and_operations_have_distinct_styles() {
     let code = "f(x) := sin(x) + cos(x)\ny := f(tri(1)) + rect(2)";
     let sources = [
-        format!("#import operations: tri, rect\n#show: worksheet\n${}$", code.replace('\n', "$\n$")),
-        format!("#import operations: *\n#worksheet(${}$)", code.replace('\n', "$, $")),
-        format!("#let tri = math.op(\"tri\")\n#let rect = operation(\"rect\")\n#show: worksheet\n${}$", code.replace('\n', "$\n$")),
+        format!("#import operations: tri, rect\n#show: math\n${}$", code.replace('\n', "$\n$")),
+        format!("#import operations: *\n#math(${}$)", code.replace('\n', "$, $")),
+        format!("#let tri = math.op(\"tri\")\n#let rect = operation(\"rect\")\n#show: math\n${}$", code.replace('\n', "$\n$")),
     ];
     for source in sources {
         let tokens = document_tokens(&source, &Context::default());

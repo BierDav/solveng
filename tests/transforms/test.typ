@@ -5,7 +5,7 @@
 #import "/tests/util.typ": expect, passes, fails
 #import operations: *
 #set page(width: 18cm, height: auto)
-#show: worksheet.with(errors: "panic")
+#show: math.with(errors: "panic")
 $F(p) := laplace(exp(-t), t, p)$
 #passes()
 $"forward" := F(2) =>$
@@ -69,6 +69,6 @@ $"rzero" := r(0) =>$
 #passes()
 
 // a transform is an operation, never a keyword after ->
-#worksheet(errors: "document")[
+#mathscope[#math(errors: "document")[
   $x := t^2 -> laplace$ #fails("-> takes modifiers and a unit")
-]
+]]

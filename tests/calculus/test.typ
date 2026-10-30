@@ -3,17 +3,17 @@
 #import constants: e, i, pi
 #import units: s, A
 #set page(width: 18cm, height: auto)
-#show: worksheet
-#calculate($
+#show: math
+#math($
 t := 1 \
 g := 2
 $)
 #expect("t", 1)
 #expect("g", 2)
-#calculate($t := 1 \ g := 23$)
+#math($t := 1 \ g := 23$)
 #expect("g", 23)
 // code passed to worksheet is text, not calculated
-#worksheet(raw("k := 24"))
+#math(raw("k := 24"))
 #undefined("k")
 #clear("t")
 $q := 23 + 3$

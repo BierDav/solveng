@@ -6,7 +6,7 @@
 // Engineering calculations in Typst math
 #[
   #import units: mA, mAh, h
-  #worksheet[
+  #mathscope[
     $Q_0 := 3450 mAh$, $I := 30 mA$
 
     $t := Q_0 / I => #h$
@@ -20,7 +20,7 @@
   #import units: m, s
   #import constants: pi, e, c
   #import operations: tri
-  #worksheet[
+  #mathscope[
     $P := 2 pi =>$
 
     $"velocity" := #c =>$
@@ -33,9 +33,9 @@
 
 // Base units and derived units
 #[
-  #let second = base-unit("time", display: () => math.upright("s"))
-  #let minute = unit($60 second$, display: () => math.upright("min"))
-  #worksheet[
+  #let second = base-unit("time", display: () => std.math.upright("s"))
+  #let minute = unit($60 second$, display: () => std.math.upright("min"))
+  #mathscope[
     $t := 2 minute = second$
   ]
 ]
@@ -44,12 +44,12 @@
 #[
   #import units: m, s, kg
   #let g0 = constant("standard-gravity", $9.80665 #m / #s^2$)
-  #let triangle = operation("tri", display: () => math.op("triangle"))
-  #worksheet(constant-displays: ("standard-gravity": $g_0$))[
+  #let triangle = operation("tri", display: () => std.math.op("triangle"))
+  #mathscope[#math(constant-displays: ("standard-gravity": $g_0$))[
     $F := 2 kg #g0 =>$
 
     $triangle(1/2) =>$
-  ]
+  ]]
 ]
 
 // Complex numbers
@@ -57,33 +57,33 @@
   #import units: Ω, Hz, mH
   #import constants: pi, i
   #import operations: Re, Im
-  #worksheet(constant-displays: (imaginary: $j$))[
+  #mathscope[#math(constant-displays: (imaginary: $j$))[
     $Z := 100 #Ω + #i 2 pi 50 Hz dot 300 mH =>$
 
     $abs(Z) =>$, $arg(Z) =>$, $Im(Z) =>$
 
     $#i -> substitute(#i)$
-  ]
+  ]]
 ]
 
 // Worksheets and results
 #[
   #import units: V, mA, Ω, m, s
-  #worksheet(digits: 3)[
+  #mathscope[#math(digits: 3)[
     $U := 12 #V$, $R := 100 #Ω$
 
-    #worksheet(scope: "shared")[$I := U/R => mA$]
+    #mathscope(scope: "shared")[$I := U/R => mA$]
 
-    #calculate($I/3 =>$, number-form: "fraction")
+    #math($I/3 =>$, number-form: "fraction")
 
-    #worksheet(evaluate: false)[Equations like $E = m c^2$ stay as written.]
+    #mathscope[#math(evaluate: false)[Equations like $E = m c^2$ stay as written.]]
 
     The current is #value($I => mA$).
 
-    #worksheet(preferred-units: ($#m / #s$,), scope: "inherit")[$v := 36 #m / (2 #s) =>$]
+    #mathscope(scope: "inherit")[#math(preferred-units: ($#m / #s$,))[$v := 36 #m / (2 #s) =>$]]
 
     #clear("R")
 
     #defined(style: "inline")
-  ]
+  ]]
 ]

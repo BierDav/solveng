@@ -1,9 +1,9 @@
-// Operations: imported from `operations`, or referenced explicitly with math.op and operation.
+// Operations: imported from `operations`, or referenced explicitly with std.math.op and operation.
 #import "/lib.typ": *
 #import "/tests/util.typ": expect, passes, fails
 #import operations: tri, rect, sgn, integrate
 #set page(width: 18cm, height: auto)
-#show: worksheet.with(errors: "panic")
+#show: math.with(errors: "panic")
 $"standard" := tri(1/4) + rect(0) + sgn(0) =>$
 #passes() #expect("standard", 1.75)
 $Lambda(t) := tri(t)$
@@ -16,7 +16,7 @@ $"distant" := g_2(1000000) =>$
 #graph($g_2(t)$, x-range: (1000000, 1000003))
 #graph($g_2(x)$, x-range: (0, 1))
 #graph($Lambda(t)$, x-range: (-2, 2))
-#calculate($"named" := Lambda(1/4) =>$)
+#math($"named" := Lambda(1/4) =>$)
 #passes() #expect("named", 0.75)
 $"direct" := Λ(3/4) =>$
 #passes() #expect("direct", 0.25)
@@ -24,12 +24,12 @@ $"calculus" := integrate(tri(t), t, -2, 2) =>$
 #passes() #expect("calculus", 1)
 
 // explicit references, whatever their binding is called
-#let triangle = math.op("tri")
-#let step = operation("sgn", display: () => math.op("step"))
+#let triangle = std.math.op("tri")
+#let step = operation("sgn", display: () => std.math.op("step"))
 $"explicit" := triangle(1/2) + op("rect")(0) + step(-3) =>$
 #passes() #expect("explicit", 0.5)
 // without an import a name is no operation: quoted, it is a worksheet function
-#worksheet(errors: "document")[$"quoted" := "tri"(0) =>$ #fails("tri isn't defined")]
+#mathscope[#math(errors: "document")[$"quoted" := "tri"(0) =>$ #fails("tri isn't defined")]]
 
 #import operations: sinc, cosc, tanc, diff
 $"cardinal_origin" := sinc(0) + cosc(0) + tanc(0) =>$

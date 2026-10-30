@@ -2,7 +2,7 @@
 #import "/tests/util.typ": *
 #import units: V, W, mV, mW, Ω
 
-#calculate($R := 50 #Ω$, hidden: true)
+#math($R := 50 #Ω$, hidden: true)
 #context {
   let P = compile($U^2/R$, parameters: (U: $#V$), result-unit: $#W$)
   assert.eq(P(10), 2.0)

@@ -3,7 +3,7 @@
 #import operations: rect, tri, sgn, diff
 #import modifiers: solve
 #set page(width: 18cm, height: auto)
-#show: worksheet
+#show: math
 $f(t) := rect(t) ⋅ tri(t) * sgn(t)$
 $"sample" := f(0.25) =>$
 #passes() #expect("sample", 0.75)
@@ -13,7 +13,7 @@ $"origin" := sgn(0) =>$
 #passes() #expect("origin", 0)
 $rect(t) + 2 rect(t) ->$
 #passes()
-#calculate($a*rect(0) + b*tri(0) = 5; a*rect(1) + b*tri(0.5) = 1 -> solve(a,b)$)
+#math($a*rect(0) + b*tri(0) = 5; a*rect(1) + b*tri(0.5) = 1 -> solve(a,b)$)
 #passes() #expect("a", 3) #expect("b", 2)
 $"area" := integral_(-2)^2 rect(t) dif t =>$
 #passes() #expect("area", 1)
@@ -31,6 +31,6 @@ $"area" := integral_(-2)^2 rect(t) dif t =>$
 #assert.eq(_src($dif / (dif t) tri(t)$.body), "dif / (dif t) ⦇tri⦈(t)")
 // Worksheet restyling must preserve the operator inside a denominator sequence.
 #let derivative = _restyle($dif / (dif t)$.body, _DEF)
-#assert.eq(derivative.num, math.dif)
-#assert.eq(derivative.denom.children.slice(0, math.dif.children.len()).join(), math.dif)
-#assert.eq(_restyle($dif$.body, _DEF), math.dif)
+#assert.eq(derivative.num, std.math.dif)
+#assert.eq(derivative.denom.children.slice(0, std.math.dif.children.len()).join(), std.math.dif)
+#assert.eq(_restyle($dif$.body, _DEF), std.math.dif)

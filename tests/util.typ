@@ -20,7 +20,7 @@
 #import "/src/api.typ": _rows, _st, _cf
 
 // definitions as equations, silently
-#let def(..eqs) = calculate(..eqs.pos(), hidden: true)
+#let def(..eqs) = math(..eqs.pos(), hidden: true)
 // the value of x is v (in SI), optionally shown in unit u
 #let expect(x, v, u: none) = context {
   let r = _rows(_st.get(), _cf.get()).find(r => r.name == x)

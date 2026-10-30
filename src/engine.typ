@@ -17,7 +17,7 @@
 ///
 /// ```typ
 /// #import units: cm, m, A, V
-/// #show: worksheet
+/// #show: math
 /// $h := 5 z$, $z := 20 cm$, $h =>$             // h ≔ 5z, z ≔ 20 cm, h = 1 m
 /// $U(x: #m) := h x a ->$                     // U(x) ≔ h x a → 1 m · a x
 /// $g(x: #m) := U(x)/a ->$                    // g(x) ≔ U(x)/a → 1 m · x
@@ -30,7 +30,7 @@
 /// ```typ
 /// #import units: kΩ, A, V, m, mA, mAh, s
 /// #import modifiers: substitute
-/// #show: worksheet
+/// #show: math
 /// $R := 4.7 kΩ$                                 // a number and a unit
 /// $I := frac(2, 4) #A$, $Q_0 := 3450/2 mAh$     // arithmetic in the number
 /// $U := (1+2) dot 1.5 #V$, $A := 2^3 #m^2$      // A the variable, #A the ampere
@@ -45,7 +45,7 @@
 /// - **No e-notation:** numbers are written out (`$11200$`, or `$1.12 dot 10^4$`). `1.12e4` is the coefficient 1.12 times the variable `e4` (undefined unless defined; quote it, `$"e4"$`, for a name of several letters). Scientific notation is only how results are written (option `notation-thresholds`, keyword `sci`).
 /// - **Names:** the acute accent `´` and the backtick (`` ` ``) are literal name characters (`$x´ := 3$`), with no escaping needed. Digits continue a name: `t2` differs from `t_2` and keeps its digits on the baseline. Complete Latin letter runs normalize to Greek: `Delta2tau` → Δ2τ, while `Deltatau` stays unchanged. `""` joins name fragments: `Delta""tau` → Δτ and `t""2` → t2. Quotes only carry a name through Typst: `$"Delta2tau"$` names Δ2τ, and `$"Delta\"\"tau"$` names Δτ. Quoted text is always a name, also when it spells a unit or an operation: `$"mA" := 3$` is a variable. Explicit subscripts may be grouped: `$R_(a b)$` names R_ab. Operators and whitespace end a name; a leading number remains a coefficient (`2t2` is 2 times t2).
 /// - **Sums:** `sum_(k=0)^10 k^2` or `sum(k^2, k, 0, 10)` sums over inclusive integer bounds. The index is local and case-sensitive. Parenthesize a summand containing addition. Small finite sums simplify exactly; infinite sums stay symbolic after `->` and are evaluated numerically for `=` and graphs. For example, `$s_2(t) := sum_(k=0)^infinity sigma(t-k+3/4)$` defines a function usable as `#graph($s_2(t)$)` once `sigma` is defined. Piecewise linear signal sums are counted directly between their corners. Other numerical sums use at most 100000 terms, a shrinking-tail check and guarded epsilon extrapolation; unresolved or nonconvergent series report an error. Bounds and the index are unitless, while summands may carry units.
-/// - **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. Import the names from `operations` (`#import operations: rect, tri, sgn`); a worksheet function such as `$Lambda(t) := tri(t)$` or `#let triangle = math.op("tri")` gives another name. Linear combinations simplify and can be solved; definite integrals of them (also times exponentials, sin or cos) are exact piecewise, over ±∞ too where they vanish outside a bounded interval. Distributional derivatives stay symbolic.
+/// - **Signals:** `rect(x)` is 1 for |x| < ½, ½ at ±½, otherwise 0; `tri(x)` is max(1 − |x|, 0); `sgn(x)` is −1, 0 or 1. Arguments are unitless. Import the names from `operations` (`#import operations: rect, tri, sgn`); a worksheet function such as `$Lambda(t) := tri(t)$` or `#let triangle = std.math.op("tri")` gives another name. Linear combinations simplify and can be solved; definite integrals of them (also times exponentials, sin or cos) are exact piecewise, over ±∞ too where they vanish outside a bounded interval. Distributional derivatives stay symbolic.
 /// - **Ranges and elements:** `$i := 0..N$` (also `0 .. N`, `0...N`) is a range variable: the values from 0 to N in steps of 1, both included, counting down when N < 0; with units, use `range(start, end, step: …)`. `x[i]` and `A[i, j]` are elements, counted from 0, written right after the name without a space; a vector of indices selects several (`x[i]` with i a range is a vector). `:` selects a whole row or column: `A[i, :]` is row i (a matrix of one row), `A[:, j]` column j (a vector), both plottable as data: `#graph($A[1, :]$)`. `$x[i] := …$` defines an element for each value of the range variable i, the body calculated with i standing for that value: `$t[i] := i Delta""t$`, `$x[i] := tri(t[i])$`. Elements not defined yet are 0; defining one past the end extends the vector, as in Mathcad. `A[i, j] := …` defines a matrix.
 /// - **Convolution:** `convolve(x, h)` of sequences and `convolve(f(τ), g(τ), τ, t)` of functions, see `convolve`. Sequences of values are convolved numerically (whole numbers exactly), so long sampled signals stay fast; functions exactly where they're piecewise polynomial.
 /// - **Operators:** `+ - * / ^ · ×`, implicit multiplication (`2 pi f C`), Typst's math operators `sqrt exp ln log sin cos tan arcsin arccos arctan sinh cosh tanh abs arg` (no import needed), the other operations from `operations` (see [Built-in operations](#built-in-operations)), your own functions.
@@ -59,7 +59,7 @@
 /// - **Units:** complex values carry units like any other, `(100 + 94.25i) Ω`.
 /// - **Parts:** `abs(z)` is the magnitude, `arg(z)` the angle in radians (−π…π); `Re`, `Im` and `conj` come from `operations` (`#import operations: Re, Im, conj`).
 /// - **Solving** is complex: `$x^2 + 4 = 0 -> solve(x)$` gives ±2i, polynomials with numbers get all their roots (`$x^3 = 8 -> solve(x)$`: 2 and −1 ± 1.732i). The numeric search for other equations finds real solutions only.
-/// - **Showing:** electrical engineers write `j`: `#show: worksheet.with(constant-displays: (imaginary: $j$))`.
+/// - **Showing:** electrical engineers write `j`: `#show: math.with(constant-displays: (imaginary: $j$))`.
 /// - **Real only:** graphs, `compile`, comparisons with `<` and `>`, inequalities and the numeric search need real values; a complex one there is an error.
 ///
 /// ```typ
@@ -67,7 +67,7 @@
 /// #import constants: pi, e, i
 /// #import operations: conj
 /// #import modifiers: solve
-/// #show: worksheet.with(constant-displays: (imaginary: $j$))
+/// #show: math.with(constant-displays: (imaginary: $j$))
 /// $(1 + 2 #i)(3 - #i) ->$                       // 5 + 5j
 /// $#e^(#i pi) ->$, $sin(pi/4) ->$               // −1, √2/2
 /// $Z := 100 #Ω + #i 2 pi 50 Hz dot 300 mH =>$    // (100 + 94.25j) Ω
@@ -83,7 +83,7 @@
 ///
 /// ```typ
 /// #import units: Hz, ms, A, s
-/// #show: worksheet
+/// #show: math
 /// $A := 12$, $x := A dot 2 #A =>$        // x ≔ A · 2 A = 24 A
 /// $T := 2 #s$, $f := 1/T => Hz$          // f ≔ 1/T = 0.5 Hz
 /// $T -> ms$                             // 2000 ms
@@ -93,13 +93,13 @@
 ///
 /// ```typ
 /// #import units: kPa, min
-/// #let bit = base-unit("information", display: () => math.upright("bit"))
-/// #let byte = unit($8 bit$, display: () => math.upright("B"))
-/// #let bar = unit($100 kPa$, display: () => math.upright("bar"))
-/// #let rpm = unit($1/min$, display: () => math.upright("rpm"))
-/// #show: worksheet
+/// #let bit = base-unit("information", display: () => std.math.upright("bit"))
+/// #let byte = unit($8 bit$, display: () => std.math.upright("B"))
+/// #let bar = unit($100 kPa$, display: () => std.math.upright("bar"))
+/// #let rpm = unit($1/min$, display: () => std.math.upright("rpm"))
+/// #show: math
 /// $d := 3 byte = bit$, $p := 3 bar$, $n := 3000 rpm$
-/// #worksheet(preferred-units: ($bar$,), scope: "inherit")[$p/2 =>$]   // results of this dimension in bar
+/// #math(preferred-units: ($bar$,))[$p/2 =>$]   // results of this dimension in bar
 /// ```
 ///
 /// ## How it solves
@@ -155,7 +155,7 @@
 /// - **Ranges** have at most 100000 values, and their bounds and steps need values when they're defined. In math an index follows its name directly, so `a[b + c]` is an element of a – write `a dot [b + c]` or `a (b + c)` for a product.
 /// - **Convolution** of functions is exact for piecewise polynomials with numeric breakpoints (rect, tri, sgn, abs, cases with affine conditions, polynomials); exponentials, trigonometric functions, symbolic shifts and integrals that diverge stay the integral, evaluated numerically.
 /// - **Matrices:** names without a value are scalars, so they commute in products until they get a value (define matrices before multiplying them, or pass them to a function). Symbolic elimination treats an entry as zero only when it simplifies to 0, so entries that vanish by an identity like sin² + cos² = 1 count as nonzero. Floats count as zero within 10⁻¹³ of the largest element (times the size). Unknowns of `solve` are scalars: write a vector of unknowns as `vec(x, y)`.
-/// - **Math in a worksheet:** an equation with `=` and only known names is checked, so a formula meant as plain text that happens to use defined names (`$a^2 + b^2 = c^2$` after defining a, b and c) must hold. Put those outside the worksheet or use `#worksheet(evaluate: false)[…]` around them.
+/// - **Math in a worksheet:** an equation with `=` and only known names is checked, so a formula meant as plain text that happens to use defined names (`$a^2 + b^2 = c^2$` after defining a, b and c) must hold. Put those outside the worksheet or use `#math(evaluate: false)[…]` around them.
 
 #import "display.typ": *
 
@@ -604,6 +604,8 @@
 #let _with-body(eq, body) = {
   let fs = eq.fields()
   let _ = fs.remove("body")
+  // The original labelled element remains queryable; labels are not constructor arguments.
+  let _ = fs.remove("label", default: none)
   math.equation(..fs, _RESHOWN + body)
 }
 // an equation's children -> (head, marker, clause): at the last top-level →, else at the last top-level =

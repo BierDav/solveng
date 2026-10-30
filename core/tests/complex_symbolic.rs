@@ -132,6 +132,26 @@ fn complex_arguments_and_branch_sensitive_operations_keep_their_meaning() {
 }
 
 #[test]
+fn absolute_values_of_integer_powers_and_reciprocals_simplify() {
+    let mut env = Env::default();
+    run(&mut env, "b := 1/T");
+    assert_eq!(result(&mut env, "G(t) := 1/abs(b) S(f/b) ->"), result(&mut env, "abs(T) S(f T) ->"));
+    for identity in [
+        "abs(1/z) = 1/abs(z)",
+        "1/abs(1/z) = abs(z)",
+        "abs(z^3) = abs(z)^3",
+        "abs(z^(-4)) = abs(z)^(-4)",
+        "abs((x + #i y)^(-2)) = abs(x + #i y)^(-2)",
+    ] {
+        assert_eq!(result(&mut env, &format!("{identity} ->")), "\"true\"", "{identity}");
+    }
+    // Complex exponents cannot be moved outside the absolute value.
+    use solveng_core::expr::{Expr, Func, func, pow, simp, sym};
+    let complex_power = func(Func::Abs, pow(sym("z"), Expr::I));
+    assert_eq!(simp(&complex_power), complex_power);
+}
+
+#[test]
 fn large_powers_remain_bounded_and_symbolic() {
     let mut env = Env::default();
     let output = result(&mut env, "Re(z^1000000) ->");

@@ -10,15 +10,16 @@ TYPST = os.environ.get("TYPST", "typst")
 IMPORT = '#import "@preview/solveng:2.0.0": *'
 
 def fatal(doc):
-    """Problems stop the compilation: add errors: "panic" to the example's worksheet, or wrap it."""
-    if "#show: worksheet.with(" in doc:
-        return doc.replace("#show: worksheet.with(", '#show: worksheet.with(errors: "panic", ', 1)
-    if "#show: worksheet\n" in doc:
-        return doc.replace("#show: worksheet\n", '#show: worksheet.with(errors: "panic")\n', 1)
-    # no worksheet of its own: one that only calculates the calls and code blocks
-    show = '#show: worksheet.with(errors: "panic", evaluate: false)\n'
+    """Problems stop the compilation: add errors: "panic" to the example's math settings."""
+    if "#show: math.with(" in doc:
+        return doc.replace("#show: math.with(", '#show: math.with(errors: "panic", ', 1)
+    if "#show: math\n" in doc:
+        return doc.replace("#show: math\n", '#show: math.with(errors: "panic")\n', 1)
+    # Set the error policy without enabling or disabling ordinary math. Explicit
+    # math calls inherit settings, so an evaluate:false wrapper would disable them.
+    setup = '#import "/src/config.typ": _cf\n#_cf.update(c => c + (errors: "panic"))\n'
     marker = '#import "/lib.typ": *'
-    return doc.replace(marker, marker + "\n" + show, 1) if marker in doc else show + doc
+    return doc.replace(marker, marker + "\n" + setup, 1)
 
 def examples(path):
     text = open(os.path.join(ROOT, path)).read()
@@ -31,9 +32,10 @@ with tempfile.TemporaryDirectory() as tmp:
         # examples that import a file of their own can't stand alone
         if re.search(r'#import "(?!@preview/solveng)', code): continue
         # examples from doc comments leave the import out
-        if IMPORT not in code: code = IMPORT + "\n" + code
+        if '"@preview/solveng:2.0.0"' not in code: code = IMPORT + "\n" + code
         shows_error = "// error" in code
-        doc = code.replace(IMPORT, '#import "/lib.typ": *', 1)
+        doc = code.replace('"@preview/solveng:2.0.0"', '"/lib.typ"')
+        if '#import "/lib.typ": *' not in doc: doc = '#import "/lib.typ": *\n' + doc
         if not shows_error:
             doc = fatal(doc)
         src = os.path.join(ROOT, "tests", ".example.typ")

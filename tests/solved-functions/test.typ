@@ -3,7 +3,7 @@
 #import operations: at
 #import modifiers: solve
 #set page(width: 18cm, height: auto)
-#show: worksheet
+#show: math
 $b := 99$
 $"pytagoras"(a, b, c) := a^2 + b^2 = c^2$
 $"circle"(x, r) := "pytagoras"(x, b, r) -> solve(b)$
@@ -17,9 +17,9 @@ $L := "lower"(3, 5) =>$
 $U := "upper"(3, 5) =>$
 #expect("U", 4)
 // equations passed to worksheet share the definitions
-#calculate($"circle"(x, r) := "pytagoras"(x, b, r) -> solve(b)$)
+#math($"circle"(x, r) := "pytagoras"(x, b, r) -> solve(b)$)
 #passes()
-#calculate($"circle"(3, 5) =>$)
+#math($"circle"(3, 5) =>$)
 #passes() #result("vec(\"−4\", \"4\")")
 $"pair"(a) := vec(u + v = a, u - v = 2) -> solve(u, v)$
 #passes()

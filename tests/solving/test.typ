@@ -6,7 +6,7 @@
 #import operations: number
 #import modifiers: solve, simplify, digits, fraction
 
-#worksheet[
+#mathscope[
   // Mathcad's =: a comparison, 1 or 0; different units are never equal
   $M := 1 = 2 =>$ #expect("M", 0) #result("\"0\"")
   $M := 1 #A = 2 #V ->$ #expect("M", 0) #result("\"0\"")
@@ -33,7 +33,7 @@
 ]
 
 // solving: isolating, polynomials, systems, inequalities, numerically
-#worksheet[
+#mathscope[
   $Q_0 := 3450 mAh$ $I := 30 mA$
   $Q_0/2 = I t -> solve(t)$ #expect("t", 207000, u: "h")
   $x^2 + 2x - 3 = 0 -> solve(x)$ #expect("x", 1)
@@ -49,7 +49,7 @@
 ]
 
 // = states something: checked when everything is known, prose when not
-#worksheet[
+#mathscope[
   $U := 5 #V$ $R := 2 #Ω$ $I := U/R$
   $U = R I$ #passes()
   $U = 6 #V$ #fails("has another value than")
@@ -58,7 +58,7 @@
 ]
 
 // functions: units of parameters, any, .., types taken from where they're passed, comparisons
-#worksheet[
+#mathscope[
   #def($q(x: #A) := x 2 #Ω$, $f(I: mA, R) := I R$)
   #def($y := q(3 #A)$, $z := q(2 mA)$, $u := f(3 mA, 2 #Ω)$)
   #expect("y", 6) #expect("z", 0.004) #expect("u", 0.006)
@@ -72,7 +72,7 @@
 ]
 
 // a value's number in a unit: divide by the unit, or number(e, u), checked; a unit put on a number re-attaches it
-#worksheet[
+#mathscope[
   $U := 5 #V$
   $n_V := U / #V =>$ #expect("n_V", 5, u: "")
   $I := (U / #V) #A =>$ #expect("I", 5, u: "A")
@@ -82,11 +82,11 @@
   $L := (U^2 / #V^2) #V =>$ #expect("L", 25, u: "V")
   $n_m := number(U, mV) =>$ #expect("n_m", 5000, u: "")
   $n_2 := number(U^2 / (5 #Ω), #W) =>$ #expect("n_2", 5)
-  #worksheet(errors: "document", scope: "inherit")[$n_A := number(U, #A) =>$ #fails("number: the value is in V, not in A")]
+  #mathscope(scope: "inherit")[#math(errors: "document")[$n_A := number(U, #A) =>$ #fails("number: the value is in V, not in A")]]
 ]
 
 // := assigns, the last assignment wins; a variable takes no type, a function returns what its body gives
-#worksheet[
+#mathscope[
   $I_r := 4 #A$ $I_r := 2 #A$ #expect("I_r", 2)
   $I_r := I_r + 1 #A$ #expect("I_r", 3)
   #def($I_t: mA := 3 #A$) #fails("takes no type")
@@ -94,7 +94,7 @@
 ]
 
 // several statements: a trailing = shows, -> solves, = alone states
-#worksheet[
+#mathscope[
   $"Q0" := 3450 mAh, I := 30 mA$
 $t := "Q0"/I = #units.h, digits(3)$
 $"Q0"/I =>$
@@ -104,7 +104,7 @@ $a + b = 3, a - b = 1 -> solve(a, b)$
 ]
 
 // code in a worksheet is text: solveng code blocks, inline and untagged code are never calculated
-#worksheet[
+#mathscope[
   `x := 3` ```solveng y := 2 m```
   ```
   z := 4
@@ -115,12 +115,12 @@ $a + b = 3, a - b = 1 -> solve(a, b)$
   #expect("y", 2) #expect("w", 4, u: "cm")
 ]
 // evaluate: false leaves the worksheet's math alone, not its calls, and isn't inherited
-#worksheet[
-  #worksheet(evaluate: false, scope: "inherit")[$d := 2$ #calculate($e := 3$)
+#mathscope[
+  #mathscope(scope: "inherit")[#math(evaluate: false)[$d := 2$ #math($e := 3$, evaluate: true)
   #expect("e", 3) #undefined("d")
-  #calculate($d_e := e + 1$) #expect("d_e", 4)
-  #worksheet(scope: "inherit")[$f_e := 6$ #expect("f_e", 6)]
-  ]
+  #math($d_e := e + 1$, evaluate: true) #expect("d_e", 4)
+  #math(evaluate: true)[#mathscope(scope: "inherit")[$f_e := 6$ #expect("f_e", 6)]]
+  ]]
   $g := 5$ #expect("g", 5)
 ]
 #context {
@@ -128,14 +128,14 @@ $a + b = 3, a - b = 1 -> solve(a, b)$
   assert(r.any(x => not x.active and not x.evaluate), message: "math in evaluate: false reported as calculated")
 }
 // a code block passed to worksheet is text
-#worksheet(```
+#math(```
 t_c := 2 s
 v_c := 4 m / t_c
 ```)
 #undefined("t_c") #undefined("v_c")
 
 // editors read what a worksheet saw: each element (by location) and what the block defined
-#worksheet[$k := 2 #V$ `m := 1`]
+#mathscope[$k := 2 #V$ `m := 1`]
 #context {
   let r = query(<solveng>).map(it => it.value)
   assert(r.any(x => x.kind == "math" and x.active and type(x.element) == location))
@@ -143,16 +143,16 @@ v_c := 4 m / t_c
 }
 // and what went wrong: per problem its message, source and element (none passed to worksheet)
 // (content of a single equation is that equation, [$…$] is $…$, so the worksheet gets some text too)
-#worksheet[Voltage and time: $e_1 := 2 #V + 1 #s =>$]
-#calculate($e_3 := e_4 + 1 =>$)
+#mathscope[Voltage and time: $e_1 := 2 #V + 1 #s =>$]
+#math($e_3 := e_4 + 1 =>$)
 #context {
   let r = query(<solveng>).map(it => it.value).filter(x => x.kind == "error")
   assert(r.any(x => type(x.element) == location and x.source.contains("e_1") and x.message.contains("units")), message: "math error reported")
-  assert(r.any(x => x.element == none and x.source.contains("e_3") and x.message.contains("'e_4' in 'e_3'")), message: "call error reported")
+  assert(r.any(x => type(x.element) == location and x.source.contains("e_3") and x.message.contains("'e_4' in 'e_3'")), message: "call error reported")
 }
 // only the innermost worksheet reads an element
-#worksheet[
-  #worksheet[$h := 3$ #expect("h", 3)]
+#mathscope[
+  #mathscope[$h := 3$ #expect("h", 3)]
   $j := 4$ #expect("j", 4) #undefined("h")
 ]
 #context {
@@ -160,17 +160,17 @@ v_c := 4 m / t_c
   assert.eq(r.len(), r.map(x => x.element).dedup().len(), message: "an element was read twice")
 }
 // evaluate: false calculates no math
-#worksheet(evaluate: false, digits: 3)[$o := 1$]
+#mathscope[#math(evaluate: false, digits: 3)[$o := 1$]]
 #undefined("o")
 
 // calls: equations where they stand, hidden ones silently, options for them only
-#calculate($Delta_R := 5 cm$, $g_2 := 2 #m$)
+#math($Delta_R := 5 cm$, $g_2 := 2 #m$)
 #expect("Δ_R", 0.05) #expect("g_2", 2)
-#calculate($n_h := 7$, hidden: true) #expect("n_h", 7)
-#worksheet[$n_i := 1$ #calculate($n_j := n_i + 1$) #expect("n_j", 2)]
+#math($n_h := 7$, hidden: true) #expect("n_h", 7)
+#mathscope[$n_i := 1$ #math($n_j := n_i + 1$) #expect("n_j", 2)]
 
 // clear: the names given (a value and a function share a name), or all: back to how the worksheet started
-#worksheet[
+#mathscope[
   $r_1 := 1$ #clear(all: true) #undefined("r_1")
   $c_1 := 1$ $c_2 := 2$ $f_c(x) := 2 x$ $tau := 3$
   #clear("c_1", $f_c$, "tau") #passes() #undefined("c_1") #undefined("f_c") #undefined("τ") #expect("c_2", 2)
@@ -179,47 +179,47 @@ v_c := 4 m / t_c
   #clear("1 + c_2") #fails("isn't a name")
   #expect("c_2", 2)
 ]
-#worksheet(clear-at: heading)[
+#mathscope[#math(clear-at: heading)[
   $r_2 := 2$
   = Next
   #undefined("r_2")
-]
+]]
 
 // hidden: what a worksheet calculates isn't shown, the rest is; nested worksheets show theirs again
-#worksheet[
+#mathscope[
   $a_w := 2$
-  #let hid = worksheet(hidden: true, scope: "inherit")[
+  #let hid = mathscope(scope: "inherit")[#math(hidden: true)[
     $b_w := 3 a_w =>$
     $c_w := 4 #m$
-    #calculate($d_w := b_w + 1 =>$)
+    #math($d_w := b_w + 1 =>$)
     #expect("d_w", 7)
-  ]
+  ]]
   #hid
   #context {
-    let empty = measure(worksheet(hidden: true)[$e_w := 1 =>$ $f_w := 2$])
+    let empty = measure(math(hidden: true)[$e_w := 1 =>$ $f_w := 2$])
     assert.eq(empty.height, 0pt, message: "hidden math and code shown")
-    assert(measure(worksheet(hidden: true)[text $E = m c^2$]).width > 0pt, message: "hidden text and prose not shown")
-    assert(measure(worksheet(hidden: true)[#calculate($g_w := 1 =>$)]).width > 0pt, message: "nested worksheet hidden")
+    assert(measure(math(hidden: true)[text $E = m c^2$]).width > 0pt, message: "hidden text and prose not shown")
+    assert(measure(math(hidden: true)[#math($g_w := 1 =>$, hidden: false)]).width > 0pt, message: "nested worksheet hidden")
   }
   // content is isolated by default, equations are shared; scope: "isolated" calculates them on their own, and what
   // they define ends with them
-  #worksheet[$a_w := 5$ #expect("a_w", 5)]
+  #mathscope[$a_w := 5$ #expect("a_w", 5)]
   #expect("a_w", 2) #undefined("b_w")
-  #calculate($k_w := a_w + 1$) #expect("k_w", 3)
-  #worksheet($m_w := 7$, scope: "isolated") #undefined("m_w")
-  #worksheet($n_w := a_w =>$, scope: "isolated") #fails("'a_w' in 'n_w' isn't defined")
-  #worksheet($o_w := a_w + 1 =>$, scope: "inherit") #undefined("o_w") #expect("a_w", 2)
-  #worksheet(hidden: true)[$a_w := 9$ #undefined("k_w")]
-  #worksheet(hidden: true, scope: "inherit")[#expect("k_w", 3)]
+  #math($k_w := a_w + 1$) #expect("k_w", 3)
+  #mathscope(scope: "isolated")[$m_w := 7$] #undefined("m_w")
+  #mathscope(scope: "isolated")[$n_w := a_w =>$] #fails("'a_w' in 'n_w' isn't defined")
+  #mathscope(scope: "inherit")[$o_w := a_w + 1 =>$] #undefined("o_w") #expect("a_w", 2)
+  #mathscope[#math(hidden: true)[$a_w := 9$ #undefined("k_w")]]
+  #mathscope(scope: "inherit")[#math(hidden: true)[#expect("k_w", 3)]]
 ]
 
 // graph: curves written with := define what they name, as the same equation in a worksheet
-#worksheet[
+#mathscope[
   $X_g(x) := x^2 + 1$
   #graph($y_g := X_g(x)$)
-  #worksheet(scope: "inherit")[$x := 2$ $v := y_g$ #expect("v", 5)]
+  #mathscope(scope: "inherit")[$x := 2$ $v := y_g$ #expect("v", 5)]
   #graph($y_g := 2 y_g$)
-  #worksheet(scope: "inherit")[$x := 2$ $v := y_g$ #expect("v", 10)]
+  #mathscope(scope: "inherit")[$x := 2$ $v := y_g$ #expect("v", 10)]
   #graph($y_g(y_g) := X_g(y_g)$)
   $v_g := y_g(3)$ #expect("v_g", 10)
   // a parameter named like a value, and a constant: a line over it
@@ -230,7 +230,7 @@ v_c := 4 m / t_c
 ]
 
 // value: a result alone, from code or math, which defines nothing
-#worksheet[
+#mathscope[
   $U_v := 5 #V$, $f_v(x) := 2 x$
   #context {
     let w(x) = measure(value(x)).width
@@ -253,7 +253,7 @@ v_c := 4 m / t_c
 #assert(("solve", "substitute", "simplify", "digits", "sci", "eng", "fraction").all(k => k not in dictionary(package)))
 #[
   #import modifiers: solve as löse, digits as stellen
-  #worksheet[
+  #mathscope[
     $2 w = 6 -> löse(w)$ #expect("w", 3)
     $w = stellen(2)$
   ]

@@ -2,13 +2,13 @@
 #import "/tests/util.typ": *
 #import units: m, s, cm, kg, g, ml, l
 #import operations: tri
-#worksheet(errors: "panic")[
-  #let inch = unit($2.54 cm$, display: () => math.upright("in"))
-  #let foot = unit($12 inch$, display: () => math.upright("ft"))
-  #let yard = unit($3 foot$, display: () => math.upright("yd"))
-  #let pound = unit($453.592 #g$, display: () => math.upright("lb"))
-  #let gallon = unit($4.54609 #l$, display: () => math.upright("gal"))
-  #let speed = unit($frac(2 #m, 4 #s)$, display: () => math.upright("speed"))
+#mathscope[#math(errors: "panic")[
+  #let inch = unit($2.54 cm$, display: () => std.math.upright("in"))
+  #let foot = unit($12 inch$, display: () => std.math.upright("ft"))
+  #let yard = unit($3 foot$, display: () => std.math.upright("yd"))
+  #let pound = unit($453.592 #g$, display: () => std.math.upright("lb"))
+  #let gallon = unit($4.54609 #l$, display: () => std.math.upright("gal"))
+  #let speed = unit($frac(2 #m, 4 #s)$, display: () => std.math.upright("speed"))
   #let test = s
   $x := 1 yard => #m$ #expect("x", 0.9144, u: "m")
   $x_2 := 1 inch$ #expect("x_2", 0.0254, u: "in")
@@ -19,4 +19,4 @@
   $V := 1 gallon => #l$ #expect("V", 0.00454609)
   #value($x_2 => cm$)
   #context assert.eq(compile($x_2 + a$, parameters: (a: $#m$), result-unit: $#m$)(1), 1.0254)
-]
+]]

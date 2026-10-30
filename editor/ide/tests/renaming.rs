@@ -27,7 +27,7 @@ fn applied(doc: &str, mut edits: Vec<Edit>) -> String {
     String::from_utf16(&u).unwrap()
 }
 
-const FULL: &str = "#import \"@preview/solveng:1.0.0\": *\n#import units: *\n#show: worksheet\n";
+const FULL: &str = "#import \"@preview/solveng:1.0.0\": *\n#import units: *\n#show: math\n";
 
 #[test]
 fn a_bare_letter_after_a_number_is_the_variable() {
@@ -55,7 +55,7 @@ fn quoted_unit_names_are_variables() {
     let doc = format!("{FULL}$ \"km\" := 23 $\n$ x := \"km\" + 3 km $\n$ y := 2 \"km\" $");
     assert_eq!(kind_at(&doc, "km\" := 23"), Some(TokenKind::VARIABLE));
     assert_eq!(kind_at(&doc, "km\" +"), Some(TokenKind::VARIABLE));
-    // The unquoted name is the unit binding; quoted text is the worksheet variable.
+    // The unquoted name is the unit binding; quoted text is the math variable.
     assert_eq!(kind_at(&doc, "km $\n"), Some(TokenKind::UNIT));
     assert_eq!(kind_at(&doc, "km\" $"), Some(TokenKind::VARIABLE));
     let at = u16_at(&doc, "km\" $");
@@ -81,7 +81,7 @@ fn long_subscripts_belong_to_the_name() {
 
 #[test]
 fn parameters_belong_to_their_function() {
-    let doc = format!("{FULL}$ x := 3 $\n$ f(x) := 2 x + x^2 $\n$ y := f(x) $\n#worksheet($g(alpha) := 2 alpha$)\n");
+    let doc = format!("{FULL}$ x := 3 $\n$ f(x) := 2 x + x^2 $\n$ y := f(x) $\n#math($g(alpha) := 2 alpha$)\n");
     let param = u16_at(&doc, "x) := 2");
     let uses: Vec<String> = usages(&doc, &Context::default(), param).iter().map(|l| text_at(&doc, l.start, l.end)).collect();
     assert_eq!(uses.len(), 3);
@@ -90,17 +90,17 @@ fn parameters_belong_to_their_function() {
     // The x passed to f is the variable.
     assert_eq!(definition(&doc, &Context::default(), u16_at(&doc, "x) $")).unwrap().start, u16_at(&doc, "x := 3"));
     let renamed = applied(&doc, rename(&doc, &Context::default(), u16_at(&doc, "alpha)"), "beta"));
-    assert!(renamed.contains("#worksheet($g(β) := 2 β$)"), "{renamed}");
+    assert!(renamed.contains("#math($g(β) := 2 β$)"), "{renamed}");
 }
 
 #[test]
 fn renames_in_each_spelling() {
-    let doc = format!("{FULL}$ R_\"load\" := 1 $\n$ q := R_\"load\" dot 2 $\n#worksheet($p := R_\"load\" + q$)\n#clear(\"R_load\")\n");
+    let doc = format!("{FULL}$ R_\"load\" := 1 $\n$ q := R_\"load\" dot 2 $\n#math($p := R_\"load\" + q$)\n#clear(\"R_load\")\n");
     let at = u16_at(&doc, "R_\"load\" dot");
     let target = rename_target(&doc, &Context::default(), at).unwrap();
     assert_eq!(target.name, "R_\"load\"");
     let out = applied(&doc, rename(&doc, &Context::default(), at, "tews"));
-    assert_eq!(out, format!("{FULL}$ \"tews\" := 1 $\n$ q := \"tews\" dot 2 $\n#worksheet($p := \"tews\" + q$)\n#clear(\"tews\")\n"));
+    assert_eq!(out, format!("{FULL}$ \"tews\" := 1 $\n$ q := \"tews\" dot 2 $\n#math($p := \"tews\" + q$)\n#clear(\"tews\")\n"));
     // Rename emits the canonical name in each syntax: quoted in math, plain in a call's string.
     let out = applied(&doc, rename(&doc, &Context::default(), at, "Delta\"\"r_\"in\""));
     assert!(out.contains("$ \"Δr\"_\"in\" := 1 $") && out.contains("#clear(\"Δr_in\")"), "{out}");
@@ -111,21 +111,21 @@ fn renames_in_each_spelling() {
 
 #[test]
 fn docs_of_the_whole_function_name() {
-    let doc = "#import \"@preview/solveng:1.0.0\": *\n#show: worksheet.with(digits: 4)\n#show: worksheet\n";
-    for needle in ["worksheet.with", "worksheet\n"] {
+    let doc = "#import \"@preview/solveng:1.0.0\": *\n#show: math.with(digits: 4)\n#show: math\n";
+    for needle in ["math.with", "math\n"] {
         let h = hover(doc, &Context::default(), u16_at(doc, needle) + 2).unwrap();
-        assert!(h.markdown.starts_with("`worksheet`"), "{}", h.markdown);
+        assert!(h.markdown.starts_with("`math`"), "{}", h.markdown);
     }
     // Like the completion's docs, every parameter shows.
-    let doc = "#worksheet(evaluate: true)[]";
+    let doc = "#math(evaluate: true)[]";
     let h = hover(doc, &Context::default(), 2).unwrap();
     assert!(h.markdown.contains("### Parameters\n\n- `..body` (content)"), "{}", h.markdown);
-    assert!(h.markdown.contains("- `hidden` (bool) = `false`: Calculate without showing"), "{}", h.markdown);
+    assert!(h.markdown.contains("- `hidden` (auto, bool) = `auto`: Hide calculated math"), "{}", h.markdown);
 }
 
 #[test]
 fn a_graph_plots_against_its_parameter() {
-    let doc = "#worksheet($k := 2$)\n#graph($q(..) = 12 A \\ k A$)\n#graph($P(..) = U^2/R$)\n#graph($cos(w) \\ w$)\n";
+    let doc = "#math($k := 2$)\n#graph($q(..) = 12 A \\ k A$)\n#graph($P(..) = U^2/R$)\n#graph($cos(w) \\ w$)\n";
     // A is a variable in a curve, the parameter q takes, and what the unnamed curve is plotted against.
     assert_eq!(kind_at(doc, "A \\"), Some(TokenKind::PARAMETER));
     assert_eq!(kind_at(doc, "A$)"), Some(TokenKind::PARAMETER));
@@ -172,12 +172,12 @@ fn functions_in_math() {
 
 #[test]
 fn quoted_functions_in_math() {
-    let doc = format!("{FULL}$ \"pytagoras\"(a, b, c) := a^2 + b^2 = c^2 $\n#worksheet($d := \"pytagoras\"(1, 2, 3)$)\n#clear(\"pytagoras\")\n");
+    let doc = format!("{FULL}$ \"pytagoras\"(a, b, c) := a^2 + b^2 = c^2 $\n#math($d := \"pytagoras\"(1, 2, 3)$)\n#clear(\"pytagoras\")\n");
     let out = applied(&doc, rename(&doc, &Context::default(), u16_at(&doc, "a^2"), "side"));
     assert!(out.contains("$ \"pytagoras\"(\"side\", b, c) := \"side\"^2 + b^2 = c^2 $"), "{out}");
     // A longer function name stays quoted in math, and is written plain in the string.
     let out = applied(&doc, rename(&doc, &Context::default(), u16_at(&doc, "pytagoras\"("), "hyp"));
-    assert!(out.contains("$ \"hyp\"(a, b, c)") && out.contains("#worksheet($d := \"hyp\"(1, 2, 3)$)") && out.contains("#clear(\"hyp\")"), "{out}");
+    assert!(out.contains("$ \"hyp\"(a, b, c)") && out.contains("#math($d := \"hyp\"(1, 2, 3)$)") && out.contains("#clear(\"hyp\")"), "{out}");
 }
 
 #[test]
@@ -225,7 +225,7 @@ fn variables_show_their_unit() {
 #[test]
 fn implicit_parameters_as_set() {
     let lines = "$ f() := x^2 + k $\n$ g(y) := y + n $";
-    let with = |mode: &str| format!("{FULL}#worksheet(implicit-parameters: \"{mode}\", evaluate: false)[]\n{lines}");
+    let with = |mode: &str| format!("{FULL}#math(implicit-parameters: \"{mode}\", evaluate: false)[]\n{lines}");
     // "no", the default: only .. takes the undefined rest.
     let doc = format!("{FULL}{lines}");
     assert_eq!(kind_at(&doc, "x^2"), Some(TokenKind::VARIABLE));
@@ -244,7 +244,7 @@ fn implicit_parameters_as_set() {
 
 #[test]
 fn forgiving_rename_keeps_references_linked_in_every_syntax() {
-    let doc = "#show: worksheet\n$\"foo\" := 3$\n#worksheet($x := \"foo\"$)\n#graph($\"foo\" * x$)";
+    let doc = "#show: math\n$\"foo\" := 3$\n#math($x := \"foo\"$)\n#graph($\"foo\" * x$)";
     for typed in ["2x", "123", "Delta2tau", "2foo", "2x_tau", "😅2tau", "é2tau"] {
         let edits = rename(doc, &Context::default(), u16_at(doc, "foo\" *"), typed);
         assert_eq!(edits.len(), 3, "{typed}");
@@ -256,7 +256,7 @@ fn forgiving_rename_keeps_references_linked_in_every_syntax() {
 
 #[test]
 fn numeric_renames_keep_definitions_and_completions() {
-    let doc = "😅\n#show: worksheet\n#worksheet($\"foo\" := 3$, $z := \"foo\"$)\n#graph($\"foo\" * x$)";
+    let doc = "😅\n#show: math\n#math($\"foo\" := 3$, $z := \"foo\"$)\n#graph($\"foo\" * x$)";
     let ctx = Context::default();
     let edits = rename(doc, &ctx, u16_at(doc, "foo\" :="), "2x");
     assert_eq!(edits.len(), 3);
@@ -270,7 +270,7 @@ fn numeric_renames_keep_definitions_and_completions() {
 
 #[test]
 fn numeric_rename_emits_math_and_escaped_strings_across_files() {
-    let main = "#show: worksheet\n$foo := 3$\n#include \"chapter.typ\"";
+    let main = "#show: math\n$foo := 3$\n#include \"chapter.typ\"";
     let chapter = "#graph($foo * x$)\n#clear(\"foo\")";
     let ctx = Context::new("").with_report(&Report::default(), "chapter.typ", false)
         .with_files(vec![ContextFile { path: "main.typ".into(), text: main.into() }]).with_main("main.typ");

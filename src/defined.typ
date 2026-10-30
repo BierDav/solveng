@@ -5,7 +5,7 @@
 ///
 /// ```typ
 /// #import units: kΩ, V
-/// #show: worksheet
+/// #show: math
 /// $R := 7.2 kΩ$, $U := 5 #V$, $I := U/R$, $f(x) := x^2$
 /// #defined()                                          // everything, in columns side by side
 /// #defined(kinds: "given")                             // only plain values (also "computed", "function")
@@ -25,7 +25,7 @@
 /// - where (function): Additional predicate on each definition name.
 /// - style (auto, str): `"grid"`, `"column"`, `"inline"` or `"list"`, see above. `auto`: the option `defined-style` (default `"grid"`).
 /// - show-si (auto, bool): Also show the SI value: `Q₀ = 3450 mAh = 12420 C`.
-/// - digits, decimal-separator, number-form, … (auto): Every option of `worksheet` works here too, for this call only.
+/// - digits, decimal-separator, number-form, … (auto): Every option of `mathscope` works here too, for this call only.
 /// -> content
 #let defined(
   ..args, names: "all", kinds: ("given", "computed", "function"), where: name => true,

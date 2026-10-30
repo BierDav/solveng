@@ -23,9 +23,9 @@ fn def(doc: &str, needle: &str, declaration: &str) {
 fn notation_scopes_the_index_to_the_summand() {
     for expression in [
         "$answer := sum_(k=k)^(k+10) (k^2) + k$\n$after := k$".to_string(),
-        "#worksheet($answer := sum_(k=k)^(k+10) (k^2) + k$)\n$after := k$".to_string(),
+        "#math($answer := sum_(k=k)^(k+10) (k^2) + k$)\n$after := k$".to_string(),
     ] {
-        let doc = format!("#show: worksheet\n$k := 100$\n{expression}");
+        let doc = format!("#show: math\n$k := 100$\n{expression}");
         def(&doc, "k^2", "k=k");
         def(&doc, "k+10", "k := 100");
         assert_eq!(definition(&doc, &Context::default(), at(&doc, "+ k") + 2).unwrap().start, at(&doc, "k := 100"));
@@ -41,7 +41,7 @@ fn notation_scopes_the_index_to_the_summand() {
 
 #[test]
 fn nested_indices_shadow_outer_indices_but_their_bounds_use_the_outer_scope() {
-    let doc = "#show: worksheet\n$k := 10$\n$f(k) := sum_(k=0)^10 (k + sum_(k=k)^(k+2) k^2) + k$";
+    let doc = "#show: math\n$k := 10$\n$f(k) := sum_(k=0)^10 (k + sum_(k=k)^(k+2) k^2) + k$";
     def(doc, "k^2", "k=k");
     def(doc, "k + sum", "k=0");
     def(doc, "k+2", "k=0");
@@ -54,7 +54,7 @@ fn nested_indices_shadow_outer_indices_but_their_bounds_use_the_outer_scope() {
 
 #[test]
 fn independent_sums_and_case_sensitive_indices_do_not_share_bindings() {
-    let doc = "#show: worksheet\n$k := 3$\n$a := sum_(k=0)^10 k^2 + sum_(k=0)^10 k^3$\n$b := sum_(K=0)^10 k^4$";
+    let doc = "#show: math\n$k := 3$\n$a := sum_(k=0)^10 k^2 + sum_(k=0)^10 k^3$\n$b := sum_(K=0)^10 k^4$";
     assert_eq!(usages(doc, &Context::default(), at(doc, "k^2")).len(), 2);
     assert_eq!(usages(doc, &Context::default(), at(doc, "k^3")).len(), 2);
     assert_eq!(usages(doc, &Context::default(), at(doc, "K=0")).len(), 1);
@@ -63,14 +63,14 @@ fn independent_sums_and_case_sensitive_indices_do_not_share_bindings() {
 
 #[test]
 fn rename_preserves_utf16_and_quotes_long_names() {
-    let doc = "😀 #worksheet($answer := sum_(k=0)^10 k^2$)";
+    let doc = "😀 #math($answer := sum_(k=0)^10 k^2$)";
     let renamed = apply(doc, rename(doc, &Context::default(), at(doc, "k^2"), "counter"));
     assert!(renamed.contains("sum_(\"counter\"=0)^10 \"counter\"^2"), "{renamed}");
     let edits = rename(doc, &Context::default(), at(doc, "k^2"), "2\"\"k");
     let renamed = apply(doc, edits);
     assert!(renamed.contains("sum_(2\"\"k=0)^10 2\"\"k^2"), "{renamed}");
     assert_eq!(usages(&renamed, &Context::default(), at(&renamed, "2\"\"k^2")).len(), 2);
-    let doc = "#show: worksheet\n$a := sum_(k=0)^10 k^2$";
+    let doc = "#show: math\n$a := sum_(k=0)^10 k^2$";
     let renamed = apply(doc, rename(doc, &Context::default(), at(doc, "k^2"), "counter"));
     assert!(renamed.contains("sum_(\"counter\"=0)^10 \"counter\"^2"), "{renamed}");
     assert_eq!(usages(&renamed, &Context::default(), at(&renamed, "\"counter\"^2")).len(), 2);
@@ -78,7 +78,7 @@ fn rename_preserves_utf16_and_quotes_long_names() {
 
 #[test]
 fn indices_are_highlighted_and_completed_only_in_their_scope() {
-    let doc = "#show: worksheet\n$f(t, ..) := sum_(k=0)^infinity (k^2 + t)$\n$after := k$";
+    let doc = "#show: math\n$f(t, ..) := sum_(k=0)^infinity (k^2 + t)$\n$after := k$";
     let tokens = document_tokens(doc, &Context::default());
     for needle in ["k=0", "k^2"] {
         let pos = at(doc, needle);
@@ -96,7 +96,7 @@ fn indices_are_highlighted_and_completed_only_in_their_scope() {
 #[test]
 fn local_indices_do_not_leak_through_includes_or_become_implicit_parameters() {
     let doc = "$answer := sum_(k=0)^10 k^2$\n$outside := k$";
-    let main = "#show: worksheet\n$k := 20$\n#include \"part.typ\"\n$after := k$";
+    let main = "#show: math\n$k := 20$\n#include \"part.typ\"\n$after := k$";
     let context = Context {
         path: "part.typ".into(),
         ..Context::default().with_files(vec![ContextFile { path: "main.typ".into(), text: main.into() }]).with_main("main.typ")
@@ -111,7 +111,7 @@ fn local_indices_do_not_leak_through_includes_or_become_implicit_parameters() {
     assert_eq!(edits.len(), 2);
     assert!(edits.iter().all(|e| e.path.is_none()));
 
-    let doc = "#show: worksheet\n$f(t, ..) := sum_(k=0)^infinity (k^2 + t)$";
+    let doc = "#show: math\n$f(t, ..) := sum_(k=0)^infinity (k^2 + t)$";
     let h = hover(doc, &Context::default(), at(doc, "f(t")).unwrap();
     assert!(h.markdown.starts_with("```text\nf(t)"), "{}", h.markdown);
 }
@@ -119,9 +119,9 @@ fn local_indices_do_not_leak_through_includes_or_become_implicit_parameters() {
 #[test]
 fn completions_work_while_typing_a_summand_and_after_a_coefficient() {
     for doc in [
-        "#show: worksheet\n$a := sum_(k=0)^10 $",
-        "#show: worksheet\n$a := sum_(k=0)^10 (2 )$",
-        "#worksheet($a := sum_(k=0)^10 $)",
+        "#show: math\n$a := sum_(k=0)^10 $",
+        "#show: math\n$a := sum_(k=0)^10 (2 )$",
+        "#math($a := sum_(k=0)^10 $)",
     ] {
         let cursor = if doc.contains("(2 )") { at(doc, ")$") }
             else { at(doc, "$a") + "$a := sum_(k=0)^10 ".encode_utf16().count() as u32 };
@@ -132,7 +132,7 @@ fn completions_work_while_typing_a_summand_and_after_a_coefficient() {
 
 #[test]
 fn ode_and_optimization_locals_have_distinct_scopes_and_help() {
-    let doc="#import operations: odesolve, minimize as minimum\n#show: worksheet\n$y := 9$ $t := 2$ $x := 3$\n$a := odesolve(-y + t,y,t,y,t,4)$\n$b := minimum(x^2,x,x,10)$";
+    let doc="#import operations: odesolve, minimize as minimum\n#show: math\n$y := 9$ $t := 2$ $x := 3$\n$a := odesolve(-y + t,y,t,y,t,4)$\n$b := minimum(x^2,x,x,10)$";
     def(doc,"y + t","y,t,y");
     def(doc,"t,y,t,y","t,y,t,4");
     def(doc,"y,t,4","y := 9");

@@ -5,7 +5,7 @@
 #import "/tests/util.typ": expect, passes
 #import operations: *
 #set page(width: 18cm, height: auto)
-#show: worksheet.with(errors: "panic")
+#show: math.with(errors: "panic")
 $s_2(t) := sum_(k=0)^infinity sigma(t-k+3/4) ->$
 #passes()
 $sigma(t) := cases(0 & "if" t < 0, 1 & "otherwise")$
@@ -21,7 +21,7 @@ $"finite" := sum_(k=0)^3 k^2 =>$
 #passes() #expect("finite", 14)
 $"geometric" := sum_(k=0)^infinity (1/2)^k =>$
 #passes() #expect("geometric", 2)
-#calculate($a := sum_(k=0)^3 k^2 =>$)
+#math($a := sum_(k=0)^3 k^2 =>$)
 #passes() #expect("a", 14)
 
 // Two explicit conditions with the user's English label, then a named sum.

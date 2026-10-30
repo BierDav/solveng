@@ -6,7 +6,7 @@
 #import operations: *
 #import modifiers: simplify
 #set page(width: 18cm, height: auto)
-#show: worksheet.with(errors: "panic")
+#show: math.with(errors: "panic")
 $
   sigma(t) := cases(
     0 & "für" t < 0,

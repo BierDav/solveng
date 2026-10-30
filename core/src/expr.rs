@@ -1275,6 +1275,13 @@ fn simp_f(f: Func, a: Expr) -> Expr {
         }
     }
     if f == Func::Abs {
+        // |z^n| = |z|^n for integer n, including reciprocals (z != 0).
+        // Keep complex exponents inside: their magnitude also depends on arg(z).
+        if let Expr::Pow(base, exponent) = &a {
+            if exponent.as_num().is_some_and(|n| n.is_int()) {
+                return simp_pow(simp_f(Func::Abs, (**base).clone()), (**exponent).clone());
+            }
+        }
         if let Expr::C(v) = &a {
             return Expr::C(Val { v: v.v.abs(), ..v.clone() });
         }

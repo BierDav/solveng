@@ -4,7 +4,7 @@ use solveng_ide::*;
 
 fn at(doc: &str, needle: &str) -> u32 { doc[..doc.find(needle).unwrap()].encode_utf16().count() as u32 }
 
-const PREFIX: &str = "#show: worksheet\n";
+const PREFIX: &str = "#show: math\n";
 
 fn apply(marked: &str, label: &str) -> String {
     let caret = marked.find('|').unwrap();
@@ -31,7 +31,7 @@ fn inline_reference_completion_preserves_quotes_and_arguments() {
 
 #[test]
 fn inline_reference_tokens_color_only_string_contents_without_overlap() {
-    let doc = "#show: worksheet\n😅 $y := op(\"tri\")(x)$\n$z := 2 op(\"rect\")(x) + op( \"sgn\" )(x)$";
+    let doc = "#show: math\n😅 $y := op(\"tri\")(x)$\n$z := 2 op(\"rect\")(x) + op( \"sgn\" )(x)$";
     for tokens in [document_tokens(doc, &Context::default()), math_tokens(doc, &Context::default())] {
         for name in ["tri", "rect", "sgn"] {
             let start = at(doc, &format!("\"{name}\"")) + 1;
@@ -47,13 +47,13 @@ fn inline_reference_tokens_color_only_string_contents_without_overlap() {
 
 #[test]
 fn inline_operations_share_the_underlying_operation_hover() {
-    let doc = "#show: worksheet\n$y := op(\"tri\")(x)$";
+    let doc = "#show: math\n$y := op(\"tri\")(x)$";
     assert!(hover(doc, &Context::default(), at(doc, "tri")).unwrap().markdown.contains("Triangular pulse"));
 }
 
 #[test]
-fn reference_literals_do_not_resolve_worksheet_variables() {
-    let doc = "#show: worksheet\n$\"tri\" := 7$\n$y := op(\"tri\")(x)$";
+fn reference_literals_do_not_resolve_math_variables() {
+    let doc = "#show: math\n$\"tri\" := 7$\n$y := op(\"tri\")(x)$";
     let offset = at(doc, "op(\"tri") + 4;
     assert!(definition(doc, &Context::default(), offset).is_none());
     assert!(hover(doc, &Context::default(), offset).unwrap().markdown.contains("Triangular pulse"));
@@ -97,9 +97,9 @@ fn inline_references_collapse_to_their_name_and_share_an_editing_range() {
 #[test]
 fn declarations_and_incomplete_references_stay_expanded() {
     for doc in [
-        "#show: worksheet\n#let tri = math.op(\"tri\")\n#let pulse = operation(\"rect\")",
-        "#show: worksheet\n$y := op(\"tr",
-        "#show: worksheet\n$y := op(\"tri\"",
+        "#show: math\n#let tri = math.op(\"tri\")\n#let pulse = operation(\"rect\")",
+        "#show: math\n$y := op(\"tr",
+        "#show: math\n$y := op(\"tri\"",
     ] {
         assert_eq!(collapsed(doc), doc);
     }
@@ -109,7 +109,7 @@ fn declarations_and_incomplete_references_stay_expanded() {
 fn reference_display_does_not_depend_on_evaluation() {
     for document in [
         "$y := op(\"tri\")(x) + 1 $",
-        "#worksheet(evaluate: false)[$y := op(\"tri\")(x) + 1 $]",
+        "#math(evaluate: false)[$y := op(\"tri\")(x) + 1 $]",
     ] {
         assert_eq!(collapsed(document), document.replace("op(\"tri\")", "tri"));
     }

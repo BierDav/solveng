@@ -2,7 +2,7 @@
 #import units: ms, s, km
 #import operations: tri, rect, dirac, convolve, range
 #set page(width: 18cm, height: auto)
-#show: worksheet
+#show: math
 
 // range variables and elements, as Mathcad writes them
 $N := 200$, $Delta""t := 10 ms$
@@ -59,8 +59,8 @@ $q_1 := q[1] =>$
 #assert.eq(range(1, 7, step: 2), (1, 3, 5))
 
 // Explicit operator bindings work whatever their name; a quoted name is a worksheet function.
-#worksheet[
-  #let triangle = math.op("tri")
+#mathscope[
+  #let triangle = std.math.op("tri")
   $a := triangle(1/2) =>$
   #expect("a", 0.5)
   $c := "tri"(0) =>$
@@ -71,7 +71,7 @@ $q_1 := q[1] =>$
 ]
 
 // Inline explicit references, and units in both spacings.
-#worksheet[
+#mathscope[
   $x := 1/2$
   $a := op("tri")(x) =>$ #expect("a", 0.5)
   $b := 1#km =>$ #expect("b", 1000)

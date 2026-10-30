@@ -6,9 +6,11 @@ fn u16at(doc: &str, text: &str) -> u32 {
     doc[..doc.find(text).unwrap()].encode_utf16().count() as u32
 }
 
-/// The report's error for the element with source `element` (empty: passed to `worksheet`) in `doc` as compiled.
+/// The report's error for the element with source `element` (empty: passed to `math`) in `doc` as compiled.
 fn error(doc: &str, element: &str, source: &str, message: &str) -> ReportError {
-    let start = if element.is_empty() { 0 } else { u16at(doc, element) as usize };
+    let explicit = format!("${source}$");
+    let element = if element.is_empty() && doc.contains("#math(") && doc.contains(&explicit) { explicit.as_str() } else { element };
+    let start = if element.is_empty() { 0 } else { doc[..doc.rfind(element).unwrap()].encode_utf16().count() };
     let path = if element.is_empty() { "" } else { "main.typ" };
     ReportError { path: path.into(), start, end: start + element.encode_utf16().count(), text: element.into(), source: source.into(), message: message.into() }
 }
@@ -27,7 +29,7 @@ fn errors(doc: &str, context: &Context) -> Vec<(String, String)> {
         .collect()
 }
 
-const DOC: &str = "#import units: V, s, Ω\n#show: worksheet\n$U := 5 #V$\n$t := U + 2 #s =>$\n$R := 2 #Ω$ $x := R + U =>$\n#worksheet($z := q + 1 =>$)\n";
+const DOC: &str = "#import units: V, s, Ω\n#show: math\n$U := 5 #V$\n$t := U + 2 #s =>$\n$R := 2 #Ω$ $x := R + U =>$\n#math($z := q + 1 =>$)\n";
 
 fn reported() -> Context {
     context(vec![
@@ -68,12 +70,12 @@ fn follows_edits_and_drops_errors_of_edited_elements() {
             e.path = "other.typ".into();
         }
     }
-    assert_eq!(errors(DOC, &other).len(), 1);
+    assert_eq!(errors(DOC, &other).len(), 0);
 }
 
 #[test]
 fn places_errors_of_twin_elements_by_position() {
-    let doc = "#import units: V, s\n#show: worksheet\n$a := 1 #V + 1 #s =>$\ntext\n$a := 1 #V + 1 #s =>$\n";
+    let doc = "#import units: V, s\n#show: math\n$a := 1 #V + 1 #s =>$\ntext\n$a := 1 #V + 1 #s =>$\n";
     let second = doc.rfind("$a").unwrap();
     let start = doc[..second].encode_utf16().count();
     let err = ReportError { path: "main.typ".into(), start, end: start + 20, text: "$a := 1 #V + 1 #s =>$".into(), source: String::new(), message: "units".into() };
@@ -86,14 +88,14 @@ fn places_errors_of_twin_elements_by_position() {
 fn reads_errors_from_the_report_json() {
     let report = Report::parse(r#"{"blocks": 1, "errors": [{"path": "main.typ", "start": 17, "end": 27, "text": "$U := 5 X$", "message": "unknown unit X"}]}"#);
     assert_eq!(report.errors.len(), 1);
-    let doc = "#show: worksheet\n$U := 5 X$";
+    let doc = "#show: math\n$U := 5 X$";
     let context = Context::default().with_report(&report, "main.typ", true);
     assert_eq!(errors(doc, &context), vec![("U := 5 X".to_string(), "unknown unit X".to_string())]);
 }
 
 #[test]
 fn places_errors_in_math_arguments_without_coloring_unrelated_math() {
-    for function in ["value", "worksheet"] {
+    for function in ["value", "math"] {
         let doc = format!("$q + 1$\n#{function}($q + 1$)");
         let c = context(vec![error(&doc, "", "q + 1", "undefined q")]);
         let problems: Vec<_> = diagnostics(&doc, &c).into_iter().filter(|p| p.severity == "error").collect();
@@ -110,11 +112,11 @@ fn name_validation_errors_target_only_the_invalid_name() {
         let message = format!("'{invalid}' isn't allowed in a variable name; use spaces or operators between expressions");
         let expression = format!("y(x) := 1{name}");
         let element = format!("${expression}$");
-        let doc = format!("#show: worksheet\n😅\n{element}");
+        let doc = format!("#show: math\n😅\n{element}");
         let c = context(vec![error(&doc, &element, "", &message)]);
         assert_eq!(errors(&doc, &c), vec![(name.into(), message.clone())], "{doc}");
-        // passed to a worksheet: found by its statement
-        let doc = format!("😅 #worksheet(${expression}$)");
+        // passed to a math: found by its statement
+        let doc = format!("😅 #math(${expression}$)");
         let c = context(vec![error(&doc, "", &expression, &message)]);
         assert_eq!(errors(&doc, &c), vec![(name.to_string(), message)]);
     }

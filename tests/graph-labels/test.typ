@@ -4,7 +4,7 @@
 #import operations: rect, tri
 #import units: ms, V
 #set page(width: 18cm, height: auto)
-#show: worksheet.with(errors: "panic")
+#show: math.with(errors: "panic")
 
 $f(t) := rect(t) + tri(t)$
 $q(t: ms) := t / (1 ms) * 1 #V$
@@ -12,7 +12,7 @@ $q(t: ms) := t / (1 ms) * 1 #V$
 // Labels must identify themselves as generated equations even when measured away
 // from graph's state updates, as happens inside HTML layout adapters.
 #let labels-only(body) = {
-  show math.equation: it => {
+  show std.math.equation: it => {
     assert(_own(it), message: "graph label can be evaluated as worksheet math: " + repr(it))
     it
   }

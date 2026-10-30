@@ -44,7 +44,7 @@ const SOLVENG: &str = "#import \"@preview/solveng:1.0.0\": *\n";
 
 #[test]
 fn highlights_values_units_and_variables() {
-    let ws = "#import units: h, mA, m, s, kΩ\n#import modifiers: solve, digits, sci\n#show: worksheet\n";
+    let ws = "#import units: h, mA, m, s, kΩ\n#import modifiers: solve, digits, sci\n#show: math\n";
     let found = tokens_of(&format!("{ws}$t := Q0 / (2 I) => #h$"));
     assert_eq!(
         found,
@@ -77,7 +77,7 @@ fn highlights_values_units_and_variables() {
 
 #[test]
 fn highlights_bindings_and_functions() {
-    let ws = "#import units: V\n#import constants: pi\n#show: worksheet\n";
+    let ws = "#import units: V\n#import constants: pi\n#show: math\n";
     assert_eq!(
         tokens_of(&format!("{ws}$P = 5 #V I sqrt(R) 2 pi f$")),
         vec![
@@ -88,7 +88,7 @@ fn highlights_bindings_and_functions() {
     );
     // A letter after a number is a variable: units are bindings.
     assert_eq!(
-        tokens_of("#import units: V\n#show: worksheet\n$y = 2 V$"),
+        tokens_of("#import units: V\n#show: math\n$y = 2 V$"),
         vec![t("y", TokenKind::VARIABLE), t("=", TokenKind::OPERATOR), t("2", TokenKind::NUMBER), t("V", TokenKind::VARIABLE)]
     );
 }
@@ -107,7 +107,7 @@ fn knows_units_with_prefixes_and_spellings() {
 #[test]
 fn solveng_code_blocks_are_raw_text() {
     // Raw text is never calculated, whatever its language, nor is math inside it.
-    for doc in ["#show: worksheet\n```solveng\nx := 1\n```", "#show: worksheet\n`$x := 1$`", "#show: worksheet\n```py\nx = 1\n```"] {
+    for doc in ["#show: math\n```solveng\nx := 1\n```", "#show: math\n`$x := 1$`", "#show: math\n```py\nx = 1\n```"] {
         assert!(document_tokens(doc, &ctx("")).is_empty(), "{doc}");
         assert!(regions(doc, &ctx("")).is_empty(), "{doc}");
         assert!(complete(doc, &ctx(""), units16(doc).len() as u32 - 5).is_none(), "{doc}");
@@ -117,46 +117,46 @@ fn solveng_code_blocks_are_raw_text() {
 #[test]
 fn reads_whether_math_is_evaluated() {
     assert!(!evaluates("$x = 1$", &ctx("")));
-    assert!(evaluates("#show: worksheet", &ctx("")));
-    // No worksheet around the math: nothing is evaluated, however the document is set up.
+    assert!(evaluates("#show: math", &ctx("")));
+    // No math around the math: nothing is evaluated, however the document is set up.
     let plain = "#import \"@solveng/solveng:1.0.0\": *\n\n$R := 5cm$\n";
     assert!(!evaluates(plain, &ctx("")));
     assert!(math_tokens(plain, &ctx("")).is_empty());
     assert!(document_tokens(plain, &ctx("")).is_empty());
     // Worksheet content defaults to evaluated; only its own `evaluate: false` turns that off. Math outside every
-    // worksheet stays as written, also before a worksheet further down.
-    let doc = "#worksheet[$a := 1$ #worksheet(evaluate: false)[$b := 2$ #worksheet[$c := 3$] #worksheet($d := 4$)] $e := 5$]";
+    // math stays as written, also before a math further down.
+    let doc = "#mathscope[$a := 1$ #math(evaluate: false)[$b := 2$ #mathscope[$c := 3$] #math($d := 4$)] $e := 5$]";
     assert!(!math_tokens(doc, &ctx("")).is_empty());
     let coloured = |doc: &str, needle: &str| {
         let at = doc[..doc.find(needle).unwrap()].encode_utf16().count() as u32;
         math_tokens(doc, &ctx("")).iter().any(|t| t.start <= at && at < t.start + t.length)
     };
-    assert!(coloured(doc, "a := 1") && coloured(doc, "c := 3") && coloured(doc, "d := 4") && coloured(doc, "e := 5"));
+    assert!(coloured(doc, "a := 1") && !coloured(doc, "c := 3") && !coloured(doc, "d := 4") && coloured(doc, "e := 5"));
     assert!(!coloured(doc, "b := 2"));
-    let around = "$o := 1$\n#worksheet[$i := 2$]\n$p := 3$\n#show: worksheet\n$q := 4$\n";
+    let around = "$o := 1$\n#mathscope[$i := 2$]\n$p := 3$\n#show: math\n$q := 4$\n";
     assert!(!coloured(around, "o := 1") && coloured(around, "i := 2"));
     assert!(!coloured(around, "p := 3") && coloured(around, "q := 4"));
     // also for the rest of the block after a show rule
-    let shown = "#show: worksheet.with(evaluate: false)\n$x := 1$";
+    let shown = "#show: math.with(evaluate: false)\n$x := 1$";
     assert!(math_tokens(shown, &ctx("")).is_empty());
 }
 
 #[test]
-fn follows_worksheet_aliases() {
+fn follows_math_aliases() {
     let coloured = |doc: &str, needle: &str| {
         let at = doc[..doc.find(needle).unwrap()].encode_utf16().count() as u32;
         math_tokens(doc, &ctx("")).iter().any(|t| t.start <= at && at < t.start + t.length)
     };
-    // `#let setup = worksheet…` wraps like the worksheet itself, with its options.
-    let doc = "#let setup = worksheet.with(evaluate: false)\n#show: setup\n$a := 1$";
+    // `#let setup = math…` wraps like the math itself, with its options.
+    let doc = "#let setup = math.with(evaluate: false)\n#show: setup\n$a := 1$";
     assert!(!coloured(doc, "a := 1"));
-    let doc = "#let setup = worksheet.with(evaluate: false)\n#show: setup.with(evaluate: true)\n$a := 1$";
+    let doc = "#let setup = math.with(evaluate: false)\n#show: setup.with(evaluate: true)\n$a := 1$";
     assert!(coloured(doc, "a := 1"));
-    let doc = "#let setup = worksheet\n#show: setup\n$a := 1$";
+    let doc = "#let setup = math\n#show: setup\n$a := 1$";
     assert!(coloured(doc, "a := 1"));
     // An alias imported from a file around, also renamed on the way.
     let files = vec![
-        ContextFile { path: "defaults.typ".into(), text: "#let setup = worksheet.with(evaluate: false)\n#let plain = setup".into() },
+        ContextFile { path: "defaults.typ".into(), text: "#let setup = math.with(evaluate: false)\n#let plain = setup".into() },
         ContextFile { path: "more.typ".into(), text: "#import \"defaults.typ\": plain as wrap".into() },
     ];
     let context = Context::new("").with_files(files).with_report(&Report::default(), "main.typ", true);
@@ -167,7 +167,7 @@ fn follows_worksheet_aliases() {
 }
 
 #[test]
-fn only_a_worksheet_that_includes_a_file_evaluates_it() {
+fn only_a_math_that_includes_a_file_evaluates_it() {
     let chapter = "$I := U / 2$\n";
     let context = |main: &str| {
         Context::new("")
@@ -176,30 +176,30 @@ fn only_a_worksheet_that_includes_a_file_evaluates_it() {
             .with_main("main.typ")
     };
     let coloured = |main: &str| math_tokens(chapter, &context(main)).iter().any(|t| t.start == 1);
-    // The wrapping worksheet in main counts for what it includes.
-    assert!(coloured("#show: worksheet\n#include \"chapters/one.typ\"\n"));
-    assert!(coloured("#worksheet[\n#include \"chapters/one.typ\"\n]\n"));
+    // The wrapping math in main counts for what it includes.
+    assert!(coloured("#show: math\n#include \"chapters/one.typ\"\n"));
+    assert!(coloured("#mathscope[\n#include \"chapters/one.typ\"\n]\n"));
     // Before it, after it, or not included at all, the chapter stays as written.
-    assert!(!coloured("#include \"chapters/one.typ\"\n#show: worksheet\n"));
-    assert!(!coloured("#worksheet(evaluate: false)[\n#include \"chapters/one.typ\"\n]\n"));
-    assert!(!coloured("#worksheet[\n$U := 5$\n]\n#include \"chapters/one.typ\"\n"));
-    assert!(!coloured("#show: worksheet\n$U := 5$\n"));
+    assert!(!coloured("#include \"chapters/one.typ\"\n#show: math\n"));
+    assert!(!coloured("#math(evaluate: false)[\n#include \"chapters/one.typ\"\n]\n"));
+    assert!(!coloured("#mathscope[\n$U := 5$\n]\n#include \"chapters/one.typ\"\n"));
+    assert!(!coloured("#show: math\n$U := 5$\n"));
 }
 
 #[test]
-fn reads_only_equations_passed_to_a_worksheet() {
-    // Code passed to `worksheet` isn't calculated: its arguments are solveng's, its raw text isn't.
-    let doc = "#worksheet(```\nt := 2\n```)";
+fn reads_only_equations_passed_to_a_math() {
+    // Code passed to `math` isn't calculated: its arguments are solveng's, its raw text isn't.
+    let doc = "#math(```\nt := 2\n```)";
     let kinds: Vec<_> = regions(doc, &ctx("")).iter().map(|r| r.kind).collect();
     assert_eq!(kinds, ["call"]);
     assert!(document_tokens(doc, &ctx("")).is_empty());
-    let doc = "#worksheet($t := 2$)";
+    let doc = "#math($t := 2$)";
     assert!(regions(doc, &ctx("")).iter().any(|r| r.kind == "math"));
 }
 
 #[test]
 fn completes_definitions_from_the_whole_document() {
-    let doc = "#import units: kΩ, mA\n#show: worksheet\n#worksheet($R := 7.2 kΩ$, $f(x) := x^2 + 1$)\nThe load draws $I := 30 mA$ and $Q_0/2 = I t$.\n$P := 5 I$\n$U := |$";
+    let doc = "#import units: kΩ, mA\n#show: math\n#math($R := 7.2 kΩ$, $f(x) := x^2 + 1$)\nThe load draws $I := 30 mA$ and $Q_0/2 = I t$.\n$P := 5 I$\n$U := |$";
     let c = complete_at(doc).unwrap();
     let get = |l: &str| c.items.iter().find(|i| name(&i.label) == l).unwrap();
     assert_eq!(get("I").detail, "= 30 mA");
@@ -213,7 +213,7 @@ fn completes_definitions_from_the_whole_document() {
 
 #[test]
 fn completes_units_where_a_value_is_written() {
-    let ws = format!("{SOLVENG}#import units: mA\n#let bar = unit($100 kPa$)\n#show: worksheet\n");
+    let ws = format!("{SOLVENG}#import units: mA\n#let bar = unit($100 kPa$)\n#show: math\n");
     let units = labels(&format!("{ws}$I := 30 m|$"));
     assert!(units.contains(&"mA".into()) && units.contains(&"kΩ".into()) && units.contains(&"h".into()) && units.contains(&"bar".into()));
     // after a # only units and constants, the # kept
@@ -229,7 +229,7 @@ fn completes_units_where_a_value_is_written() {
 
 #[test]
 fn completes_clauses() {
-    let ws = format!("{SOLVENG}#import units: h, min\n#show: worksheet\n");
+    let ws = format!("{SOLVENG}#import units: h, min\n#show: math\n");
     let after = labels(&format!("{ws}$P := U I = |$"));
     assert!(after.contains(&"mW".into()) && after.contains(&"digits".into()) && after.contains(&"solve".into()));
     assert!(labels(&format!("{ws}$t = #h, d|$")).contains(&"digits".into()));
@@ -264,26 +264,26 @@ fn completes_clauses() {
 fn only_in_calculated_math() {
     assert!(complete_at("```py\nx = |\n```").is_none());
     assert!(complete_at("text `x = |`").is_none());
-    assert!(complete_at("#show: worksheet\ntext `x = |`").is_none());
-    assert!(complete_at("#show: worksheet\n```solveng\nx := |\n```").is_none());
+    assert!(complete_at("#show: math\ntext `x = |`").is_none());
+    assert!(complete_at("#show: math\n```solveng\nx := |\n```").is_none());
     // no language tags: raw text is Typst's
     assert!(complete_at("text\n```sol|").is_none());
 }
 
 #[test]
 fn completes_in_math() {
-    let units = complete_at("#import units: mA, h\n#show: worksheet\n$t_\"half\" := 3 #h$ and $I := 30 m|$").unwrap();
+    let units = complete_at("#import units: mA, h\n#show: math\n$t_\"half\" := 3 #h$ and $I := 30 m|$").unwrap();
     assert!(units.items.iter().any(|i| i.label == "mA"));
-    let names = complete_at("#show: worksheet\n$t_\"half\" := 3$ $x := t|$").unwrap();
+    let names = complete_at("#show: math\n$t_\"half\" := 3$ $x := t|$").unwrap();
     assert!(!names.exclusive);
     assert_eq!(names.items.iter().find(|i| name(&i.label) == "t_half").unwrap().insert, "t_\"half\"");
-    // Without a worksheet math is Typst's.
+    // Without a math math is Typst's.
     assert!(complete_at("#import units: mA\n$x = 3 m|$").is_none());
 }
 
 #[test]
 fn colors_math_with_its_bindings() {
-    let doc = "#import units: mA, A\n#show: worksheet\n$I := 30 mA dot R_\"load\" + sqrt(x) => 1 #A$";
+    let doc = "#import units: mA, A\n#show: math\n$I := 30 mA dot R_\"load\" + sqrt(x) => 1 #A$";
     assert_eq!(
         tokens_of(doc),
         vec![
@@ -293,11 +293,11 @@ fn colors_math_with_its_bindings() {
         ]
     );
     // a letter alone after = is a variable: t = A compares
-    assert_eq!(tokens_of("#import units: A\n#show: worksheet\n$t = A$"), vec![t("t", TokenKind::VARIABLE), t("=", TokenKind::OPERATOR), t("A", TokenKind::VARIABLE)]);
+    assert_eq!(tokens_of("#import units: A\n#show: math\n$t = A$"), vec![t("t", TokenKind::VARIABLE), t("=", TokenKind::OPERATOR), t("A", TokenKind::VARIABLE)]);
     // quoted text is a variable even where it spells a unit; bindings are units
-    let found = tokens_of("#import units: kΩ, A\n#show: worksheet\n$x := U #A + \"kΩ\" + kΩ$");
+    let found = tokens_of("#import units: kΩ, A\n#show: math\n$x := U #A + \"kΩ\" + kΩ$");
     assert!(found.contains(&t("\"kΩ\"", TokenKind::VARIABLE)) && found.contains(&t("kΩ", TokenKind::UNIT)) && found.contains(&t("A", TokenKind::UNIT)), "{found:?}");
-    assert!(math_tokens("#worksheet(evaluate: false)[$x = 1$]", &ctx("")).is_empty());
+    assert!(math_tokens("#math(evaluate: false)[$x = 1$]", &ctx("")).is_empty());
 }
 
 #[test]
@@ -307,7 +307,7 @@ fn reads_the_files_around() {
         vec!["defaults.typ", "ch/1.typ"]
     );
     // A chapter of a main file that sets everything up.
-    let main = ctx("#show: worksheet\n$U := 5$");
+    let main = ctx("#show: math\n$U := 5$");
     assert!(evaluates("text", &main));
     let chapter = "$P := U |$";
     let c = complete(&chapter.replace('|', ""), &main, chapter.find('|').unwrap() as u32).unwrap();
@@ -334,7 +334,7 @@ fn trusts_the_compilers_report() {
     assert_eq!(compiled_evaluate(r#"{"blocks":1,"elements":[]}"#, "main.typ", true), 0);
     // Without reports (an older solveng) the settings decide.
     assert_eq!(compiled_evaluate(r#"{"blocks":0,"elements":[]}"#, "main.typ", true), -1);
-    let context = ctx(&with_compiled("#show: worksheet", 0));
+    let context = ctx(&with_compiled("#show: math", 0));
     assert!(!evaluates("text $x = 1$", &context));
     assert!(math_tokens("$x = 1$", &context).is_empty());
     assert_eq!(with_compiled("ctx", -1), "ctx");

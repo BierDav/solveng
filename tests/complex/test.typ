@@ -7,10 +7,10 @@
 #import operations: Re, Im, conj
 #import modifiers: solve, substitute, assume, steps
 #set page(width: 18cm, height: auto)
-#show: worksheet
+#show: math
 
 // i arithmetic
-#worksheet[
+#mathscope[
   $sqrt(-4) + #i =>$ #passes() #result("\"3\" i")
   $#i^2 =>$ #result("\"−1\"")
   $#i^2 ->$ #result("\"−1\"")
@@ -39,7 +39,7 @@
 ]
 
 // Real projection is linear even while the signals are still undefined.
-#worksheet[
+#mathscope[
   $a := 2$, $b := -3$
   $x(t) := a s_a(t) + b s_b(t)$
   $y_1(t) := Re(x(t))$
@@ -51,7 +51,7 @@
 ]
 
 // Sufficient real-domain conditions and assumptions local to one result.
-#worksheet[
+#mathscope[
   $x(t) := a s_a(t) + b s_b(t)$
   $y_1(t) := Re(x(t))$
   $y_2(t) := a Re(s_a(t)) + b Re(s_b(t))$
@@ -63,7 +63,7 @@
 ]
 
 // with units: an impedance
-#worksheet[
+#mathscope[
   $Z := 100 #Ω + #i 2 pi 50 Hz 10 mH =>$ #passes() #result("lr((\"100\" + \"3.142\" i)) thin Ω")
   $R := Re(Z) =>$ #expect("R", 100, u: "Ω")
   $X := Im(Z) =>$ #expect("X", calc.pi, u: "Ω")
@@ -75,30 +75,30 @@
 ]
 
 // solving: in the complex numbers
-#worksheet[
+#mathscope[
   $w^2 = -#i -> solve(w)$ #passes() #result("w_(1) = \"−0.7071\" + \"0.7071\" i, quad w_(2) = \"0.7071\" - \"0.7071\" i")
   $p^2 + 1 = 0 -> solve(p)$ #result("p_(1) = -i, quad p_(2) = i")
 ]
 
 // values are complex, also without i written; complex numbers have no order
-#worksheet(errors: "document")[
+#mathscope[#math(errors: "document")[
   $sqrt(-4) =>$ #passes() #result("\"2\" i")
   $sqrt(-4) ->$ #result("\"2\" i")
   $ln(-1) ->$ #result("i dot pi")
   $(-8)^(1/3) =>$ #result("\"−2\"")
   $#i < 1 =>$ #fails("complex numbers have no order")
-]
+]]
 
 // the option constants shows an identity differently, in that worksheet only
-#worksheet[
-  #worksheet(constant-displays: (imaginary: $j$))[
+#mathscope[
+  #mathscope[#math(constant-displays: (imaginary: $j$))[
     $a := 2 #i =>$ #passes() #result("\"2\" i")
     #context {
       assert.eq(_constant-display("imaginary", none), $j$)
       let shown = repr(_m(_st.get().at("last").result, _cf.get()))
       assert(shown.contains("[j]") and not shown.contains("[i]"), message: shown)
     }
-  ]
+  ]]
   $b := 2 #i =>$ #result("\"2\" i")
   #context {
     assert.eq(_constant-display("imaginary", none), $i$)
@@ -108,7 +108,7 @@
 ]
 
 // built-in constants and constants of your own
-#worksheet[
+#mathscope[
   $"circle" := 2 pi =>$ #expect("circle", 2 * calc.pi)
   $"lightspeed" := #c =>$ #expect("lightspeed", 299792458, u: "Mm/s")
   // constants stay symbolic until substitute puts their expressions in
@@ -124,9 +124,9 @@
   $F := 2 kg dot g0 =>$ #expect("F", 2 * 9.80665)
   $g0 -> substitute(g0)$ #result("\"9.80665\" thin m\\/s^(2)")
   $2 kg dot g0 -> substitute(g0)$ #result("\"19.61\" thin N")
-  #worksheet(constant-displays: ("standard-gravity": $g_0$))[
+  #mathscope[#math(constant-displays: ("standard-gravity": $g_0$))[
     #context assert.eq(_constant-display("standard-gravity", none), $g_0$)
-  ]
+  ]]
   #context assert.eq(_constant-display("standard-gravity", none), none)
   // a constant of a known identity, under another name
   #let j = constant("imaginary", $sqrt(-1)$)

@@ -12,7 +12,7 @@
 ///
 /// ```typ
 /// #import operations: tri, sgn
-/// #show: worksheet
+/// #show: math
 /// $f(t) := tri(t) sgn(t)$, $f(1/2) =>$
 /// ```
 
@@ -25,9 +25,9 @@
 /// without the import, `$at(v, 0)$` is Typst's symbol @. Typst's own math names (`sin`, `sqrt`, `abs`, `arg`,
 /// `vec`, …) need no import. A worksheet's own functions take precedence over imported names.
 ///
-/// Explicit references select the underlying operation under a name of your choice: `#let triangle = math.op("tri")`,
-/// then `$triangle(x)$`, or directly `$op("tri")(x)$`. Typst's native operation content, such as `math.sin`, is
-/// also an explicit reference. The editor completes the operation's name inside `math.op` and highlights the
+/// Explicit references select the underlying operation under a name of your choice: `#let triangle = std.math.op("tri")`,
+/// then `$triangle(x)$`, or directly `$op("tri")(x)$`. Typst's native operation content, such as `std.math.sin`, is
+/// also an explicit reference. The editor completes the operation's name inside `std.math.op` and highlights the
 /// string and its binding's uses in evaluated worksheets. Quoted names such as `$"tri"(x)$` call worksheet
 /// functions only; they never select built-in operations.
 ///
@@ -37,9 +37,9 @@
 ///
 /// ```typ
 /// #import "@preview/solveng:2.0.0": *
-/// #show: worksheet
-/// #let triangle = math.op("tri")
-/// #let conv = operation("convolve", display: () => math.op("conv"))
+/// #show: math
+/// #let triangle = std.math.op("tri")
+/// #let conv = operation("convolve", display: () => std.math.op("conv"))
 /// $a := triangle(1/2) =>$
 /// $y := conv(vec(1, 2), vec(1, 1), step: 2) =>$
 /// ```
@@ -69,7 +69,7 @@
 /// ```typ
 /// #import "@preview/solveng:2.0.0": *
 /// #import units: m
-/// #show: worksheet
+/// #show: math
 /// $a := sqrt(9 #m^2) =>$
 /// $b := sum_(k=0)^3 k^2 =>$
 /// $c := cases(0 & b < 0, b & "otherwise") =>$
