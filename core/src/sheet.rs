@@ -14,7 +14,7 @@ use crate::dim::Dim;
 use crate::env::{Env, Fun, Kind, Lower, Var};
 use crate::eval::{NoValue, complex_value, dim_of, value};
 use crate::complex::CVal;
-use crate::expr::{self, Expr, Val, simp};
+use crate::expr::{self, Expr, Func, Val, simp};
 use crate::format::{self, Cfg, name, pick, shown};
 use crate::linalg::{self, Array};
 use crate::num::{Num, close};
@@ -315,6 +315,7 @@ impl<'a> Sheet<'a> {
             }
             Some(Trail::Sym) => {
                 let m = self.sym_markup(shown.as_ref().unwrap_or(&stored), unit.as_ref(), cfg)?;
+                let m = if unit.is_none() { self.with_real_path(shown.as_ref().unwrap_or(&stored), m, cfg) } else { m };
                 self.show("->", m);
             }
             None => {}
@@ -470,6 +471,7 @@ impl<'a> Sheet<'a> {
         if sym {
             let shown = match shown { Some(e) => self.shaped(&e, cfg)?, None => body.clone() };
             let m = self.r(cfg, true).expr(&shown).0;
+            let m = self.with_real_path(&shown, m, cfg);
             self.show("->", m);
         }
         Ok(())
@@ -709,7 +711,9 @@ impl<'a> Sheet<'a> {
                 if clause.steps {
                     steps.push(r.expr(&simp(e)).0);
                 }
-                steps.push(self.sym_markup(e, clause.unit.as_ref(), cfg)?);
+                let m = self.sym_markup(e, clause.unit.as_ref(), cfg)?;
+                let m = if names.is_empty() && clause.unit.is_none() && !clause.steps { self.with_real_path(e, m, cfg) } else { m };
+                steps.push(m);
                 (steps, if matches!(e, Expr::Cmp(..)) { "<=>" } else { "=" })
             }
         };
@@ -722,6 +726,28 @@ impl<'a> Sheet<'a> {
         }
         // in a block a line each, aligned; inline in a row
         Ok(if cfg.block { format!("& {}", steps.join(&format!(" \\ & {joint} "))) } else { steps.join(&format!(" {joint} ")) })
+    }
+
+    /// A symbolic result keeps every unknown complex. Where magnitudes and complex parts become simpler for real
+    /// unknowns, the real result follows with the fewest real names it needs: `abs(1 + e^(i x))^2 = 2 cos(x) + 2 for
+    /// x ∈ ℝ`. `-> assume(x in RR)` asks for the real result alone.
+    fn with_real_path(&self, e: &Expr, m: String, cfg: &Cfg) -> String {
+        let projection = |x: &Expr| matches!(x, Expr::F(Func::Abs | Func::Re | Func::Im | Func::Conj, _));
+        if matches!(e, Expr::Cmp(..)) || !e.contains(&projection) || e.contains(&linalg::is_array) || e.size() > 512 { return m; }
+        let Ok(general) = self.shaped(e, cfg) else { return m };
+        let mut names: BTreeSet<String> = general.syms().into_iter()
+            .filter(|n| !self.env.vars.contains_key(n) && !self.env.funs.contains_key(n)).collect();
+        if names.is_empty() || names.len() > 16 { return m; }
+        let real = |names: &BTreeSet<String>| self.shaped(&crate::complex::assuming_real(&general, names), cfg).ok();
+        let Some(target) = real(&names) else { return m };
+        if target == general || target.size() >= general.size() { return m; }
+        for n in names.clone() {
+            names.remove(&n);
+            if real(&names).as_ref() != Some(&target) { names.insert(n); }
+        }
+        let r = self.r(cfg, true);
+        let condition = names.iter().map(|n| format!("{} in RR", name(n))).collect::<Vec<_>>().join(" and ");
+        format!("{m} = {} quad \"for\" {condition}", r.expr(&target).0)
     }
 
     /// The result after the equation as written: = or -> and the markup.

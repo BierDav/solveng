@@ -198,9 +198,20 @@ pub(crate) fn compact(e: &Expr) -> Expr {
         let sine = simp(&func(Func::Sin, (**a).clone()));
         if sine.is_zero() && crate::identity::nonzero(a) { return int(0); }
     }
-    // Even cardinal/cosine functions have a canonical argument sign.
-    if let Expr::F(f @ (Func::Sinc | Func::Cos | Func::Cosh), a) = e {
-        if expr::strip_coef(a).0.v.is_neg() { return simp(&func(*f, simp(&neg((**a).clone())))); }
+    // Even and odd functions have a canonical argument sign: cos(-x) = cos(x), sin(-x) = -sin(x),
+    // δ(-x) = δ(x). A real numeric scale leaves an impulse with its reciprocal magnitude: δ(2x) = δ(x)/2.
+    if let Expr::F(f @ (Func::Sinc | Func::Cos | Func::Cosh | Func::Sin | Func::Sinh | Func::Tan | Func::Tanh), a) = e {
+        if expr::strip_coef(a).0.v.is_neg() {
+            let even = simp(&func(*f, simp(&neg((**a).clone()))));
+            return if matches!(f, Func::Sinc | Func::Cos | Func::Cosh) { even } else { simp(&neg(even)) };
+        }
+    }
+    if let Expr::F(Func::Dirac, a) = e {
+        if let Some(scale) = impulse_scale(a) {
+            let terms = match &**a { Expr::Add(ts) => ts.clone(), a => vec![a.clone()] };
+            let inner = simp(&add(terms.into_iter().map(|t| simp(&div(t, Expr::C(scale.clone())))).collect()));
+            return simp(&div(func(Func::Dirac, inner), Expr::C(Val { v: scale.v.abs(), ..scale })));
+        }
     }
     let Expr::Add(ts) = e else { return e.clone() };
     if ts.len() > 128 { return e.clone(); }
@@ -231,6 +242,81 @@ pub(crate) fn compact(e: &Expr) -> Expr {
     fs.extend(f.den.into_iter().map(|(b, n)| pow(b, int(-(n as i128)))));
     let factored = simp(&mul(fs));
     if factored.size() < paired.size() { factored } else { paired }
+}
+
+/// The exact, unitless, real numeric content of an impulse argument that is not already 1:
+/// the gcd of the term coefficients, signed like a term that leads, or every term, being negative.
+fn impulse_scale(a: &Expr) -> Option<Val> {
+    use crate::num::Rat;
+    let terms = match a { Expr::Add(ts) => ts.as_slice(), a => std::slice::from_ref(a) };
+    let mut coefficients = vec![];
+    for t in terms {
+        let (c, _) = expr::strip_coef(t);
+        if !c.d.is_one() { return None; }
+        let Num::R(r) = c.v else { return None };
+        if r.is_zero() { return None; }
+        coefficients.push(r);
+    }
+    let gcd = |mut a: i128, mut b: i128| { while b != 0 { (a, b) = (b, a % b); } a.abs() };
+    let numerator = coefficients.iter().fold(0, |g, r| gcd(g, r.numer()));
+    let denominator = coefficients.iter().fold(1, |l: i128, r| l / gcd(l, r.denom()) * r.denom());
+    let negative = coefficients.iter().all(|r| r.is_neg());
+    let content = Rat::new(if negative { -numerator } else { numerator }, denominator)?;
+    (content != Rat::ONE).then(|| Val::num(Num::R(content)))
+}
+
+/// sin² = 1 − cos² and sinh² = cosh² − 1, as candidates for a polynomial in those functions.
+pub(crate) fn pythagorean(e: &Expr) -> Vec<Expr> {
+    if e.size() > 256 { return vec![]; }
+    let square = |f: Func| move |x: &Expr| matches!(x, Expr::Pow(b, n) if matches!(&**b, Expr::F(g, _) if *g == f)
+        && n.as_num().and_then(|n| n.as_int()).is_some_and(|n| (2..=8).contains(&n)));
+    let mut out = vec![];
+    for (from, to, sign) in [(Func::Sin, Func::Cos, -1), (Func::Cos, Func::Sin, -1), (Func::Sinh, Func::Cosh, 1), (Func::Cosh, Func::Sinh, -1)] {
+        if !e.contains(&square(from)) || !e.contains(&|x| matches!(x, Expr::F(g, _) if *g == to)) { continue; }
+        // f² = sign·(1 − g²) ... written for each pair: sin² = 1 − cos², cos² = 1 − sin², sinh² = cosh² − 1, cosh² = 1 + sinh²
+        fn rewrite(x: &Expr, from: Func, to: Func, sign: i128) -> Expr {
+            let x = x.map(&mut |c| rewrite(c, from, to, sign));
+            if let Expr::Pow(b, n) = &x {
+                if let (Expr::F(f, u), Some(k)) = (&**b, n.as_num().and_then(|n| n.as_int())) {
+                    if *f == from && (2..=8).contains(&k) {
+                        let other = pow(func(to, (**u).clone()), int(2));
+                        let replaced = if from == Func::Sinh { sub(other, int(1)) }
+                            else if from == Func::Cosh { add(vec![int(1), other]) }
+                            else { add(vec![int(1), mul(vec![int(sign), other])]) };
+                        return mul(vec![pow(func(*f, (**u).clone()), int((k % 2) as i128)), pow(replaced, int((k / 2) as i128))]);
+                    }
+                }
+            }
+            x
+        }
+        let candidate = expr::expand(&simp(&rewrite(e, from, to, sign)));
+        if candidate.size() <= 4 * e.size() { out.push(candidate); }
+    }
+    out
+}
+
+/// k(1 + cos u) = 2k cos²(u/2), k(1 − cos u) = 2k sin²(u/2), k(cosh u + 1) = 2k cosh²(u/2),
+/// k(cosh u − 1) = 2k sinh²(u/2): kept when the half-angle square is no larger.
+pub(crate) fn half_angle(e: &Expr) -> Option<Expr> {
+    let Expr::Add(ts) = e else { return None };
+    let [a, b] = ts.as_slice() else { return None };
+    for (k, t) in [(a, b), (b, a)] {
+        let ratio = simp(&div(t.clone(), k.clone()));
+        let (c, f) = expr::strip_coef(&ratio);
+        let Some(Expr::F(f @ (Func::Cos | Func::Cosh), u)) = f else { continue };
+        let plus = c == Val::int(1);
+        if !plus && c != Val::int(-1) { continue; }
+        let half = simp(&mul(vec![rat(1, 2), (*u).clone()]));
+        let (g, sign) = match (f, plus) {
+            (Func::Cos, true) => (Func::Cos, 1),
+            (Func::Cos, false) => (Func::Sin, 1),
+            (_, true) => (Func::Cosh, 1),
+            (_, false) => (Func::Sinh, -1),
+        };
+        let candidate = simp(&mul(vec![int(2 * sign), k.clone(), pow(compact(&func(g, half)), int(2))]));
+        if candidate.size() <= e.size() { return Some(candidate); }
+    }
+    None
 }
 
 /// A guarded quotient can become an entire cardinal function only when its exceptional

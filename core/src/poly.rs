@@ -616,8 +616,15 @@ pub fn shaped(e: &Expr, form: Form) -> Option<Expr> {
 }
 
 /// The simplest of the forms solveng knows: as it is (canonical), with fractions cancelled, multiplied out.
+/// A whole result that is k(1 ± cos u) shows as a square of the half angle where that is no larger; parts of it are
+/// left for the identities of the whole (1 − cos 2x stays inside abs(1 − e^(2ix))^2 until sin² + cos² = 1 applies).
 pub fn simplify(e: &Expr) -> Expr {
-    let a = crate::spectral::compact(&simp(&e.map(&mut simplify)));
+    let s = simplest(e);
+    crate::spectral::half_angle(&s).unwrap_or(s)
+}
+
+fn simplest(e: &Expr) -> Expr {
+    let a = crate::spectral::compact(&simp(&e.map(&mut simplest)));
     // arrays are simplified element by element (above); as polynomial atoms they would commute
     if a.contains(&crate::linalg::is_array) {
         return a;
@@ -638,7 +645,9 @@ pub fn simplify(e: &Expr) -> Expr {
         // a cancelled fraction with its numerator factored again: 2x + 2 over 4 → (x + 1)/2
         cands.push(simp(&expr::expand(&b)));
     }
-    cands.push(expr::expand(&a));
+    let expanded = expr::expand(&a);
+    cands.extend(crate::spectral::pythagorean(&expanded));
+    cands.push(expanded);
     for c in cands {
         if c.size() < best.size() {
             best = c;

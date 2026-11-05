@@ -72,7 +72,8 @@ fn distributional(f: &Expr, g: &Expr, var: &str, at: &Expr) -> Expr {
         if let Some((position, weight)) = impulse(operand, var) {
             // An unsupported distribution must not be sampled at a point either.
             if has_dirac(other) && impulse(other, var).is_none() { continue; }
-            return simp(&mul(vec![weight, other.subst(var, &sub(at.clone(), position))]));
+            let sifted = simp(&mul(vec![weight, other.subst(var, &sub(at.clone(), position))]));
+            return match at { Expr::Sym(t) => centred(&sifted, t), _ => sifted };
         }
     }
     if has_dirac(f) || has_dirac(g) { fallback(f, g, var, at) } else { ordinary(f, g, var, at) }
@@ -100,6 +101,18 @@ fn impulse(e: &Expr, var: &str) -> Option<(Expr, Expr)> {
     let weight = mul(weights).subst(var, &position);
     let scale = crate::expr::func(Func::Abs, cs[1].clone());
     Some((position, mul(vec![weight, pow(scale, int(-1))])))
+}
+
+/// Impulses in the result variable written as shifts of it: δ(a t + b) = δ(t + b/a) / |a|, so δ(T − t) is δ(t − T).
+fn centred(e: &Expr, t: &str) -> Expr {
+    let mapped = e.map(&mut |c| centred(c, t));
+    let Expr::F(Func::Dirac, argument) = &mapped else { return mapped };
+    let Some(cs) = coeffs(argument, t).map(trim) else { return mapped };
+    if cs.len() != 2 { return mapped; }
+    let Ok(slope) = crate::eval::value(&cs[1]) else { return mapped };
+    if slope.is_zero() || !slope.v.f().is_finite() || !slope.v.is_exact() { return mapped; }
+    let shift = simp(&mul(vec![cs[0].clone(), pow(cs[1].clone(), int(-1))]));
+    simp(&mul(vec![crate::expr::func(Func::Dirac, add(vec![sym(t), shift])), pow(crate::expr::func(Func::Abs, cs[1].clone()), int(-1))]))
 }
 
 /// The improper integral, with a capture-safe integration variable and bounds in var's dimension.

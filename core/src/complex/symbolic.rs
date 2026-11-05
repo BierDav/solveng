@@ -1,7 +1,7 @@
 //! Symbolic complex algebra. Unknown symbols and calls may be complex; being free of `i`
 //! is not evidence of realness (consider ln(-x)). Keep opaque projections in that case.
 
-use crate::expr::{Expr, Func, add, div, func, int, mul, neg, pow, simp, sub};
+use crate::expr::{Expr, Func, add, div, func, int, mul, neg, pow, rat, simp, sub};
 use std::collections::BTreeSet;
 
 /// Simplify with a local real-domain context, without changing stored definitions.
@@ -29,6 +29,12 @@ pub fn assuming_real(e: &Expr, names: &BTreeSet<String>) -> Expr {
                 if f == Func::Re { p.re } else { p.im }
             }
             Expr::F(Func::Conj, a) => conjugate(&a, names),
+            // |z| = sqrt(Re(z)^2 + Im(z)^2), once both parts are known in closed form.
+            Expr::F(Func::Abs, a) => match resolved(&a, names) {
+                Some(p) if p.im.is_zero() => simp(&func(Func::Abs, p.re)),
+                Some(p) => simp(&pow(add(vec![pow(p.re, int(2)), pow(p.im, int(2))]), rat(1, 2))),
+                None => simp(&func(Func::Abs, *a)),
+            },
             e => simp(&e),
         }
     }
@@ -122,6 +128,7 @@ fn parts(e: &Expr, names: &BTreeSet<String>) -> Parts {
                 }
                 acc
             }
+            Expr::Pow(b, z) if **b == Expr::E => exponential(z, names)?,
             Expr::Pow(b, n) => {
                 let n = n.as_num()?.as_int()?;
                 let mut base = parts(b, names);
@@ -142,6 +149,25 @@ fn parts(e: &Expr, names: &BTreeSet<String>) -> Parts {
                 let p = parts(a, names);
                 Parts { re: p.re, im: simp(&neg(p.im)) }
             }
+            // Euler's formula and the addition theorems, for arguments with known parts:
+            // e^(x+iy) = e^x (cos y + i sin y), sin(x+iy) = sin x cosh y + i cos x sinh y, ...
+            Expr::F(Func::Exp, z) => exponential(z, names)?,
+            Expr::F(f @ (Func::Sin | Func::Cos | Func::Sinh | Func::Cosh), z) => {
+                let p = resolved(z, names)?;
+                let (x, y) = (p.re, p.im);
+                let at = |f: Func, a: &Expr| func(f, a.clone());
+                // circular: sin, cos of x and cosh, sinh of y; hyperbolic: the other way round
+                let (s, c, ch, sh) = match f {
+                    Func::Sin | Func::Cos => (at(Func::Sin, &x), at(Func::Cos, &x), at(Func::Cosh, &y), at(Func::Sinh, &y)),
+                    _ => (at(Func::Sinh, &x), at(Func::Cosh, &x), at(Func::Cos, &y), at(Func::Sin, &y)),
+                };
+                let (re, im) = match f {
+                    Func::Sin | Func::Sinh => (mul(vec![s, ch]), mul(vec![c, sh])),
+                    Func::Cos => (mul(vec![c, ch]), neg(mul(vec![s, sh]))),
+                    _ => (mul(vec![c, ch]), mul(vec![s, sh])),
+                };
+                Parts { re: simp(&re), im: simp(&im) }
+            }
             Expr::Cases(v) => Parts {
                 re: Expr::Cases(v.iter().map(|(v, c)| (parts(v, names).re, c.clone())).collect()),
                 im: Expr::Cases(v.iter().map(|(v, c)| (parts(v, names).im, c.clone())).collect()),
@@ -150,6 +176,23 @@ fn parts(e: &Expr, names: &BTreeSet<String>) -> Parts {
         }).bounded()
     };
     expanded().unwrap_or_else(|| Parts::opaque(e))
+}
+
+/// e^(x+iy) = e^x (cos y + i sin y).
+fn exponential(z: &Expr, names: &BTreeSet<String>) -> Option<Parts> {
+    let p = resolved(z, names)?;
+    let modulus = simp(&pow(Expr::E, p.re));
+    Some(Parts {
+        re: simp(&mul(vec![modulus.clone(), func(Func::Cos, p.im.clone())])),
+        im: simp(&mul(vec![modulus, func(Func::Sin, p.im)])),
+    })
+}
+
+/// Parts free of opaque projections: every unknown in them was assumed real.
+fn resolved(e: &Expr, names: &BTreeSet<String>) -> Option<Parts> {
+    let p = parts(e, names);
+    let projection = |x: &Expr| matches!(x, Expr::F(Func::Re | Func::Im | Func::Conj, _));
+    (!p.re.contains(&projection) && !p.im.contains(&projection)).then_some(p)
 }
 
 fn conjugate(e: &Expr, names: &BTreeSet<String>) -> Expr {

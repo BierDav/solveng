@@ -163,6 +163,17 @@ impl R<'_> {
                 // the real part first, then the imaginary one: 1 + 2i, R + i ω L
                 let mut ts = ts.clone();
                 ts.sort_by_key(crate::complex::has_i);
+                // a positive term leads its part where there is one: t - T, not -T + t
+                let real = ts.iter().take_while(|t| !crate::complex::has_i(t)).count();
+                let negative = |t: &Expr| strip_coef(t).0.v.is_neg();
+                for part in [0..real, real..ts.len()] {
+                    if ts.get(part.start).is_some_and(negative) {
+                        if let Some(k) = ts[part.clone()].iter().position(|t| !negative(t)) {
+                            let lead = ts.remove(part.start + k);
+                            ts.insert(part.start, lead);
+                        }
+                    }
+                }
                 let mut s = String::new();
                 for (i, t) in ts.iter().enumerate() {
                     let (c, r) = strip_coef(t);

@@ -17,7 +17,7 @@ fn an_equation_shows_where_it_holds() {
     assert_eq!(result(&mut env, "x^2 = 2 ->"), "x = -sqrt(\"2\") or x = sqrt(\"2\")");
     assert_eq!(result(&mut env, "x^3 = x ->"), "x = \"−1\" or x = \"0\" or x = \"1\"");
     assert_eq!(result(&mut env, "6 x^2 - x = 1 ->"), "x = -frac(\"1\", \"3\") or x = frac(\"1\", \"2\")");
-    assert_eq!(result(&mut env, "x + y = 3 ->"), "x = -y + \"3\"");
+    assert_eq!(result(&mut env, "x + y = 3 ->"), "x = \"3\" - y");
     // a factor no name can be solved for exactly stays as it is
     assert_eq!(result(&mut env, "x^2 + y^2 = 1 ->"), "x^(\"2\") + y^(\"2\") - \"1\" = \"0\"");
     // the denominator's zeros aren't where it holds
