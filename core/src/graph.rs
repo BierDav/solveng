@@ -368,7 +368,7 @@ fn case_boundaries(e: &Expr, x: &str, scale: f64, points: &mut Vec<f64>, edges: 
 }
 
 /// The curves of a graph and what they're plotted against. When nothing varies, but the curves write exactly one
-/// name with a value (f after `S_1(f) = 1/2 -> solve(f)`), the graph is over that name, as a curve's written
+/// name with a value (f after `f := 2 kHz`), the graph is over that name, as a curve's written
 /// parameter is (`S(f) = S_1(f)`), whatever it means outside.
 fn read(env: &Env, req: &GraphReq, units: &Units) -> Result<Read, String> {
     let err = match read_over(env, req, units, &BTreeSet::new()) {

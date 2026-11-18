@@ -8,7 +8,7 @@ use crate::text::{is_letter, sub};
 /// The modifiers, by their name in the `modifiers` module, with what they do.
 pub(crate) const KEYWORDS: &[(&str, &str)] = &[
     ("assume", "assume(a in RR, x > 0, …): local real and sign assumptions for this symbolic calculation"),
-    ("solve", "solve(x, …): solves the equation for these names and defines them"),
+    ("solve", "solve(x, …): solves the equation for these names without defining them; x := … -> solve(x) keeps them"),
     ("substitute", "substitute(x, #c, …): the result with these variables' formulas and constants' expressions put in, other names kept"),
     ("simplify", "the symbolic result, with the known values put in; of an equation, where it holds"),
     ("expand", "the symbolic result multiplied out, (x + 1)² → x² + 2x + 1"),
