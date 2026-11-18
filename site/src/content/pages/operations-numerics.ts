@@ -20,7 +20,7 @@ export const pages: Page[] = [
       {
         example: {
           title: "A batch of 100 Ω resistors",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: mean
 #import units: Ω
 #show: math
@@ -34,7 +34,7 @@ $μ := mean(R) =>$
       {
         example: {
           title: "Three phases cancel",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: mean
 #import units: A
 #import constants: i
@@ -68,7 +68,7 @@ $mean(I) =>$`,
       {
         example: {
           title: "One reading goes wrong",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: mean, median
 #import units: V
 #show: math
@@ -83,7 +83,7 @@ $median(u) =>$`,
       {
         example: {
           title: "An even number of values",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: median
 #import units: m
 #show: math
@@ -115,7 +115,7 @@ $median(vec(9, 1, 3, 7) #m) =>$`,
       {
         example: {
           title: "Repeatability of a gauge",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: variance
 #import units: mm, μm
 #show: math
@@ -128,7 +128,7 @@ $variance(d) => μm^2$`,
       {
         example: {
           title: "Sample versus population",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: variance, rows
 #show: math
 
@@ -169,7 +169,7 @@ $variance(x) (n - 1)/n ->$`,
       {
         example: {
           title: "Scatter around the mean",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: mean, stdev
 #import units: mm
 #show: math
@@ -183,7 +183,7 @@ $μ := mean(d) =>$, $s := stdev(d) =>$
       {
         example: {
           title: "A process capability check",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: mean, stdev
 #import units: mm
 #show: math
@@ -218,7 +218,7 @@ $C_p := (2 T) / (6 stdev(d)) =>$`,
       {
         example: {
           title: "How many shafts are within tolerance?",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: pnorm
 #import units: mm
 #show: math
@@ -233,7 +233,7 @@ $"yield" := pnorm(U, μ, σ) - pnorm(L, μ, σ) =>$`,
       {
         example: {
           title: "The S-curve",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: pnorm
 #import units: mm
 #show: math
@@ -273,7 +273,7 @@ $F(x: mm) := pnorm(x, μ, σ)$
       {
         example: {
           title: "A quantile, live",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: qnorm
 #import units: mm
 #show: math
@@ -288,7 +288,7 @@ $z := (x - μ)/σ =>$`,
       {
         example: {
           title: "A design load",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: qnorm, pnorm
 #import units: kN
 #show: math
@@ -328,7 +328,7 @@ $pnorm(F_d, μ, σ) =>$`,
       {
         example: {
           title: "An NTC thermistor's datasheet",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: linear-interpolate
 #import units: kΩ
 #show: math
@@ -345,7 +345,7 @@ $R_x := #linear-interpolate($T$, $R$, $T_x$) =>$
       {
         example: {
           title: "Outside the table",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: linterp
 #import units: s, V
 #show: math
@@ -387,7 +387,7 @@ $linterp(t, u, 6 #s) =>$`,
       {
         example: {
           title: "Calibrating a temperature sensor",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: linear-fit, at
 #import units: K, V, mV
 #show: math
@@ -404,7 +404,7 @@ $g(x) := at(c, 0) + at(c, 1) x$
       {
         example: {
           title: "Exact data, exact fit",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: linfit
 #show: math
 
@@ -448,7 +448,7 @@ $linfit(vec(-1, 0, 1), vec(5, 3, 1)) =>$`,
       {
         example: {
           title: "Two tones, and leakage",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: dft, at
 #import constants: pi
 #show: math
@@ -466,7 +466,7 @@ $A[j] := 2/N abs(at(X, j))$
       {
         example: {
           title: "No normalization",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: dft
 #show: math
 
@@ -506,7 +506,7 @@ $dft(vec(1, 0, 0, 0)) =>$`,
       {
         example: {
           title: "There and back",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: dft, idft
 #show: math
 
@@ -519,7 +519,7 @@ $idft(X) =>$`,
       {
         example: {
           title: "A brick-wall low-pass",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: dft, idft, at, Re
 #import constants: pi
 #show: math
@@ -558,7 +558,7 @@ $y[k] := Re(at(Z, k))$
       {
         example: {
           title: "Maximum power transfer",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: minimize
 #import units: Ω, V, W
 #show: math
@@ -574,7 +574,7 @@ $P(R_L) => #W$`,
       {
         example: {
           title: "The cheapest can",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: minimize
 #import units: cm, l
 #import constants: pi
@@ -625,7 +625,7 @@ $h := V / (pi r_0^2) => #cm$`,
       {
         example: {
           title: "A cup of coffee cools",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: odesolve, celsius
 #import units: min, degC
 #show: math
@@ -640,7 +640,7 @@ $T_1 - celsius(0) => degC$`,
       {
         example: {
           title: "The whole curve",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: odesolve
 #import units: min, K
 #show: math
@@ -654,7 +654,7 @@ $θ(t_e: #min) := odesolve(-θ/τ, θ, t, θ_0, t_0, t_e)$
       {
         example: {
           title: "A tank drains – nonlinear",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: odesolve
 #import units: m, s, cm
 #show: math
@@ -698,7 +698,7 @@ $h_1 := odesolve(-1/400 sqrt(2 g h), h, t, 2 #m, 0 #s, {{end}} #s) => #cm$`,
       {
         example: {
           title: "Damping decides",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: polyroots
 #show: math
 
@@ -711,7 +711,7 @@ $s := polyroots(vec(1, 2 ζ, 1)) =>$`,
       {
         example: {
           title: "Picking a root",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: polyroots, at
 #show: math
 

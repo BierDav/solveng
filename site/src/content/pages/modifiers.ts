@@ -1,6 +1,6 @@
 import type { Page } from "../types";
 
-const PKG = `#import "@preview/solveng:2.0.0": *`;
+const PKG = `#import "@preview/solveng:3.0.0": *`;
 
 export const pages: Page[] = [
   // ---------------------------------------------------------------- solve
@@ -123,7 +123,7 @@ $x^2 - 2 x = 3 -> löse(x)$`,
         },
       },
       { h2: "Pitfalls" },
-      { md: "- **Import it.** `#import \"@preview/solveng:2.0.0\": *` brings no modifiers; without `#import modifiers: solve`, `solve` is an unknown variable.\n- **After `->`.** One clause: `-> solve(t), ms`, not `-> solve(t) => ms`.\n- **One unit for one unknown.** With several unknowns, leave the unit out (`digits` still works).\n- **Principal values.** Periodic functions give one solution: `tan(x) = 1` is x ≈ 0.785, arctan(1). Polynomials give all their roots.\n- **Real numeric search.** The numeric search finds real roots only, between ±10¹⁵; nearby poles or fast oscillations can hide a root.\n- **Many solutions.** The option `max-solutions` (default 6) limits how many are listed; all are found.\n- **Not with `steps`.** `steps` shows how `->` simplifies, not how `solve` solves.\n\nMore background: [Solving](/docs/solving), [How it solves](/docs/how-it-solves)." },
+      { md: "- **Import it.** `#import \"@preview/solveng:3.0.0\": *` brings no modifiers; without `#import modifiers: solve`, `solve` is an unknown variable.\n- **After `->`.** One clause: `-> solve(t), ms`, not `-> solve(t) => ms`.\n- **One unit for one unknown.** With several unknowns, leave the unit out (`digits` still works).\n- **Principal values.** Periodic functions give one solution: `tan(x) = 1` is x ≈ 0.785, arctan(1). Polynomials give all their roots.\n- **Real numeric search.** The numeric search finds real roots only, between ±10¹⁵; nearby poles or fast oscillations can hide a root.\n- **Many solutions.** The option `max-solutions` (default 6) limits how many are listed; all are found.\n- **Not with `steps`.** `steps` shows how `->` simplifies, not how `solve` solves.\n\nMore background: [Solving](/docs/solving), [How it solves](/docs/how-it-solves)." },
       {
         quiz: {
           question: "What does the second line show?",

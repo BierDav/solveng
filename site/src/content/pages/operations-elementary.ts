@@ -17,7 +17,7 @@ export const pages: Page[] = [
       {
         example: {
           title: "Exact where it can be",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: asin
 #show: math
 
@@ -29,7 +29,7 @@ $asin(1/3) =>$`,
       {
         example: {
           title: "The angle of a ramp",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: asin
 #import units: m, deg
 #show: math
@@ -44,7 +44,7 @@ $alpha := asin(h/L) => deg$`,
       { md: "No real angle has a sine of 2, but a complex one does. Like every operation in solveng, `asin` returns the principal complex value there instead of failing:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: asin
 #show: math
 
@@ -71,7 +71,7 @@ $asin(2) =>$`,
       {
         example: {
           title: "Exact angles",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: acos
 #show: math
 
@@ -82,7 +82,7 @@ $arccos(-1/2) ->$`,
       {
         example: {
           title: "Phase angle from the power factor",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: acos
 #import units: deg, kW
 #show: math
@@ -113,7 +113,7 @@ $phi := acos(lambda) => deg$`,
       {
         example: {
           title: "Exact angles",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: atan
 #show: math
 
@@ -123,7 +123,7 @@ $atan(1) ->$, $atan(-1) ->$, $atan(2) =>$`,
       {
         example: {
           title: "Phase of an RC low-pass",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: atan
 #import units: kΩ, nF, kHz, deg
 #import constants: pi
@@ -155,7 +155,7 @@ $p(1 kHz) => deg$
       {
         example: {
           title: "The direction of a force",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: atan, atan2
 #import units: N, deg
 #show: math
@@ -170,7 +170,7 @@ $atan(F_y / F_x) => deg$`,
       {
         example: {
           title: "Exact angles in every quadrant",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: atan2
 #show: math
 
@@ -189,7 +189,7 @@ $atan2(-1, -1) ->$, $atan2(0, -1) ->$`,
       {
         example: {
           title: "The origin has no angle",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: atan2
 #show: math
 
@@ -221,7 +221,7 @@ $atan2(0, 0) =>$`,
       {
         example: {
           title: "Basics",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: min
 #import units: V, mV
 #show: math
@@ -233,7 +233,7 @@ $min(3 #V, 500 mV) =>$`,
       {
         example: {
           title: "A clamp",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: min, max
 #import units: V
 #show: math
@@ -247,7 +247,7 @@ $U_"out" := max(0 #V, min(U_"in", 3.3 #V)) =>$`,
       {
         example: {
           title: "Units must match",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: min
 #import units: V, A
 #show: math
@@ -275,7 +275,7 @@ $min(3 #V, 2 #A) =>$`,
       {
         example: {
           title: "Basics",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: max
 #import units: mA, A
 #show: math
@@ -287,7 +287,7 @@ $max(0.2 #A, 350 mA) =>$`,
       {
         example: {
           title: "A half-wave rectifier",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: max
 #import units: V, ms
 #import constants: pi
@@ -319,7 +319,7 @@ $u(t: ms) := max(U_m sin(2 pi t / T) - U_F, U_0)$
       {
         example: {
           title: "How many fit",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: floor
 #import units: m
 #show: math
@@ -334,7 +334,7 @@ $"rest" := L - n l =>$`,
       {
         example: {
           title: "A quantizer",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: floor
 #import units: V, mV
 #show: math
@@ -365,7 +365,7 @@ $Q(u: #V) := q floor(u / q)$
       {
         example: {
           title: "Rounding up and down",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: ceil, floor
 #show: math
 
@@ -376,7 +376,7 @@ $floor(2.1) =>$, $floor(-2.1) =>$`,
       {
         example: {
           title: "How many bolts",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: ceil
 #import units: kN
 #show: math
@@ -406,7 +406,7 @@ $n := ceil(F / F_"bolt") =>$`,
       {
         example: {
           title: "Counting",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: factorial
 #show: math
 
@@ -420,7 +420,7 @@ $factorial(n) / (factorial(k) factorial(n - k)) =>$`,
       {
         example: {
           title: "Taylor coefficients",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: factorial
 #show: math
 
@@ -448,7 +448,7 @@ $sin(1) =>$`,
       {
         example: {
           title: "Values",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: sgn
 #show: math
 
@@ -460,7 +460,7 @@ $integral_(-2)^3 sgn(x) dif x ->$`,
       {
         example: {
           title: "A square wave from a sine",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: sgn
 #import units: V, ms
 #import constants: pi
@@ -492,7 +492,7 @@ $u(t: ms) := U_m sgn(sin(2 pi t / T) - a)$
       {
         example: {
           title: "An empirical formula",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: number
 #import units: mm, N, cm
 #show: math
@@ -507,7 +507,7 @@ $number(d, #cm) =>$`,
       {
         example: {
           title: "The dimension must fit",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: number
 #import units: V, mV, A
 #show: math
@@ -543,7 +543,7 @@ $number(U, #A) =>$`,
       {
         example: {
           title: "Ideal gas",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: celsius
 #import units: J, mol, K, L, kPa
 #show: math
@@ -558,7 +558,7 @@ $p := n R celsius({{T}}) / V => kPa$`,
       {
         example: {
           title: "Absolute and difference",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: celsius
 #import units: K, degC
 #show: math
@@ -596,7 +596,7 @@ $20 degC => #K$`,
       {
         example: {
           title: "Fixed points",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: fahrenheit, celsius
 #import units: K
 #show: math
@@ -609,7 +609,7 @@ $fahrenheit(-40) - celsius(-40) => #K$`,
       {
         example: {
           title: "Radiated power",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: fahrenheit
 #import units: W, m, K
 #show: math
@@ -639,7 +639,7 @@ $q := sigma fahrenheit({{T}})^4 => #W / #m^2$`,
       {
         example: {
           title: "The factorial, and between",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: gamma
 #show: math
 
@@ -651,7 +651,7 @@ $gamma(4.5) =>$`,
       {
         example: {
           title: "The graph",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: gamma
 #show: math
 
@@ -662,7 +662,7 @@ $gamma(4.5) =>$`,
       {
         example: {
           title: "A pole",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: gamma
 #show: math
 
@@ -690,7 +690,7 @@ $gamma(-2) =>$`,
       {
         example: {
           title: "The definition, checked",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: erf
 #import constants: pi, e
 #show: math
@@ -705,7 +705,7 @@ $2/sqrt(pi) integral_0^x #e^(-t^2) dif t =>$`,
       {
         example: {
           title: "The graph",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: erf
 #show: math
 
@@ -716,7 +716,7 @@ $2/sqrt(pi) integral_0^x #e^(-t^2) dif t =>$`,
       {
         example: {
           title: "Within one sigma",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: erf
 #show: math
 
@@ -745,7 +745,7 @@ $P := erf(k / sqrt(2)) =>$`,
       {
         example: {
           title: "The first three",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: besselj
 #show: math
 
@@ -756,7 +756,7 @@ $P := erf(k / sqrt(2)) =>$`,
       {
         example: {
           title: "FM sidebands",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: besselj
 #show: math
 
@@ -794,7 +794,7 @@ $A_2 := besselj(2, beta) =>$`,
       {
         example: {
           title: "Resistance and reactance",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: Re, Im
 #import units: Ω, Hz, mH
 #import constants: pi, i
@@ -809,7 +809,7 @@ $R := Re(Z) =>$, $X := Im(Z) =>$`,
       {
         example: {
           title: "Symbolic",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: Re
 #import modifiers: assume
 #import constants: i
@@ -824,7 +824,7 @@ $Re(a z) = a Re(z) -> assume(a in RR)$`,
       {
         example: {
           title: "Impedance of a series RC, over frequency",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: Re, Im
 #import units: Ω, kHz, µF
 #import constants: pi, i
@@ -855,7 +855,7 @@ $Z(f: kHz) := R + 1/(#i 2 pi f C)$
       {
         example: {
           title: "Parts of a number",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: Re, Im
 #import constants: i, e, pi
 #show: math
@@ -869,7 +869,7 @@ $Re(z) ->$, $Im(z) ->$`,
       {
         example: {
           title: "Reactance of an LC branch",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: Im
 #import units: Ω, kHz, mH, nF
 #import constants: pi, i
@@ -901,7 +901,7 @@ $Z(f: kHz) := #i 2 pi f L + 1/(#i 2 pi f C)$
       {
         example: {
           title: "Complex power",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: conj, Re, Im
 #import units: V, A, W
 #import constants: i
@@ -916,7 +916,7 @@ $P := Re(S) => #W$, $Q := Im(S) =>$`,
       {
         example: {
           title: "Symbolic rules",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: conj
 #import constants: i
 #show: math

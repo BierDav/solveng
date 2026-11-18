@@ -14,7 +14,7 @@ export const pages: Page[] = [
       {
         example: {
           title: "Complex without asking",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 $sqrt(-4) =>$, $(-8)^(1/3) =>$
@@ -27,7 +27,7 @@ $ln(-1) ->$`,
       {
         example: {
           title: "Exact complex arithmetic",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import constants: i, e, pi
 #show: math
 
@@ -50,7 +50,7 @@ $#e^(#i pi) ->$`,
       { md: "`abs(z)` is the magnitude and `arg(z)` the angle in radians, from −π to π. Both are Typst's own math functions, so they need no import. `Re`, `Im` and `conj` come from `operations`:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import constants: i
 #import operations: Re, Im, conj
 #show: math
@@ -73,7 +73,7 @@ $z conj(z) ->$`,
       {
         example: {
           title: "A series RLC circuit",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: Ω, kHz, mH, nF, deg
 #import constants: i, pi
 #show: math.with(constant-displays: (imaginary: $j$))
@@ -90,7 +90,7 @@ $abs(Z) =>$, $arg(Z) => deg$`,
       {
         example: {
           title: "Complex power",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: Ω, V
 #import constants: i
 #import operations: Re, Im, conj
@@ -107,7 +107,7 @@ $P := Re(S) =>$, $Q := Im(S) =>$`,
       { md: "Solving happens in the complex numbers too. A polynomial gets all of its roots, real or not:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import modifiers: solve
 #show: math
 
@@ -120,7 +120,7 @@ $x^3 = 8 -> solve(x)$`,
       { md: "A name without a value could be complex, so solveng doesn't simplify `abs(1 + e^(i x))^2` as if x were real. It shows the general result and, next to it, the simpler one that holds for real x. `assume` says the name is real and keeps only that one:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import constants: e, i
 #import modifiers: assume
 #show: math
@@ -134,7 +134,7 @@ $abs(1 + #e^(#i x))^2 -> assume(x in RR)$`,
       {
         example: {
           title: "Plotting a complex transfer function",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: kHz, kΩ, nF
 #import constants: i, pi
 #show: math
@@ -147,7 +147,7 @@ $R := 1 kΩ$, $C := 100 nF$
       },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: kHz, kΩ, nF
 #import constants: i, pi
 #show: math
@@ -177,7 +177,7 @@ $f_g := 1/(2 pi R C) =>$
       {
         example: {
           title: "=> rounds, -> stays exact",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import constants: pi
 #show: math
 
@@ -192,7 +192,7 @@ $sin(pi/3) ->$, $cos(pi/4)^2 ->$`,
       { md: "Names defined by then are put in with their values, exactly. Names that aren't defined stay. In the voltage divider below, the resistors have values and `U_in` doesn't, so the result is a formula in `U_in` with an exact factor:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: kΩ
 #show: math
 
@@ -206,7 +206,7 @@ $U_"out" := U_"in" R_2/(R_1 + R_2) ->$`,
       { md: "`->` simplifies on its own: it combines like terms, cancels common factors of polynomials and keeps exact numbers exact. You don't need the `simplify` modifier; it only spells out what `->` does anyway." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 $(x^2 - 1)/(x - 1) ->$
@@ -217,7 +217,7 @@ $x + 3/3 y ->$`,
       { md: "Two modifiers choose a different shape. `expand` multiplies out; `factor` splits into factors, the numerator and denominator of a fraction separately:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import modifiers: expand, factor
 #show: math
 
@@ -231,7 +231,7 @@ $(x^2 - 4)/(x^2 + 4x + 4) -> factor$`,
       { md: "An equation after `->` isn't solved for one name. You get the conditions under which it's true: one side brought to zero, split into factors, each factor zero. When it always holds you get `true`, and when it never does, `false`." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 $x^2 = x ->$
@@ -251,7 +251,7 @@ $x = x + 1 ->$`,
       { md: "`steps` shows the way there, one line each: the equation with the definitions put in, one side zero, in factors, and where it holds." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import modifiers: steps
 #show: math
 
@@ -264,7 +264,7 @@ $(x + 1)^2 - (x - 1)^2 -> steps$`,
       {
         example: {
           title: "Classic identities, proven",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import constants: e, i
 #show: math
 
@@ -279,7 +279,7 @@ $cosh(x)^2 - sinh(x)^2 = 1 ->$`,
       { md: "Without a value, a name could be negative or even complex, so `sqrt(x^2)` isn't simply x. `assume` adds what you know, for this one result only. It changes no definitions." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import modifiers: assume
 #show: math
 
@@ -294,7 +294,7 @@ $sqrt(x^2) -> assume({{a}})$`,
       { md: "A defined *formula* is normally kept by its name. `substitute` puts it in, and every other name stays:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import modifiers: substitute
 #show: math
 
@@ -319,7 +319,7 @@ $P := U^2/R -> substitute(U)$`,
       { md: "Write the equation as it is, then `-> solve(x)` with the name you want. `solve` comes from `modifiers`. When the other names have no values, you get a formula:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import modifiers: solve
 #show: math
 
@@ -330,7 +330,7 @@ $0 = 1 + 3/x + y^2 -> solve(x)$`,
       { md: "When the other names have values, you get a value, with the right unit. solveng works the unit of the unknown out from the equation:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: mA, mAh, h
 #import modifiers: solve
 #show: math
@@ -344,7 +344,7 @@ $Q_0/2 = I t -> solve(t)$`,
       { md: "solveng first tries to isolate the name: if the unknown occurs once it's unwrapped, polynomials are solved by formula up to degree 2, and so on. When that's not possible and every other name has a value, it searches numerically. `x = cos(x)` has no closed form, but it has a number:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import constants: e
 #import modifiers: solve
 #show: math
@@ -359,7 +359,7 @@ $#e^x = {{c}} - x -> solve(x)$`,
       { md: "A polynomial in the unknown gets all of its roots, complex ones included, with multiplicity. Roots of unity make a nice test:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import modifiers: solve
 #show: math
 
@@ -371,7 +371,7 @@ $x^{{n}} = 1 -> solve(x)$`,
       { md: "The option `max-solutions` (default 6) says how many are *listed*. All of them are still found:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import modifiers: solve
 #show: math.with(max-solutions: 3)
 
@@ -382,7 +382,7 @@ $x^6 = 1 -> solve(x)$`,
       { md: "Put the equations in a `vec(…)` (or separate them by commas) and name every unknown in `solve`. Linear systems are solved by elimination, nonlinear ones numerically from many starting points. Here's a two-mesh circuit:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: V, Ω
 #import modifiers: solve
 #show: math
@@ -396,7 +396,7 @@ $vec(U_0 = R_1 I_1 + R_2 dot (I_1 - I_2), 0 = R_2 dot (I_2 - I_1) + R_1 I_2) -> 
       {
         example: {
           title: "A circle and a line",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import modifiers: solve
 #show: math
 
@@ -408,7 +408,7 @@ $vec(x^2 + y^2 = 25, y = x + 1) -> solve(x, y)$`,
       { md: "An inequality gives a *set*. solveng finds every real root and pole, checks the sign between them (a sign chart) and keeps track of open and closed ends:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import modifiers: solve
 #show: math
 
@@ -422,7 +422,7 @@ $2x + 3 > 7 -> solve(x)$`,
       {
         example: {
           title: "The sign chart, drawn",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 #graph($(x - 1)/(x + 2)$, x-range: (-6, 4), y-range: (-5, 5), mark: "roots")`,
@@ -433,7 +433,7 @@ $2x + 3 > 7 -> solve(x)$`,
       { md: "`solve` shows the solutions and **defines nothing**. An equation can have several solutions, or none, so solveng wouldn't know which one x should be. After solving, x is still undefined:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import modifiers: solve
 #show: math
 
@@ -454,7 +454,7 @@ $x =>$`,
       { md: "To keep the solutions, write a definition in front: `name := … -> solve(x)`. One solution gives a value; several give a vector, and `at(…, k)` picks one, counting from 0:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: at
 #import modifiers: solve
 #show: math
@@ -468,7 +468,7 @@ $r_1 := at(r, 0) =>$, $r_2 := at(r, 1) =>$`,
       {
         example: {
           title: "Both halves of a circle",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: at
 #import modifiers: solve
 #show: math
@@ -499,7 +499,7 @@ $at(b(3), 1) =>$
       { h2: "Derivatives" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: diff
 #show: math
 
@@ -512,7 +512,7 @@ $dif/(dif x) sin(x)^2 ->$`,
       { md: "Derivatives of defined functions, higher orders and partial derivatives work the same way. Write `partial` for ∂:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 $g(x, y) := x^2 y + sin(x y)$
@@ -523,7 +523,7 @@ $(partial^2 g(x, y))/(partial x partial y) ->$`,
       {
         example: {
           title: "From position to velocity, with units",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: m, s
 #show: math
 
@@ -540,7 +540,7 @@ $v({{t}} #s) =>$`,
       { md: "An integral without bounds is an antiderivative, without the constant of integration. solveng finds them for polynomials, exponentials, sin, cos, sinh, cosh, ln and tan of a linear argument, for products that multiply out into those, and by parts for a polynomial times one of them:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import constants: e
 #show: math
 
@@ -554,7 +554,7 @@ $integral sin(x^2) dif x ->$`,
       { md: "With bounds you get a number. `->` shows the exact value, `=>` the decimal one:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import constants: pi
 #show: math
 
@@ -569,7 +569,7 @@ $integral_0^{{b}} sin(x) dif x =>$`,
       { md: "Either bound may be infinite. Integrals over a whole line or half-line are evaluated, numerically when there's no closed form:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import constants: e
 #show: math
 
@@ -582,7 +582,7 @@ $integral_(-infinity)^infinity #e^(-x^2) dif x =>$`,
       { md: "Both bounds need the same unit, and the result has the integrand's unit times the variable's. A bound of 0 or ∞ fits any unit, so it takes the other bound's. When *both* are 0 or ∞, the variable gets no unit, and here that's a problem:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: A, ms, mC
 #import constants: e
 #show: math
@@ -595,7 +595,7 @@ $Q := integral_0^infinity 3 #A #e^(-t/tau) dif t => mC$`,
       },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: A, s, ms, mC
 #import constants: e
 #show: math
@@ -610,7 +610,7 @@ $Q := integral_(0 #s)^infinity 3 #A #e^(-t/tau) dif t => mC$`,
       { md: "Integrals without a closed form stay symbolic with `->` and are integrated numerically for `=>` and graphs. solveng uses adaptive Gauss–Kronrod quadrature and refines until the estimated error is at most 10⁻¹⁰ of the result. It splits integrals at the corners of `rect`, `tri` and other signals so narrow pulses aren't skipped. Samples avoid the endpoints, so integrable singularities like ln(x) at 0 are fine:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 $integral_0^1 sin(x^2) dif x =>$
@@ -622,7 +622,7 @@ $integral_0^1 ln(x) dif x =>$`,
       { md: "`taylor(expression, variable, center, degree)` is the Taylor polynomial through that degree (0 to 32). Drag the degree and watch it hug sin(x) further out:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: taylor
 #show: math
 
@@ -636,7 +636,7 @@ $p(x) := taylor(sin(x), x, 0, {{n}}) ->$
       { md: "`jacobian(vector, variables)` is the matrix of first derivatives; `hessian(expression, variables)` the matrix of second derivatives. The variables vector sets the column order." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: jacobian, hessian
 #show: math
 
@@ -662,7 +662,7 @@ $hessian(x^2 y + y^3, vec(x, y)) ->$`,
       { md: "Signal operations come from `operations`: `#import operations: rect, tri, sgn, sinc`. Their arguments are unitless, so a pulse in time is written `rect(t/T)` with T in seconds." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: rect, tri, sgn
 #show: math
 
@@ -680,7 +680,7 @@ $sgn(-3) =>$, $sgn(0) =>$`,
       ] } },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: rect, tri
 #show: math
 
@@ -692,7 +692,7 @@ $sgn(-3) =>$, $sgn(0) =>$`,
       {
         example: {
           title: "A pulse you can move",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: rect, tri
 #import units: ms
 #show: math
@@ -709,7 +709,7 @@ $T := {{T}} ms$, $t_0 := {{t0}} ms$
       { md: "Signals combine like any expression. Here are a rectangular and a triangular pulse in one signal:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: rect, tri
 #show: math
 
@@ -723,7 +723,7 @@ $integral_(-infinity)^infinity x(t) dif t ->$`,
       { md: "In graphs, the steps of `rect` and `sgn` break the line instead of drawing a vertical stroke. `joined: true` joins them:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: sgn
 #show: math
 
@@ -735,7 +735,7 @@ $integral_(-infinity)^infinity x(t) dif t ->$`,
       { md: "The cardinal functions divide by their argument and are continued at 0: `sinc(x) = sin(x)/x` with `sinc(0) = 1`, `cosc(x) = (1 − cos(x))/x` with `cosc(0) = 0`, `tanc(x) = tan(x)/x` with `tanc(0) = 1`. solveng uses the **unnormalized** sinc, without π inside." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: sinc
 #show: math
 
@@ -753,7 +753,7 @@ $integral_(-infinity)^infinity x(t) dif t ->$`,
       },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: sinc, cosc, tanc
 #show: math
 
@@ -765,7 +765,7 @@ $sinc(0) =>$, $cosc(0) =>$, $tanc(0) =>$
       { md: "A Fourier integral of a pulse is solved exactly. solveng splits the integral at the pulse's corners and gives the compact `sinc` form:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: rect, tri
 #import constants: e, i, pi
 #show: math
@@ -778,7 +778,7 @@ $integral_(-infinity)^infinity tri(t) #e^(-#i 2 pi f t) dif t ->$`,
       {
         example: {
           title: "Short pulse, wide spectrum",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: rect
 #import constants: e, i, pi
 #show: math
@@ -794,7 +794,7 @@ $X(f) := integral_(-infinity)^infinity rect(t/T) #e^(-#i 2 pi f t) dif t ->$
       { md: "`dirac(x)` is a distribution with unit area and no value at a point. Asking for its value is an error, and so is plotting it:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: dirac
 #show: math
 
@@ -821,7 +821,7 @@ $dirac(0) =>$`,
       { md: "`laplace(f)` is the unilateral transform of f(t) into F(s). Only the signal at t ≥ 0 counts. A worksheet shows it as ℒ{f}. Other variable names go in the second and third argument: `laplace(f, x, p)`." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: laplace
 #import constants: e
 #show: math
@@ -838,7 +838,7 @@ $F(p) := laplace(t #e^(-2 t), t, p) ->$`,
       { md: "`invlaplace(F)` turns a rational function of s back into a function of t, using partial fractions where it can:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: invlaplace
 #show: math
 
@@ -854,7 +854,7 @@ $invlaplace(1/(s^2 dot (s + 1))) ->$`,
       {
         example: {
           title: "First order: 63 % after one τ",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: invlaplace
 #show: math
 
@@ -870,7 +870,7 @@ $h(tau) =>$
       {
         example: {
           title: "Second order: damping",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: invlaplace
 #show: math
 
@@ -885,7 +885,7 @@ $h(t) := invlaplace(1/(s dot (s^2 + 2 zeta s + 1)))$
       { md: "Divide the transform of the output by the one of the input. Here a system turns a rectangular pulse into a triangular one. Both are shifted to start at 0, so the unilateral transform sees all of them:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: laplace, invlaplace, rect, tri
 #show: math
 
@@ -900,7 +900,7 @@ $g(t) := invlaplace(H(s)/s, s, t)$
       { md: "`convolve(x, h)` of two vectors is the discrete convolution, with n + m − 1 elements. Here's a three-point moving sum:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: convolve
 #show: math
 
@@ -914,7 +914,7 @@ $y := convolve(x, vec(1, 1, 1)/3) =>$
       { md: "`convolve(f(τ), g(τ), τ, t)` is the integral of f(τ) g(t − τ) over the whole line. Piecewise polynomial signals (`rect`, `tri`, `sgn`, `abs`, steps in `cases`, polynomials) convolve exactly into a piecewise polynomial. The classic: a rectangle convolved with itself is a triangle." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: convolve, rect, tri
 #show: math
 
@@ -927,7 +927,7 @@ $y(1/2) =>$`,
       {
         example: {
           title: "Two rectangles of different widths",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: convolve, rect
 #show: math
 
@@ -945,7 +945,7 @@ $y(t) := convolve(rect(tau/{{a}}), rect(tau/{{b}}), tau, t)$
       { md: "Convolving with a shifted impulse shifts the signal: `convolve(f(t), dirac(t - a), t)` is `f(t - a)`. Weighted and summed impulses work term by term:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: convolve, dirac
 #show: math
 
@@ -997,7 +997,7 @@ $convolve(t^2, 2 dirac(t - 1) + dirac(t + 1), t) ->$`,
       { md: "`linear-solve(A, b)` solves square systems and, for tall matrices, finds the x with the smallest residual. To fit a line u = c₀ + c₁ t to measurements, put a column of ones and a column of times side by side. Below, the matrix is built element by element over a range, as in Mathcad:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: linear-solve as linsolve
 #import units: s, V
 #show: math
@@ -1012,7 +1012,7 @@ $c := linsolve(M, u) =>$`,
       { md: "For a straight line there's a shortcut, `linear-fit`, and `linear-interpolate` reads between the samples:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: linear-fit as linfit, linear-interpolate as linterp
 #import units: s, V
 #show: math
@@ -1028,7 +1028,7 @@ $linterp(t, u, {{at}} #s) =>$`,
       { md: "The Hilbert matrix, with elements 1/(i + j + 1), is the textbook example of an ill-conditioned matrix. Its condition number says how much relative errors in b can grow in x. Drag n and watch it explode:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: cond, eigenvals, singularvals
 #show: math
 
@@ -1046,7 +1046,7 @@ $lambda := eigenvals(H) =>$`,
       {
         example: {
           title: "Five measured shafts",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: mean, median, stdev
 #import units: mm, µm
 #show: math
@@ -1060,7 +1060,7 @@ $s := stdev(d) => µm$`,
       { md: "`pnorm(x, μ, σ)` is the probability of a normal value being below x, and `qnorm(p, μ, σ)` the x below which a share p lies:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: pnorm, qnorm
 #import units: mm
 #show: math
@@ -1076,7 +1076,7 @@ $qnorm(0.975, 0, 1) =>$`,
       { md: "`dft(x)` is X[k] = Σ x[j] e^(−2πi jk/n), without normalization; `idft` divides by n and inverts it. Two cosines in 8 samples show up as two pairs of lines:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: dft, idft
 #import constants: pi
 #show: math
@@ -1094,7 +1094,7 @@ $A[j] := abs(X[j])$
       { md: "`minimize(f, x, a, b)` returns the **position** of the minimum in [a, b], not the minimum value. To maximize, minimize −f. Cut squares of side x from the corners of a 30 cm sheet and fold up a box. Which x holds the most?" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: minimize
 #import units: cm, l
 #show: math
@@ -1111,7 +1111,7 @@ $V(x_"opt") => #l$`,
       { md: "`odesolve(f, y, t, y0, t0, t1)` solves dy/dt = f from y(t0) = y0 and returns y(t1). y and t are local names. Here a capacitor charges through a resistor:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: odesolve
 #import units: V, s, kΩ, µF
 #import constants: e
@@ -1129,7 +1129,7 @@ $U_0 dot (1 - #e^(-t_1/(R C))) =>$`,
       { md: "`polyroots` takes the coefficients in **ascending** order, c₀ first, and returns all complex roots, sorted by real then imaginary part:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: polyroots
 #show: math
 
@@ -1141,7 +1141,7 @@ $polyroots(vec(1, 0, 0, 1)) =>$`,
       { h2: "Special functions" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: gamma, erf, besselj
 #show: math
 
@@ -1155,7 +1155,7 @@ $besselj(0, 2.405) =>$`,
       { md: "`degC` is a temperature **difference**: 20 °C is 20 K. A reading on a thermometer is converted with `celsius` or `fahrenheit`, which give an absolute temperature in kelvin:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: celsius, fahrenheit
 #import units: degC, K
 #show: math
@@ -1190,7 +1190,7 @@ $20 degC => #K$`,
       {
         example: {
           title: "One line",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 #graph($x^3 - 3x$)`,
@@ -1200,7 +1200,7 @@ $20 degC => #K$`,
       { md: "A parameter with a unit, `P(U: #V) = …`, gives the x axis its unit; the y axis takes the unit of what's plotted, with a fitting prefix. Axis labels read `U / V`:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: Ω, V
 #show: math
 
@@ -1213,7 +1213,7 @@ $R := {{R}} #Ω$
       { md: "Defined values plot over their own scale. A charging capacitor picks a range around its time constant:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: ms, V
 #import constants: e
 #show: math
@@ -1228,7 +1228,7 @@ $tau := {{tau}} ms$
       { md: "Separate curves with a backslash, `\\`. Curves of the same unit share the graph and get a legend:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 #graph($y(x) = x^2 \\ y(x) = 2x + {{c}}$, x-range: (-3, 5), mark: auto)`,
@@ -1240,7 +1240,7 @@ $tau := {{tau}} ms$
       { md: "`x-range` and `y-range` list values that must be visible. Two or more set the range from the smallest to the largest; a single one widens the range picked. Numbers are in the axis's unit, or write values with units: `x-range: ($10 #Ω$, $1 kΩ$)`." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 #graph($sin(x) \\ cos(x)$, x-range: (0, {{x1}}), y-range: (-1.5, 1.5))`,
@@ -1251,7 +1251,7 @@ $tau := {{tau}} ms$
       { md: "Marks put points on the curves, with guide lines and their coordinates on the axes:\n\n- `\"roots\"`: where a curve is zero\n- `\"extrema\"`: local maxima and minima\n- `\"crossings\"`: where curves cross each other, and `auto` for the same\n- x values (`$R$`, `2`, `$5 #V$`): a point on every curve there\n\n`mark` writes both coordinates, `xmark` only x, and `ymark` takes y values and marks every point where a curve reaches one. Combine marks in an array. The range always grows to show them." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 #graph($x^3 - 3x$, x-range: (-2.5, 2.5), mark: {{m}})`,
@@ -1261,7 +1261,7 @@ $tau := {{tau}} ms$
       {
         example: {
           title: "Where does the power reach 2 W?",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: Ω, W, V
 #math($R := 50 #Ω$, $P_0 := {{P}} #W$, hidden: true)
 
@@ -1283,7 +1283,7 @@ $tau := {{tau}} ms$
       {
         example: {
           title: "Measurements and a model",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: s, V
 #import constants: e
 #show: math
@@ -1300,7 +1300,7 @@ $c(t: #s) := U_0 dot (1 - #e^(-t/tau))$
       { md: "`colors`, `lines`, `dots` and `joined` take one value or an array, curve after curve and repeating; `auto` in the array keeps the default for that curve. The defaults (Petroff's colours; solid, dashed, dotted lines; circles, squares, triangles) stay apart for colour-blind readers and in grayscale prints." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 $x := vec(0, 1, 2, 3, 4, 5)$, $y := vec(0, 1.2, 3.8, 9.3, 15.8, 25.4)$
@@ -1316,7 +1316,7 @@ $x := vec(0, 1, 2, 3, 4, 5)$, $y := vec(0, 1.2, 3.8, 9.3, 15.8, 25.4)$
       { md: "`cases` break the line where a branch jumps, and a value that holds at a single point is drawn as a dot. `joined: true` draws through the jumps instead:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 $f(x) := cases(x^2 & "if" x < 1, 2 & "for" x = 1, 3 - x & "otherwise")$
@@ -1328,7 +1328,7 @@ $f(x) := cases(x^2 & "if" x < 1, 2 & "for" x = 1, 3 - x & "otherwise")$
       { md: "With `:=` a curve also defines its name, so you can calculate with it afterwards:" },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 #graph($h(x) := x^2 - {{a}}$, mark: "roots")

@@ -15,7 +15,7 @@ export const pages: Page[] = [
       {
         example: {
           title: "One show rule, then another",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: kΩ, V, mA
 #show: math
 
@@ -33,7 +33,7 @@ $I => mA$`,
       {
         example: {
           title: "Closest settings win, option by option",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math.with(digits: 4, notation: "{{notation}}")
 
 $x := 1/7000 =>$
@@ -59,7 +59,7 @@ $y =>$`,
       {
         example: {
           title: "A formula as prose",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 $a := 3$, $b := 4$, $c := 6$
@@ -73,7 +73,7 @@ $c =>$`,
       {
         example: {
           title: "Hidden setup, visible result",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: Ω, V, mW
 #show: math
 
@@ -86,7 +86,7 @@ The LED resistor dissipates #value($U^2 / R => mW$).`,
       {
         example: {
           title: "Three kinds of scope",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 $x := 12$
@@ -105,7 +105,7 @@ $x =>$`,
       {
         example: {
           title: "Each pump on its own",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: kW, m, s
 #show: math.with(clear-at: heading.where(level: 1))
 
@@ -123,7 +123,7 @@ $P =>$`,
       { md: "`#clear(\"I\", $f$)` forgets the names given, `#clear(all: true)` everything defined so far in the scope. See [clear](/docs/functions/clear)." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: mA, V
 #show: math
 
@@ -136,7 +136,7 @@ $U =>$
       },
       { h2: "math shadows Typst's math" },
       { md: "Importing `math` hides Typst's built-in `math` module. Native functions stay reachable as `std.math.upright`, `std.math.equation` and so on – or import solveng's under another name:" },
-      { code: `#import "@preview/solveng:2.0.0": math as engineering-math, mathscope
+      { code: `#import "@preview/solveng:3.0.0": math as engineering-math, mathscope
 #show: engineering-math.with(digits: 3)`, lang: "typ" },
     ],
     related: ["functions/math", "functions/mathscope", "functions/clear", "formatting", "reference/options"],
@@ -154,7 +154,7 @@ $U =>$
       {
         example: {
           title: "The formatting playground",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: kΩ, nF, V
 #import constants: pi
 #set text(lang: "{{lang}}")
@@ -184,7 +184,7 @@ $q := 3/2 =>$`,
       {
         example: {
           title: "German results from the same input",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: V, mA, Ω
 #set text(lang: "de")
 #show: math.with(grouping: sym.space.thin)
@@ -200,7 +200,7 @@ $n := 2^16 =>$`,
       {
         example: {
           title: "Move the thresholds",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math.with(notation-thresholds: ({{low}}, {{high}}))
 
 $a := 1234.5 dot 2 =>$
@@ -219,7 +219,7 @@ $c := 2^30 =>$`,
       {
         example: {
           title: "How big may a denominator be?",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import constants: pi
 #show: math.with(number-form: "fraction", max-denominator: {{den}}, fraction-style: "{{style}}")
 
@@ -239,7 +239,7 @@ $p := pi =>$`,
       {
         example: {
           title: "Allowed prefixes",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: kΩ, nF, m, J
 #show: math.with(prefixes: {{prefixes}})
 
@@ -276,7 +276,7 @@ $E := 3.6 dot 10^9 #J =>$`,
       {
         example: {
           title: "Not defined yet",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: V, mA, W
 #show: math
 
@@ -289,7 +289,7 @@ $P := U I => #W$`,
       {
         example: {
           title: "Apples and oranges",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: V, A
 #show: math
 
@@ -301,7 +301,7 @@ $x := 2 #V + 3 #A =>$`,
       {
         example: {
           title: "A statement that doesn't hold",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: V, Ω, mA
 #show: math
 
@@ -314,7 +314,7 @@ $U = R I$`,
       {
         example: {
           title: "A unit a parameter doesn't take",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: mA, mW
 #show: math
 
@@ -327,7 +327,7 @@ $P(3) =>$`,
       {
         example: {
           title: "Units where only numbers go",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: m
 #show: math
 
@@ -340,7 +340,7 @@ $ln(d) =>$`,
       {
         example: {
           title: "A unit in the wrong place",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: mA
 #show: math
 
@@ -398,7 +398,7 @@ $y := 5 => mA$`,
       {
         example: {
           title: "This site is HTML too",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: V, Ω, W
 #show: math
 
@@ -427,7 +427,7 @@ $y := 5 => mA$`,
       { h2: "It follows your templates" },
       { md: "Completions and import quick fixes follow bindings that local templates re-export, including renamed imports. Highlighting also recognizes template functions that forward their content into `math` or `mathscope` blocks or apply a `math` show rule – so a worksheet inside `#report[…]` is highlighted like one at the top level." },
       { code: `// template.typ
-#import "@preview/solveng:2.0.0": *
+#import "@preview/solveng:3.0.0": *
 #import units: mA, V
 #let report(body) = { show: math.with(digits: 3); body }
 
@@ -457,7 +457,7 @@ $I := 20 mA$`, lang: "typ" },
       { md: "An unknown that occurs **once** is isolated by undoing what's around it, step by step. Units of the unknown are inferred from the equation, and mismatched units stop with an error." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: V, W
 #import modifiers: solve
 #show: math
@@ -474,7 +474,7 @@ $P = U^2 / R -> solve(R)$`,
       { md: "When the unknown occurs several times, solveng brings both sides over one denominator. A **polynomial** in it is solved by formula up to degree 2, and by numerical polynomial roots above. Polynomial equations are solved in the complex numbers, so you get every root. A higher-degree solution with symbolic coefficients waits until they have values." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import modifiers: solve
 #show: math
 
@@ -487,7 +487,7 @@ $x^3 - 2 x - 5 = 0 -> solve(x)$`,
       { md: "Several equations, separated by commas, with several unknowns: solved **one equation at a time** where an equation has a single unknown, and by **elimination** where the system is linear. Everything else goes to the numerical solver." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import modifiers: solve
 #show: math
 
@@ -500,7 +500,7 @@ $x y = 2, x + y = 3 -> solve(x, y)$`,
       { md: "What can't be done symbolically is solved numerically, once every other name has a value. For one equation, solveng looks for **sign changes** over ±10⁻¹⁵…10¹⁵ (times the target unit) and bisects them, and starts **Newton's method** from every local minimum of the absolute value – which catches roots that touch zero without crossing it. Systems use damped Newton from 41 starts. The numerical search finds real roots." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import constants: e
 #import modifiers: solve
 #show: math
@@ -515,7 +515,7 @@ $#e^x = {{k}} x -> solve(x)$`,
       { md: "Results are simplified on the way: like terms combined, fractions cancelled, exact numbers kept exact. Equations also try a bounded **exact proof** in a common exponential form – `sin(x)^2 + cos(x)^2 = 1` is true – but numerical samples never count as proof." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 $(x^2 - 1)/(x - 1) ->$
@@ -526,7 +526,7 @@ $sin(x)^2 + cos(x)^2 = 1 ->$`,
       { md: "Real polynomial and rational inequalities are solved with a sign chart at every real root and pole, keeping open and closed ends and separate pieces: `x^2 < 1` gives −1 < x < 1, `x^2 > 1` gives x < −1 or x > 1." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import modifiers: solve
 #show: math
 
@@ -538,7 +538,7 @@ $x^2 {{op}} 1 -> solve(x)$`,
       { md: "`-> solve(x)` shows solutions and defines nothing. A **definition** keeps them: one solution gives a value, several a vector, and `at(…, 0)` picks the first. The solve variable is local, so a function can return the solutions for its parameters. Solved definitions need a symbolic solution." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: at
 #import modifiers: solve
 #show: math
@@ -575,7 +575,7 @@ $at(y(3, 5), 1) =>$`,
       { md: "Numbers are **exact fractions** as long as numerator and denominator fit in 128 bits, then 64-bit floats: about 15 significant digits, magnitudes up to 10³⁰⁰. Values are complex numbers with the real value where there is one: `sqrt(-1)` is i, `(-8)^(1/3)` is −2." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 $1/3 + 1/6 ->$
@@ -588,7 +588,7 @@ $sqrt(-4) =>$`,
       {
         example: {
           title: "Periodic, but one answer",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import modifiers: solve
 #show: math
 
@@ -604,7 +604,7 @@ $x^4 + a x = 1 -> solve(x)$`,
       { md: "- **°C** (`degC`) is a temperature *difference*. For absolute readings use `celsius(20)` or `fahrenheit(68)`, which give kelvin – that's what `p V = n R T` needs.\n- **Unit expressions** take whole-number powers (`#m^2`, `#s^(-1)`); `#m^(1/2)` isn't a unit." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: degC, K
 #import operations: celsius
 #show: math

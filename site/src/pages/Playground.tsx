@@ -6,7 +6,7 @@ import Output from "../components/Output";
 import { allExamples } from "../content/examples";
 import { runDocument, type RunResponse } from "../engine/client";
 
-const START = `#import "@preview/solveng:2.0.0": *
+const START = `#import "@preview/solveng:3.0.0": *
 #import units: V, Ω, mA, mW, kHz, nF, kΩ
 #import constants: pi
 #import modifiers: solve, digits

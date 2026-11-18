@@ -405,7 +405,7 @@ for real names, with the fewest names it needs: `$abs(1 + #e^(#i x))^2 ->$` is
 |1 + e^(ix)|² = 2 cos(x) + 2 for x ∈ ℝ. With `assume`, only the real result shows.
 
 ```typ
-#import "@preview/solveng:2.0.0": *
+#import "@preview/solveng:3.0.0": *
 #import operations: Re
 #import modifiers: assume
 #show: math
@@ -1470,12 +1470,12 @@ Options of `math`, and of `defined` and `graph`. Each one defaults to `auto`, wh
 The clause after a trailing `=` or `->` takes a unit and modifiers, separated by commas: `$t => #h, digits(2)$`,
 `$x^2 = 4 -> solve(x)$`. Modifiers are Typst bindings of solveng's `modifiers` module, and importing them is the
 only way to use them: `#import modifiers: solve, simplify` (or `#import modifiers: *`). Like any import, it holds
-only where it's written; `#import "@preview/solveng:2.0.0": *` brings none. Renamed imports
+only where it's written; `#import "@preview/solveng:3.0.0": *` brings none. Renamed imports
 (`#import modifiers: solve as löse`) work as the original. `solve`, `substitute`, `assume` and `digits` are functions,
 called with what they take; `simplify`, `expand`, `factor`, `steps`, `sci`, `eng` and `fraction` are written on their own.
 
 ```typ
-#import "@preview/solveng:2.0.0": *
+#import "@preview/solveng:3.0.0": *
 #import modifiers: solve, digits, sci
 #import units: h, mA, mAh
 #show: math
@@ -1561,7 +1561,7 @@ $x^2 - 2 #i x - 2 = 0 -> solve(x)$            // x₁ = −1 + j, x₂ = 1 + j
 
 ## Units
 
-Units, constants, operations and modifiers are Typst bindings, so solveng never guesses what a name means: in math `A` is a variable and, after `#import units: A`, `#A` is the ampere; quoted text (`$"mA"$`) is always a variable. Imports are lexical: they hold in the file or block where they're written and the blocks nested in it, whatever worksheet is around, and nothing comes along with `#import "@preview/solveng:2.0.0": *`. A unit binding hides a Typst function of the same name in code: after `#import units: h`, spacing is `std.h(1em)`.
+Units, constants, operations and modifiers are Typst bindings, so solveng never guesses what a name means: in math `A` is a variable and, after `#import units: A`, `#A` is the ampere; quoted text (`$"mA"$`) is always a variable. Imports are lexical: they hold in the file or block where they're written and the blocks nested in it, whatever worksheet is around, and nothing comes along with `#import "@preview/solveng:3.0.0": *`. A unit binding hides a Typst function of the same name in code: after `#import units: h`, spacing is `std.h(1em)`.
 
 After a trailing `=` or `->`, the unit to show is an expression of unit values too: `$t => #h$`, `$v -> km/#h$`, `$P => mW, digits(2)$`. Without one, results are shown in the unit of the option `preferred-units` (`preferred-units: ($#m / #s$,)`), else in a unit of the inputs, else in SI units with a prefix.
 

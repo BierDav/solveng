@@ -8,7 +8,7 @@ import OperatorCards from "../components/widgets/OperatorCards";
 import { runDocument, type RunResponse } from "../engine/client";
 import { Link } from "../lib/router";
 
-const PRELUDE = `#import "@preview/solveng:2.0.0": *
+const PRELUDE = `#import "@preview/solveng:3.0.0": *
 #import units: mA, mAh, h
 #import modifiers: solve
 #show: math
@@ -69,7 +69,7 @@ const FEATURES = [
 
 export default function Landing() {
   const [copied, setCopied] = createSignal(false);
-  const install = `#import "@preview/solveng:2.0.0": *`;
+  const install = `#import "@preview/solveng:3.0.0": *`;
   return (
     <div class="landing">
       <Header overHero />
@@ -111,7 +111,7 @@ export default function Landing() {
         <div class="demo-wrap">
           <Workbench example={{
             title: "RC low-pass",
-            code: `#import "@preview/solveng:2.0.0": *
+            code: `#import "@preview/solveng:3.0.0": *
 #import units: kΩ, nF, kHz, Hz
 #import constants: pi
 #show: math

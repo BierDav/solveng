@@ -13,7 +13,7 @@ export const pages: Page[] = [
       {
         example: {
           title: "A battery, in four lines",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: mA, mAh, h
 #import modifiers: solve
 #show: math
@@ -55,14 +55,14 @@ $Q_0/2 = I t -> solve(t)$`,
     blocks: [
       { h2: "Install" },
       { md: "There is nothing to install. solveng is a Typst package on Typst Universe: the first time a document imports it, Typst downloads it – in the web app and with the `typst` command line alike (Typst 0.14 or newer). One line brings it in:" },
-      { code: `#import "@preview/solveng:2.0.0": *`, lang: "typ" },
+      { code: `#import "@preview/solveng:3.0.0": *`, lang: "typ" },
       { md: "That line brings the functions you call in code – `math`, `mathscope`, `graph`, `defined`, `value`, `clear`, `compile`, `base-unit`, `unit`, `constant`, `operation` – the parameter type `any`, and four modules: `units`, `constants`, `operations` and `modifiers`. It brings no units and doesn't calculate anything yet." },
       { h2: "Switch it on" },
       { md: "`#show: math` calculates every equation that follows. Without it the math is just math, as Typst always shows it. Write it after your imports, or after a template's show rule." },
       {
         example: {
           title: "The smallest worksheet",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 $a := 3$, $b := 4$
@@ -70,13 +70,13 @@ $c := sqrt(a^2 + b^2) =>$`,
           caption: "`:=` defines, `=>` shows the value. Everything else stays ordinary Typst math.",
         },
       },
-      { callout: "note", title: "math shadows math", md: "solveng's `math` takes the place of Typst's `math` module in your document. Typst's own functions are still there as `std.math.upright`, `std.math.op` and so on. If you'd rather keep the name, import it under another one: `#import \"@preview/solveng:2.0.0\": math as engineering-math`, then `#show: engineering-math`." },
+      { callout: "note", title: "math shadows math", md: "solveng's `math` takes the place of Typst's `math` module in your document. Typst's own functions are still there as `std.math.upright`, `std.math.op` and so on. If you'd rather keep the name, import it under another one: `#import \"@preview/solveng:3.0.0\": math as engineering-math`, then `#show: engineering-math`." },
       { h2: "Import what you use" },
       { md: "Units, constants, operations and modifiers are ordinary Typst bindings. Import the ones a document uses, from the module they live in:\n\n- `#import units: V, mA, kΩ, h` – units, with every SI prefix (`mA`, `kΩ`, `µs`). [Units →](/docs/units)\n- `#import constants: pi, e, i, c` – π, Euler's e, the imaginary unit, the speed of light. [Constants →](/docs/constants)\n- `#import operations: tri, integrate` – operations beyond Typst's `sin`, `sqrt`, `ln`, … which need no import. [Operations →](/docs/operations/tri)\n- `#import modifiers: solve, digits` – what goes after `=>` and `->`. [Modifiers →](/docs/modifiers/solve)\n\nBecause they are bindings, solveng never guesses: `A` is a variable, `#A` is the ampere. A name you didn't import is an error, not a silent variable. Imports follow Typst's scoping – they hold in the file or block where they're written." },
       {
         example: {
           title: "All four modules",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: mA, mAh, h
 #import constants: pi
 #import operations: tri
@@ -92,7 +92,7 @@ $tri(1/4) =>$, $2 pi =>$`,
       {
         example: {
           title: "A the variable, #A the ampere",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: A, s
 #show: math
 
@@ -115,7 +115,7 @@ $t := 90 #s =>$`,
       {
         example: {
           title: "LED series resistor",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: V, mA, Ω, mW
 #show: math
 
@@ -153,7 +153,7 @@ $P_R := (U_0 - U_F) I_F => mW$
       {
         example: {
           title: "Defining before the parts exist",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: cm, m
 #show: math
 
@@ -182,7 +182,7 @@ $h =>$`,
       {
         example: {
           title: "Three readings of =",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: V, mA, Ω
 #show: math
 
@@ -196,7 +196,7 @@ $E = m c^2$`,
       {
         example: {
           title: "A statement that doesn't hold",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: V, mA, Ω
 #show: math
 
@@ -212,7 +212,7 @@ $U = 2 R I$`,
       {
         example: {
           title: "Unit and modifiers after =>",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: V, mV, kΩ
 #import modifiers: digits, eng
 #show: math
@@ -231,7 +231,7 @@ $U / (47 kΩ) => eng$`,
       {
         example: {
           title: "Exact, not rounded",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import constants: pi
 #import modifiers: solve, factor
 #show: math
@@ -272,7 +272,7 @@ $a^2 p = a p ->$`,
       {
         example: {
           title: "Time constant and cutoff frequency",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: kΩ, nF, kHz, µs
 #import constants: pi
 #show: math
@@ -292,7 +292,7 @@ $f_c := 1/(2 pi tau) => kHz$`,
       {
         example: {
           title: "Gain over frequency",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: kΩ, nF, kHz
 #import constants: pi
 #show: math
@@ -311,7 +311,7 @@ $H(f_c) =>$, $H(10 f_c) =>$
       {
         example: {
           title: "Solve for the resistor",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: nF, kHz, kΩ
 #import constants: pi
 #import modifiers: solve
@@ -330,7 +330,7 @@ $R => kΩ$`,
       {
         example: {
           title: "Charging curve and t₉₀",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: kΩ, nF, V, ms
 #import constants: e
 #import modifiers: solve
@@ -352,7 +352,7 @@ $t_90 => ms$
       {
         example: {
           title: "The summary",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: kΩ, nF, kHz, V
 #import constants: pi
 #show: math

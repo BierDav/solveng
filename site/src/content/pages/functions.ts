@@ -1,6 +1,6 @@
 import type { Page } from "../types";
 
-const PKG = `#import "@preview/solveng:2.0.0": *`;
+const PKG = `#import "@preview/solveng:3.0.0": *`;
 
 // Every option of `math` is accepted by `graph` and `defined` as well, for that call only.
 const OPTIONS_PARAM = {
@@ -18,7 +18,7 @@ export const pages: Page[] = [
     group: "functions",
     summary: "Turns calculation on for the math that follows and sets its options – for the whole document as a show rule, or for one block – without starting a new variable scope.",
     signature: "math(..body, clear-at: auto, hidden: auto, evaluate: auto, digits: auto, …) → content",
-    import: `#import "@preview/solveng:2.0.0": math`,
+    import: `#import "@preview/solveng:3.0.0": math`,
     returns: "content: the body, with its math calculated.",
     keywords: ["show rule", "settings", "options", "evaluate", "hidden", "clear-at", "worksheet"],
     blocks: [
@@ -107,11 +107,11 @@ $U := 12 #V$
       },
       { h2: "Notes" },
       { md: "- **Applying it again** – `#show: math.with(digits: 2)` after an earlier `#show: math` – overrides settings and keeps the same scope, also when a template already turned calculation on.\n- **Heading levels** follow the number of `=`: `====` is level 4.\n- **Unknown options** are reported as problems in the document, like any other." },
-      { callout: "warning", title: "It shadows Typst's math module", md: "`#import \"@preview/solveng:2.0.0\": *` replaces Typst's built-in `math`. Reach the native functions as `std.math.upright`, `std.math.equation`, … – or import solveng's under another name: `#import \"@preview/solveng:2.0.0\": math as engineering-math`, then `#show: engineering-math`." },
+      { callout: "warning", title: "It shadows Typst's math module", md: "`#import \"@preview/solveng:3.0.0\": *` replaces Typst's built-in `math`. Reach the native functions as `std.math.upright`, `std.math.equation`, … – or import solveng's under another name: `#import \"@preview/solveng:3.0.0\": math as engineering-math`, then `#show: engineering-math`." },
       {
         example: {
           title: "Renamed",
-          code: `#import "@preview/solveng:2.0.0": math as engineering-math
+          code: `#import "@preview/solveng:3.0.0": math as engineering-math
 #show: engineering-math.with(digits: 3)
 
 $x := 1/7 =>$`,
@@ -140,7 +140,7 @@ $y =>$`,
     group: "functions",
     summary: "Gives its content a variable scope of its own – isolated, inheriting or shared – while keeping the math settings around it.",
     signature: `mathscope(..body, scope: "isolated") → content`,
-    import: `#import "@preview/solveng:2.0.0": mathscope`,
+    import: `#import "@preview/solveng:3.0.0": mathscope`,
     returns: "content: the body, calculated in the new scope.",
     keywords: ["scope", "isolated", "inherit", "shared", "variants", "local"],
     blocks: [
@@ -245,7 +245,7 @@ $x := 12$
     group: "functions",
     summary: "Plots one or more curves – functions, expressions or measured data – and picks ranges, ticks, axis labels and units by itself.",
     signature: "graph(equation, x-range: auto, y-range: auto, mark: none, xmark: (), ymark: (), samples: 400, …) → content",
-    import: `#import "@preview/solveng:2.0.0": graph`,
+    import: `#import "@preview/solveng:3.0.0": graph`,
     returns: "content: the graph. Printed with lilaq; in HTML (and on this site) drawn live, with values under the pointer.",
     keywords: ["plot", "chart", "curve", "diagram", "lilaq", "marks", "axis", "data", "scatter"],
     blocks: [
@@ -468,7 +468,7 @@ $f(x) := cases(1 & "for" x < 0, 2 & "for" x = 1, x & "else")$
     group: "functions",
     summary: "Lists the definitions made so far, in order – all of them, or a selection by name or kind, as a grid, column, list or inline.",
     signature: `defined(names: "all", kinds: ("given", "computed", "function"), where: name => true, style: auto, …) → content`,
-    import: `#import "@preview/solveng:2.0.0": defined`,
+    import: `#import "@preview/solveng:3.0.0": defined`,
     returns: "content: the list of definitions with their values.",
     keywords: ["list", "summary", "variables", "overview", "table", "givens", "results"],
     blocks: [
@@ -553,7 +553,7 @@ $Q_0 := 3450 mAh$, $I := 30 mA$, $t := Q_0 / I$
     group: "functions",
     summary: "The result of one expression on its own, for running text: what `$U =>$` would show after its `=`.",
     signature: "value(expr) → content",
-    import: `#import "@preview/solveng:2.0.0": value`,
+    import: `#import "@preview/solveng:3.0.0": value`,
     returns: "content: the result, inline.",
     keywords: ["inline", "text", "sentence", "prose", "result"],
     blocks: [
@@ -605,7 +605,7 @@ $U := 5 #V$, $R := 7.2 kΩ$, $g(x) := x^2 + 1$
     group: "functions",
     summary: "Forgets definitions: the names given, or with `all: true` every one made so far in the current scope.",
     signature: "clear(..names, all: false) → content",
-    import: `#import "@preview/solveng:2.0.0": clear`,
+    import: `#import "@preview/solveng:3.0.0": clear`,
     returns: "content: nothing visible, unless a name wasn't defined (then a problem).",
     keywords: ["forget", "reset", "undefine", "delete", "remove"],
     blocks: [
@@ -674,7 +674,7 @@ $x := 12$
     group: "functions",
     summary: "Turns a worksheet expression into an ordinary Typst function that takes numbers and returns a float – for tables, loops and your own plots.",
     signature: "compile(expr, parameters: (:), result-unit: none) → function",
-    import: `#import "@preview/solveng:2.0.0": compile`,
+    import: `#import "@preview/solveng:3.0.0": compile`,
     returns: "function: one argument per parameter, returning a float in `result-unit` (else SI), or `none` where the expression isn't defined.",
     keywords: ["function", "numeric", "float", "export", "typst function", "loop", "table"],
     blocks: [
@@ -759,7 +759,7 @@ $R := 50 #Ω$
     group: "functions",
     summary: "Creates a unit of a new, independent dimension – bits, pixels, people, items – that never mixes with the SI dimensions.",
     signature: "base-unit(identity, display: auto) → content",
-    import: `#import "@preview/solveng:2.0.0": base-unit`,
+    import: `#import "@preview/solveng:3.0.0": base-unit`,
     returns: "content: a unit binding to use in math.",
     keywords: ["custom unit", "dimension", "own unit", "bit", "currency", "new unit"],
     blocks: [
@@ -811,7 +811,7 @@ $n + m =>$`,
     group: "functions",
     summary: "Defines a unit as an expression of other units – bar, rpm, inch – with an optional display.",
     signature: "unit(expression, display: auto) → content",
-    import: `#import "@preview/solveng:2.0.0": unit`,
+    import: `#import "@preview/solveng:3.0.0": unit`,
     returns: "content: a unit binding to use in math.",
     keywords: ["custom unit", "derived unit", "bar", "rpm", "inch", "psi", "own unit"],
     blocks: [
@@ -878,7 +878,7 @@ $F / A =>$, $F / A => bar$
     group: "functions",
     summary: "Names a constant by an identity and the expression it stands for – kept by name in exact results, calculated with its value.",
     signature: "constant(identity, expression) → content",
-    import: `#import "@preview/solveng:2.0.0": constant`,
+    import: `#import "@preview/solveng:3.0.0": constant`,
     returns: "content: a constant binding to use in math.",
     keywords: ["constant", "standard gravity", "physical constant", "identity", "symbol", "g0"],
     blocks: [
@@ -945,7 +945,7 @@ $A -> substitute(turn)$`,
     group: "functions",
     summary: "Binds one of solveng's operations under a name and look of your choice – `triangle` for `tri`, `conv` for `convolve`.",
     signature: "operation(name, display: auto) → function",
-    import: `#import "@preview/solveng:2.0.0": operation`,
+    import: `#import "@preview/solveng:3.0.0": operation`,
     returns: "function: an operation binding to call in math, also with named arguments.",
     keywords: ["rename", "alias", "operator", "custom name", "display"],
     blocks: [
@@ -985,7 +985,7 @@ $conv(vec(1, 2), vec(1, 1)) =>$`,
     group: "functions",
     summary: "The type of a function parameter that accepts every unit: `$f(x: any) := 2 x$`.",
     signature: "any",
-    import: `#import "@preview/solveng:2.0.0": any`,
+    import: `#import "@preview/solveng:3.0.0": any`,
     keywords: ["type", "parameter", "generic", "unit", "annotation"],
     blocks: [
       { md: "A parameter's annotation is a type: `f(I: mA)` takes currents only, and `f(2)` without a unit is a problem. `any` says the opposite on purpose – volts, metres, plain numbers, all welcome. Use it for helpers that don't care about dimensions: doubling, averaging, a safety factor." },

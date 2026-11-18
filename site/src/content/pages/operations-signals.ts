@@ -17,7 +17,7 @@ export const pages: Page[] = [
       {
         example: {
           title: "Place a pulse",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: rect
 #show: math
 
@@ -35,7 +35,7 @@ $integral_(-infinity)^infinity p(t) dif t ->$`,
       {
         example: {
           title: "At the edges",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: rect
 #show: math
 
@@ -55,7 +55,7 @@ $rect(0.49) =>$, $rect(0.51) =>$`,
       {
         example: {
           title: "Fourier transform of rect",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: rect
 #import constants: pi, e, i
 #show: math
@@ -83,7 +83,7 @@ $integral_(-infinity)^infinity rect(t) #e^(-#i 2 pi f t) dif t ->$`,
       {
         example: {
           title: "Place a triangle",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: tri
 #show: math
 
@@ -101,7 +101,7 @@ $integral_(-infinity)^infinity p(t) dif t ->$`,
       {
         example: {
           title: "Values and slope",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: tri
 #show: math
 
@@ -113,7 +113,7 @@ $dif/(dif t) tri(t) ->$`,
       {
         example: {
           title: "Its spectrum",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: tri
 #import constants: pi, e, i
 #show: math
@@ -141,7 +141,7 @@ $integral_(-infinity)^infinity tri(t) #e^(-#i 2 pi f t) dif t ->$`,
       {
         example: {
           title: "Values",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: sinc
 #import constants: pi
 #show: math
@@ -162,7 +162,7 @@ $sinc(1) =>$`,
       {
         example: {
           title: "The spectrum of a pulse",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: sinc
 #import units: kHz, ms
 #import constants: pi
@@ -194,7 +194,7 @@ $S(f: kHz) := T sinc(pi f T)$
       {
         example: {
           title: "Values",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: cosc
 #import constants: pi
 #show: math
@@ -207,7 +207,7 @@ $cosc(10^(-6)) =>$`,
       {
         example: {
           title: "sinc and cosc",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: sinc, cosc
 #show: math
 
@@ -234,7 +234,7 @@ $cosc(10^(-6)) =>$`,
       {
         example: {
           title: "Values",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: tanc
 #import constants: pi
 #show: math
@@ -246,7 +246,7 @@ $tanc(0) =>$, $tanc(pi/4) =>$, $tanc(pi) =>$`,
       {
         example: {
           title: "The graph",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: tanc
 #show: math
 
@@ -257,7 +257,7 @@ $tanc(0) =>$, $tanc(pi/4) =>$, $tanc(pi) =>$`,
       {
         example: {
           title: "A pole",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: tanc
 #import constants: pi
 #show: math
@@ -285,7 +285,7 @@ $tanc(pi/2) =>$`,
       {
         example: {
           title: "Shift by convolution",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: dirac, convolve, tri
 #show: math
 
@@ -299,7 +299,7 @@ $y(t) := convolve(tri(tau), dirac(tau - a), tau, t) ->$
       {
         example: {
           title: "An echo",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: dirac, convolve, rect
 #show: math
 
@@ -313,7 +313,7 @@ $y(t) := convolve(rect(tau), h(tau), tau, t) ->$
       {
         example: {
           title: "Sifting and scaling",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: dirac, convolve
 #show: math
 
@@ -326,7 +326,7 @@ $convolve(dirac(tau - 1), dirac(tau - 2), tau, t) ->$`,
       {
         example: {
           title: "No pointwise value",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: dirac
 #show: math
 
@@ -356,7 +356,7 @@ $dirac(0) =>$`,
       {
         example: {
           title: "A table of transforms",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: laplace
 #import constants: e
 #show: math
@@ -370,7 +370,7 @@ $F(p) := laplace(exp(-x), x, p) ->$`,
       {
         example: {
           title: "Transfer function of an RC low-pass",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: laplace
 #import constants: e
 #show: math
@@ -383,7 +383,7 @@ $H(s) := laplace(h(t)) ->$`,
       {
         example: {
           title: "Pulses",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: laplace, rect, tri
 #show: math
 
@@ -418,7 +418,7 @@ $laplace(tri(2 t)) ->$`,
       {
         example: {
           title: "Closed forms",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: invlaplace
 #show: math
 
@@ -431,7 +431,7 @@ $f(x) := invlaplace(1/(p + 1), p, x) ->$`,
       {
         example: {
           title: "Step response of a second-order system",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: invlaplace
 #show: math
 
@@ -446,7 +446,7 @@ $h(t) := invlaplace(G(s)/s, s, t)$
       {
         example: {
           title: "A system from its input and output",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: laplace, invlaplace, rect, tri
 #show: math
 
@@ -484,7 +484,7 @@ $g(t) := invlaplace(H(s)/s, s, t)$
       {
         example: {
           title: "rect ∗ rect = tri",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: convolve, rect, tri
 #show: math
 
@@ -497,7 +497,7 @@ $y(1/2) ->$, $tri(1/2) ->$
       {
         example: {
           title: "From triangle to trapezoid",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: convolve, rect
 #show: math
 
@@ -511,7 +511,7 @@ $y(t) := convolve(rect(tau), rect(tau / w), tau, t) ->$
       {
         example: {
           title: "tri ∗ tri",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: convolve, tri
 #show: math
 
@@ -523,7 +523,7 @@ $y(1/2) ->$`,
       {
         example: {
           title: "A pulse through an RC filter",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: convolve, rect, sgn
 #import constants: e
 #show: math
@@ -538,7 +538,7 @@ $y(1) =>$
       {
         example: {
           title: "Sequences: a moving average",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: convolve
 #import units: ms
 #show: math

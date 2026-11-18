@@ -16,7 +16,7 @@ export const pages: Page[] = [
       {
         example: {
           title: "Three ways to write it",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: diff
 #show: math
 
@@ -28,7 +28,7 @@ $dif/(dif x) sin(x)^2 ->$`,
       {
         example: {
           title: "Position, velocity, acceleration",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: m, s
 #show: math
 
@@ -43,7 +43,7 @@ $v(3 #s) =>$`,
       {
         example: {
           title: "A function and its slope",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 $f(x) := sin({{k}} x)$
@@ -56,7 +56,7 @@ $g(x) := dif/(dif x) f(x) ->$
       {
         example: {
           title: "Higher and partial derivatives",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 $f(x) := x^2 sin(x)$
@@ -97,7 +97,7 @@ $(partial^2 g(x, y))/(partial x partial y) ->$`,
       {
         example: {
           title: "Exact",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: integrate
 #import constants: pi, e
 #show: math
@@ -112,7 +112,7 @@ $integral #e^(a x) dif x ->$`,
       {
         example: {
           title: "Charge from a discharge current",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: A, ms, mC, s
 #import constants: e
 #show: math
@@ -127,7 +127,7 @@ $Q := integral_(0 #s)^infinity i(t) dif t => mC$`,
       {
         example: {
           title: "When there's no closed form",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import constants: e
 #show: math
 
@@ -172,7 +172,7 @@ $integral_(-infinity)^infinity #e^(-x^2) dif x =>$`,
       {
         example: {
           title: "Familiar series",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: taylor
 #import modifiers: expand
 #import constants: e
@@ -186,7 +186,7 @@ $taylor(1/(1 - x), x, 0, 5) ->$`,
       {
         example: {
           title: "Watch it hug the sine",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: taylor
 #show: math
 
@@ -199,7 +199,7 @@ $S(x) := taylor(sin(x), x, 0, {{n}})$
       {
         example: {
           title: "About another center",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: taylor
 #import modifiers: expand
 #show: math
@@ -212,7 +212,7 @@ $taylor(sqrt(x), x, 4, 1) -> expand$`,
       {
         example: {
           title: "No derivative at the center",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: taylor
 #show: math
 
@@ -246,7 +246,7 @@ $taylor(ln(x), x, 0, 3) ->$`,
       {
         example: {
           title: "Polar coordinates",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: jacobian
 #show: math
 
@@ -258,7 +258,7 @@ $det(J) ->$`,
       {
         example: {
           title: "Linearize at a point",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: jacobian
 #show: math
 
@@ -292,7 +292,7 @@ $J({{x}}, 2) =>$`,
       {
         example: {
           title: "A saddle",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: hessian, eigenvals
 #show: math
 
@@ -305,7 +305,7 @@ $eigenvals(H) =>$`,
       {
         example: {
           title: "Symbolic",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: hessian
 #show: math
 
@@ -337,7 +337,7 @@ $det(H) ->$`,
       {
         example: {
           title: "Basics",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: prod
 #import units: m
 #show: math
@@ -351,7 +351,7 @@ $prod(2 #m, k, 1, 3) =>$`,
       {
         example: {
           title: "The birthday paradox",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: prod
 #show: math
 
@@ -364,7 +364,7 @@ $p := 1 - prod((365 - k)/365, k, 0, n - 1) =>$`,
       {
         example: {
           title: "Telescoping, exactly",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: prod
 #show: math
 

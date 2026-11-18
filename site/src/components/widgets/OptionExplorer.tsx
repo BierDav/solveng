@@ -1,7 +1,7 @@
 // The options that change how numbers look, all on one worksheet: move them and watch the same results change.
 import Workbench from "../Workbench";
 
-const CODE = `#import "@preview/solveng:2.0.0": *
+const CODE = `#import "@preview/solveng:3.0.0": *
 #import units: V, mA, kΩ, uF, ms, mW
 #show: math.with(
   digits: {{digits}},

@@ -281,7 +281,7 @@ export class Interp {
 
   private module(path: string): Module {
     if (path.includes("solveng") || path === "/lib.typ" || path.endsWith("lib.typ")) return this.pkg;
-    throw new TypstError(`can't import ${JSON.stringify(path)} here – only solveng: #import "@preview/solveng:2.0.0": *`);
+    throw new TypstError(`can't import ${JSON.stringify(path)} here – only solveng: #import "@preview/solveng:3.0.0": *`);
   }
 
   private closure(name: string, params: { name: string; def?: Expr; sink?: boolean }[], body: Expr, scope: Scope): Fn {

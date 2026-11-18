@@ -7,7 +7,7 @@ import os, re, subprocess, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TYPST = os.environ.get("TYPST", "typst")
-IMPORT = '#import "@preview/solveng:2.0.0": *'
+IMPORT = '#import "@preview/solveng:3.0.0": *'
 
 def fatal(doc):
     """Problems stop the compilation: add errors: "panic" to the example's math settings."""
@@ -32,9 +32,9 @@ with tempfile.TemporaryDirectory() as tmp:
         # examples that import a file of their own can't stand alone
         if re.search(r'#import "(?!@preview/solveng)', code): continue
         # examples from doc comments leave the import out
-        if '"@preview/solveng:2.0.0"' not in code: code = IMPORT + "\n" + code
+        if '"@preview/solveng:3.0.0"' not in code: code = IMPORT + "\n" + code
         shows_error = "// error" in code
-        doc = code.replace('"@preview/solveng:2.0.0"', '"/lib.typ"')
+        doc = code.replace('"@preview/solveng:3.0.0"', '"/lib.typ"')
         if '#import "/lib.typ": *' not in doc: doc = '#import "/lib.typ": *\n' + doc
         if not shows_error:
             doc = fatal(doc)

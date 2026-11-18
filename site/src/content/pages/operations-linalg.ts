@@ -19,7 +19,7 @@ export const pages: Page[] = [
       {
         example: {
           title: "Sample times with units",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: range
 #import units: s, ms
 #show: math
@@ -32,7 +32,7 @@ $t := range(0 #s, 1 #s, step: {{step}} ms) =>$`,
       {
         example: {
           title: "A sampled sine, plotted as data",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: range, at
 #import units: s, ms, V, Hz
 #import constants: pi
@@ -85,7 +85,7 @@ $u[k] := 5 #V sin(2 pi f at(t, k))$
       {
         example: {
           title: "A reading from a log",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: at
 #import units: V
 #show: math
@@ -100,7 +100,7 @@ $d := at(u, {{i}}) - u_0 =>$`,
       {
         example: {
           title: "A matrix element, and a chosen root",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: at, polyroots
 #show: math
 
@@ -123,7 +123,7 @@ $r_1 := at(r, 1) =>$`,
       {
         example: {
           title: "One past the end",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: at
 #show: math
 
@@ -161,7 +161,7 @@ $at(v, 3) =>$`,
       {
         example: {
           title: "Kirchhoff's current law, node by node",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: rank
 #show: math
 
@@ -176,7 +176,7 @@ $r := rank(K) =>$`,
       {
         example: {
           title: "When does the redundancy go away?",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: rank
 #show: math
 
@@ -208,7 +208,7 @@ $r := rank(A) =>$`,
       { md: "`identity(n)` is the matrix that changes nothing: `A identity(n)` is A. You'll need it whenever a number has to act on a whole matrix – most famously in the eigenvalue condition `det(A − λ I) = 0`." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: identity
 #show: math
 
@@ -218,7 +218,7 @@ $I_3 := identity(3) =>$`,
       {
         example: {
           title: "Checking an eigenvalue",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: identity, eigenvals, at
 #show: math
 
@@ -252,7 +252,7 @@ $det(A - at(λ, {{i}}) identity(2)) =>$`,
       {
         example: {
           title: "Standard error of a mean",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: rows, stdev
 #import units: mm, μm
 #show: math
@@ -265,7 +265,7 @@ $s_m := stdev(d) / sqrt(n) => μm$`,
       },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: rows, cols
 #show: math
 
@@ -295,7 +295,7 @@ $rows(A) =>$, $cols(A) =>$`,
       {
         example: {
           title: "Unknowns versus equations",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: rows, cols, rank
 #show: math
 
@@ -307,7 +307,7 @@ $rank(A) =>$`,
       },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: cols
 #show: math
 
@@ -336,7 +336,7 @@ $cols(vec(1, 2, 3)) =>$, $cols(vec(1, 2, 3)^T) =>$`,
       {
         example: {
           title: "Nodal analysis of a resistor network",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: linear-solve
 #import units: kΩ, mA, V
 #show: math
@@ -352,7 +352,7 @@ $u := #linear-solve($G$, $i$) => #V$`,
       {
         example: {
           title: "Least squares: a line through three readings",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: lsolve
 #import units: s, V
 #show: math
@@ -374,7 +374,7 @@ $c := lsolve(A, u) =>$`,
       {
         example: {
           title: "Two equations that are really one",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: lsolve
 #show: math
 
@@ -404,7 +404,7 @@ $lsolve(A, vec(1, 2)) =>$`,
       {
         example: {
           title: "Two masses, three springs",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: eigenvals, at
 #import units: kg, N, m, Hz
 #import constants: pi
@@ -422,7 +422,7 @@ $f_2 := sqrt(at(λ, 1)) / (2 pi) => #Hz$`,
       {
         example: {
           title: "A rotation has no real direction",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: eigenvals
 #show: math
 
@@ -455,7 +455,7 @@ $eigenvals(R) =>$`,
       {
         example: {
           title: "Gains of a 3 × 2 system",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: singularvals
 #import units: m
 #show: math
@@ -468,7 +468,7 @@ $σ := singularvals(A) =>$`,
       {
         example: {
           title: "Squeezing a matrix flat",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: singularvals, cond
 #show: math
 
@@ -501,7 +501,7 @@ $σ := singularvals(A) =>$`,
       {
         example: {
           title: "Two sensors that see almost the same thing",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: cond
 #show: math
 
@@ -514,7 +514,7 @@ $κ := cond(A) =>$`,
       {
         example: {
           title: "Scaling matters",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import operations: cond
 #show: math
 

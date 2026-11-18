@@ -12,7 +12,7 @@ import { loadInterp } from "./engine-node";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const TYPST = process.env.TYPST ?? "typst";
-const IMPORT = '#import "@preview/solveng:2.0.0": *';
+const IMPORT = '#import "@preview/solveng:3.0.0": *';
 
 type Doc = { where: string; code: string; expectError?: boolean; variants?: string[] };
 

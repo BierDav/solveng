@@ -102,7 +102,7 @@ export const pages: Page[] = [
       {
         example: {
           title: "Options at three levels",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: kΩ, nF
 #import constants: pi
 #show: math.with(digits: 3, decimal-separator: ",")
@@ -170,7 +170,7 @@ $tau := R C =>$
       {
         example: {
           title: "Spellings and the # rule",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: kΩ, uA, Omega, V, deg, percent
 #show: math
 
@@ -210,7 +210,7 @@ $eta := 85 percent$, $eta dot 2 =>$`,
       {
         example: {
           title: "Everything at once",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: mA, mAh, h, V, Ω, W
 #import operations: at
 #import modifiers: solve, digits
@@ -244,7 +244,7 @@ $"r" := x^2 = 9 -> solve(x)$, $at("r", 1) =>$`,
         table: {
           head: ["import", "brings"],
           rows: [
-            ["`#import \"@preview/solveng:2.0.0\": *`", "`math`, `mathscope`, `graph`, `defined`, `value`, `clear`, `compile`, `base-unit`, `unit`, `constant`, `operation`, `any`, and the modules"],
+            ["`#import \"@preview/solveng:3.0.0\": *`", "`math`, `mathscope`, `graph`, `defined`, `value`, `clear`, `compile`, `base-unit`, `unit`, `constant`, `operation`, `any`, and the modules"],
             ["`#import units: mA, kΩ, s`", "units – see [Units](/docs/reference/units)"],
             ["`#import constants: pi, e, i, c`", "π, Euler's e, the imaginary unit, the speed of light"],
             ["`#import operations: tri, integrate`", "operations beyond Typst's own `sqrt sin cos ln exp abs …`"],
@@ -356,7 +356,7 @@ $"r" := x^2 = 9 -> solve(x)$, $at("r", 1) =>$`,
       {
         example: {
           title: "Three kinds of names",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: V, mA
 #show: math
 
@@ -378,7 +378,7 @@ $P := "duty" U I =>$`,
       { md: "- `R_1`, `t_\"on\"`, `R_(a b)` are names with subscripts; `R_(a b)` is R with subscript ab.\n- `x'` is a name of its own.\n- **Digits:** `x1` is a Typst word, so unknown – write `x_1`, or `x\"\"1` for x1 on the baseline.\n- **`\"\"` joins** pieces Typst would otherwise read separately: `Delta\"\"t` is Δt – without it, `Deltat` isn't a symbol and `Delta t` is Δ times t.\n- Greek letters by name: `alpha`, `tau`, `Omega` (careful: after `#import units: Omega`, that's the ohm)." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #import units: ms
 #show: math
 
@@ -392,7 +392,7 @@ $x' := 3$, $x_1 := 2$, $x' + x_1 =>$`,
       {
         example: {
           title: "Where does the fraction end?",
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 $a := 6$, $b := 3$
@@ -418,7 +418,7 @@ $frac(a, 2 b) =>$`,
       { md: "- `vec(1, 2, 3)` is a column vector.\n- `mat(1, 2; 3, 4)` is a matrix: commas separate columns, semicolons rows.\n- `cases(…)` is a piecewise definition: value `&` condition, one case per comma. A condition `\"otherwise\"` catches the rest." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 $v := vec(1, 2, 3)$, $v[2] =>$
@@ -431,7 +431,7 @@ $f(-2) =>$, $f(3) =>$`,
       { md: "`\\` breaks a line inside one equation – solveng reads each line as its own statement, so a block of definitions can be one equation. In `#graph`, `\\` separates curves: `#graph($sin(x) \\ cos(x)$)`." },
       {
         example: {
-          code: `#import "@preview/solveng:2.0.0": *
+          code: `#import "@preview/solveng:3.0.0": *
 #show: math
 
 $a := 2 \\

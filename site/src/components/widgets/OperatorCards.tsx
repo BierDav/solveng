@@ -6,7 +6,7 @@ const CARDS = [
   {
     op: ":=", name: "defines", cls: "define",
     text: "Names a value or a function. Undefined names stay names until they get a value.",
-    code: `#import "@preview/solveng:2.0.0": *
+    code: `#import "@preview/solveng:3.0.0": *
 #import units: kΩ, V
 #show: math
 $R := 4.7 kΩ$, $U := 5 #V$`,
@@ -14,7 +14,7 @@ $R := 4.7 kΩ$, $U := 5 #V$`,
   {
     op: "=>", name: "shows the value", cls: "value",
     text: "Calculates numerically and shows the result, in the unit you ask for.",
-    code: `#import "@preview/solveng:2.0.0": *
+    code: `#import "@preview/solveng:3.0.0": *
 #import units: kΩ, V, mA
 #show: math
 $R := 4.7 kΩ$, $U := 5 #V$
@@ -23,7 +23,7 @@ $U / R => mA$`,
   {
     op: "->", name: "keeps it exact", cls: "symbolic",
     text: "Simplifies symbolically: fractions, roots and π stay. With solve(x) it solves.",
-    code: `#import "@preview/solveng:2.0.0": *
+    code: `#import "@preview/solveng:3.0.0": *
 #import modifiers: solve
 #show: math
 $(x^2 - 1)/(x - 1) ->$

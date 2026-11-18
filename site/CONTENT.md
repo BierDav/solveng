@@ -16,7 +16,7 @@ Every `example` runs in the browser on solveng's real engine through a small Typ
 (`site/src/engine/`). An example is a complete document:
 
 ```typ
-#import "@preview/solveng:2.0.0": *
+#import "@preview/solveng:3.0.0": *
 #import units: kΩ, V, mA          // only what it uses
 #import operations: tri           // operations, constants, modifiers likewise
 #show: math

@@ -1,6 +1,6 @@
 import type { Page } from "../types";
 
-const IMPORT = `#import "@preview/solveng:2.0.0": *`;
+const IMPORT = `#import "@preview/solveng:3.0.0": *`;
 
 export const pages: Page[] = [
   {
