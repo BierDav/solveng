@@ -3,7 +3,7 @@
 ///
 /// Problems (a missing value, units that don't match, a real calculation that would need complex numbers, a typo) are shown as a red note where they happen; the rest of the document still compiles:
 ///
-/// > ⚠ solveng: 'U' in 'P := U I' isn't defined – define it first with :=, or solve for it: … -> solve(U)
+/// > ⚠ solveng: 'U' in 'P := U I' isn't defined – define it first with :=, or keep a solution: U := … -> solve(U)
 ///
 /// `#show: math.with(errors: "panic")` stops the compilation instead (useful in CI). Unknown named arguments of `mathscope`, `defined` and `graph` are reported the same way; those of `compile` stop the compilation.
 ///

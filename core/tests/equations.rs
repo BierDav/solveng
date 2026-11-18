@@ -133,3 +133,28 @@ fn a_statement_with_an_undefined_function_is_prose() {
     // evaluating still asks for it
     assert!(fails(&mut env, "y_1(1) =>").contains("isn't defined"));
 }
+
+/// `-> solve(x)` shows solutions and defines nothing (issue #2); the error for the undefined name points to the
+/// definition that keeps them, and following it defines the name.
+#[test]
+fn the_undefined_name_hint_shows_how_to_keep_solutions() {
+    let mut env = Env::default();
+    run(&mut env, "x^2 = 4 -> solve(x)");
+    let e = fails(&mut env, "y := x + 1 =>");
+    assert!(e.contains("x := … -> solve(x)"), "{e}");
+    run(&mut env, "x := x^2 = 4 -> solve(x)");
+    assert_eq!(result(&mut env, "y := x + 1 =>"), "vec(\"−1\", \"3\")");
+    // one solution: a value
+    run(&mut env, "d := 6");
+    run(&mut env, "d = 3 q -> solve(q)");
+    let e = fails(&mut env, "w := 2 q =>");
+    assert!(e.contains("q := … -> solve(q)"), "{e}");
+    run(&mut env, "q := d = 3 q -> solve(q)");
+    assert_eq!(result(&mut env, "w := 2 q =>"), "\"4\"");
+    // several names: each its own definition
+    let e = fails(&mut env, "a + b =>");
+    assert!(e.contains("a := … -> solve(a)") && e.contains("b := … -> solve(b)"), "{e}");
+    // a name in its own definition
+    let e = fails(&mut env, "z := z^2 + 1");
+    assert!(e.contains("z := … -> solve(z)"), "{e}");
+}

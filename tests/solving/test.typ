@@ -35,14 +35,17 @@
 // solving: isolating, polynomials, systems, inequalities, numerically
 #mathscope[
   $Q_0 := 3450 mAh$ $I := 30 mA$
-  $Q_0/2 = I t -> solve(t)$ #expect("t", 207000, u: "h")
-  $x^2 + 2x - 3 = 0 -> solve(x)$ #expect("x", 1)
-  $a + b = 3, a - b = 1 -> solve(a, b)$ #expect("a", 2) #expect("b", 1)
-  $cos(w) = w -> solve(w)$ #expect("w", 0.7390851332151607)
+  // -> solve shows the solutions and defines nothing; a definition keeps them
+  $Q_0/2 = I t -> solve(t)$ #passes() #undefined("t")
+  $t := Q_0/2 = I t -> solve(t)$ #expect("t", 207000)
+  $x^2 + 2x - 3 = 0 -> solve(x)$ #passes() #undefined("x")
+  $a + b = 3, a - b = 1 -> solve(a, b)$ #passes() #undefined("a") #undefined("b")
+  $cos(w) = w -> solve(w)$ #passes() #undefined("w")
   $U := 5 #V$
-  $R <= U/I -> solve(R)$ #expect("R", 5 / 0.03)
+  $R <= U/I -> solve(R)$ #passes() #undefined("R")
   $x_3^3 - 6x_3^2 + 11x_3 - 6 = 0 -> solve(x_3)$ #passes()
-  $#e^v = 2 -> solve(v)$ #expect("v", calc.ln(2))
+  $#e^v = 2 -> solve(v)$ #passes() #undefined("v")
+  $v := #e^v = 2 -> solve(v)$ #expect("v", calc.ln(2))
   $p^2 = -1 -> solve(p)$ #result("p_(1) = -i, quad p_(2) = i") // complex solutions
   $Q_0/2 = I t_2$ // prose: t_2 isn't defined
   $s := 2 -> solve(s)$ #fails("solve(…) solves an equation")
@@ -100,7 +103,7 @@ $t := "Q0"/I = #units.h, digits(3)$
 $"Q0"/I =>$
 $x^2 = 9 -> solve(x)$
 $a + b = 3, a - b = 1 -> solve(a, b)$
-  #expect("t", 414000, u: "h") #expect("x", 3) #expect("a", 2) #expect("b", 1)
+  #expect("t", 414000, u: "h") #undefined("x") #undefined("a") #undefined("b")
 ]
 
 // code in a worksheet is text: solveng code blocks, inline and untagged code are never calculated
@@ -254,7 +257,7 @@ v_c := 4 m / t_c
 #[
   #import modifiers: solve as löse, digits as stellen
   #mathscope[
-    $2 w = 6 -> löse(w)$ #expect("w", 3)
+    $w := 2 w = 6 -> löse(w)$ #expect("w", 3)
     $w = stellen(2)$
   ]
 ]
