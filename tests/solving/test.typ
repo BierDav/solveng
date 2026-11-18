@@ -37,7 +37,7 @@
   $Q_0 := 3450 mAh$ $I := 30 mA$
   // -> solve shows the solutions and defines nothing; a definition keeps them
   $Q_0/2 = I t -> solve(t)$ #passes() #undefined("t")
-  $t := Q_0/2 = I t -> solve(t)$ #expect("t", 207000)
+  $t := Q_0/2 = I t -> solve(t)$ #expect("t", 207000, u: "h")
   $x^2 + 2x - 3 = 0 -> solve(x)$ #passes() #undefined("x")
   $a + b = 3, a - b = 1 -> solve(a, b)$ #passes() #undefined("a") #undefined("b")
   $cos(w) = w -> solve(w)$ #passes() #undefined("w")

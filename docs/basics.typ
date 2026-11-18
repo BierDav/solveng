@@ -5,7 +5,7 @@
 #show: math
 $Q_0 := 3450 mAh$, $I := 30 mA$, $U := 5 #V$
 
-$Q_0/2 = I t -> solve(t)$ and $t => #h$
+$t := Q_0/2 = I t -> solve(t)$ and $t => #h$
 
 $R <= U/I -> solve(R)$
 
