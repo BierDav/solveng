@@ -369,6 +369,7 @@ Returns function.
 ## `solve`
 
 Returns solutions for these names without changing definitions: `$x^2 - 4 = 0 -> solve(x)$`.
+A definition keeps them: `$x := x^2 - 4 = 0 -> solve(x)$` is the vector of both, `at(x, 1)` the second.
 
 | parameter | type | default | |
 |---|---|---|---|
@@ -503,7 +504,7 @@ Math holds the curves, separated by a backslash: `$cos(w) \ w$`, or a function s
 `$P(U: #V) = U^2/R$`. A parameter annotation supplies the axis unit; `..` takes the one undefined variable.
 With `:=`, curves also define their names for later calculations. Curves share the same x axis.
 When no name varies but the curves write one name with a value, they are plotted against it: after
-`$S_1(f) = 1/2 -> solve(f)$` defines f, `#graph($S_1(f)$)` is still over f, in the unit of f's value.
+`$f := 2 #kHz$`, `#graph($S_1(f)$)` is still over f, in the unit of f's value.
 
 ```typ
 #import units: Ω, W, V
@@ -1491,7 +1492,7 @@ Three operators, and `=` keeps its meaning from maths:
 - **`:=` defines**, symbolically. Names defined by then are put in right away, names that aren't stay names until they are: `$h := 5 z$` works before `z` is defined, and after `$z := 20 cm$`, `$h =>$` shows 1 m. What's put in is the value at that point – defining a name again later changes what comes after, not what came before.
 - **`=` inside an expression compares**, as Mathcad's bold =: `$M := 1 = 2 =>$` gives 0, `$M := 2 #A = 2000 mA$` gives 1. Values of different units are never equal (`1 A = 2 V` is 0, `1 A != 2 V` is 1); `<`, `<=`, `>`, `>=` and `!=` compare too, chains like `$0 < x <= 1$` hold when every step does. `and` and `or` (Typst shows ∧ and ∨) join them, `and` binding tighter: `$x < 0 or x > 2$`, also as a condition in `cases`.
 - **A trailing `=` shows the value**, numerically, with a bold =. After it come a unit and modifiers (from `modifiers`): `$t => #h, digits(3)$`. Every name in it must have a value by then.
-- **A trailing `->` shows the symbolic result**: defined values put in, exactly (fraction-style, roots and π stay), undefined names kept: `$x + 3/3 y -> simplify$` is x + y. An equation shows where it holds: `$a^2 p = a p ->$` is a = 0 ∨ a = 1 ∨ p = 0 (one side zero, in factors, each factor zero); `steps` shows the way there, a line each. `expand` multiplies out, `factor` splits into factors: `$x^3 - x -> factor$` is x (x − 1)(x + 1). With `solve(x)` it solves – symbolically when it can (`$0 = 1 + 3/x + y^2 -> solve(x)$` is x = −3/(y² + 1)), numerically when every other name has a value – and defines x when the solution is a value. `substitute(U, …)` shows the result with these variables' formulas put in and every other name kept: after `$U := R I$`, `$P := U^2/R -> substitute(U)$` is I² R.
+- **A trailing `->` shows the symbolic result**: defined values put in, exactly (fraction-style, roots and π stay), undefined names kept: `$x + 3/3 y -> simplify$` is x + y. An equation shows where it holds: `$a^2 p = a p ->$` is a = 0 ∨ a = 1 ∨ p = 0 (one side zero, in factors, each factor zero); `steps` shows the way there, a line each. `expand` multiplies out, `factor` splits into factors: `$x^3 - x -> factor$` is x (x − 1)(x + 1). With `solve(x)` it solves – symbolically when it can (`$0 = 1 + 3/x + y^2 -> solve(x)$` is x = −3/(y² + 1)), numerically when every other name has a value. It shows the solutions and defines nothing; `$x := x^2 = 4 -> solve(x)$` keeps them (a value, or a vector of every solution), when x can be isolated symbolically. `substitute(U, …)` shows the result with these variables' formulas put in and every other name kept: after `$U := R I$`, `$P := U^2/R -> substitute(U)$` is I² R.
 - **Any other `=`** states something: it's checked when everything in it has a value (`$U = R I$`), and left alone as prose when not (`$E = m c^2$`).
 
 **Exact identities:** equations also try a bounded proof in a common exponential form: `$sin(x)^2 + cos(x)^2 = 1 ->$`, Euler's formula, angle addition and supported combinations of exponentials, hyperbolic functions and sinc. Affine piecewise guards and the continuation at zero are checked separately. A quotient such as sin(x)/x becomes sinc(x) only with a matching continuation at zero; an unguarded quotient retains its excluded point. Unsupported identities stay symbolic. Numerical samples never establish a symbolic identity.
@@ -1644,7 +1645,7 @@ single-boundary inequalities keep the existing scalar boundary behavior.
 
 Problems (a missing value, units that don't match, a real calculation that would need complex numbers, a typo) are shown as a red note where they happen; the rest of the document still compiles:
 
-> ⚠ solveng: 'U' in 'P := U I' isn't defined – define it first with :=, or solve for it: … -> solve(U)
+> ⚠ solveng: 'U' in 'P := U I' isn't defined – define it first with :=, or keep a solution: U := … -> solve(U)
 
 `#show: math.with(errors: "panic")` stops the compilation instead (useful in CI). Unknown named arguments of `mathscope`, `defined` and `graph` are reported the same way; those of `compile` stop the compilation.
 

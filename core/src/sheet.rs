@@ -293,7 +293,7 @@ impl<'a> Sheet<'a> {
     fn define_var(&mut self, n: &str, rhs: &Ast, trail: Option<Trail>, clause: &Clause, cfg: &Cfg) -> Result<(), String> {
         let e = if let Some(xs) = &clause.solve { self.solve_body(rhs, &[], xs)? } else { self.lower(rhs, &[], true)? };
         if e.has(n) || e.contains(&|e| matches!(e, Expr::Call(name, _) if name == n)) {
-            return Err(format!("'{n}' is used in its own definition but isn't defined yet – define it first, or solve for it: … -> solve({n})"));
+            return Err(format!("'{n}' is used in its own definition but isn't defined yet – define it first, or solve for it: {n} := … -> solve({n})"));
         }
         // what substitute shows, from the definitions before this one
         let shown = if clause.substitute.is_empty() { None } else { Some(self.substituted(rhs, &[], &clause.substitute)?) };
@@ -515,13 +515,13 @@ impl<'a> Sheet<'a> {
         match e {
             NoValue::Unknown(ns) => {
                 let one = ns.len() == 1;
+                // solve shows solutions and defines nothing: a definition keeps them
                 format!(
-                    "{} in '{what}' {} defined – define {} first with :=, or solve for {}: … -> solve({})",
+                    "{} in '{what}' {} defined – define {} first with :=, or keep a solution: {}",
                     ns.iter().map(|n| format!("'{n}'")).collect::<Vec<_>>().join(", "),
                     if one { "isn't" } else { "aren't" },
                     if one { "it" } else { "them" },
-                    if one { "it" } else { "them" },
-                    ns.join(", ")
+                    ns.iter().map(|n| format!("{n} := … -> solve({n})")).collect::<Vec<_>>().join(", ")
                 )
             }
             NoValue::Error(m) => m,

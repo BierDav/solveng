@@ -55,7 +55,7 @@
 /// `$P(U: #V) = U^2/R$`. A parameter annotation supplies the axis unit; `..` takes the one undefined variable.
 /// With `:=`, curves also define their names for later calculations. Curves share the same x axis.
 /// When no name varies but the curves write one name with a value, they are plotted against it: after
-/// `$S_1(f) = 1/2 -> solve(f)$` defines f, `#graph($S_1(f)$)` is still over f, in the unit of f's value.
+/// `$f := 2 #kHz$`, `#graph($S_1(f)$)` is still over f, in the unit of f's value.
 ///
 /// ```typ
 /// #import units: Ω, W, V

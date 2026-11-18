@@ -33,7 +33,7 @@ $x := 10$
 #mathscope(scope: "shared")[#math(hidden: true)[
   $U := 12 #units.V$
   $R := 100 #units.Ω$
-  $U = I R -> solve(I)$
+  $I := U = I R -> solve(I)$
   $f(t) := t^2+1$
   $"coded" := 8$
   #graph($g(t) := t+2$, x-range: (0, 1))

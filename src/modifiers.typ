@@ -39,6 +39,7 @@
 }
 
 /// Returns solutions for these names without changing definitions: `$x^2 - 4 = 0 -> solve(x)$`.
+/// A definition keeps them: `$x := x^2 - 4 = 0 -> solve(x)$` is the vector of both, `at(x, 1)` the second.
 ///
 /// - ..names (content): What to solve for.
 /// -> content
@@ -59,6 +60,9 @@
 /// Without assumptions, equations may show `true for a in RR and b in RR`: a
 /// sufficient condition, not an exhaustive description of all solutions. This
 /// automatic check considers up to sixteen names in expressions of size at most 512.
+/// Expressions with `abs`, `Re`, `Im` or `conj` likewise show the general result and, where it is simpler, the result
+/// for real names, with the fewest names it needs: `$abs(1 + #e^(#i x))^2 ->$` is
+/// |1 + e^(ix)|² = 2 cos(x) + 2 for x ∈ ℝ. With `assume`, only the real result shows.
 ///
 /// ```typ
 /// #import "@preview/solveng:2.0.0": *

@@ -1,5 +1,5 @@
 #import "/lib.typ": *
-#import "/tests/util.typ": expect, passes
+#import "/tests/util.typ": expect, passes, undefined
 #import operations: rect, tri, sgn, diff
 #import modifiers: solve
 #set page(width: 18cm, height: auto)
@@ -14,7 +14,7 @@ $"origin" := sgn(0) =>$
 $rect(t) + 2 rect(t) ->$
 #passes()
 #math($a*rect(0) + b*tri(0) = 5; a*rect(1) + b*tri(0.5) = 1 -> solve(a,b)$)
-#passes() #expect("a", 3) #expect("b", 2)
+#passes() #undefined("a") #undefined("b")
 $"area" := integral_(-2)^2 rect(t) dif t =>$
 #passes() #expect("area", 1)
 #graph($rect(t) \ tri(t) \ sgn(t)$, x-range: (-2, 2), mark: ())
