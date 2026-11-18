@@ -1,6 +1,6 @@
 # Builds the documentation site (site/) and publishes it on GitHub Pages: https://bierdav.github.io/solveng/
 # The site runs src/solveng.wasm in the browser, so a new engine build republishes it too. A release
-# rebuilds the engine and pushes with GITHUB_TOKEN, which starts no push workflows, so it is a trigger of its own.
+# pushes with GITHUB_TOKEN, which starts no push workflows, so release.yml starts this one itself.
 name: Pages
 
 on:
@@ -12,10 +12,6 @@ on:
       - "src/unit-words.typ"
       - "src/constants.typ"
       - ".github/workflows/pages.yml"
-  workflow_run:
-    workflows: [Release]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -29,7 +25,6 @@ concurrency:
 
 jobs:
   build:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     defaults:
       run:

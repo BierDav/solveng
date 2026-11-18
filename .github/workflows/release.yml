@@ -4,7 +4,7 @@
 # X.Y.Z comes from the Conventional Commits since the last stable release (see scripts/release.py).
 #
 # The Universe pull request needs:
-#   secret UNIVERSE_TOKEN   a classic personal access token with the public_repo scope
+#   secret UNIVERSE_TOKEN   a classic personal access token with the public_repo scope (and workflow, to sync the fork)
 #   variable UNIVERSE_FORK  optional, your fork of typst/packages (default: <owner>/packages)
 name: Release
 
@@ -23,6 +23,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: release
@@ -92,6 +93,12 @@ jobs:
           if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
           gh release create "$TAG" "solveng-$VERSION.zip" --title "$TAG" --notes-file notes.md "${flags[@]}"
 
+      # the release commit is pushed with GITHUB_TOKEN, which starts no push workflows
+      - name: Republish the documentation site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --ref main
+
   universe:
     needs: release
     if: inputs.channel == 'stable'
@@ -121,7 +128,10 @@ jobs:
 
       - name: Push to the fork
         run: |
-          gh repo sync "$FORK" --source typst/packages --branch main
+          # syncing needs the token's workflow scope once typst/packages changes its workflows; the
+          # pull request only adds a directory, so a fork behind typst/packages works as well
+          gh repo sync "$FORK" --source typst/packages --branch main ||
+            echo "::warning::Could not sync $FORK with typst/packages; the pull request starts from the fork as it is. Give UNIVERSE_TOKEN the workflow scope to sync it."
           git clone --depth 1 --filter=blob:none --sparse \
             "https://x-access-token:$GH_TOKEN@github.com/$FORK.git" "$RUNNER_TEMP/packages"
           cd "$RUNNER_TEMP/packages"
