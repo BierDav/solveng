@@ -23,7 +23,7 @@ function readmeExamples(): Doc[] {
     for (const m of text.matchAll(/^(`{3,})typ\n([\s\S]*?)^\1$/gm)) {
       let code = m[2];
       if (/#import "(?!@preview\/solveng)/.test(code)) continue;
-      if (!code.includes('"@preview/solveng:2.0.0"')) code = IMPORT + "\n" + code;
+      if (!code.includes('"@preview/solveng:')) code = IMPORT + "\n" + code;
       out.push({ where: `${path}:${text.slice(0, m.index).split("\n").length}`, code });
     }
   }
@@ -49,7 +49,7 @@ const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 type Want = { defined: string[]; errors: string[]; fatal: string | null };
 
 function typst(code: string, dir: string): Promise<Want> {
-  const doc = code.replace(/"@preview\/solveng:2\.0\.0"/g, `"${ROOT}lib.typ"`);
+  const doc = code.replace(/"@preview\/solveng:[\d.]+"/g, `"${ROOT}lib.typ"`);
   const file = join(dir, "doc.typ");
   writeFileSync(file, "#set page(height: auto)\n" + doc);
   return new Promise(resolve => {
