@@ -56,7 +56,7 @@ export const pages: Page[] = [
         table: {
           head: ["option", "type", "default", "meaning"],
           rows: [
-            ["`show-approximation`", "auto, bool", "`true`", "Documented to write `≈` for rounded results. In 2.0.0 the result marker stays ⇒ either way."],
+            ["`show-approximation`", "auto, bool", "`true`", "Documented to write `≈` for rounded results. For now the result marker stays ⇒ either way."],
             ["`block`", "auto, bool", "`true`", "Display equations centred (`true`) or inline."],
             ["`max-solutions`", "auto, int", "`6`", "How many solutions are listed; all are found."],
             ["`defined-style`", "auto, str", "`\"grid\"`", "How `defined` looks: `\"grid\"` (columns aligned at =), `\"column\"`, `\"inline\"` or `\"list\"`."],

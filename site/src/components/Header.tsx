@@ -42,7 +42,7 @@ export default function Header(props: { overHero?: boolean; onMenu?: () => void 
             <svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
           </button>
         </Show>
-        <Link to="/" class="brand"><Logo /> solveng <span class="ver">2.0</span></Link>
+        <Link to="/" class="brand"><Logo /> solveng <span class="ver">{__SOLVENG_VERSION__}</span></Link>
         <nav class="nav">
           <Link to="/docs/introduction" class={{ active: isDocs() && !path().startsWith("/docs/operations") && !path().startsWith("/docs/functions") }}>Docs</Link>
           <Link to="/docs/functions/math" class={{ active: path().startsWith("/docs/functions") || path().startsWith("/docs/modifiers") }}>API</Link>

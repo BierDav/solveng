@@ -250,7 +250,7 @@ $E := 3.6 dot 10^9 #J =>$`,
         },
       },
       { h2: "The approximation sign" },
-      { md: "`show-approximation` (default `true`) is documented to write `≈` when a shown result is rounded. In solveng 2.0.0 the result marker stays ⇒ either way; the option is accepted and checked, so documents using it keep compiling." },
+      { md: "`show-approximation` (default `true`) is documented to write `≈` when a shown result is rounded. For now the result marker stays ⇒ either way; the option is accepted and checked, so documents using it keep compiling." },
       {
         quiz: {
           question: "With `#show: math.with(digits: 2)`, what happens to `$x := 2/3$` and then `$3 x =>$`?",
